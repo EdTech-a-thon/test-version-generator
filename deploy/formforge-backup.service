@@ -1,0 +1,8 @@
+[Unit]
+Description=Backup FormForge SQLite database and media
+
+[Service]
+Type=oneshot
+User=formforge
+EnvironmentFile=/etc/formforge/env
+ExecStart=/bin/sh -c 'sqlite3 "$DATABASE_FILE" ".backup '\''/var/backups/formforge/app-$(date +%%F).db'\''" && tar -czf "/var/backups/formforge/media-$(date +%%F).tgz" "$MEDIA_ROOT"'

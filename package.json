@@ -1,0 +1,46 @@
+{
+  "name": "formforge",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --hostname 0.0.0.0 --port 8000",
+    "build": "prisma generate && next build",
+    "start": "next start --hostname 0.0.0.0 --port 8000",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "db:push": "prisma db push",
+    "db:seed": "tsx prisma/seed.ts"
+  },
+  "dependencies": {
+    "@auth/prisma-adapter": "^2.10.0",
+    "@prisma/client": "^6.12.0",
+    "bcryptjs": "^3.0.2",
+    "katex": "^0.16.22",
+    "mathjs": "^14.6.0",
+    "next": "^15.4.2",
+    "next-auth": "5.0.0-beta.29",
+    "playwright": "^1.54.1",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "xlsx": "^0.18.5",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "^3.3.1",
+    "@playwright/test": "^1.54.1",
+    "@types/bcryptjs": "^2.4.6",
+    "@types/katex": "^0.16.7",
+    "@types/node": "^22.15.0",
+    "@types/react": "^19.1.8",
+    "@types/react-dom": "^19.1.6",
+    "eslint": "^9.31.0",
+    "eslint-config-next": "^15.4.2",
+    "prisma": "^6.12.0",
+    "tsx": "^4.20.3",
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.4"
+  },
+  "packageManager": "pnpm@10.13.1"
+}

@@ -1,0 +1,445 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id               String            @id @default(cuid())
+  name             String?
+  email            String            @unique
+  emailVerified    DateTime?
+  image            String?
+  passwordHash     String?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  accounts         Account[]
+  sessions         Session[]
+  memberships      Membership[]
+  createdQuestions Question[]        @relation("QuestionCreator")
+  questionVersions QuestionVersion[] @relation("QuestionVersionCreator")
+  createdTests     Test[]            @relation("TestCreator")
+  ingestJobs       IngestJob[]       @relation("IngestJobCreator")
+}
+
+model Account {
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([provider, providerAccountId])
+  @@index([userId])
+}
+
+model Session {
+  sessionToken String   @id
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model VerificationToken {
+  identifier String
+  token      String
+  expires    DateTime
+
+  @@id([identifier, token])
+}
+
+model Org {
+  id               String            @id @default(cuid())
+  name             String
+  slug             String            @unique
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  memberships      Membership[]
+  banks            Bank[]
+  bankQuestions    BankQuestion[]
+  questions        Question[]
+  questionTags     QuestionTag[]
+  variables        Variable[]
+  distractors      Distractor[]
+  constraints      Constraint[]
+  questionVersions QuestionVersion[]
+  usageStamps      UsageStamp[]
+  tests            Test[]
+  forms            Form[]
+  formItems        FormItem[]
+  blueprints       Blueprint[]
+  media            Media[]
+  ingestJobs       IngestJob[]
+  ingestCandidates IngestCandidate[]
+}
+
+model Membership {
+  id        String   @id @default(cuid())
+  orgId     String
+  userId    String
+  role      String   @default("EDITOR")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  org       Org      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, userId])
+  @@index([orgId])
+  @@index([userId])
+}
+
+model Bank {
+  id          String        @id @default(cuid())
+  orgId       String
+  name        String
+  description String?
+  status      String        @default("ACTIVE")
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  org         Org           @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  questions   BankQuestion[]
+
+  @@unique([orgId, name])
+  @@index([orgId])
+  @@index([orgId, status])
+}
+
+model BankQuestion {
+  id         String   @id @default(cuid())
+  orgId      String
+  bankId     String
+  questionId String
+  createdAt  DateTime @default(now())
+  org        Org      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  bank       Bank     @relation(fields: [bankId], references: [id], onDelete: Cascade)
+  question   Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@unique([bankId, questionId])
+  @@index([orgId])
+  @@index([orgId, bankId])
+  @@index([orgId, questionId])
+}
+
+model Question {
+  id               String            @id @default(cuid())
+  orgId            String
+  createdById      String
+  parentId         String?
+  variantOfId      String?
+  currentVersionId String?           @unique
+  status           String            @default("DRAFT")
+  type             String
+  difficulty       Int
+  stem             String
+  content          Json?
+  rubric           Json?
+  solution         Json?
+  correctAnswer    Json?
+  pinLastOptions   Int               @default(0)
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  org              Org               @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  createdBy        User              @relation("QuestionCreator", fields: [createdById], references: [id])
+  parent           Question?         @relation("QuestionParent", fields: [parentId], references: [id], onDelete: SetNull)
+  children         Question[]        @relation("QuestionParent")
+  variantOf        Question?         @relation("QuestionVariant", fields: [variantOfId], references: [id], onDelete: SetNull)
+  variants         Question[]        @relation("QuestionVariant")
+  currentVersion   QuestionVersion?  @relation("CurrentQuestionVersion", fields: [currentVersionId], references: [id], onDelete: SetNull)
+  versions         QuestionVersion[] @relation("QuestionVersions")
+  banks            BankQuestion[]
+  tags             QuestionTag[]
+  variables        Variable[]
+  distractors      Distractor[]
+  constraints      Constraint[]
+  usageStamps      UsageStamp[]
+  formItems        FormItem[]
+  ingestCandidates IngestCandidate[]
+
+  @@index([orgId])
+  @@index([orgId, status])
+  @@index([orgId, difficulty])
+  @@index([orgId, parentId])
+  @@index([orgId, variantOfId])
+  @@index([createdById])
+}
+
+model QuestionTag {
+  id         String   @id @default(cuid())
+  orgId      String
+  questionId String
+  name       String
+  createdAt  DateTime @default(now())
+  org        Org      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  question   Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@unique([questionId, name])
+  @@index([orgId])
+  @@index([orgId, name])
+  @@index([orgId, questionId])
+}
+
+model Variable {
+  id         String       @id @default(cuid())
+  orgId      String
+  questionId String
+  name       String
+  type       String
+  minimum    Float?
+  maximum    Float?
+  step       Float?
+  precision  Int?
+  choices    Json?
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+  org        Org          @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  question   Question     @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@unique([questionId, name])
+  @@index([orgId])
+  @@index([orgId, questionId])
+}
+
+model Distractor {
+  id         String   @id @default(cuid())
+  orgId      String
+  questionId String
+  position   Int
+  content    Json
+  formula    String?
+  feedback   Json?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  org        Org      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  question   Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@unique([questionId, position])
+  @@index([orgId])
+  @@index([orgId, questionId])
+}
+
+model Constraint {
+  id           String   @id @default(cuid())
+  orgId        String
+  questionId   String
+  expression   String
+  errorMessage String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  org          Org      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  question     Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@index([orgId, questionId])
+}
+
+model QuestionVersion {
+  id                    String            @id @default(cuid())
+  orgId                 String
+  questionId            String
+  createdById           String
+  version               Int
+  snapshot              Json
+  diff                  Json?
+  restoredFromVersionId String?
+  restoreReason         String?
+  createdAt             DateTime          @default(now())
+  org                   Org               @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  question              Question          @relation("QuestionVersions", fields: [questionId], references: [id], onDelete: Cascade)
+  currentFor            Question?         @relation("CurrentQuestionVersion")
+  createdBy             User              @relation("QuestionVersionCreator", fields: [createdById], references: [id])
+  restoredFrom          QuestionVersion?  @relation("VersionRestore", fields: [restoredFromVersionId], references: [id], onDelete: SetNull)
+  restoredAs            QuestionVersion[] @relation("VersionRestore")
+  formItems             FormItem[]
+
+  @@unique([questionId, version])
+  @@index([orgId])
+  @@index([orgId, questionId])
+  @@index([orgId, restoredFromVersionId])
+  @@index([createdById])
+}
+
+model UsageStamp {
+  id             String   @id @default(cuid())
+  orgId          String
+  questionId     String
+  formId         String
+  year           Int
+  month          Int
+  assessmentType String
+  note           String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  org            Org      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  question       Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  form           Form     @relation(fields: [formId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@index([orgId, questionId])
+  @@index([orgId, formId])
+  @@index([orgId, year, month])
+}
+
+model Test {
+  id              String        @id @default(cuid())
+  orgId           String
+  createdById     String
+  title           String
+  description     String?
+  status          String        @default("DRAFT")
+  assemblyMode    String        @default("SOFT")
+  scrambleChoices Boolean       @default(true)
+  formCount       Int           @default(1)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  org             Org           @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  createdBy       User          @relation("TestCreator", fields: [createdById], references: [id])
+  forms           Form[]
+  blueprints      Blueprint[]
+
+  @@index([orgId])
+  @@index([orgId, status])
+  @@index([createdById])
+}
+
+model Form {
+  id              String       @id @default(cuid())
+  orgId           String
+  testId          String
+  code            String
+  seed            String?
+  scrambleChoices Boolean      @default(true)
+  lockedAt        DateTime?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  org             Org          @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  test            Test         @relation(fields: [testId], references: [id], onDelete: Cascade)
+  items           FormItem[]
+  usageStamps     UsageStamp[]
+
+  @@unique([testId, code])
+  @@index([orgId])
+  @@index([orgId, testId])
+}
+
+model FormItem {
+  id                String          @id @default(cuid())
+  orgId             String
+  formId            String
+  questionId        String
+  questionVersionId String
+  position          Int
+  locked            Boolean         @default(false)
+  points            Float           @default(1)
+  generatedParams   Json?
+  choiceOrder       Json?
+  correctLetters    Json
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  org               Org             @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  form              Form            @relation(fields: [formId], references: [id], onDelete: Cascade)
+  question          Question        @relation(fields: [questionId], references: [id])
+  questionVersion   QuestionVersion @relation(fields: [questionVersionId], references: [id])
+
+  @@unique([formId, position])
+  @@index([orgId])
+  @@index([orgId, formId])
+  @@index([orgId, questionId])
+  @@index([orgId, questionVersionId])
+}
+
+model Blueprint {
+  id        String   @id @default(cuid())
+  orgId     String
+  testId    String
+  name      String
+  rules     Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  org       Org      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  test      Test     @relation(fields: [testId], references: [id], onDelete: Cascade)
+
+  @@unique([testId, name])
+  @@index([orgId])
+  @@index([orgId, testId])
+}
+
+model Media {
+  id          String      @id @default(cuid())
+  orgId       String
+  storageKey  String
+  fileName    String
+  contentType String
+  sizeBytes   Int
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  org         Org         @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  ingestJobs  IngestJob[]
+
+  @@unique([orgId, storageKey])
+  @@index([orgId])
+  @@index([orgId, createdAt])
+}
+
+model IngestJob {
+  id                 String            @id @default(cuid())
+  orgId              String
+  mediaId            String?
+  createdById        String
+  provider           String
+  status             String            @default("DRAFT")
+  sourcePreview      Json?
+  estimatedCostCents Int?
+  errorMessage       String?
+  startedAt          DateTime?
+  completedAt        DateTime?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  org                Org               @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  media              Media?            @relation(fields: [mediaId], references: [id], onDelete: SetNull)
+  createdBy          User              @relation("IngestJobCreator", fields: [createdById], references: [id])
+  candidates         IngestCandidate[]
+
+  @@index([orgId])
+  @@index([orgId, status])
+  @@index([orgId, mediaId])
+  @@index([createdById])
+}
+
+model IngestCandidate {
+  id                 String          @id @default(cuid())
+  orgId              String
+  ingestJobId        String
+  promotedQuestionId String?
+  status             String          @default("DRAFT")
+  type               String
+  stem               String
+  content            Json?
+  proposedData       Json
+  confidence         Json
+  confidenceScore    Float?
+  sourcePreview      Json?
+  sourcePage         Int?
+  reviewerNotes      String?
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+  org                Org             @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  ingestJob          IngestJob       @relation(fields: [ingestJobId], references: [id], onDelete: Cascade)
+  promotedQuestion   Question?       @relation(fields: [promotedQuestionId], references: [id], onDelete: SetNull)
+
+  @@index([orgId])
+  @@index([orgId, ingestJobId])
+  @@index([orgId, status])
+  @@index([orgId, promotedQuestionId])
+}

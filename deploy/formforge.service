@@ -1,0 +1,18 @@
+[Unit]
+Description=FormForge assessment authoring service
+After=network.target
+
+[Service]
+Type=simple
+User=formforge
+Group=formforge
+WorkingDirectory=/opt/formforge/current
+EnvironmentFile=/etc/formforge/env
+ExecStart=/usr/bin/node /opt/formforge/current/server.js
+Restart=always
+RestartSec=5
+MemoryMax=2G
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
