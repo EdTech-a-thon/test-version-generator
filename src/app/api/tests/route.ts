@@ -28,6 +28,7 @@ export async function POST(request: Request) {
         orgId: tenant.orgId,
         status: "ACTIVE",
         ...(input.tag ? { tags: { some: { name: input.tag.toLowerCase() } } } : {}),
+        ...(input.strictDifficulty && input.targetDifficulty ? { difficulty: input.targetDifficulty } : {}),
       },
       include: { currentVersion: true },
     });

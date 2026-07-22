@@ -8,7 +8,8 @@ import type {
 } from "../contracts";
 import { createExpressionEvaluator } from "./expression";
 
-const BATCH_TIMEOUT_MS = 5_000;
+// Leave time for callers to return a partial result before their own timeout.
+const BATCH_TIMEOUT_MS = 4_000;
 
 export type GenerateVariantsResult = {
   variants: GeneratedVariant[];

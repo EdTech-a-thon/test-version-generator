@@ -1,5 +1,5 @@
 [Unit]
-Description=FormForge assessment authoring service
+Description=Test Generator assessment authoring service
 After=network.target
 
 [Service]

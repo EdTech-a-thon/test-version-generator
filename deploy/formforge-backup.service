@@ -1,5 +1,5 @@
 [Unit]
-Description=Backup FormForge SQLite database and media
+Description=Backup Test Generator SQLite database and media
 
 [Service]
 Type=oneshot

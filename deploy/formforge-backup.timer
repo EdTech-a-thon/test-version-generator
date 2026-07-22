@@ -1,5 +1,5 @@
 [Unit]
-Description=Nightly FormForge backup
+Description=Nightly Test Generator backup
 
 [Timer]
 OnCalendar=*-*-* 02:15:00

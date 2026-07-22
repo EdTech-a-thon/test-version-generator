@@ -9,11 +9,17 @@ export function VariantPreview({ definition }: { definition: ParametricDefinitio
   const [loading, setLoading] = useState(false);
   const generate = async () => {
     setLoading(true);
-    const response = await fetch("/api/parametric/preview", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ definition, count: 4 }) });
-    const result = await response.json();
-    setVariants(result.variants ?? []);
-    setWarning(result.warnings?.join(" ") ?? result.error ?? "");
-    setLoading(false);
+    try {
+      const response = await fetch("/api/parametric/preview", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ definition, count: 4 }) });
+      const result = await response.json();
+      setVariants(result.variants ?? []);
+      setWarning(result.warnings?.join(" ") ?? result.error ?? "");
+    } catch {
+      setVariants([]);
+      setWarning("The preview could not be generated. Please try again.");
+    } finally {
+      setLoading(false);
+    }
   };
   const definitionKey = JSON.stringify(definition);
   useEffect(() => {
@@ -21,7 +27,8 @@ export function VariantPreview({ definition }: { definition: ParametricDefinitio
     const timer = window.setTimeout(() => {
       void fetch("/api/parametric/preview", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ definition, count: 4 }) })
         .then((response) => response.json())
-        .then((result) => { if (current) { setVariants(result.variants ?? []); setWarning(result.warnings?.join(" ") ?? result.error ?? ""); } });
+        .then((result) => { if (current) { setVariants(result.variants ?? []); setWarning(result.warnings?.join(" ") ?? result.error ?? ""); } })
+        .catch(() => { if (current) { setVariants([]); setWarning("The preview could not be generated. Please try again."); } });
     }, 350);
     return () => { current = false; window.clearTimeout(timer); };
   }, [definitionKey]);

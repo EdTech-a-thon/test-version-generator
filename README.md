@@ -1,6 +1,6 @@
-# FormForge
+# Test Generator
 
-FormForge is a multi-tenant assessment authoring prototype for teachers who print paper tests. It supports reusable banks, parametric math/science questions, review-first legacy-material ingestion, scrambled forms, and scan-oriented PDFs.
+Test Generator is a multi-tenant assessment authoring prototype for teachers who print paper tests. It supports reusable banks, parametric math/science questions, review-first legacy-material ingestion, scrambled forms, and scan-oriented PDFs.
 
 ## Run locally
 

@@ -23,10 +23,13 @@ export async function POST(request: Request) {
       const matchingColumn = (terms: string[]) => columns.find((header) => terms.some((term) => header.toLowerCase().includes(term)));
       const stemColumn = matchingColumn(["stem", "question", "prompt"]) ?? columns[0];
       const answerColumn = matchingColumn(["correct", "answer", "key"]);
+      const optionColumns = ["a", "b", "c", "d", "e"].map((letter) => matchingColumn([`option ${letter}`, `choice ${letter}`, `answer ${letter}`, `${letter})`, `${letter}.`])).filter((column): column is string => Boolean(column));
       const candidates = rows.map((row, index) => {
         const stem = String(row[stemColumn] ?? "").trim();
         const correct = String(answerColumn ? row[answerColumn] ?? "" : "").trim();
-        return stem ? { orgId: tenant.orgId, ingestJobId: job.id, type: "MULTIPLE_CHOICE", stem, content: { options: [] }, proposedData: { options: [], correctAnswer: correct ? [correct] : [], tags: [], difficulty: 3 }, confidence: { stem: stemColumn ? 0.9 : 0.45, correctAnswer: answerColumn ? 0.8 : 0.2 }, sourcePreview: { row: index + 2, values: row }, sourcePage: null } : null;
+        const options = optionColumns.map((column, optionIndex) => ({ id: String.fromCharCode(65 + optionIndex), text: String(row[column] ?? "").trim() })).filter((option) => option.text);
+        const matchingOption = options.find((option) => option.id.toLowerCase() === correct.toLowerCase() || option.text.toLowerCase() === correct.toLowerCase());
+        return stem ? { orgId: tenant.orgId, ingestJobId: job.id, type: "MULTIPLE_CHOICE", stem, content: { options }, proposedData: { options, correctAnswer: matchingOption ? [matchingOption.id] : [], tags: [], difficulty: 3 }, confidence: { stem: stemColumn ? 0.9 : 0.45, options: options.length >= 2 ? 0.8 : 0.2, correctAnswer: answerColumn ? 0.8 : 0.2 }, sourcePreview: { row: index + 2, values: row }, sourcePage: null } : null;
       }).filter((candidate): candidate is NonNullable<typeof candidate> => candidate !== null);
       if (candidates.length) await db.ingestCandidate.createMany({ data: candidates });
     } else {
