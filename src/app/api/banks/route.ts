@@ -13,10 +13,21 @@ export async function GET() {
     const tenant = await requireTenant();
     const banks = await db.bank.findMany({
       where: { orgId: tenant.orgId, status: "ACTIVE" },
-      include: { _count: { select: { questions: true } } },
+      include: {
+        _count: { select: { questions: true } },
+        questions: {
+          where: { question: { status: "ACTIVE" } },
+          select: { question: { select: { difficulty: true, tags: { select: { name: true } } } } },
+        },
+      },
       orderBy: { name: "asc" },
     });
-    return NextResponse.json(banks);
+    return NextResponse.json(banks.map((bank) => ({
+      id: bank.id,
+      name: bank.name,
+      questionCount: bank.questions.length,
+      questions: bank.questions.map(({ question }) => ({ difficulty: question.difficulty, tags: question.tags.map((tag) => tag.name) })),
+    })));
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Could not load banks." }, { status: 401 });
   }

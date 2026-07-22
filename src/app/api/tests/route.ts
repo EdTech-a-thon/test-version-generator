@@ -103,6 +103,8 @@ export async function POST(request: Request) {
     });
     return NextResponse.json({ id: test.id, warnings: assembled.warnings }, { status: 201 });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Could not generate forms." }, { status: 400 });
+    const message = error instanceof Error ? error.message : "Could not generate forms.";
+    const status = /Only \d+ matching questions|needs answer choices|Could not generate enough|difficulty target/.test(message) ? 422 : 400;
+    return NextResponse.json({ error: message }, { status });
   }
 }
