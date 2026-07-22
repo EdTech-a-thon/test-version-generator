@@ -9,11 +9,11 @@ type Candidate = { id: string; stem: string; status: string; confidence: Record<
 type Job = { id: string; status: string; candidates: Candidate[] };
 type Bank = { id: string; name: string };
 
-function ReviewCandidate({ candidate, banks, onComplete }: { candidate: Candidate; banks: Bank[]; onComplete: (id: string, status: string) => void }) {
+function ReviewCandidate({ candidate, banks, initialBankId, onComplete }: { candidate: Candidate; banks: Bank[]; initialBankId: string; onComplete: (id: string, status: string) => void }) {
   const [stem, setStem] = useState(candidate.stem);
   const [options, setOptions] = useState<Option[]>(candidate.proposedData.options?.length ? candidate.proposedData.options : ["A", "B", "C", "D"].map((id) => ({ id, text: "" })));
   const [correctAnswer, setCorrectAnswer] = useState(candidate.proposedData.correctAnswer?.[0] ?? "");
-  const [bankId, setBankId] = useState("");
+  const [bankId, setBankId] = useState(initialBankId);
   const [difficulty, setDifficulty] = useState(candidate.proposedData.difficulty ?? 3);
   const [tags, setTags] = useState(candidate.proposedData.tags?.join(", ") ?? "");
   const [message, setMessage] = useState("");
@@ -37,7 +37,8 @@ export default function IngestPage() {
   const [status, setStatus] = useState("");
   const [job, setJob] = useState<Job | null>(null);
   const [banks, setBanks] = useState<Bank[]>([]);
-  useEffect(() => { void fetch("/api/banks").then((response) => response.ok ? response.json() : []).then((data) => { if (Array.isArray(data)) setBanks(data); }); }, []);
+  const [initialBankId, setInitialBankId] = useState("");
+  useEffect(() => { const requestedBank = new URLSearchParams(window.location.search).get("bank"); void fetch("/api/banks").then((response) => response.ok ? response.json() : []).then((data) => { if (Array.isArray(data)) { setBanks(data); setInitialBankId(data.some((bank: Bank) => bank.id === requestedBank) ? requestedBank! : data[0]?.id ?? ""); } }); }, []);
   async function upload() {
     if (!file) return;
     setStatus("Creating your review queue...");
@@ -49,5 +50,5 @@ export default function IngestPage() {
     setJob(review); setStatus("Your material is ready for review. Nothing has been added to a bank.");
   }
   function complete(id: string, candidateStatus: string) { setJob((current) => current ? { ...current, candidates: current.candidates.map((candidate) => candidate.id === id ? { ...candidate, status: candidateStatus } : candidate) } : current); }
-  return <main><AppHeader current="Import questions" /><section className="workspace narrow-workspace"><p className="eyebrow">Add existing material</p><h1>Import questions for review</h1><p className="lead">Bring in a spreadsheet or a previous assessment. You stay in control: nothing is added to a question bank until you review it.</p><section className="upload"><div><h2>Choose a file</h2><p className="helper">Spreadsheets can create review drafts. Use columns such as Question, Option A, Option B, and Correct Answer for the quickest review. PDFs and images are stored safely while extraction is being set up.</p></div><label className="file-picker"><span>Choose file</span><input type="file" accept=".csv,.xlsx,.pdf,image/*" onChange={(event) => setFile(event.target.files?.[0] ?? null)} /></label>{file && <div className="selected-file"><strong>{file.name}</strong><button className="primary" onClick={() => void upload()}>Start review</button></div>}{status && <p className="notice" role="status">{status}</p>}</section><p className="next-step">Prefer to start fresh? <Link href="/questions/new">Author a question instead</Link>.</p>{job && <section className="review-queue"><p className="eyebrow">Review before saving</p><h2>Review queue</h2>{job.candidates.length ? job.candidates.map((candidate) => <ReviewCandidate candidate={candidate} banks={banks} onComplete={complete} key={candidate.id} />) : <section className="empty"><h3>No question drafts were detected</h3><p>Try a spreadsheet with one question per row, or <Link href="/questions/new">add an item manually</Link>.</p></section>}</section>}</section></main>;
+  return <main><AppHeader current="Import questions" /><section className="workspace narrow-workspace"><p className="eyebrow">Add existing material</p><h1>Import questions for review</h1><p className="lead">Bring in a spreadsheet or a previous assessment. You stay in control: nothing is added to a question bank until you review it.</p><section className="upload"><div><h2>Choose a file</h2><p className="helper">Spreadsheets can create review drafts. Use columns such as Question, Option A, Option B, and Correct Answer for the quickest review. PDFs and images are stored safely while extraction is being set up.</p></div><label className="file-picker"><span>Choose file</span><input type="file" accept=".csv,.xlsx,.pdf,image/*" onChange={(event) => setFile(event.target.files?.[0] ?? null)} /></label>{file && <div className="selected-file"><strong>{file.name}</strong><button className="primary" onClick={() => void upload()}>Start review</button></div>}{status && <p className="notice" role="status">{status}</p>}</section><p className="next-step">Prefer to start fresh? <Link href={initialBankId ? `/questions/new?bank=${initialBankId}` : "/questions/new"}>Author a question instead</Link>.</p>{job && <section className="review-queue"><p className="eyebrow">Review before saving</p><h2>Review queue</h2>{job.candidates.length ? job.candidates.map((candidate) => <ReviewCandidate candidate={candidate} banks={banks} initialBankId={initialBankId} onComplete={complete} key={candidate.id} />) : <section className="empty"><h3>No question drafts were detected</h3><p>Try a spreadsheet with one question per row, or <Link href="/questions/new">add an item manually</Link>.</p></section>}</section>}</section></main>;
 }

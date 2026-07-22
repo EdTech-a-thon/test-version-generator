@@ -9,5 +9,5 @@ export default async function BanksPage() {
   const orgId = session?.selectedOrgId;
   const banks: BankSummary[] | null = orgId ? await db.bank.findMany({ where: { orgId, status: "ACTIVE" }, include: { _count: { select: { questions: true } } }, orderBy: { name: "asc" } }) : null;
 
-  return <main><AppHeader current="Question banks" /><section className="workspace"><div className="section-heading"><div><p className="eyebrow">Step 1 of 3: Build your library</p><h1>Question banks</h1><p className="lead">Organize questions by unit, course, grade, or shared collection so they are ready when you need them.</p></div><Link className="primary" href="/questions/new">Author a question</Link></div><BanksWorkspace initialBanks={banks} /></section></main>;
+  return <main><AppHeader current="Question banks" /><section className="workspace"><div className="section-heading"><div><p className="eyebrow">Your starting point</p><h1>Question banks</h1><p className="lead">Make one bank for each unit or assessment topic. Add questions there, then create a test from that bank.</p></div><Link className="secondary" href="/ingest">Import questions</Link></div><BanksWorkspace initialBanks={banks} /></section></main>;
 }

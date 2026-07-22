@@ -9,6 +9,7 @@ import type { ParametricDefinition, RenderedFormItem } from "@/lib/contracts";
 
 const schema = z.object({
   title: z.string().trim().min(1).max(150),
+  bankId: z.string().min(1),
   formCount: z.number().int().min(1).max(26),
   tag: z.string().trim().optional(),
   itemCount: z.number().int().min(1).max(100),
@@ -27,6 +28,7 @@ export async function POST(request: Request) {
       where: {
         orgId: tenant.orgId,
         status: "ACTIVE",
+        banks: { some: { bankId: input.bankId, orgId: tenant.orgId } },
         ...(input.tag ? { tags: { some: { name: input.tag.toLowerCase() } } } : {}),
         ...(input.strictDifficulty && input.targetDifficulty ? { difficulty: input.targetDifficulty } : {}),
       },
