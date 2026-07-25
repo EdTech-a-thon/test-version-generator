@@ -16,6 +16,7 @@ const schema = z.object({
   targetDifficulty: z.number().int().min(1).max(5).optional(),
   scrambleChoices: z.boolean(),
   strictDifficulty: z.boolean(),
+  questionIds: z.array(z.string()).optional(),
 });
 
 type StoredOptions = Array<{ id: string; text: string; pinLast?: boolean }>;
@@ -24,20 +25,31 @@ export async function POST(request: Request) {
   try {
     const tenant = await requireTenantRole(["OWNER", "ADMIN", "EDITOR"]);
     const input = schema.parse(await request.json());
-    const questions = await db.question.findMany({
-      where: {
-        orgId: tenant.orgId,
-        status: "ACTIVE",
-        banks: { some: { bankId: input.bankId, orgId: tenant.orgId } },
-        ...(input.tag ? { tags: { some: { name: input.tag.toLowerCase() } } } : {}),
-        ...(input.strictDifficulty && input.targetDifficulty ? { difficulty: input.targetDifficulty } : {}),
-      },
-      include: { currentVersion: true },
-    });
-    if (questions.length < input.itemCount) {
-      throw new Error(`Only ${questions.length} matching questions are available. Add more questions or lower the item count.`);
+    const questions = input.questionIds?.length
+      ? await db.question.findMany({
+        where: { orgId: tenant.orgId, status: "ACTIVE", id: { in: input.questionIds }, banks: { some: { bankId: input.bankId, orgId: tenant.orgId } } },
+        include: { currentVersion: true },
+      })
+      : await db.question.findMany({
+        where: {
+          orgId: tenant.orgId,
+          status: "ACTIVE",
+          banks: { some: { bankId: input.bankId, orgId: tenant.orgId } },
+          ...(input.tag ? { tags: { some: { name: input.tag.toLowerCase() } } } : {}),
+          ...(input.strictDifficulty && input.targetDifficulty ? { difficulty: input.targetDifficulty } : {}),
+        },
+        include: { currentVersion: true },
+      });
+    if (input.questionIds?.length) {
+      if (questions.length !== input.questionIds.length) throw new Error("One or more selected questions are not available in this bank.");
+    } else {
+      if (questions.length < input.itemCount) {
+        throw new Error(`Only ${questions.length} matching questions are available. Add more questions or lower the item count.`);
+      }
     }
-    const selected = [...questions].sort(() => Math.random() - 0.5).slice(0, input.itemCount);
+    const selected = input.questionIds?.length
+      ? [...questions]
+      : [...questions].sort(() => Math.random() - 0.5).slice(0, input.itemCount);
     const parametricVariants = new Map<string, Awaited<ReturnType<typeof generateVariants>>>();
     for (const question of selected) {
       const definition = (question.content as { parametric?: ParametricDefinition } | null)?.parametric;
