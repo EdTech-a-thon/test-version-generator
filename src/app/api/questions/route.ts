@@ -19,7 +19,7 @@ const parametricDefinition = z.object({
   rounding: z.object({ mode: z.enum(["decimals", "sigfigs"]), value: z.number().int().min(0).max(10) }),
 });
 
-const question = z.object({ id: z.string().optional(), bankIds: z.array(z.string()).min(1), type: z.enum(["MULTIPLE_CHOICE", "MULTIPLE_SELECT", "TRUE_FALSE", "NUMERIC", "SHORT_ANSWER", "ESSAY"]), stem: z.string().trim().min(1), options: z.array(z.object({ id: z.string().min(1), text: z.string().trim().min(1), pinLast: z.boolean().optional() })).max(5), correctAnswer: z.array(z.string()), difficulty: z.number().int().min(1).max(5), points: z.number().positive(), tags: z.array(z.string()), solution: z.string().optional(), rubric: z.string().optional(), parametric: parametricDefinition.optional() }).superRefine((value, context) => {
+const question = z.object({ id: z.string().optional(), bankIds: z.array(z.string()).min(1), type: z.enum(["MULTIPLE_CHOICE", "MULTIPLE_SELECT", "TRUE_FALSE", "NUMERIC", "SHORT_ANSWER", "ESSAY"]), stem: z.string().trim().min(1), stemImageKey: z.string().nullable().optional(), options: z.array(z.object({ id: z.string().min(1), text: z.string().trim().min(1), imageKey: z.string().nullable().optional(), pinLast: z.boolean().optional() })).max(5), correctAnswer: z.array(z.string()), difficulty: z.number().int().min(1).max(5), points: z.number().positive(), tags: z.array(z.string()), solution: z.string().optional(), rubric: z.string().optional(), parametric: parametricDefinition.optional() }).superRefine((value, context) => {
   const choiceTypes = ["MULTIPLE_CHOICE", "MULTIPLE_SELECT", "TRUE_FALSE", "NUMERIC"];
   if (!value.parametric && choiceTypes.includes(value.type) && value.options.length < 2) context.addIssue({ code: "custom", message: "Choice questions need at least two options." });
   if (!value.parametric && ["MULTIPLE_CHOICE", "TRUE_FALSE", "NUMERIC"].includes(value.type) && value.correctAnswer.length !== 1) context.addIssue({ code: "custom", message: "Choose the correct answer." });
@@ -43,7 +43,8 @@ export async function GET(request: Request) {
       bankIds: question.banks.map((bank) => bank.bankId),
       type: question.type,
       stem: question.stem,
-      options: (snapshot.options as Array<{ id: string; text: string; pinLast?: boolean }>) ?? [],
+      stemImageKey: (snapshot.stemImageKey as string | null) ?? null,
+      options: (snapshot.options as Array<{ id: string; text: string; imageKey?: string; pinLast?: boolean }>) ?? [],
       correctAnswer: question.correctAnswer,
       difficulty: question.difficulty,
       points: (question.content as { points?: number } | null)?.points ?? 1,

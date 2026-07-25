@@ -19,7 +19,7 @@ const schema = z.object({
   questionIds: z.array(z.string()).optional(),
 });
 
-type StoredOptions = Array<{ id: string; text: string; pinLast?: boolean }>;
+type StoredOptions = Array<{ id: string; text: string; imageKey?: string | null; pinLast?: boolean }>;
 
 export async function POST(request: Request) {
   try {
@@ -75,18 +75,23 @@ export async function POST(request: Request) {
             const question = selected.find((candidate) => candidate.id === item.id);
             if (!question?.currentVersionId) throw new Error("A selected question has no saved version.");
             const sourceOptions = ((question.content as { options?: StoredOptions } | null)?.options ?? []);
+            const questionSnapshot = (question.currentVersion?.snapshot as Record<string, unknown> | null);
+            const snapshotOptions = (questionSnapshot?.options as Array<{ id: string; text: string; imageKey?: string }> | null) ?? [];
+            const sourceImageKeys = new Map(snapshotOptions.map((option) => [option.id, option.imageKey ?? null]));
+            const stemImageKey = (questionSnapshot?.stemImageKey as string | null) ?? null;
             const definition = (question.content as { parametric?: ParametricDefinition } | null)?.parametric;
             const variant = definition ? parametricVariants.get(question.id)?.variants[form.code.charCodeAt(0) - 65] : undefined;
             if (definition && !variant) throw new Error(`Could not generate enough distinct variants for "${question.stem}".`);
             const renderedOptions = variant
               ? variant.options.map((value, index) => ({ id: `generated-${index}`, text: `${value}${definition?.unit ? ` ${definition.unit}` : ""}` }))
-              : sourceOptions;
+              : sourceOptions.map((option) => ({ ...option, imageKey: sourceImageKeys.get(option.id) ?? null }));
             const correctAnswer = variant
               ? [renderedOptions.find((option) => option.text === `${variant.correct}${definition?.unit ? ` ${definition.unit}` : ""}`)?.id ?? "generated-0"]
               : Array.isArray(question.correctAnswer) ? question.correctAnswer.filter((answer): answer is string => typeof answer === "string") : [];
             const rendered: RenderedFormItem = {
               type: question.type,
               stem: variant ? interpolate(question.stem, variant.variables) : question.stem,
+              stemImageKey,
               options: renderedOptions,
               correctAnswer,
               solution: (question.solution as { text?: string } | null)?.text,

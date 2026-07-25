@@ -52,7 +52,8 @@ export type GeneratedVariant = {
 
 export type RenderedFormItem = {
   stem: string;
-  options: Array<{ id: string; text: string; pinLast?: boolean }>;
+  stemImageKey?: string | null;
+  options: Array<{ id: string; text: string; imageKey?: string | null; pinLast?: boolean }>;
   correctAnswer: string[];
   solution?: string;
   rubric?: string;

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
 import { AppHeader } from "@/components/app-header";
 import { VariantPreview } from "@/components/variant-preview";
+import { ImageUpload } from "@/components/image-upload";
 import type { ParametricDefinition, VariableDefinition } from "@/lib/contracts";
 
 const blankDefinition: ParametricDefinition = {
@@ -68,6 +69,8 @@ export default function NewQuestion() {
   const [formKey, setFormKey] = useState(0);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [loadingQuestion, setLoadingQuestion] = useState(false);
+  const [stemImageKey, setStemImageKey] = useState<string | null>(null);
+  const [optionImages, setOptionImages] = useState<Record<string, string | null>>({});
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -87,6 +90,8 @@ export default function NewQuestion() {
         setEditingId(data.id);
         if (data.bankIds?.length) setBankId(data.bankIds[0]);
         setStem(data.stem ?? "");
+        setStemImageKey(data.stemImageKey ?? null);
+        if (Array.isArray(data.options)) setOptionImages(Object.fromEntries(data.options.map((opt: { id: string; imageKey?: string }) => [opt.id, opt.imageKey ?? null])));
         if (data.parametric) {
           setMode("changing");
           setDefinition(data.parametric);
@@ -106,6 +111,8 @@ export default function NewQuestion() {
     setDefinition(blankDefinition);
     setPreviewValid(false);
     setStem("");
+    setStemImageKey(null);
+    setOptionImages({});
     setMessage("");
     setSaved(false);
     setFormKey((current) => current + 1);
@@ -121,14 +128,14 @@ export default function NewQuestion() {
     setMessage("");
     const values = new FormData(event.currentTarget);
     const options = mode === "standard"
-      ? ["A", "B", "C", "D"].map((id) => ({ id, text: String(values.get(`option-${id}`) ?? "").trim() })).filter((option) => option.text)
+      ? ["A", "B", "C", "D"].map((id) => ({ id, text: String(values.get(`option-${id}`) ?? "").trim(), imageKey: optionImages[id] ?? null })).filter((option) => option.text)
       : [];
     const correct = mode === "standard" ? String(values.get("correct") ?? "") : "";
     try {
       const response = await fetch("/api/questions", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ id: editingId ?? undefined, bankIds: [bankId], type: "MULTIPLE_CHOICE", stem, options, correctAnswer: correct ? [correct] : [], difficulty: Number(values.get("difficulty")), points: Number(values.get("points")), tags: String(values.get("tags")).split(",").map((tag) => tag.trim()).filter(Boolean), solution: values.get("solution"), parametric: mode === "changing" ? definition : undefined }),
+        body: JSON.stringify({ id: editingId ?? undefined, bankIds: [bankId], type: "MULTIPLE_CHOICE", stem, stemImageKey, options, correctAnswer: correct ? [correct] : [], difficulty: Number(values.get("difficulty")), points: Number(values.get("points")), tags: String(values.get("tags")).split(",").map((tag) => tag.trim()).filter(Boolean), solution: values.get("solution"), parametric: mode === "changing" ? definition : undefined }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? "Could not save question.");
@@ -176,8 +183,8 @@ export default function NewQuestion() {
           <section className="flow-card question-card">
             <p className="eyebrow">Step 1</p>
             <h2>Write the question</h2>
-            <label>Question for students<textarea name="stem" rows={4} value={stem} onChange={(event) => { setStem(event.target.value); setPreviewValid(false); }} required placeholder={mode === "changing" ? "What force is produced by a mass of {{m}} kg accelerating at {{a}} m/s²?" : "What is the main function of a plant's roots?"} />{mode === "changing" && <span className="field-help">Put changing value names inside double curly brackets, such as <code>{"{{m}}"}</code>.</span>}<span className="field-help">Use <code>_text_</code> for subscript (C_2_H_4_) and <code>^text^</code> for superscript (10^8^).</span></label>
-            {mode === "standard" && <fieldset className="answer-choices"><legend>Answer choices</legend><p className="field-help">Select the circle beside the correct answer. The first two choices are required. Use <code>_text_</code> for subscript and <code>^text^</code> for superscript.</p>{["A", "B", "C", "D"].map((choice, index) => <label className="choice-input" key={choice}><input type="radio" name="correct" value={choice} required aria-label={`Mark choice ${choice} correct`} /><span>{choice}</span><input name={`option-${choice}`} required={index < 2} placeholder={index < 2 ? `Choice ${choice}` : `Choice ${choice} (optional)`} /></label>)}</fieldset>}
+            <label>Question for students<textarea name="stem" rows={4} value={stem} onChange={(event) => { setStem(event.target.value); setPreviewValid(false); }} required placeholder={mode === "changing" ? "What force is produced by a mass of {{m}} kg accelerating at {{a}} m/s²?" : "What is the main function of a plant's roots?"} />{mode === "changing" && <span className="field-help">Put changing value names inside double curly brackets, such as <code>{"{{m}}"}</code>.</span>}<span className="field-help">Use <code>_text_</code> for subscript (C_2_H_4_) and <code>^text^</code> for superscript (10^8^).</span><ImageUpload imageKey={stemImageKey} onChange={setStemImageKey} /></label>
+            {mode === "standard" && <fieldset className="answer-choices"><legend>Answer choices</legend><p className="field-help">Select the circle beside the correct answer. The first two choices are required. Use <code>_text_</code> for subscript and <code>^text^</code> for superscript.</p>{["A", "B", "C", "D"].map((choice, index) => <label className="choice-input" key={choice}><input type="radio" name="correct" value={choice} required aria-label={`Mark choice ${choice} correct`} /><span>{choice}</span><input name={`option-${choice}`} required={index < 2} placeholder={index < 2 ? `Choice ${choice}` : `Choice ${choice} (optional)`} /><ImageUpload imageKey={optionImages[choice] ?? null} onChange={(key) => setOptionImages((current) => ({ ...current, [choice]: key }))} /></label>)}</fieldset>}
           </section>
 
           {mode === "changing" && <FormulaEditor definition={definition} onChange={changeDefinition} />}

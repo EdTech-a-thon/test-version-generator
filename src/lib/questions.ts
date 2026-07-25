@@ -7,6 +7,7 @@ function snapshot(draft: QuestionDraft): Prisma.InputJsonValue {
   return {
     type: draft.type,
     stem: draft.stem,
+    stemImageKey: (draft as Record<string, unknown>).stemImageKey ?? null,
     options: draft.options,
     correctAnswer: draft.correctAnswer,
     difficulty: draft.difficulty,
