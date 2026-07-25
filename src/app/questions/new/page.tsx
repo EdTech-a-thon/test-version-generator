@@ -15,11 +15,11 @@ const blankDefinition: ParametricDefinition = {
 };
 
 function FormulaEditor({ definition, onChange }: { definition: ParametricDefinition; onChange: (definition: ParametricDefinition) => void }) {
-  function updateVariable(index: number, field: keyof VariableDefinition, value: string) {
+  function updateVariable(index: number, field: keyof VariableDefinition | "type", value: string) {
     onChange({
       ...definition,
       variables: definition.variables.map((variable, current) => current === index
-        ? { ...variable, [field]: field === "name" ? value.replace(/[^a-zA-Z0-9_]/g, "") : Number(value) }
+        ? { ...variable, [field]: field === "name" ? value.replace(/[^a-zA-Z0-9_]/g, "") : field === "type" ? value : Number(value) }
         : variable),
     });
   }
@@ -33,6 +33,7 @@ function FormulaEditor({ definition, onChange }: { definition: ParametricDefinit
     {definition.variables.filter((value): value is VariableDefinition => value.type !== "dataset").map((variable, index) => <div className="variable-row" key={index}>
       <strong>Value {index + 1}</strong>
       <label>Name<input value={variable.name} required placeholder="m" onChange={(event) => updateVariable(index, "name", event.target.value)} /></label>
+      <label>Type<select value={variable.type} onChange={(event) => updateVariable(index, "type", event.target.value)}><option value="integer">Whole numbers</option><option value="decimal">Decimal</option></select></label>
       <label>Smallest<input type="number" value={variable.min ?? ""} required onChange={(event) => updateVariable(index, "min", event.target.value)} /></label>
       <label>Largest<input type="number" value={variable.max ?? ""} required onChange={(event) => updateVariable(index, "max", event.target.value)} /></label>
       {definition.variables.length > 1 && <button type="button" className="text-button" onClick={() => onChange({ ...definition, variables: definition.variables.filter((_, current) => current !== index) })}>Remove</button>}
@@ -65,15 +66,34 @@ export default function NewQuestion() {
   const [bankError, setBankError] = useState("");
   const [saved, setSaved] = useState(false);
   const [formKey, setFormKey] = useState(0);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [loadingQuestion, setLoadingQuestion] = useState(false);
 
   useEffect(() => {
-    const requestedBank = new URLSearchParams(window.location.search).get("bank");
+    const params = new URLSearchParams(window.location.search);
+    const requestedBank = params.get("bank");
+    const requestedQuestion = params.get("id");
     void fetch("/api/banks").then(async (response) => {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? "Could not load your question banks.");
       setBanks(data);
       setBankId(data.some((bank: { id: string }) => bank.id === requestedBank) ? requestedBank! : data[0]?.id ?? "");
     }).catch((error: Error) => setBankError(error.message)).finally(() => setLoadingBanks(false));
+    if (requestedQuestion) {
+      setLoadingQuestion(true);
+      void fetch(`/api/questions?id=${requestedQuestion}`).then(async (response) => {
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error ?? "Could not load this question.");
+        setEditingId(data.id);
+        if (data.bankIds?.length) setBankId(data.bankIds[0]);
+        setStem(data.stem ?? "");
+        if (data.parametric) {
+          setMode("changing");
+          setDefinition(data.parametric);
+          setPreviewValid(true);
+        }
+      }).catch((error: Error) => setBankError(error.message)).finally(() => setLoadingQuestion(false));
+    }
   }, []);
 
   function changeDefinition(next: ParametricDefinition) {
@@ -108,7 +128,7 @@ export default function NewQuestion() {
       const response = await fetch("/api/questions", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ bankIds: [bankId], type: "MULTIPLE_CHOICE", stem, options, correctAnswer: correct ? [correct] : [], difficulty: Number(values.get("difficulty")), points: Number(values.get("points")), tags: String(values.get("tags")).split(",").map((tag) => tag.trim()).filter(Boolean), solution: values.get("solution"), parametric: mode === "changing" ? definition : undefined }),
+        body: JSON.stringify({ id: editingId ?? undefined, bankIds: [bankId], type: "MULTIPLE_CHOICE", stem, options, correctAnswer: correct ? [correct] : [], difficulty: Number(values.get("difficulty")), points: Number(values.get("points")), tags: String(values.get("tags")).split(",").map((tag) => tag.trim()).filter(Boolean), solution: values.get("solution"), parametric: mode === "changing" ? definition : undefined }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? "Could not save question.");
@@ -127,10 +147,11 @@ export default function NewQuestion() {
     <AppHeader current="Add a question" />
     <section className="workspace author-workspace">
       <div className="author-heading">
-        <div><p className="eyebrow">Build your question bank</p><h1>Add a question</h1><p className="lead">Write it once, then reuse it in any test.</p></div>
+        <div><p className="eyebrow">Build your question bank</p><h1>{editingId ? "Edit question" : "Add a question"}</h1><p className="lead">{editingId ? "Make changes and save to create a new version." : "Write it once, then reuse it in any test."}</p></div>
         <Link className="quiet-link" href={bankId ? `/banks/${bankId}` : "/banks"}>Back to question bank</Link>
       </div>
 
+      {loadingQuestion && <p className="notice">Loading question...</p>}
       {saved ? <section className="save-confirmation" role="status">
         <span className="success-mark" aria-hidden="true">✓</span>
         <p className="eyebrow">Question saved</p>
@@ -176,7 +197,7 @@ export default function NewQuestion() {
           <footer className="save-bar">
             <div><strong>Save to {selectedBank?.name}</strong><span>{mode === "changing" && !previewValid ? "Preview four versions before saving." : "You can add another question after this one."}</span></div>
             {message && <p className="warning" role="alert">{message}</p>}
-            <button className="primary" disabled={saving || (mode === "changing" && !previewValid)}>{saving ? "Saving question..." : "Save question"}</button>
+            <button className="primary" disabled={saving || (mode === "changing" && !previewValid)}>{saving ? "Saving question..." : editingId ? "Save changes" : "Save question"}</button>
           </footer>
         </form>}
       </>}

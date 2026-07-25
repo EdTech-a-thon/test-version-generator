@@ -83,7 +83,7 @@ export async function POST(request: Request) {
             };
             const correctIndexes = correctAnswer.map((answer) => renderedOptions.findIndex((option) => option.id === answer)).filter((index) => index >= 0);
             const choiceOrder = renderedOptions.length
-              ? (input.scrambleChoices ? item.optionOrder : renderedOptions.map((_, index) => index))
+              ? (input.scrambleChoices ? Array.from({ length: renderedOptions.length }, (_, idx) => idx).sort(() => Math.random() - 0.5) : renderedOptions.map((_, index) => index))
               : [];
             return {
               orgId: tenant.orgId,
