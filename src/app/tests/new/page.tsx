@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AppHeader } from "@/components/app-header";
 
@@ -40,9 +40,11 @@ export default function NewTestPage() {
 
   const selectedBank = banks.find((bank) => bank.id === bankId);
   const normalizedTag = tag.trim().toLowerCase();
-  const matchingQuestions = selectedBank?.questions.filter((question) => {
-    return (!normalizedTag || question.tags.includes(normalizedTag)) && (!strict || question.difficulty === difficulty);
-  }).length ?? 0;
+  const matchingQuestions = useMemo(() => {
+    return selectedBank?.questions.filter((question) => {
+      return (!normalizedTag || question.tags.includes(normalizedTag)) && (!strict || question.difficulty === difficulty);
+    }).length ?? 0;
+  }, [selectedBank, normalizedTag, strict, difficulty]);
   const ready = matchingQuestions >= itemCount;
 
   async function submit(event: FormEvent<HTMLFormElement>) {

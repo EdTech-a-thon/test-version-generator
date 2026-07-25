@@ -51,10 +51,10 @@ export async function POST(request: Request) {
       ? [...questions]
       : [...questions].sort(() => Math.random() - 0.5).slice(0, input.itemCount);
     const parametricVariants = new Map<string, Awaited<ReturnType<typeof generateVariants>>>();
-    for (const question of selected) {
+    await Promise.all(selected.map(async (question) => {
       const definition = (question.content as { parametric?: ParametricDefinition } | null)?.parametric;
       if (definition) parametricVariants.set(question.id, await generateVariants(definition, input.formCount));
-    }
+    }));
     const items = selected.map((question) => {
       const options = ((question.content as { options?: StoredOptions } | null)?.options ?? []);
       const answerIds = Array.isArray(question.correctAnswer) ? question.correctAnswer.filter((answer): answer is string => typeof answer === "string") : [];

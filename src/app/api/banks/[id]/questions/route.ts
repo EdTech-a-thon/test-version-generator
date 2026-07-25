@@ -8,7 +8,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
     const { id } = await params;
     const bank = await db.bank.findFirst({
       where: { id, orgId: tenant.orgId, status: "ACTIVE" },
-      include: { questions: { where: { question: { status: "ACTIVE" } }, include: { question: { include: { tags: true, currentVersion: true } } }, orderBy: { question: { updatedAt: "desc" } } } },
+      include: { questions: { where: { question: { status: "ACTIVE" } }, include: { question: { include: { tags: { select: { name: true } }, currentVersion: { select: { snapshot: true } } } } }, orderBy: { question: { updatedAt: "desc" } } } },
     });
     if (!bank) return NextResponse.json({ error: "Question bank not found." }, { status: 404 });
     return NextResponse.json({ id: bank.id, name: bank.name, description: bank.description, questions: bank.questions.map(({ question }) => ({ id: question.id, stem: question.stem, difficulty: question.difficulty, tags: question.tags.map((tag) => tag.name), stemImageKey: ((question.currentVersion?.snapshot as Record<string, unknown> | null)?.stemImageKey as string | null) ?? null })) });
