@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { AppHeader } from "@/components/app-header";
+import { renderMarkup } from "@/lib/render-markup";
 
 type Option = { id: string; text: string };
 type Candidate = { id: string; stem: string; status: string; confidence: Record<string, number>; sourcePreview?: { row?: number }; proposedData: { options?: Option[]; correctAnswer?: string[]; tags?: string[]; difficulty?: number } };
@@ -27,7 +28,7 @@ function ReviewCandidate({ candidate, banks, initialBankId, onComplete }: { cand
     onComplete(candidate.id, result.status); setSaving(false);
   }
 
-  if (candidate.status !== "DRAFT") return <article className="card"><h3>{candidate.stem}</h3><p className="notice">{candidate.status === "APPROVED" ? "Saved to your question bank." : "This draft was rejected."}</p></article>;
+  if (candidate.status !== "DRAFT") return <article className="card"><h3>{renderMarkup(candidate.stem)}</h3><p className="notice">{candidate.status === "APPROVED" ? "Saved to your question bank." : "This draft was rejected."}</p></article>;
 
   return <article className="card review-card"><p className="eyebrow">Source row {candidate.sourcePreview?.row ?? "not available"}</p><label>Question<textarea value={stem} rows={3} onChange={(event) => setStem(event.target.value)} required /></label><fieldset><legend>Answer choices</legend>{options.map((option, index) => <label className="choice-input" key={option.id}><input type="radio" name={`correct-${candidate.id}`} value={option.id} checked={correctAnswer === option.id} onChange={() => setCorrectAnswer(option.id)} aria-label={`Correct answer ${option.id}`} /><span>{option.id}</span><input value={option.text} onChange={(event) => setOptions((current) => current.map((value, currentIndex) => currentIndex === index ? { ...value, text: event.target.value } : value))} placeholder={`Choice ${option.id}`} /></label>)}</fieldset><div className="two-col"><label>Save to bank<select value={bankId} onChange={(event) => setBankId(event.target.value)}><option value="">Choose a bank</option>{banks.map((bank) => <option value={bank.id} key={bank.id}>{bank.name}</option>)}</select></label><label>Difficulty<select value={difficulty} onChange={(event) => setDifficulty(Number(event.target.value))}>{[1, 2, 3, 4, 5].map((value) => <option value={value} key={value}>{value}</option>)}</select></label></div><label>Tags<input value={tags} onChange={(event) => setTags(event.target.value)} placeholder="For example: fractions, review" /></label><p className="field-help">Choose the circle beside the correct answer, then check the question before approving it.</p>{message && <p className="warning">{message}</p>}{!banks.length && <p className="warning">Create a <Link href="/banks">question bank</Link> before approving imported questions.</p>}<div className="review-actions"><button className="primary" disabled={saving || !banks.length} onClick={() => void decide("APPROVE")}>{saving ? "Saving..." : "Approve and save"}</button><button type="button" className="secondary" disabled={saving} onClick={() => void decide("REJECT")}>Reject draft</button></div></article>;
 }

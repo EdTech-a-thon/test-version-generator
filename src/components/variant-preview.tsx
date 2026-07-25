@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { renderMarkup } from "@/lib/render-markup";
 import type { GeneratedVariant, ParametricDefinition } from "@/lib/contracts";
 
 function fillStem(stem: string, variant: GeneratedVariant) {
@@ -30,5 +31,5 @@ export function VariantPreview({ definition, stem, onValidityChange }: { definit
       setLoading(false);
     }
   };
-  return <section className="preview variant-check"><div><p className="eyebrow">Required check</p><h2>Preview four versions</h2><p className="helper">Check that the question and answer choices make sense before saving.</p></div><button type="button" onClick={() => void generate()} disabled={loading}>{loading ? "Checking versions..." : variants.length ? "Check again" : "Preview versions"}</button>{warning && <p className="warning">{warning}</p>}{variants.length > 0 && <div className="variant-cards">{variants.map((variant, index) => <article className="variant-card" key={index}><p className="eyebrow">Example {index + 1}</p><strong>{fillStem(stem, variant)}</strong><ol type="A">{variant.options.map((option) => <li className={option === variant.correct ? "correct-option" : ""} key={String(option)}>{option}{definition.unit ? ` ${definition.unit}` : ""}{option === variant.correct && <span> Correct</span>}</li>)}</ol></article>)}</div>}</section>;
+  return <section className="preview variant-check"><div><p className="eyebrow">Required check</p><h2>Preview four versions</h2><p className="helper">Check that the question and answer choices make sense before saving.</p></div><button type="button" onClick={() => void generate()} disabled={loading}>{loading ? "Checking versions..." : variants.length ? "Check again" : "Preview versions"}</button>{warning && <p className="warning">{warning}</p>}{variants.length > 0 && <div className="variant-cards">{variants.map((variant, index) => <article className="variant-card" key={index}><p className="eyebrow">Example {index + 1}</p><strong>{renderMarkup(fillStem(stem, variant))}</strong><ol type="A">{variant.options.map((option) => <li className={option === variant.correct ? "correct-option" : ""} key={String(option)}>{renderMarkup(option)}{definition.unit ? ` ${definition.unit}` : ""}{option === variant.correct && <span> Correct</span>}</li>)}</ol></article>)}</div>}</section>;
 }
