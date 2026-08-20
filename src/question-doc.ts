@@ -101,6 +101,27 @@ export function choiceIsCorrect(node: ProseMirrorJSON): boolean {
   return attrs.correct === true
 }
 
+// The document with its multiple-choice node taken out, if it has one. A
+// document holds at most one, so this is what switching a question to Open
+// Response lifts out into the stash.
+export function withoutMultipleChoice(doc: ProseMirrorJSON): ProseMirrorJSON {
+  return {
+    ...doc,
+    content: childrenOf(doc).filter((node) => node.type !== 'multipleChoice'),
+  }
+}
+
+// The document with the given multiple-choice node appended, replacing any
+// already there — a document holds at most one. What switching a question
+// back to Multiple Choice re-inserts.
+export function withMultipleChoice(
+  doc: ProseMirrorJSON,
+  node: ProseMirrorJSON,
+): ProseMirrorJSON {
+  const without = withoutMultipleChoice(doc)
+  return { ...without, content: [...childrenOf(without), node] }
+}
+
 // A copy of the document whose answers carry brand-new ids. Duplicating a
 // question must not hand the copy the original's choice ids: a version's
 // `choiceOrder` is keyed by choice id, so shared ids would make one question's

@@ -3,7 +3,10 @@ import {
   choiceIdOf,
   cleanDocument,
   choiceNodesOf,
+  multipleChoiceNodeOf,
   withFreshChoiceIds,
+  withMultipleChoice,
+  withoutMultipleChoice,
 } from './question-doc'
 import type { ProseMirrorJSON } from './question-doc'
 
@@ -111,6 +114,33 @@ describe('cleanDocument', () => {
   test('never leaves a choice list with fewer than two answers', () => {
     const cleaned = cleanDocument(doc(choiceList('c1')))
     expect(choiceNodesOf(cleaned)).toHaveLength(2)
+  })
+})
+
+describe('withoutMultipleChoice and withMultipleChoice', () => {
+  test('withoutMultipleChoice removes the choice list, keeping the rest of the document', () => {
+    const stem = { type: 'paragraph', content: [{ type: 'text', text: 'stem' }] }
+    const original = doc(stem, choiceList('c1', 'c2'))
+    const lifted = withoutMultipleChoice(original)
+    expect(lifted.content).toEqual([stem])
+    expect(multipleChoiceNodeOf(lifted)).toBeUndefined()
+    // The original document is untouched.
+    expect(multipleChoiceNodeOf(original)).toBeDefined()
+  })
+
+  test('withMultipleChoice appends the given node to a document with none', () => {
+    const stem = { type: 'paragraph' }
+    const choices = choiceList('c1', 'c2')
+    const withChoices = withMultipleChoice(doc(stem), choices)
+    expect(withChoices.content).toEqual([stem, choices])
+  })
+
+  test('withMultipleChoice replaces an existing choice list rather than duplicating it', () => {
+    const stem = { type: 'paragraph' }
+    const original = doc(stem, choiceList('c1', 'c2'))
+    const replacement = choiceList('c3', 'c4')
+    const replaced = withMultipleChoice(original, replacement)
+    expect(replaced.content).toEqual([stem, replacement])
   })
 })
 

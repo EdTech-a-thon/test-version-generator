@@ -14,13 +14,12 @@ import {
   multipleChoiceMode,
   multipleChoiceSchema,
   multipleChoiceView,
-  newMultipleChoiceNode,
   uniqueChoiceIds,
 } from './multiple-choice'
 import { subscriptSchema, superscriptSchema } from './script-marks'
 import { cleanDocument } from './question-doc'
 import type { ProseMirrorJSON } from './question-doc'
-import { createQuestion, duplicateQuestion, questionById } from './exam'
+import { createQuestion, duplicateQuestion, questionById, withTypeSwitched } from './exam'
 import type { Question, QuestionType } from './exam'
 import type { ExamStore } from './exam-store'
 import { ExamPage } from './exam-page'
@@ -113,18 +112,26 @@ function QuestionDialog({
   const [type, setType] = useState<QuestionType>(question.type)
   const [doc, setDoc] = useState<ProseMirrorJSON>(question.doc)
   const latestDoc = useRef(doc)
+  // The stash the dialog currently knows about, kept alongside the doc so a
+  // save mid-edit carries a lift/restore that happened before the editor's
+  // own onChange has fired again. Starts from the question's persisted stash,
+  // so an existing stash survives opening the dialog without touching type.
+  const stash = useRef(question.stashedChoices)
 
   const changeType = (next: QuestionType) => {
-    setType(next)
-    const safeCurrent = cleanDocument(latestDoc.current)
-    const content = (safeCurrent.content as ProseMirrorJSON[] | undefined) ?? []
-    const withoutGrid = content.filter((node) => node.type !== 'multipleChoice')
-    const nextDoc = {
-      type: 'doc',
-      content: next === 'multiple-choice' ? [...withoutGrid, newMultipleChoiceNode()] : withoutGrid,
-    }
-    latestDoc.current = nextDoc
-    setDoc(nextDoc)
+    const switched = withTypeSwitched(
+      {
+        ...question,
+        type,
+        doc: cleanDocument(latestDoc.current),
+        stashedChoices: stash.current,
+      },
+      next,
+    )
+    stash.current = switched.stashedChoices
+    latestDoc.current = switched.doc
+    setType(switched.type)
+    setDoc(switched.doc)
   }
 
   return (
@@ -173,13 +180,16 @@ function QuestionDialog({
           <button
             type="button"
             className="primary-button"
-            onClick={() =>
-              onSave({
+            onClick={() => {
+              const saved: Question = {
                 ...question,
                 type,
                 doc: cleanDocument(latestDoc.current),
-              })
-            }
+              }
+              if (stash.current) saved.stashedChoices = stash.current
+              else delete saved.stashedChoices
+              onSave(saved)
+            }}
           >
             Save question
           </button>
