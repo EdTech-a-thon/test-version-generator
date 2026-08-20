@@ -1,8 +1,10 @@
 import { describe, expect, test } from 'bun:test'
 import {
+  choicesOf,
   createExam,
   createQuestion,
   createVersion,
+  duplicateQuestion,
   nextVersionLetter,
   orderedChoices,
   orderedQuestions,
@@ -164,5 +166,30 @@ describe('version ordering edits', () => {
     withQuestionRemoved(version, 'q1')
     expect(version.questionOrder).toEqual(['q1'])
     expect(version.choiceOrder).toEqual({ q1: ['c1'] })
+  })
+})
+
+describe('duplicating a question', () => {
+  test('copies the content under a new question id and new choice ids', () => {
+    const original = multipleChoice('q1', ['c1', 'c2'], 'c2')
+    const copy = duplicateQuestion(original)
+    expect(copy.id).not.toBe(original.id)
+    expect(choicesOf(copy).map((choice) => choice.correct)).toEqual([false, true])
+    const copiedIds = choicesOf(copy).map((choice) => choice.id)
+    expect(copiedIds).not.toContain('c1')
+    expect(copiedIds).not.toContain('c2')
+    expect(choicesOf(original).map((choice) => choice.id)).toEqual(['c1', 'c2'])
+  })
+
+  test('keeps the type, the column setting and the stashed choices', () => {
+    const original: Question = {
+      ...multipleChoice('q1', ['c1', 'c2']),
+      type: 'open',
+      columns: 4,
+      stashedChoices: { type: 'multipleChoice', content: [] },
+    }
+    const copy = duplicateQuestion(original)
+    expect(copy).toMatchObject({ type: 'open', columns: 4 })
+    expect(copy.stashedChoices).toEqual(original.stashedChoices!)
   })
 })

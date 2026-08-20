@@ -15,6 +15,7 @@ import {
   choiceIsCorrect,
   choiceNodesOf,
   emptyDoc,
+  withFreshChoiceIds,
   type ProseMirrorJSON,
 } from './question-doc'
 import { newMultipleChoiceNode } from './multiple-choice'
@@ -74,6 +75,21 @@ export function createQuestion(type: QuestionType): Question {
     doc: newQuestionDoc(type),
     columns: 'auto',
   }
+}
+
+// A copy of the question, ready to be added as a question of its own. Its
+// choices are given fresh ids: `choiceOrder` is keyed by choice id, so a copy
+// that shared them would have its answers reordered along with the original's.
+export function duplicateQuestion(question: Question): Question {
+  const copy: Question = {
+    ...question,
+    id: crypto.randomUUID(),
+    doc: withFreshChoiceIds(question.doc),
+  }
+  if (question.stashedChoices) {
+    copy.stashedChoices = withFreshChoiceIds(question.stashedChoices)
+  }
+  return copy
 }
 
 export function createExam(title: string = DEFAULT_EXAM_TITLE): Exam {

@@ -18,18 +18,35 @@ function blankChoice(): ProseMirrorJSON {
   }
 }
 
+function attrsOf(value: unknown): Record<string, unknown> | undefined {
+  const attrs = (value as { attrs?: unknown }).attrs
+  if (typeof attrs !== 'object' || attrs === null || Array.isArray(attrs)) {
+    return undefined
+  }
+  return { ...(attrs as Record<string, unknown>) }
+}
+
 // Strip a document down to the shapes the editor schema accepts, so a document
-// that has been round-tripped through storage always loads. Choices keep their
+// that has been round-tripped through storage always loads. `attrs` are carried
+// through — they are where a heading's level, an image's source and a latex
+// node's expression live, and the page renders all three. Choices keep their
 // stable id and their boolean `correct`; a choice list is never left with fewer
 // than the two answers the schema requires.
 export function cleanDocument(value: ProseMirrorJSON): ProseMirrorJSON {
   const cleanNode = (node: ProseMirrorJSON): ProseMirrorJSON => {
     const clean: ProseMirrorJSON = { type: String(node.type ?? 'paragraph') }
+    const attrs = attrsOf(node)
+    if (attrs) clean.attrs = attrs
     if (typeof node.text === 'string') clean.text = node.text
     if (Array.isArray(node.marks)) {
-      clean.marks = node.marks.map((mark) => ({
-        type: String((mark as { type?: unknown }).type ?? ''),
-      }))
+      clean.marks = node.marks.map((mark) => {
+        const clean: ProseMirrorJSON = {
+          type: String((mark as { type?: unknown }).type ?? ''),
+        }
+        const attrs = attrsOf(mark)
+        if (attrs) clean.attrs = attrs
+        return clean
+      })
     }
     if (Array.isArray(node.content)) {
       clean.content = node.content.map((child) =>
@@ -82,4 +99,25 @@ export function choiceIdOf(node: ProseMirrorJSON): string {
 export function choiceIsCorrect(node: ProseMirrorJSON): boolean {
   const attrs = (node.attrs ?? {}) as Record<string, unknown>
   return attrs.correct === true
+}
+
+// A copy of the document whose answers carry brand-new ids. Duplicating a
+// question must not hand the copy the original's choice ids: a version's
+// `choiceOrder` is keyed by choice id, so shared ids would make one question's
+// ordering move the other's answers.
+export function withFreshChoiceIds(doc: ProseMirrorJSON): ProseMirrorJSON {
+  const fresh = (node: ProseMirrorJSON): ProseMirrorJSON => {
+    const copy: ProseMirrorJSON = { ...node }
+    if (node.type === 'multipleChoiceChoice') {
+      copy.attrs = {
+        ...((node.attrs ?? {}) as Record<string, unknown>),
+        id: crypto.randomUUID(),
+      }
+    }
+    if (Array.isArray(node.content)) {
+      copy.content = (node.content as ProseMirrorJSON[]).map(fresh)
+    }
+    return copy
+  }
+  return fresh(doc)
 }

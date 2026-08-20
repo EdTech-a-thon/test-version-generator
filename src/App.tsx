@@ -18,26 +18,19 @@ import {
   uniqueChoiceIds,
 } from './multiple-choice'
 import { subscriptSchema, superscriptSchema } from './script-marks'
-import { cleanDocument, emptyDoc } from './question-doc'
+import { cleanDocument } from './question-doc'
 import type { ProseMirrorJSON } from './question-doc'
-import { orderedQuestions } from './exam'
+import { createQuestion, duplicateQuestion, questionById } from './exam'
 import type { Question, QuestionType } from './exam'
 import type { ExamStore } from './exam-store'
-
-function questionDoc(type: QuestionType): ProseMirrorJSON {
-  return type === 'multiple-choice'
-    ? { type: 'doc', content: [{ type: 'paragraph' }, newMultipleChoiceNode()] }
-    : structuredClone(emptyDoc)
-}
+import { ExamPage } from './exam-page'
 
 function CrepeQuestion({
   value,
-  readonly = false,
   onChange,
 }: {
   value: ProseMirrorJSON
-  readonly?: boolean
-  onChange?: (doc: ProseMirrorJSON) => void
+  onChange: (doc: ProseMirrorJSON) => void
 }) {
   useEditor((root) => {
     const safeValue = cleanDocument(value)
@@ -47,16 +40,14 @@ function CrepeQuestion({
       features: {
         [Crepe.Feature.CodeMirror]: true,
         [Crepe.Feature.Latex]: true,
-        [Crepe.Feature.BlockEdit]: !readonly,
-        [Crepe.Feature.Toolbar]: !readonly,
       },
       featureConfigs: {
         [Crepe.Feature.BlockEdit]: { advancedGroup: { codeBlock: null } },
         [Crepe.Feature.Placeholder]: { text: 'Write the question…' },
       },
-    }).setReadonly(readonly)
+    })
     crepe.editor
-      .use(multipleChoiceMode(!readonly))
+      .use(multipleChoiceMode(true))
       .use(subscriptSchema)
       .use(superscriptSchema)
       .use(multipleChoiceSchema)
@@ -93,20 +84,15 @@ function CrepeQuestion({
           view.state.doc.content.size,
           loadedDocument.content,
         )
-        // Start the editable dialog with the cursor on the first line (the
-        // question) so typing goes there straight away. Previews are read-only
-        // and must not grab focus.
-        if (!readonly) {
-          tr.setSelection(TextSelection.atStart(tr.doc))
-        }
+        // Start the dialog with the cursor on the first line (the question) so
+        // typing goes there straight away.
+        tr.setSelection(TextSelection.atStart(tr.doc))
         view.dispatch(tr)
-        if (!readonly) view.focus()
+        view.focus()
       })
-      if (onChange) {
-        listener.updated((_ctx, doc) =>
-          onChange(cleanDocument(doc.toJSON() as ProseMirrorJSON)),
-        )
-      }
+      listener.updated((_ctx, doc) =>
+        onChange(cleanDocument(doc.toJSON() as ProseMirrorJSON)),
+      )
     })
     return crepe
   }, [])
@@ -115,19 +101,17 @@ function CrepeQuestion({
 
 function QuestionDialog({
   question,
+  isNew,
   onCancel,
   onSave,
 }: {
-  question?: Question
+  question: Question
+  isNew: boolean
   onCancel: () => void
   onSave: (question: Question) => void
 }) {
-  const [type, setType] = useState<QuestionType>(
-    question?.type ?? 'multiple-choice',
-  )
-  const [doc, setDoc] = useState<ProseMirrorJSON>(
-    question?.doc ?? questionDoc('multiple-choice'),
-  )
+  const [type, setType] = useState<QuestionType>(question.type)
+  const [doc, setDoc] = useState<ProseMirrorJSON>(question.doc)
   const latestDoc = useRef(doc)
 
   const changeType = (next: QuestionType) => {
@@ -167,7 +151,7 @@ function QuestionDialog({
         aria-label="Question editor"
       >
         <header className="dialog-header">
-          <h2>{question ? 'Edit question' : 'Add question'}</h2>
+          <h2>{isNew ? 'Add question' : 'Edit question'}</h2>
           <label>
             Type
             <select value={type} onChange={(event) => changeType(event.target.value as QuestionType)}>
@@ -192,10 +176,8 @@ function QuestionDialog({
             onClick={() =>
               onSave({
                 ...question,
-                id: question?.id ?? crypto.randomUUID(),
                 type,
                 doc: cleanDocument(latestDoc.current),
-                columns: question?.columns ?? 'auto',
               })
             }
           >
@@ -210,8 +192,9 @@ function QuestionDialog({
 export default function App({ store }: { store: ExamStore }) {
   const draft = useSyncExternalStore(store.subscribe, store.getState)
   const version = store.currentVersion()
-  const questions = orderedQuestions(draft.exam, version)
-  const [editing, setEditing] = useState<Question | 'new' | null>(null)
+  // A question being written. A new one is a full question that the store has
+  // not been told about yet, so saving is the same call either way.
+  const [editing, setEditing] = useState<Question | null>(null)
 
   return (
     <>
@@ -223,49 +206,33 @@ export default function App({ store }: { store: ExamStore }) {
           onChange={(event) => store.setTitle(event.target.value)}
         />
         <div className="header-actions">
-          <button type="button" className="secondary-button" onClick={() => setEditing('new')}>+ Add question</button>
           <button type="button" className="print-button" onClick={() => window.print()}>Print</button>
         </div>
       </header>
 
-      <main className="exam-workspace">
-        <article className="exam-page">
-          <h1>{draft.exam.title}</h1>
-          {questions.length === 0 && (
-            <button className="empty-exam" type="button" onClick={() => setEditing('new')}>
-              Add your first question
-            </button>
-          )}
-          {questions.map((question, index) => (
-            <section className="exam-question" key={question.id}>
-              <aside className="question-actions">
-                <strong>Question {index + 1}</strong>
-                <button type="button" onClick={() => setEditing(question)}>Edit</button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (window.confirm(`Delete question ${index + 1}?`)) {
-                      store.removeQuestion(question.id)
-                    }
-                  }}
-                >Delete</button>
-              </aside>
-              <div className="question-number">{index + 1}.</div>
-              <div className="question-preview">
-                <CrepeQuestion value={question.doc} readonly />
-              </div>
-            </section>
-          ))}
-        </article>
-      </main>
+      <ExamPage
+        exam={draft.exam}
+        version={version}
+        onEdit={(questionId) => setEditing(questionById(draft.exam, questionId) ?? null)}
+        onDuplicate={(questionId) => {
+          const question = questionById(draft.exam, questionId)
+          if (question) store.addQuestion(duplicateQuestion(question))
+        }}
+        onDelete={(questionId) => {
+          if (window.confirm('Delete this question?')) {
+            store.removeQuestion(questionId)
+          }
+        }}
+        onAdd={(section) => setEditing(createQuestion(section))}
+      />
 
       {editing && (
         <QuestionDialog
-          question={editing === 'new' ? undefined : editing}
+          question={editing}
+          isNew={!questionById(draft.exam, editing.id)}
           onCancel={() => setEditing(null)}
           onSave={(saved) => {
-            if (editing === 'new') store.addQuestion(saved)
-            else store.updateQuestion(saved)
+            store.updateQuestion(saved)
             setEditing(null)
           }}
         />

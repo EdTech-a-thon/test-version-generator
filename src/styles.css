@@ -29,24 +29,67 @@ button { cursor: pointer; }
   width: min(860px, 100%); min-height: calc(100vh - 58px); margin: 0 auto; padding: 64px 72px;
   background: #fffdf8; box-shadow: 0 2px 8px rgb(91 68 47 / 18%);
 }
-.exam-page > h1 { margin: 0 0 48px; font: 700 30px/1.2 Georgia, serif; }
-.empty-exam {
-  width: 100%; padding: 42px; border: 1px dashed #cdb9a6; border-radius: 8px;
-  color: #806b5e; background: #fffaf3;
+/* The rendered test. Everything below the document bar is a view of what the
+   printer will produce; nothing in it is typeable. */
+.exam-page { font-family: Georgia, 'Times New Roman', serif; font-size: 15px; line-height: 1.45; }
+.exam-title { margin: 0 0 30px; font: 700 26px/1.2 Georgia, serif; }
+.exam-section { margin: 0 0 18px; }
+.section-title { margin: 0; font: 700 17px/1.3 Georgia, serif; }
+.section-instructions { margin: 4px 0 0; font-style: italic; }
+.exam-question {
+  position: relative; display: grid; grid-template-columns: 92px 1fr; gap: 6px;
+  margin-bottom: 26px;
 }
-.exam-question { position: relative; display: grid; grid-template-columns: 34px 1fr; margin-bottom: 40px; }
-.question-number { padding-top: 4px; font-weight: 700; }
-.question-actions {
-  position: absolute; top: 0; right: calc(100% + 104px); width: 170px; padding: 12px;
-  display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+.question-number { display: flex; align-items: baseline; gap: 8px; font-weight: 700; }
+/* The line a student writes their letter on. */
+.answer-blank { flex: 1; border-bottom: 1px solid #332a24; transform: translateY(-3px); }
+.question-count { white-space: nowrap; }
+.question-stem > :first-child { margin-top: 0; }
+.question-stem > :last-child { margin-bottom: 0; }
+
+/* The choice grid: a table for the column-major layout, borderless everywhere. */
+.choice-grid { width: 100%; margin: 8px 0 0; border: 0; border-collapse: collapse; table-layout: fixed; }
+.choice-cell { padding: 1px 12px 1px 0; border: 0; vertical-align: top; }
+.choice-letter { float: left; margin-right: 6px; font-weight: 400; }
+.choice-body > :first-child { margin-top: 0; }
+.choice-body > :last-child { margin-bottom: 0; }
+.choice-body p { margin: 0 0 2px; }
+
+/* The gutter: hidden until the question is hovered or something in it has
+   focus, so the page reads as paper until the teacher reaches for it. */
+.question-gutter {
+  position: absolute; top: -2px; right: calc(100% + 24px);
+  display: flex; align-items: flex-start; gap: 6px; padding: 5px;
   border: 1px solid #d8c5b2; border-radius: 8px; background: #fff9f1;
   box-shadow: 0 2px 7px rgb(91 68 47 / 12%);
+  opacity: 0; transition: opacity 90ms ease-in;
+  font-family: Arial, Helvetica, sans-serif;
 }
-.question-actions strong { grid-column: 1 / -1; font-size: 13px; }
-.question-actions button { padding: 5px; border: 0; border-radius: 5px; color: #786457; background: transparent; }
-.question-actions button:hover { background: #eadbcc; }
-.question-preview .milkdown { --crepe-color-background: transparent; background: transparent; }
-.question-preview .milkdown > .ProseMirror { min-height: 0; padding: 0; }
+.exam-question:hover .question-gutter,
+.question-gutter:focus-within { opacity: 1; }
+.gutter-actions { display: flex; gap: 4px; }
+.gutter-button {
+  padding: 4px 7px; border: 0; border-radius: 5px;
+  color: #786457; background: transparent; font-size: 13px; white-space: nowrap;
+}
+.gutter-button:hover { color: #4e3b2f; background: #eadbcc; }
+
+/* Adding from the end of a section: the type is implied by where it sits. */
+.add-question {
+  width: 100%; margin: 0 0 34px; padding: 12px;
+  border: 1px dashed #cdb9a6; border-radius: 8px;
+  color: #806b5e; background: transparent;
+  font-family: Arial, Helvetica, sans-serif; font-size: 14px; text-align: left;
+}
+.add-question:hover { color: #9f5037; background: #fdf5ec; }
+
+/* Question content. */
+.doc-figure { margin: 8px 0; }
+.doc-figure img, .question-stem img, .choice-body img { max-width: 100%; }
+.doc-figure figcaption { font-size: 13px; font-style: italic; }
+.doc-table { border-collapse: collapse; }
+.doc-table td, .doc-table th { padding: 3px 8px; border: 1px solid #b9a893; }
+.doc-math--block { display: block; margin: 6px 0; text-align: center; }
 
 .dialog-backdrop {
   position: fixed; inset: 0; z-index: 100; padding: 28px; display: grid; place-items: center;
@@ -135,19 +178,21 @@ button { cursor: pointer; }
 }
 @keyframes mc-caret-blink { 50% { opacity: 0; } }
 
-@media (max-width: 1320px) { .question-actions { right: calc(100% + 50px); width: 140px; } .exam-workspace { padding-left: 180px; } }
+@media (max-width: 1320px) { .question-gutter { right: auto; left: 0; top: -34px; } }
 @media (max-width: 800px) {
   .exam-workspace { padding: 0; }
   .exam-page { padding: 40px 24px; }
-  .question-actions { position: static; grid-column: 1 / -1; width: 100%; margin-bottom: 14px; }
+  .question-gutter { position: static; grid-column: 1 / -1; margin-bottom: 8px; opacity: 1; }
   .dialog-backdrop { padding: 0; }
   .question-dialog { width: 100%; height: 100vh; border-radius: 0; }
   .dialog-editor { padding: 0; }
 }
 
 @media print {
-  .document-bar, .question-actions { display: none; }
+  /* Chrome off: only the test prints. */
+  .document-bar, .question-gutter, .add-question { display: none; }
   body, :root { background: #fff; }
   .exam-workspace { padding: 0; }
   .exam-page { width: 100%; min-height: 0; padding: 0; box-shadow: none; }
+  .exam-question { break-inside: avoid; }
 }

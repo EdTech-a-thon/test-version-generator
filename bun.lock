@@ -8,6 +8,7 @@
         "@milkdown/crepe": "^7.21.1",
         "@milkdown/kit": "^7.21.1",
         "@milkdown/react": "^7.21.1",
+        "katex": "^0.18.0",
         "react": "^19.1.1",
         "react-dom": "^19.1.1",
       },
