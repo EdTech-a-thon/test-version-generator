@@ -10,6 +10,7 @@ import {
   SECTION_INSTRUCTIONS,
   SECTION_TITLE,
   pageContentHeight,
+  isAnswerKeyHeader,
   renderExam,
   renderPrintPages,
   unmeasured,
@@ -81,7 +82,7 @@ function render(exam: Exam, version: Version = versionOf()): Page[] {
 }
 
 function testPages(pages: Page[]): Page[] {
-  return pages.filter((page) => page.header !== 'answer-key')
+  return pages.filter((page) => !isAnswerKeyHeader(page.header))
 }
 
 function itemsOf(pages: Page[]): PageItem[] {
@@ -177,6 +178,15 @@ describe('sections', () => {
       { kind: 'add-question', section: 'multiple-choice' },
       expect.objectContaining({ kind: 'section-heading', section: 'open' }),
       expect.objectContaining({ kind: 'question' }),
+      { kind: 'add-question', section: 'open' },
+    ])
+  })
+
+  test('keeps an editing-only add control at an empty section position without its heading', () => {
+    const pages = render(examOf([multipleChoice('q1', ['a', 'b'])]))
+    expect(headings(pages)).toHaveLength(1)
+    expect(itemsOf(pages).filter((item) => item.kind === 'add-question')).toEqual([
+      { kind: 'add-question', section: 'multiple-choice' },
       { kind: 'add-question', section: 'open' },
     ])
   })
@@ -459,7 +469,7 @@ describe('page geometry', () => {
 describe('answer key', () => {
   function keyItems(exam: Exam, version: Version = versionOf()): PageItem[] {
     return renderExam(exam, version, unmeasured)
-      .filter((page) => page.header === 'answer-key')
+      .filter((page) => isAnswerKeyHeader(page.header))
       .flatMap((page) => page.items)
   }
 
@@ -501,8 +511,8 @@ describe('answer key', () => {
       examOf([multipleChoice('m1', ['a'], 'a'), open('o1')]),
       versionOf(),
       unmeasured,
-    ).filter((page) => page.header === 'answer-key')
-    expect(keyPages.every((page) => page.header === 'answer-key')).toBe(true)
+    ).filter((page) => isAnswerKeyHeader(page.header))
+    expect(keyPages.every((page) => isAnswerKeyHeader(page.header))).toBe(true)
     expect(keyPages[0]!.items).toEqual([
       { kind: 'answer-key-heading' },
       { kind: 'answer-key-section', section: 'multiple-choice', title: 'Multiple Choice' },
@@ -510,6 +520,25 @@ describe('answer key', () => {
       { kind: 'answer-key-section', section: 'open', title: 'Short Answer' },
       { kind: 'answer-key-entry', number: 2, letter: null },
     ])
+  })
+
+  test('repeats the title only on the first answer-key page', () => {
+    const keyPages = renderExam(
+      examOf([open('o1'), open('o2'), open('o3')]),
+      versionOf(),
+      {
+        choiceWidth: () => 0,
+        itemHeight: (item) => item.kind === 'answer-key-entry' ? 400 : 0,
+      },
+    ).filter((page) => page.header.startsWith('answer-key'))
+
+    expect(keyPages.length).toBeGreaterThan(1)
+    expect(keyPages.map((page) => page.header)).toEqual([
+      'answer-key',
+      'answer-key-later',
+      'answer-key-later',
+    ])
+    expect(keyPages.map((page) => page.number)).toEqual([1, 2, 3])
   })
 
   test('lists a question only once when its test rendering is split', () => {
@@ -553,9 +582,9 @@ describe('print selection', () => {
     })[0]!.pages
 
     expect(testOnly.length).toBeGreaterThan(0)
-    expect(testOnly.every((page) => page.header !== 'answer-key')).toBe(true)
+    expect(testOnly.every((page) => !isAnswerKeyHeader(page.header))).toBe(true)
     expect(keyOnly.length).toBeGreaterThan(0)
-    expect(keyOnly.every((page) => page.header === 'answer-key')).toBe(true)
+    expect(keyOnly.every((page) => isAnswerKeyHeader(page.header))).toBe(true)
   })
 
   test('renders every version independently so each stream restarts at page one', () => {
@@ -661,7 +690,7 @@ describe('page packing', () => {
     const exam = examOf([tall('o1', 1), tall('o2', 1)])
     const third = Math.floor(FIRST_BOX / 3)
     const pages = testPages(renderExam(exam, versionOf(), stubHeights({ o1: third, o2: third })))
-    expect(pageShape(pages)).toEqual([['section-heading', 'q:o1', 'q:o2', 'add-question']])
+    expect(pageShape(pages)).toEqual([['add-question', 'section-heading', 'q:o1', 'q:o2', 'add-question']])
     expect(questionItems(pages).every((item) => item.numbered)).toBe(true)
   })
 
@@ -670,7 +699,7 @@ describe('page packing', () => {
     const tooTall = Math.ceil(FIRST_BOX * 0.6)
     const pages = testPages(renderExam(exam, versionOf(), stubHeights({ o1: tooTall, o2: tooTall })))
     expect(pageShape(pages)).toEqual([
-      ['section-heading', 'q:o1'],
+      ['add-question', 'section-heading', 'q:o1'],
       ['q:o2', 'add-question'],
     ])
     // Whole means whole: the moved question still carries its number line and
@@ -710,6 +739,7 @@ describe('page packing', () => {
       stubHeights({ o1: FIRST_BOX - 44, o2: 100 }),
     )
     expect(pages[0]!.items.map((item) => item.kind)).toEqual([
+      'add-question',
       'section-heading',
       'question',
     ])
@@ -758,7 +788,7 @@ describe('page packing', () => {
     const between = LATER_BOX
     const pages = testPages(renderExam(exam, versionOf(), stubHeights({ o1: 10, o2: between })))
     expect(pageShape(pages)).toEqual([
-      ['section-heading', 'q:o1'],
+      ['add-question', 'section-heading', 'q:o1'],
       ['q:o2', 'add-question'],
     ])
     expect(questionItems(pages)[1]!.stem).toHaveLength(1)
@@ -771,7 +801,11 @@ describe('page packing', () => {
       versionOf(),
       stubHeights({ o1: FIRST_BOX - 10 }, {}, 70),
     ))
-    expect(pageShape(pages)).toEqual([['section-heading'], ['q:o1'], ['add-question']])
+    expect(pageShape(pages)).toEqual([
+      ['add-question', 'section-heading'],
+      ['q:o1'],
+      ['add-question'],
+    ])
   })
 
   test('an unsplit question carries the whole question, so the page is the only thing that changed', () => {

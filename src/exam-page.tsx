@@ -14,7 +14,7 @@
 // `pages` is state rather than a value computed during render: see
 // `usePaginatedExam`.
 
-import { useLayoutEffect, useRef, useState, type CSSProperties, type RefObject } from 'react'
+import { useLayoutEffect, useRef, useState, type CSSProperties, type DragEvent, type RefObject } from 'react'
 import {
   AddQuestionButton,
   AnswerKeyEntry,
@@ -135,6 +135,8 @@ function QuestionGutter({
   onDuplicate,
   onDelete,
   onSetColumns,
+  onDragStart,
+  onDragEnd,
 }: {
   question: RenderedQuestion
   selected: boolean
@@ -143,6 +145,8 @@ function QuestionGutter({
   onDuplicate: (questionId: string) => void
   onDelete: (questionId: string) => void
   onSetColumns: (questionId: string, columns: ColumnSetting) => void
+  onDragStart: (event: DragEvent<HTMLButtonElement>, questionId: string) => void
+  onDragEnd: () => void
 }) {
   return (
     <aside
@@ -160,6 +164,16 @@ function QuestionGutter({
         />
       </label>
       <div className="gutter-actions">
+        <button
+          type="button"
+          className="gutter-button drag-handle"
+          draggable
+          aria-label={`Drag question ${question.number} to reorder`}
+          onDragStart={(event) => onDragStart(event, question.id)}
+          onDragEnd={onDragEnd}
+        >
+          Drag
+        </button>
         <button
           type="button"
           className="gutter-button"
@@ -201,6 +215,10 @@ function QuestionView({
   onDuplicate,
   onDelete,
   onSetColumns,
+  draggedQuestion,
+  onDragStart,
+  onDragEnd,
+  onMoveQuestion,
 }: {
   item: QuestionItem
   selected: boolean
@@ -211,6 +229,10 @@ function QuestionView({
   onDuplicate: (questionId: string) => void
   onDelete: (questionId: string) => void
   onSetColumns: (questionId: string, columns: ColumnSetting) => void
+  draggedQuestion: RenderedQuestion | null
+  onDragStart: (event: DragEvent<HTMLButtonElement>, questionId: string) => void
+  onDragEnd: () => void
+  onMoveQuestion: (questionId: string, targetId: string, placement: 'before' | 'after') => void
 }) {
   // A click is deferred rather than applied immediately, so that when it
   // turns out to be the first half of a double-click, the deferred selection
@@ -223,6 +245,21 @@ function QuestionView({
     <section
       className={selected ? 'exam-question exam-question--selected' : 'exam-question'}
       data-question-id={question.id}
+      onDragOver={(event) => {
+        if (item.numbered && draggedQuestion?.type === question.type && draggedQuestion.id !== question.id) {
+          event.preventDefault()
+          event.dataTransfer.dropEffect = 'move'
+        }
+      }}
+      onDrop={(event) => {
+        if (!item.numbered || !draggedQuestion || draggedQuestion.type !== question.type) return
+        event.preventDefault()
+        event.stopPropagation()
+        const bounds = event.currentTarget.getBoundingClientRect()
+        const placement = event.clientY < bounds.top + bounds.height / 2 ? 'before' : 'after'
+        onMoveQuestion(draggedQuestion.id, question.id, placement)
+        onDragEnd()
+      }}
       onClick={(event) => {
         const modifiers = {
           shiftKey: event.shiftKey,
@@ -251,6 +288,8 @@ function QuestionView({
           onDuplicate={onDuplicate}
           onDelete={onDelete}
           onSetColumns={onSetColumns}
+          onDragStart={onDragStart}
+          onDragEnd={onDragEnd}
         />
       )}
       <QuestionContent item={item} />
@@ -269,6 +308,10 @@ function PageItemView({
   onDelete,
   onAdd,
   onSetColumns,
+  draggedQuestion,
+  onDragStart,
+  onDragEnd,
+  onMoveQuestion,
 }: {
   item: PageItem
   orderedIds: readonly string[]
@@ -280,6 +323,10 @@ function PageItemView({
   onDelete: (questionId: string) => void
   onAdd: (section: QuestionType) => void
   onSetColumns: (questionId: string, columns: ColumnSetting) => void
+  draggedQuestion: RenderedQuestion | null
+  onDragStart: (event: DragEvent<HTMLButtonElement>, questionId: string) => void
+  onDragEnd: () => void
+  onMoveQuestion: (questionId: string, targetId: string, placement: 'before' | 'after') => void
 }) {
   switch (item.kind) {
     case 'section-heading':
@@ -303,6 +350,10 @@ function PageItemView({
           onDuplicate={onDuplicate}
           onDelete={onDelete}
           onSetColumns={onSetColumns}
+          draggedQuestion={draggedQuestion}
+          onDragStart={onDragStart}
+          onDragEnd={onDragEnd}
+          onMoveQuestion={onMoveQuestion}
         />
       )
     case 'add-question':
@@ -403,6 +454,12 @@ function PageHeaderView({
           <h1 className="exam-title">{title}</h1>
         </header>
       )
+    case 'answer-key-later':
+      return (
+        <header className="page-header page-header--answer-key-later">
+          <div className="page-identity">{id}</div>
+        </header>
+      )
     default: {
       const unreachable: never = header
       return unreachable
@@ -429,6 +486,7 @@ const PAGE_GEOMETRY = {
   '--page-header-first': `${HEADER_HEIGHT.first}px`,
   '--page-header-later': `${HEADER_HEIGHT.later}px`,
   '--page-header-answer-key': `${HEADER_HEIGHT['answer-key']}px`,
+  '--page-header-answer-key-later': `${HEADER_HEIGHT['answer-key-later']}px`,
   '--page-footer': `${FOOTER_HEIGHT}px`,
 } as CSSProperties
 
@@ -508,6 +566,7 @@ export function ExamPage({
   onDelete,
   onAdd,
   onSetColumns,
+  onMoveQuestion,
   unsavedDraft = false,
   content = { test: true, answerKey: true },
 }: {
@@ -519,6 +578,7 @@ export function ExamPage({
   onDelete: (questionId: string) => void
   onAdd: (section: QuestionType) => void
   onSetColumns: (questionId: string, columns: ColumnSetting) => void
+  onMoveQuestion: (questionId: string, targetId: string, placement: 'before' | 'after') => void
   unsavedDraft?: boolean
   content?: PrintContent
 }) {
@@ -528,6 +588,14 @@ export function ExamPage({
   const idsBySection = questionIdsBySection(pages)
   const columnSettings = columnSettingsOf(exam)
   const clearOnBackground = clearOnBackgroundClick(selection)
+  const [draggedQuestionId, setDraggedQuestionId] = useState<string | null>(null)
+  const draggedQuestion = draggedQuestionId
+    ? pages.flatMap((page) => page.items).flatMap((item) =>
+        item.kind === 'question' && item.question.id === draggedQuestionId
+          ? [item.question]
+          : [],
+      )[0] ?? null
+    : null
 
   return (
     <main
@@ -561,6 +629,14 @@ export function ExamPage({
                 onDelete={onDelete}
                 onAdd={onAdd}
                 onSetColumns={onSetColumns}
+                draggedQuestion={draggedQuestion}
+                onDragStart={(event, questionId) => {
+                  event.dataTransfer.effectAllowed = 'move'
+                  event.dataTransfer.setData('text/plain', questionId)
+                  setDraggedQuestionId(questionId)
+                }}
+                onDragEnd={() => setDraggedQuestionId(null)}
+                onMoveQuestion={onMoveQuestion}
               />
             ))}
           </div>

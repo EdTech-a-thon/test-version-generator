@@ -241,6 +241,41 @@ export function withQuestionRemoved(
   }
 }
 
+export type QuestionPlacement = 'before' | 'after'
+
+// Moves one question to an exact position in its derived section. A target in
+// another section is refused: ordering never changes a question's type.
+export function moveQuestion(
+  exam: Exam,
+  version: Version,
+  questionId: string,
+  targetId: string,
+  placement: QuestionPlacement,
+): Version {
+  const question = questionById(exam, questionId)
+  const target = questionById(exam, targetId)
+  if (!question || !target || question.type !== target.type || questionId === targetId) {
+    return version
+  }
+
+  const sectionIds = questionsInSection(exam, version, question.type).map(
+    (item) => item.id,
+  )
+  const withoutQuestion = sectionIds.filter((id) => id !== questionId)
+  const targetIndex = withoutQuestion.indexOf(targetId)
+  if (targetIndex < 0) return version
+  withoutQuestion.splice(targetIndex + (placement === 'after' ? 1 : 0), 0, questionId)
+
+  const questionOrder = SECTION_ORDER.flatMap((section) =>
+    section === question.type
+      ? withoutQuestion
+      : questionsInSection(exam, version, section).map((item) => item.id),
+  )
+  if (questionOrder.every((id, index) => id === version.questionOrder[index]) &&
+      questionOrder.length === version.questionOrder.length) return version
+  return { ...version, questionOrder }
+}
+
 // ---------------------------------------------------------------------------
 // Shuffling
 //

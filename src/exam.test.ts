@@ -6,6 +6,7 @@ import {
   createVersion,
   duplicateQuestion,
   nextVersionLetter,
+  moveQuestion,
   orderedChoices,
   orderedQuestions,
   questionById,
@@ -163,6 +164,27 @@ describe('choice ordering', () => {
 })
 
 describe('version ordering edits', () => {
+  test('moves a question to a specific position within its derived section', () => {
+    const exam = examOf([
+      multipleChoice('q1', ['a']),
+      multipleChoice('q2', ['a']),
+      multipleChoice('q3', ['a']),
+      open('o1'),
+    ])
+    const version = versionOf(['q1', 'q2', 'q3', 'o1'])
+
+    const moved = moveQuestion(exam, version, 'q3', 'q1', 'before')
+
+    expect(moved.questionOrder).toEqual(['q3', 'q1', 'q2', 'o1'])
+  })
+
+  test('refuses to move a question into another derived section', () => {
+    const exam = examOf([multipleChoice('q1', ['a']), open('o1')])
+    const version = versionOf(['q1', 'o1'])
+
+    expect(moveQuestion(exam, version, 'q1', 'o1', 'after')).toBe(version)
+  })
+
   test('appending a question adds it to the end of the ordering, once', () => {
     const version = withQuestionAppended(versionOf(['q1']), 'q2')
     expect(version.questionOrder).toEqual(['q1', 'q2'])

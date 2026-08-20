@@ -22,6 +22,7 @@ import type { ProseMirrorJSON } from './question-doc'
 import {
   createQuestion,
   duplicateQuestion,
+  moveQuestion,
   questionById,
   shuffleAnswers,
   shuffleQuestions,
@@ -445,6 +446,11 @@ export default function App({ store }: { store: ExamStore }) {
           }}
           onAdd={(section) => setEditing(createQuestion(section))}
           onSetColumns={(questionId, columns) => store.setQuestionColumns(questionId, columns)}
+          onMoveQuestion={(questionId, targetId, placement) =>
+            store.updateCurrentVersion((current) =>
+              moveQuestion(draft.exam, current, questionId, targetId, placement),
+            )
+          }
           unsavedDraft={!store.hasSavedVersions()}
         />
       </div>
@@ -462,6 +468,7 @@ export default function App({ store }: { store: ExamStore }) {
               onDelete={() => {}}
               onAdd={() => {}}
               onSetColumns={() => {}}
+              onMoveQuestion={() => {}}
               content={printRequest.content}
             />
           ))}

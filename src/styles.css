@@ -80,6 +80,7 @@ button { cursor: pointer; }
 .page-header--first { height: var(--page-header-first); }
 .page-header--later { height: var(--page-header-later); }
 .page-header--answer-key { height: var(--page-header-answer-key); }
+.page-header--answer-key-later { height: var(--page-header-answer-key-later); }
 .page-identity {
   flex: none; height: var(--page-header-later);
   display: flex; align-items: baseline; gap: 20px;
@@ -95,7 +96,8 @@ button { cursor: pointer; }
   flex: 1 1 auto; display: flex; align-items: flex-end;
   margin: 0; font: 700 26px/1.2 Georgia, serif;
 }
-.page-header--answer-key .page-identity { justify-content: flex-end; }
+.page-header--answer-key .page-identity,
+.page-header--answer-key-later .page-identity { justify-content: flex-end; }
 /* A flex item, so its children's margins stay inside it — the same containment
    the measuring host relies on. */
 .page-content { flex: 1 1 auto; min-height: 0; }
@@ -178,6 +180,8 @@ button { cursor: pointer; }
   color: #786457; background: transparent; font-size: 13px; white-space: nowrap;
 }
 .gutter-button:hover { color: #4e3b2f; background: #eadbcc; }
+.drag-handle { cursor: grab; }
+.drag-handle:active { cursor: grabbing; }
 
 /* The segmented Auto | 1 | 2 | 4 column control (#11), shared by the gutter
    and the toolbar. */

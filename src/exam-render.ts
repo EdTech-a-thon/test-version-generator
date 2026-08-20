@@ -173,7 +173,11 @@ export type PageItem =
 // line and the title; later pages take a Name blank alone; the answer key —
 // begun fresh after the last test page, footer restarted at 1 — takes the
 // version ID alone plus the repeated title, and carries no Name line at all.
-export type PageHeader = 'first' | 'later' | 'answer-key'
+export type PageHeader = 'first' | 'later' | 'answer-key' | 'answer-key-later'
+
+export function isAnswerKeyHeader(header: PageHeader): boolean {
+  return header === 'answer-key' || header === 'answer-key-later'
+}
 
 export type Page = {
   /** Printed in the footer, 1-based. */
@@ -206,13 +210,13 @@ const PAGE_BOX_HEIGHT = PAGE_HEIGHT - 2 * PAGE_MARGIN
 
 // Exhaustive over `PageHeader` on purpose: a new variant cannot be added
 // without deciding how tall its furniture is. The answer key's header carries
-// the same two lines the first test page's does — a single identity line
-// (here, just the ID) and the full title beneath it — so it takes the same
-// total height as `first`, even though what's on the identity line differs.
+// The first answer-key page repeats the title; continuation pages carry only
+// the ID and therefore use the shorter header height.
 export const HEADER_HEIGHT: Record<PageHeader, number> = {
   first: 84,
   later: 30,
   'answer-key': 84,
+  'answer-key-later': 30,
 }
 
 export const FOOTER_HEIGHT = 36
@@ -339,14 +343,14 @@ function renderQuestion(
 }
 
 // Sections in fixed order, each omitted entirely when it holds no questions —
-// except that an exam with no questions at all still offers both ways in.
+// Empty sections omit their printed heading and instructions, but their add
+// control remains at the section's fixed editing position so either type can
+// always be created.
 function renderItems(exam: Exam, version: Version, measure: Measure): PageItem[] {
   const items: PageItem[] = []
-  const empty = exam.questions.length === 0
   let number = 1
   for (const section of SECTION_ORDER) {
     const questions = questionsInSection(exam, version, section)
-    if (questions.length === 0 && !empty) continue
     if (questions.length > 0) {
       items.push({
         kind: 'section-heading',
@@ -543,7 +547,7 @@ export function renderExam(
     renderAnswerKeyItems(testPages),
     measure,
     'answer-key',
-    'answer-key',
+    'answer-key-later',
   )
   return [...testPages, ...keyPages]
 }
@@ -570,7 +574,7 @@ export function renderPrintPages(
   return versions.map((version) => ({
     version,
     pages: renderExam(exam, version, measure).filter((page) =>
-      page.header === 'answer-key' ? content.answerKey : content.test,
+      isAnswerKeyHeader(page.header) ? content.answerKey : content.test,
     ),
   }))
 }
