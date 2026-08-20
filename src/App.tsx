@@ -213,6 +213,7 @@ export default function App({ store }: { store: ExamStore }) {
   // A question being written. A new one is a full question that the store has
   // not been told about yet, so saving is the same call either way.
   const [editing, setEditing] = useState<Question | null>(null)
+  const [pendingVersionId, setPendingVersionId] = useState<string | null>(null)
   // Selection lives here, alongside the store: it is the seam #11's toolbar
   // column control (also selection-wide) will read from, the same way
   // "Shuffle answers" below does.
@@ -242,6 +243,60 @@ export default function App({ store }: { store: ExamStore }) {
           onChange={(event) => store.setTitle(event.target.value)}
         />
         <div className="header-actions">
+          <select
+            className="version-picker"
+            aria-label="Version"
+            value={store.hasSavedVersions() ? version.id : 'draft'}
+            onChange={(event) => {
+              const versionId = event.target.value
+              if (draft.dirty) setPendingVersionId(versionId)
+              else store.selectVersion(versionId)
+            }}
+          >
+            {!store.hasSavedVersions() && <option value="draft">Unsaved draft</option>}
+            {store.hasSavedVersions() && draft.versions.map((item) => (
+              <option value={item.id} key={item.id}>{item.letter}</option>
+            ))}
+          </select>
+          {store.hasSavedVersions() && (
+            <>
+              <button
+                type="button"
+                className="secondary-button compact-button"
+                onClick={() => {
+                  const letter = window.prompt('Rename this version', version.letter)?.trim()
+                  if (letter) store.renameVersion(version.id, letter)
+                }}
+              >Rename</button>
+              <button
+                type="button"
+                className="secondary-button compact-button"
+                disabled={draft.versions.length === 1}
+                onClick={() => {
+                  if (window.confirm(`Delete version ${version.letter}?`)) {
+                    store.deleteVersion(version.id)
+                  }
+                }}
+              >Delete</button>
+            </>
+          )}
+          <span className="save-control">
+            <button type="button" className="primary-button" onClick={() => void store.save()}>
+              Save
+            </button>
+            {draft.dirty && <span className="dirty-bubble" aria-label="Unsaved changes" />}
+          </span>
+          <button
+            type="button"
+            className="secondary-button compact-button"
+            disabled={!draft.dirty}
+            onClick={() => void store.discard()}
+          >Discard</button>
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={() => void store.saveAsNewVersion()}
+          >Save as new version</button>
           <ColumnControl
             value={selectionColumns}
             ariaLabel="Set answer columns for the selected questions"
@@ -304,7 +359,28 @@ export default function App({ store }: { store: ExamStore }) {
         }}
         onAdd={(section) => setEditing(createQuestion(section))}
         onSetColumns={(questionId, columns) => store.setQuestionColumns(questionId, columns)}
+        unsavedDraft={!store.hasSavedVersions()}
       />
+
+      {pendingVersionId && (
+        <div className="dialog-backdrop" role="presentation">
+          <section className="switch-dialog" role="dialog" aria-modal="true" aria-label="Unsaved changes">
+            <h2>Save changes before switching versions?</h2>
+            <p>The unsaved ordering belongs to version {version.letter}.</p>
+            <div className="dialog-actions">
+              <button type="button" className="primary-button" onClick={() => {
+                void store.save().then(() => store.selectVersion(pendingVersionId))
+                setPendingVersionId(null)
+              }}>Save</button>
+              <button type="button" className="secondary-button" onClick={() => {
+                void store.discard().then(() => store.selectVersion(pendingVersionId))
+                setPendingVersionId(null)
+              }}>Discard</button>
+              <button type="button" className="secondary-button" onClick={() => setPendingVersionId(null)}>Cancel</button>
+            </div>
+          </section>
+        </div>
+      )}
 
       {editing && (
         <QuestionDialog

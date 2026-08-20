@@ -9,6 +9,7 @@
 import {
   createExam,
   createVersion,
+  nextVersionLetter,
   withQuestionAppended,
   withQuestionRemoved,
   type ColumnSetting,
@@ -23,6 +24,8 @@ export type WorkingDraft = {
   currentVersionId: string
   dirty: boolean
 }
+
+export type SavedState = Omit<WorkingDraft, 'dirty'>
 
 // The whole persistence surface: read the last value written, write a new one.
 // Both are asynchronous so that an IndexedDB implementation fits behind the
@@ -69,6 +72,38 @@ export function createLocalStorageBackend<T>(key: string): Backend<T> {
     },
     write: async (value: T) => {
       localStorage.setItem(key, JSON.stringify(value))
+    },
+  }
+}
+
+export const SAVED_STORAGE_NAME = 'exam-saved-v1'
+
+export function createIndexedDBBackend<T>(databaseName = SAVED_STORAGE_NAME): Backend<T> {
+  const open = () => new Promise<IDBDatabase>((resolve, reject) => {
+    const request = indexedDB.open(databaseName, 1)
+    request.onupgradeneeded = () => request.result.createObjectStore('state')
+    request.onsuccess = () => resolve(request.result)
+    request.onerror = () => reject(request.error)
+  })
+  return {
+    read: async () => {
+      const database = await open()
+      return await new Promise<T | null>((resolve, reject) => {
+        const transaction = database.transaction('state')
+        const request = transaction.objectStore('state').get('saved')
+        request.onsuccess = () => resolve((request.result as T | undefined) ?? null)
+        request.onerror = () => reject(request.error)
+        transaction.oncomplete = () => database.close()
+      })
+    },
+    write: async (value) => {
+      const database = await open()
+      await new Promise<void>((resolve, reject) => {
+        const transaction = database.transaction('state', 'readwrite')
+        transaction.objectStore('state').put(value, 'saved')
+        transaction.oncomplete = () => { database.close(); resolve() }
+        transaction.onerror = () => reject(transaction.error)
+      })
     },
   }
 }
@@ -120,6 +155,10 @@ function isWorkingDraft(value: unknown): value is WorkingDraft {
   )
 }
 
+function isSavedState(value: unknown): value is SavedState {
+  return isWorkingDraft({ ...(value as object), dirty: false })
+}
+
 export type ExamStore = {
   /** The current draft. A new object on every change, safe as a snapshot. */
   getState(): WorkingDraft
@@ -140,6 +179,13 @@ export type ExamStore = {
   /** Rewrites the version being viewed — how shuffles record an ordering. */
   updateCurrentVersion(update: (version: Version) => Version): void
   selectVersion(versionId: string): void
+  renameVersion(versionId: string, letter: string): void
+  deleteVersion(versionId: string): void
+
+  hasSavedVersions(): boolean
+  save(): Promise<void>
+  discard(): Promise<void>
+  saveAsNewVersion(): Promise<Version>
 
   /** Resolves once every mirrored write has landed. For tests and shutdown. */
   whenSettled(): Promise<void>
@@ -147,10 +193,13 @@ export type ExamStore = {
 
 export function createExamStore(options: {
   backend: Backend<WorkingDraft>
+  savedBackend?: Backend<SavedState>
+  saved?: SavedState | null
   initial?: WorkingDraft
 }): ExamStore {
-  const { backend } = options
+  const { backend, savedBackend } = options
   let state: WorkingDraft = options.initial ?? createWorkingDraft()
+  let saved: SavedState | null = options.saved ?? null
   const listeners = new Set<() => void>()
   let pending: Promise<void> = Promise.resolve()
 
@@ -172,6 +221,7 @@ export function createExamStore(options: {
     dirty: boolean,
   ) => {
     const updated = next(state)
+    if (updated === state) return
     state = dirty ? { ...updated, dirty: true } : updated
     mirror()
     for (const listener of listeners) listener()
@@ -279,6 +329,77 @@ export function createExamStore(options: {
         false,
       ),
 
+    renameVersion: (versionId, letter) =>
+      change((draft) => ({
+        ...draft,
+        versions: draft.versions.map((version) =>
+          version.id === versionId ? { ...version, letter } : version,
+        ),
+      })),
+
+    deleteVersion: (versionId) =>
+      change((draft) => {
+        if (draft.versions.length === 1) return draft
+        const versions = draft.versions.filter((version) => version.id !== versionId)
+        if (versions.length === draft.versions.length) return draft
+        return {
+          ...draft,
+          versions,
+          currentVersionId:
+            draft.currentVersionId === versionId
+              ? versions[0]!.id
+              : draft.currentVersionId,
+        }
+      }),
+
+    hasSavedVersions: () => saved !== null && saved.versions.length > 0,
+
+    save: async () => {
+      const current = store.currentVersion()
+      const versions = saved ? state.versions : [current]
+      const nextSaved = { exam: state.exam, versions, currentVersionId: current.id }
+      await savedBackend?.write(nextSaved)
+      saved = nextSaved
+      apply(() => ({ ...state, versions, dirty: false }), false)
+      await pending
+    },
+
+    discard: async () => {
+      const restored: WorkingDraft = saved
+        ? {
+            ...saved,
+            currentVersionId: saved.versions.some(
+              (version) => version.id === state.currentVersionId,
+            )
+              ? state.currentVersionId
+              : saved.currentVersionId,
+            dirty: false,
+          }
+        : createWorkingDraft()
+      apply(() => restored, false)
+      await pending
+    },
+
+    saveAsNewVersion: async () => {
+      const source = store.currentVersion()
+      const existing = saved?.versions ?? []
+      const version: Version = {
+        ...structuredClone(source),
+        id: crypto.randomUUID(),
+        letter: nextVersionLetter(existing),
+      }
+      const versions = [...existing, version]
+      const nextSaved = { exam: state.exam, versions, currentVersionId: version.id }
+      await savedBackend?.write(nextSaved)
+      saved = nextSaved
+      apply(
+        () => ({ ...state, versions, currentVersionId: version.id, dirty: false }),
+        false,
+      )
+      await pending
+      return version
+    },
+
     whenSettled: () => pending,
   }
 
@@ -288,15 +409,30 @@ export function createExamStore(options: {
 // Restore the draft the teacher left behind, or start a clean one.
 export async function loadExamStore(
   backend: Backend<WorkingDraft>,
+  savedBackend?: Backend<SavedState>,
 ): Promise<ExamStore> {
   let stored: WorkingDraft | null = null
+  let saved: SavedState | null = null
   try {
     stored = await backend.read()
   } catch (error) {
     console.error('Could not read the working draft', error)
   }
+  try {
+    const storedSaved = (await savedBackend?.read()) ?? null
+    saved = isSavedState(storedSaved) ? storedSaved : null
+  } catch (error) {
+    console.error('Could not read saved exams', error)
+  }
+  const initial = isWorkingDraft(stored)
+    ? stored
+    : saved && saved.versions.length > 0
+      ? { ...saved, dirty: false }
+      : createWorkingDraft()
   return createExamStore({
     backend,
-    initial: isWorkingDraft(stored) ? stored : createWorkingDraft(),
+    savedBackend,
+    saved,
+    initial,
   })
 }

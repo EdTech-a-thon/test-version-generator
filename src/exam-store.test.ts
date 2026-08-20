@@ -6,7 +6,7 @@ import {
   createWorkingDraft,
   loadExamStore,
 } from './exam-store'
-import type { ExamStore, WorkingDraft } from './exam-store'
+import type { ExamStore, SavedState, WorkingDraft } from './exam-store'
 
 function memory(initial: WorkingDraft | null = null) {
   return createMemoryBackend<WorkingDraft>(initial)
@@ -14,8 +14,9 @@ function memory(initial: WorkingDraft | null = null) {
 
 async function freshStore() {
   const backend = memory()
-  const store = await loadExamStore(backend)
-  return { backend, store }
+  const savedBackend = createMemoryBackend<SavedState>()
+  const store = await loadExamStore(backend, savedBackend)
+  return { backend, savedBackend, store }
 }
 
 const ids = (store: ExamStore) =>
@@ -186,6 +187,81 @@ describe('editing questions', () => {
 })
 
 describe('versions', () => {
+  test('the first save materializes version A and clears dirty', async () => {
+    const { savedBackend, store } = await freshStore()
+    store.setTitle('Chemistry')
+
+    await store.save()
+
+    expect(store.getState().dirty).toBe(false)
+    expect(store.hasSavedVersions()).toBe(true)
+    expect(savedBackend.value?.exam.title).toBe('Chemistry')
+    expect(savedBackend.value?.versions.map((version) => version.letter)).toEqual(['A'])
+  })
+
+  test('discard restores the last saved exam and ordering', async () => {
+    const { store, questions } = await withQuestions(2)
+    await store.save()
+    store.setTitle('Changed')
+    store.updateCurrentVersion((version) => ({
+      ...version,
+      questionOrder: [questions[1]!.id, questions[0]!.id],
+    }))
+
+    await store.discard()
+
+    expect(store.getState().exam.title).toBe('Untitled exam')
+    expect(ids(store)).toEqual(questions.map((question) => question.id))
+    expect(store.getState().dirty).toBe(false)
+  })
+
+  test('save as new version copies the draft ordering under the next letter', async () => {
+    const { store, questions } = await withQuestions(2)
+    await store.save()
+    store.updateCurrentVersion((version) => ({
+      ...version,
+      questionOrder: [questions[1]!.id, questions[0]!.id],
+    }))
+
+    const created = await store.saveAsNewVersion()
+
+    expect(created.letter).toBe('B')
+    expect(store.currentVersion()).toBe(created)
+    expect(ids(store)).toEqual([questions[1]!.id, questions[0]!.id])
+    expect(store.getState().versions.map((version) => version.letter)).toEqual(['A', 'B'])
+    expect(store.getState().dirty).toBe(false)
+  })
+
+  test('rename and delete are draft changes, and deleting current selects a survivor', async () => {
+    const { store } = await freshStore()
+    await store.save()
+    const second = await store.saveAsNewVersion()
+    store.renameVersion(second.id, 'Blue')
+    expect(store.currentVersion().letter).toBe('Blue')
+    expect(store.getState().dirty).toBe(true)
+    store.deleteVersion(second.id)
+    expect(store.currentVersion().letter).toBe('A')
+  })
+
+  test('saved state loads when there is no working draft', async () => {
+    const { savedBackend, store } = await freshStore()
+    store.setTitle('Persisted')
+    await store.save()
+
+    const reloaded = await loadExamStore(memory(), savedBackend)
+
+    expect(reloaded.getState().exam.title).toBe('Persisted')
+    expect(reloaded.hasSavedVersions()).toBe(true)
+    expect(reloaded.getState().dirty).toBe(false)
+  })
+
+  test('snapshots and the current version keep stable identities while unchanged', async () => {
+    const { store } = await freshStore()
+    const state = store.getState()
+    const version = store.currentVersion()
+    expect(store.getState()).toBe(state)
+    expect(store.currentVersion()).toBe(version)
+  })
   test('the current version is the one being viewed', async () => {
     const { store } = await freshStore()
     const first = store.currentVersion()

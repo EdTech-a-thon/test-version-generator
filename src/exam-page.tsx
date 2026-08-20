@@ -501,6 +501,7 @@ export function ExamPage({
   onDelete,
   onAdd,
   onSetColumns,
+  unsavedDraft = false,
 }: {
   exam: Exam
   version: Version
@@ -510,6 +511,7 @@ export function ExamPage({
   onDelete: (questionId: string) => void
   onAdd: (section: QuestionType) => void
   onSetColumns: (questionId: string, columns: ColumnSetting) => void
+  unsavedDraft?: boolean
 }) {
   const workspace = useRef<HTMLElement | null>(null)
   const pages = usePaginatedExam(exam, version, workspace)
@@ -520,7 +522,7 @@ export function ExamPage({
 
   return (
     <main
-      className="exam-workspace"
+      className={`exam-workspace${unsavedDraft ? ' exam-workspace--unsaved' : ''}`}
       ref={workspace}
       style={PAGE_GEOMETRY}
       onClick={clearOnBackground}

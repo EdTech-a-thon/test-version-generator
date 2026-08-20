@@ -5,7 +5,7 @@ button, input, select { font: inherit; }
 button { cursor: pointer; }
 
 .document-bar {
-  position: sticky; top: 0; z-index: 20; height: 58px; padding: 9px 18px;
+  position: sticky; top: 0; z-index: 20; min-height: 58px; padding: 9px 18px;
   display: flex; align-items: center; justify-content: space-between; gap: 20px;
   border-bottom: 1px solid #e8dfd2; background: #fffaf3;
 }
@@ -16,6 +16,18 @@ button { cursor: pointer; }
 .document-title:hover { border-color: #d8cbbb; }
 .document-title:focus { border-color: #b65f43; box-shadow: inset 0 0 0 1px #b65f43; }
 .header-actions, .dialog-actions { display: flex; align-items: center; gap: 10px; }
+.header-actions { flex-wrap: wrap; justify-content: flex-end; gap: 7px; }
+.version-picker {
+  min-height: 36px; max-width: 130px; padding: 7px 28px 7px 9px;
+  border: 1px solid #cdb9a6; border-radius: 6px; background: #fffdf8; font-weight: 600;
+}
+.compact-button { padding-inline: 9px; }
+.save-control { position: relative; }
+.dirty-bubble {
+  position: absolute; top: -5px; right: -5px; width: 12px; height: 12px;
+  border: 2px solid #fffaf3; border-radius: 50%; background: #f2c94c;
+  box-shadow: 0 1px 2px rgb(55 42 33 / 25%);
+}
 .print-button, .primary-button, .secondary-button {
   min-height: 36px; padding: 8px 14px; border: 1px solid #bda995; border-radius: 8px;
   color: #4e3b2f; background: #f7eee3; font-weight: 600;
@@ -63,6 +75,7 @@ button { cursor: pointer; }
 .identity-field { flex: 1 1 0; display: flex; align-items: baseline; gap: 6px; white-space: nowrap; }
 .identity-blank { flex: 1 1 auto; min-width: 48px; border-bottom: 1px solid #332a24; }
 .page-id { flex: none; font-weight: 700; white-space: nowrap; }
+.exam-workspace--unsaved .page-id { color: #aaa19a; }
 /* Takes whatever the identity line leaves of the first page's header, and sits
    on the bottom of it. */
 .page-header--first .exam-title,
@@ -192,6 +205,13 @@ button { cursor: pointer; }
   grid-template-rows: auto 1fr auto; overflow: hidden; border-radius: 10px;
   background: #fffaf3; box-shadow: 0 18px 55px rgb(55 42 33 / 30%);
 }
+.switch-dialog {
+  width: min(470px, 100%); padding: 24px; border-radius: 10px;
+  background: #fffaf3; box-shadow: 0 18px 55px rgb(55 42 33 / 30%);
+}
+.switch-dialog h2 { margin: 0 0 8px; font-size: 20px; }
+.switch-dialog p { margin: 0 0 22px; color: #6e5b4d; }
+.switch-dialog .dialog-actions { padding: 0; border: 0; }
 .dialog-header, .dialog-actions { padding: 14px 18px; border-bottom: 1px solid #e8dfd2; }
 .dialog-header { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
 .dialog-header h2 { margin: 0; font-size: 18px; }
