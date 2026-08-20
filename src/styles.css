@@ -104,9 +104,10 @@ button { cursor: pointer; }
 .dialog-header { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
 .dialog-header h2 { margin: 0; font-size: 18px; }
 .dialog-header label { display: flex; align-items: center; gap: 9px; color: #6e5b4d; font-size: 13px; }
-.dialog-header select, .choice-controls select {
+.dialog-header select, .choice-controls select, .shuffle-select {
   padding: 7px 30px 7px 9px; border: 1px solid #cdb9a6; border-radius: 6px; background: #fffdf8;
 }
+.shuffle-select { min-height: 36px; color: #4e3b2f; font-weight: 600; }
 .dialog-actions { justify-content: flex-end; border-top: 1px solid #e8dfd2; border-bottom: 0; }
 .dialog-editor { min-height: 0; padding: 0 32px; overflow-y: auto; background: #fffdf8; }
 .dialog-editor .milkdown { min-height: 100%; --crepe-color-background: #fffdf8; }
@@ -190,7 +191,7 @@ button { cursor: pointer; }
 
 @media print {
   /* Chrome off: only the test prints. */
-  .document-bar, .question-gutter, .add-question { display: none; }
+  .document-bar, .question-gutter, .add-question, .shuffle-select { display: none; }
   body, :root { background: #fff; }
   .exam-workspace { padding: 0; }
   .exam-page { width: 100%; min-height: 0; padding: 0; box-shadow: none; }

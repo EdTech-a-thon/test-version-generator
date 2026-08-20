@@ -19,7 +19,13 @@ import {
 import { subscriptSchema, superscriptSchema } from './script-marks'
 import { cleanDocument } from './question-doc'
 import type { ProseMirrorJSON } from './question-doc'
-import { createQuestion, duplicateQuestion, questionById, withTypeSwitched } from './exam'
+import {
+  createQuestion,
+  duplicateQuestion,
+  questionById,
+  shuffleQuestions,
+  withTypeSwitched,
+} from './exam'
 import type { Question, QuestionType } from './exam'
 import type { ExamStore } from './exam-store'
 import { ExamPage } from './exam-page'
@@ -216,6 +222,25 @@ export default function App({ store }: { store: ExamStore }) {
           onChange={(event) => store.setTitle(event.target.value)}
         />
         <div className="header-actions">
+          <select
+            className="shuffle-select"
+            aria-label="Shuffle questions by section — ignores the current selection"
+            value=""
+            onChange={(event) => {
+              const scope = event.target.value as QuestionType | 'all' | ''
+              if (scope) {
+                store.updateCurrentVersion((version) =>
+                  shuffleQuestions(draft.exam, version, scope, Math.random),
+                )
+              }
+              event.target.value = ''
+            }}
+          >
+            <option value="" disabled>Shuffle questions…</option>
+            <option value="multiple-choice">Multiple Choice section</option>
+            <option value="open">Short Answer section</option>
+            <option value="all">All sections</option>
+          </select>
           <button type="button" className="print-button" onClick={() => window.print()}>Print</button>
         </div>
       </header>

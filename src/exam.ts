@@ -240,3 +240,55 @@ export function withQuestionRemoved(
     choiceOrder,
   }
 }
+
+// ---------------------------------------------------------------------------
+// Shuffling
+//
+// Two pure functions on a version, each taking an injected random source so
+// a fixed sequence of draws produces a fixed ordering in tests. Neither
+// touches question content — only the ordering a version records.
+// Correctness is a boolean on the choice, so it always follows its choice
+// through a shuffle with no bookkeeping.
+
+// The same contract as `Math.random`: a float in [0, 1). The app passes
+// `Math.random` itself; a test passes a fixed sequence so the outcome is
+// reproducible.
+export type RandomSource = () => number
+
+// Fisher-Yates, driven entirely by the injected source.
+function shuffled<T>(items: readonly T[], random: RandomSource): T[] {
+  const result = items.slice()
+  for (let i = result.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(random() * (i + 1))
+    const tmp = result[i]!
+    result[i] = result[j]!
+    result[j] = tmp
+  }
+  return result
+}
+
+// Reorders `questionOrder` within the chosen section, or within every
+// section when `scope` is `'all'` — one section at a time, so a mixed-type
+// ordering never results. Each section's questions are drawn out via
+// `questionsInSection` (which already reconciles the order against what
+// currently exists), shuffled among themselves if targeted, and put back in
+// `SECTION_ORDER`.
+//
+// Deliberately ignores any current selection: the toolbar dropdown names the
+// scope explicitly instead, which is why this takes `scope`, not a set of
+// question ids.
+export function shuffleQuestions(
+  exam: Exam,
+  version: Version,
+  scope: QuestionType | 'all',
+  random: RandomSource,
+): Version {
+  const targets = new Set<QuestionType>(scope === 'all' ? SECTION_ORDER : [scope])
+  const questionOrder = SECTION_ORDER.flatMap((section) => {
+    const ids = questionsInSection(exam, version, section).map(
+      (question) => question.id,
+    )
+    return targets.has(section) ? shuffled(ids, random) : ids
+  })
+  return { ...version, questionOrder }
+}
