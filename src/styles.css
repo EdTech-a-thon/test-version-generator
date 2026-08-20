@@ -1,0 +1,153 @@
+:root { font-family: Arial, Helvetica, sans-serif; color: #332a24; background: #eee6da; }
+* { box-sizing: border-box; }
+html, body, #root { margin: 0; min-width: 320px; min-height: 100%; }
+button, input, select { font: inherit; }
+button { cursor: pointer; }
+
+.document-bar {
+  position: sticky; top: 0; z-index: 20; height: 58px; padding: 9px 18px;
+  display: flex; align-items: center; justify-content: space-between; gap: 20px;
+  border-bottom: 1px solid #e8dfd2; background: #fffaf3;
+}
+.document-title {
+  width: min(420px, 55vw); padding: 5px 7px; border: 1px solid transparent;
+  border-radius: 4px; color: #332a24; background: transparent; font-size: 18px; outline: none;
+}
+.document-title:hover { border-color: #d8cbbb; }
+.document-title:focus { border-color: #b65f43; box-shadow: inset 0 0 0 1px #b65f43; }
+.header-actions, .dialog-actions { display: flex; align-items: center; gap: 10px; }
+.print-button, .primary-button, .secondary-button {
+  min-height: 36px; padding: 8px 14px; border: 1px solid #bda995; border-radius: 8px;
+  color: #4e3b2f; background: #f7eee3; font-weight: 600;
+}
+.print-button:hover, .secondary-button:hover { background: #ebddcd; }
+.primary-button { border-color: #9f5037; color: #fffaf3; background: #9f5037; }
+.primary-button:hover { background: #87422e; }
+
+.exam-workspace { min-height: calc(100vh - 58px); padding: 0 24px; }
+.exam-page {
+  width: min(860px, 100%); min-height: calc(100vh - 58px); margin: 0 auto; padding: 64px 72px;
+  background: #fffdf8; box-shadow: 0 2px 8px rgb(91 68 47 / 18%);
+}
+.exam-page > h1 { margin: 0 0 48px; font: 700 30px/1.2 Georgia, serif; }
+.empty-exam {
+  width: 100%; padding: 42px; border: 1px dashed #cdb9a6; border-radius: 8px;
+  color: #806b5e; background: #fffaf3;
+}
+.exam-question { position: relative; display: grid; grid-template-columns: 34px 1fr; margin-bottom: 40px; }
+.question-number { padding-top: 4px; font-weight: 700; }
+.question-actions {
+  position: absolute; top: 0; right: calc(100% + 104px); width: 170px; padding: 12px;
+  display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+  border: 1px solid #d8c5b2; border-radius: 8px; background: #fff9f1;
+  box-shadow: 0 2px 7px rgb(91 68 47 / 12%);
+}
+.question-actions strong { grid-column: 1 / -1; font-size: 13px; }
+.question-actions button { padding: 5px; border: 0; border-radius: 5px; color: #786457; background: transparent; }
+.question-actions button:hover { background: #eadbcc; }
+.question-preview .milkdown { --crepe-color-background: transparent; background: transparent; }
+.question-preview .milkdown > .ProseMirror { min-height: 0; padding: 0; }
+
+.dialog-backdrop {
+  position: fixed; inset: 0; z-index: 100; padding: 28px; display: grid; place-items: center;
+  background: rgb(55 42 33 / 42%); backdrop-filter: blur(2px);
+}
+.question-dialog {
+  width: min(980px, 100%); height: min(820px, 94vh); display: grid;
+  grid-template-rows: auto 1fr auto; overflow: hidden; border-radius: 10px;
+  background: #fffaf3; box-shadow: 0 18px 55px rgb(55 42 33 / 30%);
+}
+.dialog-header, .dialog-actions { padding: 14px 18px; border-bottom: 1px solid #e8dfd2; }
+.dialog-header { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+.dialog-header h2 { margin: 0; font-size: 18px; }
+.dialog-header label { display: flex; align-items: center; gap: 9px; color: #6e5b4d; font-size: 13px; }
+.dialog-header select, .choice-controls select {
+  padding: 7px 30px 7px 9px; border: 1px solid #cdb9a6; border-radius: 6px; background: #fffdf8;
+}
+.dialog-actions { justify-content: flex-end; border-top: 1px solid #e8dfd2; border-bottom: 0; }
+.dialog-editor { min-height: 0; padding: 0 32px; overflow-y: auto; background: #fffdf8; }
+.dialog-editor .milkdown { min-height: 100%; --crepe-color-background: #fffdf8; }
+.dialog-editor .milkdown > .ProseMirror { min-height: 100%; padding: 46px max(36px, calc((100% - 720px) / 2)); }
+
+/* Multiple choice: each answer is a cell with a radio on the left. */
+.milkdown [data-type="multiple-choice"] { margin: 20px 0; }
+.mc-choice {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 2px 0; line-height: 1.5;
+}
+.mc-choice-control {
+  flex: none; display: flex; align-items: center;
+  height: 1.5em; user-select: none;
+}
+.mc-choice-radio { margin: 0; accent-color: #9f5037; }
+.mc-choice-radio:not(:disabled) { cursor: pointer; }
+.mc-choice-body { position: relative; flex: 1 1 auto; min-width: 0; outline: none; }
+/* Crepe gives paragraphs `padding: 4px 0`, which drops the first line below the
+   radio and the absolutely-positioned placeholder. Zero the outer padding (with
+   specificity that beats Crepe's rule) so the first line, placeholder, and radio
+   all sit on the same baseline. */
+.milkdown .ProseMirror .mc-choice-body > :first-child { margin-top: 0; padding-top: 0; }
+.milkdown .ProseMirror .mc-choice-body > :last-child { margin-bottom: 0; padding-bottom: 0; }
+/* Use our own placeholder for empty answers, not Crepe's question prompt. */
+.milkdown .mc-choice-body .crepe-placeholder::before { content: none; }
+.mc-choice-body:has(> p:only-child > br.ProseMirror-trailingBreak)::before,
+.mc-choice-body:has(> p:only-child:empty)::before {
+  content: 'Answer';
+  position: absolute; inset: 0 auto auto 0;
+  color: #a8988c; pointer-events: none;
+}
+
+/* In the editor, draw each answer as a dashed table-like cell so it's clear an
+   option is a multi-line region you can type into (Enter = newline). The radio
+   sits inside the cell, hard against the left. Previews/print stay borderless. */
+.milkdown .ProseMirror[contenteditable="true"] [data-type="multiple-choice"] {
+  border: 1px dashed #bda995; border-radius: 6px; overflow: hidden;
+}
+.milkdown .ProseMirror[contenteditable="true"] .mc-choice {
+  padding: 10px 12px;
+  border-bottom: 1px dashed #bda995;
+}
+.milkdown .ProseMirror[contenteditable="true"] .mc-choice:last-child {
+  border-bottom: 0;
+}
+/* "Add answer" button, pinned to the bottom of the dashed box (editor only). */
+.mc-add-choice { display: none; }
+.milkdown .ProseMirror[contenteditable="true"] .mc-add-choice {
+  display: block; width: 100%;
+  padding: 8px 12px;
+  border: 0; border-top: 1px dashed #bda995;
+  color: #786457; background: transparent;
+  font: inherit; font-weight: 600; text-align: left;
+}
+.milkdown .ProseMirror[contenteditable="true"] .mc-add-choice:hover {
+  color: #9f5037; background: #f7eee3;
+}
+.mc-add-choice:focus { outline: none; }
+.mc-add-label { margin-left: 6px; }
+/* Blinking caret to the right of the "+" when the button is armed (focused via
+   Arrow-Down), signalling that typing will start a new answer. */
+.mc-add-caret { display: inline-block; width: 0; }
+.mc-add-choice--armed { color: #9f5037; background: #f7eee3; }
+.mc-add-choice--armed .mc-add-caret {
+  width: 1px; height: 1.1em; margin-left: 1px;
+  background: currentColor; vertical-align: -0.15em;
+  animation: mc-caret-blink 1.1s steps(1, end) infinite;
+}
+@keyframes mc-caret-blink { 50% { opacity: 0; } }
+
+@media (max-width: 1320px) { .question-actions { right: calc(100% + 50px); width: 140px; } .exam-workspace { padding-left: 180px; } }
+@media (max-width: 800px) {
+  .exam-workspace { padding: 0; }
+  .exam-page { padding: 40px 24px; }
+  .question-actions { position: static; grid-column: 1 / -1; width: 100%; margin-bottom: 14px; }
+  .dialog-backdrop { padding: 0; }
+  .question-dialog { width: 100%; height: 100vh; border-radius: 0; }
+  .dialog-editor { padding: 0; }
+}
+
+@media print {
+  .document-bar, .question-actions { display: none; }
+  body, :root { background: #fff; }
+  .exam-workspace { padding: 0; }
+  .exam-page { width: 100%; min-height: 0; padding: 0; box-shadow: none; }
+}
