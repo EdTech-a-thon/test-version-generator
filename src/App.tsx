@@ -27,9 +27,9 @@ import {
   shuffleQuestions,
   withTypeSwitched,
 } from './exam'
-import type { Question, QuestionType } from './exam'
+import type { ColumnSetting, Question, QuestionType } from './exam'
 import type { ExamStore } from './exam-store'
-import { ExamPage } from './exam-page'
+import { ColumnControl, ExamPage } from './exam-page'
 import { useSelection } from './use-selection'
 
 function CrepeQuestion({
@@ -220,6 +220,17 @@ export default function App({ store }: { store: ExamStore }) {
   const canShuffleAnswers = [...selection.selectedIds].some(
     (questionId) => questionById(draft.exam, questionId)?.type === 'multiple-choice',
   )
+  // The toolbar's column control (#11) reads the same selection "Shuffle
+  // answers" does. Its highlighted option is the selection's common setting,
+  // or nothing highlighted when the selection is empty or mixed — there is
+  // no single value to show as pressed.
+  const selectedColumnSettings = new Set(
+    [...selection.selectedIds].map(
+      (questionId) => questionById(draft.exam, questionId)?.columns,
+    ),
+  )
+  const selectionColumns: ColumnSetting | undefined =
+    selectedColumnSettings.size === 1 ? [...selectedColumnSettings][0] : undefined
 
   return (
     <>
@@ -231,6 +242,16 @@ export default function App({ store }: { store: ExamStore }) {
           onChange={(event) => store.setTitle(event.target.value)}
         />
         <div className="header-actions">
+          <ColumnControl
+            value={selectionColumns}
+            ariaLabel="Set answer columns for the selected questions"
+            disabled={selection.selectedIds.size === 0}
+            onChange={(columns) => {
+              for (const questionId of selection.selectedIds) {
+                store.setQuestionColumns(questionId, columns)
+              }
+            }}
+          />
           <select
             className="shuffle-select"
             aria-label="Shuffle questions by section — ignores the current selection"
@@ -282,6 +303,7 @@ export default function App({ store }: { store: ExamStore }) {
           }
         }}
         onAdd={(section) => setEditing(createQuestion(section))}
+        onSetColumns={(questionId, columns) => store.setQuestionColumns(questionId, columns)}
       />
 
       {editing && (

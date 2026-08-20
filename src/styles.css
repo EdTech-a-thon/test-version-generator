@@ -90,6 +90,18 @@ button { cursor: pointer; }
 }
 .gutter-button:hover { color: #4e3b2f; background: #eadbcc; }
 
+/* The segmented Auto | 1 | 2 | 4 column control (#11), shared by the gutter
+   and the toolbar. */
+.column-control { display: inline-flex; align-items: center; gap: 2px; }
+.column-option {
+  min-width: 24px; padding: 4px 7px; border: 1px solid #cdb9a6; border-radius: 5px;
+  color: #6e5b4d; background: #fffdf8; font-size: 12px; font-weight: 700; line-height: 1;
+}
+.column-option:hover { background: #f7eee3; }
+.column-option[aria-pressed="true"] { color: #fffaf3; background: #9f5037; border-color: #9f5037; }
+.column-option:disabled { color: #a8988c; background: #f7eee3; cursor: not-allowed; }
+.gutter-columns { display: flex; gap: 4px; padding-left: 6px; border-left: 1px solid #e8dfd2; }
+
 /* Adding from the end of a section: the type is implied by where it sits. */
 .add-question {
   width: 100%; margin: 0 0 34px; padding: 12px;

@@ -10,9 +10,10 @@
 // property itself, it asks `Measure` for one.
 //
 // What is deliberately not here yet: the page content box is unbounded, so
-// everything lands on one page, and `'auto'` columns resolve to a fixed 2.
-// Both are single points in this file rather than assumptions spread through
-// it — see `PAGE_CONTENT_HEIGHT` and `resolveColumns`.
+// everything lands on one page — a single point in this file rather than an
+// assumption spread through it, see `PAGE_CONTENT_HEIGHT`. Column resolution
+// (`resolveColumns`) is real: it picks the widest of 4, 2, 1 columns whose
+// longest choice fits without wrapping, using the injected `Measure`.
 
 import {
   SECTION_ORDER,
@@ -131,11 +132,31 @@ export type Page = {
   items: PageItem[]
 }
 
-// The content box is unbounded for now, so packing produces a single page.
+// Page geometry: US Letter at 96dpi with 1" margins on every side (per the
+// spec, 816×1056px). The content box is 624px wide. Height is unbounded for
+// now, so packing produces a single page — #7's job to bound. Width is real
+// today: it is what a choice's column is measured against under `'auto'`.
+const PAGE_CONTENT_WIDTH = 816 - 2 * 96
 const PAGE_CONTENT_HEIGHT = Number.POSITIVE_INFINITY
 
-// What `'auto'` resolves to until measurement decides it.
-const AUTO_COLUMNS: ColumnCount = 2
+// Auto tries these, widest first, and settles on the first whose column a
+// choice fits without wrapping.
+const AUTO_CANDIDATES: readonly ColumnCount[] = [4, 2, 1]
+
+function columnWidth(columns: ColumnCount): number {
+  return PAGE_CONTENT_WIDTH / columns
+}
+
+// True when `node` or anything nested inside it is an image, inline or
+// block. A question with an image in any choice measures as unboundedly
+// wide — this is an explicit rule, not a width the injected `Measure` has to
+// know to inflate, so it holds even for a stub that reports 0 everywhere.
+function hasImage(node: ProseMirrorJSON): boolean {
+  if (node.type === 'image' || node.type === 'image-block') return true
+  return Array.isArray(node.content)
+    ? (node.content as ProseMirrorJSON[]).some(hasImage)
+    : false
+}
 
 const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
 
@@ -151,10 +172,23 @@ function letterAt(index: number): string {
 }
 
 // The single place a question's column count is decided. An explicit setting
-// wins permanently; `'auto'` is where measurement will choose the widest of 4,
-// 2, 1 that fits.
-function resolveColumns(question: Question): ColumnCount {
-  return question.columns === 'auto' ? AUTO_COLUMNS : question.columns
+// wins permanently — including surviving a later content edit, since this
+// reads the stored setting and nothing else when it isn't `'auto'`. Under
+// `'auto'`, an image in any choice forces 1 column outright; otherwise the
+// widest of 4, 2, 1 whose longest choice fits its column without wrapping is
+// chosen, using the injected `Measure`.
+function resolveColumns(
+  question: Question,
+  choices: readonly Choice[],
+  measure: Measure,
+): ColumnCount {
+  if (question.columns !== 'auto') return question.columns
+  if (choices.some((choice) => hasImage(choice.node))) return 1
+  const widest = choices.reduce(
+    (max, choice) => Math.max(max, measure.choiceWidth(choice)),
+    0,
+  )
+  return AUTO_CANDIDATES.find((columns) => widest <= columnWidth(columns)) ?? 1
 }
 
 // Column-major: `rows = ceil(n / columns)`, and the choices fill down the first
@@ -187,15 +221,15 @@ function renderQuestion(
   question: Question,
   version: Version,
   number: number,
+  measure: Measure,
 ): RenderedQuestion {
-  const choices: RenderedChoice[] = orderedChoices(question, version).map(
-    (choice, index) => ({
-      id: choice.id,
-      letter: letterAt(index),
-      correct: choice.correct,
-      node: choice.node,
-    }),
-  )
+  const ordered = orderedChoices(question, version)
+  const choices: RenderedChoice[] = ordered.map((choice, index) => ({
+    id: choice.id,
+    letter: letterAt(index),
+    correct: choice.correct,
+    node: choice.node,
+  }))
   return {
     id: question.id,
     type: question.type,
@@ -203,13 +237,13 @@ function renderQuestion(
     answerBlank: question.type === 'multiple-choice',
     stem: stemOf(question),
     choices,
-    grid: layOutGrid(choices, resolveColumns(question)),
+    grid: layOutGrid(choices, resolveColumns(question, ordered, measure)),
   }
 }
 
 // Sections in fixed order, each omitted entirely when it holds no questions —
 // except that an exam with no questions at all still offers both ways in.
-function renderItems(exam: Exam, version: Version): PageItem[] {
+function renderItems(exam: Exam, version: Version, measure: Measure): PageItem[] {
   const items: PageItem[] = []
   const empty = exam.questions.length === 0
   let number = 1
@@ -227,7 +261,7 @@ function renderItems(exam: Exam, version: Version): PageItem[] {
     for (const question of questions) {
       items.push({
         kind: 'question',
-        question: renderQuestion(question, version, number),
+        question: renderQuestion(question, version, number, measure),
       })
       number += 1
     }
@@ -270,5 +304,5 @@ export function renderExam(
   version: Version,
   measure: Measure,
 ): Page[] {
-  return paginate(renderItems(exam, version), measure)
+  return paginate(renderItems(exam, version, measure), measure)
 }

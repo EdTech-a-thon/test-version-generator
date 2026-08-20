@@ -9,15 +9,15 @@ import { useRef } from 'react'
 import { DocView } from './doc-view'
 import {
   renderExam,
-  unmeasured,
   type ChoiceGrid,
   type Page,
   type PageItem,
   type RenderedQuestion,
 } from './exam-render'
-import type { Exam, QuestionType, Version } from './exam'
+import type { ColumnSetting, Exam, QuestionType, Version } from './exam'
 import type { ProseMirrorJSON } from './question-doc'
 import type { Selection } from './use-selection'
+import { domMeasure } from './dom-measure'
 
 // How long a click waits before it commits to being a single click rather
 // than the first half of a double-click. Long enough for a real dblclick,
@@ -47,10 +47,64 @@ function blocksOf(node: ProseMirrorJSON): ProseMirrorJSON[] {
   return Array.isArray(node.content) ? (node.content as ProseMirrorJSON[]) : []
 }
 
-// The gutter a question reveals on hover: a selection checkbox, then
-// Duplicate and Delete. #11 adds a segmented Auto | 1 | 2 | 4 column control
-// after them, so this stays a row of slots rather than a fixed pair of
-// buttons.
+/** Every question's raw column setting, keyed by id — what the gutter's and
+ * toolbar's segmented controls highlight, as opposed to `RenderedQuestion`'s
+ * already-resolved `grid.columns`. */
+function columnSettingsOf(exam: Exam): Record<string, ColumnSetting> {
+  const byId: Record<string, ColumnSetting> = {}
+  for (const question of exam.questions) byId[question.id] = question.columns
+  return byId
+}
+
+const COLUMN_OPTIONS: readonly { label: string; value: ColumnSetting }[] = [
+  { label: 'Auto', value: 'auto' },
+  { label: '1', value: 1 },
+  { label: '2', value: 2 },
+  { label: '4', value: 4 },
+]
+
+// The segmented Auto | 1 | 2 | 4 control, shared by the question gutter and
+// the toolbar (#11): both read a `ColumnSetting` and call back with one.
+// `value` is `undefined` when the toolbar's selection has no single common
+// setting to highlight — every option then renders unpressed rather than one
+// being picked arbitrarily.
+export function ColumnControl({
+  value,
+  onChange,
+  ariaLabel,
+  disabled = false,
+  className,
+}: {
+  value: ColumnSetting | undefined
+  onChange: (columns: ColumnSetting) => void
+  ariaLabel: string
+  disabled?: boolean
+  className?: string
+}) {
+  return (
+    <div
+      className={className ? `column-control ${className}` : 'column-control'}
+      role="group"
+      aria-label={ariaLabel}
+    >
+      {COLUMN_OPTIONS.map((option) => (
+        <button
+          key={String(option.value)}
+          type="button"
+          className="column-option"
+          aria-pressed={option.value === value}
+          disabled={disabled}
+          onClick={() => onChange(option.value)}
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+// The gutter a question reveals on hover: a selection checkbox, Duplicate and
+// Delete, then #11's segmented Auto | 1 | 2 | 4 column control.
 //
 // Every click in here is stopped from bubbling to the question's own click
 // handler, so using the gutter never also selects, deselects, or extends a
@@ -58,15 +112,19 @@ function blocksOf(node: ProseMirrorJSON): ProseMirrorJSON[] {
 function QuestionGutter({
   question,
   selected,
+  columns,
   onToggleSelect,
   onDuplicate,
   onDelete,
+  onSetColumns,
 }: {
   question: RenderedQuestion
   selected: boolean
+  columns: ColumnSetting
   onToggleSelect: (questionId: string) => void
   onDuplicate: (questionId: string) => void
   onDelete: (questionId: string) => void
+  onSetColumns: (questionId: string, columns: ColumnSetting) => void
 }) {
   return (
     <aside
@@ -98,6 +156,13 @@ function QuestionGutter({
         >
           Delete
         </button>
+      </div>
+      <div className="gutter-columns">
+        <ColumnControl
+          value={columns}
+          onChange={(next) => onSetColumns(question.id, next)}
+          ariaLabel={`Answer columns for question ${question.number}`}
+        />
       </div>
     </aside>
   )
@@ -134,19 +199,23 @@ function ChoiceGridView({ grid }: { grid: ChoiceGrid }) {
 function QuestionView({
   question,
   selected,
+  columns,
   orderedIds,
   selection,
   onEdit,
   onDuplicate,
   onDelete,
+  onSetColumns,
 }: {
   question: RenderedQuestion
   selected: boolean
+  columns: ColumnSetting
   orderedIds: readonly string[]
   selection: Selection
   onEdit: (questionId: string) => void
   onDuplicate: (questionId: string) => void
   onDelete: (questionId: string) => void
+  onSetColumns: (questionId: string, columns: ColumnSetting) => void
 }) {
   // A click is deferred rather than applied immediately, so that when it
   // turns out to be the first half of a double-click, the deferred selection
@@ -180,9 +249,11 @@ function QuestionView({
       <QuestionGutter
         question={question}
         selected={selected}
+        columns={columns}
         onToggleSelect={selection.toggle}
         onDuplicate={onDuplicate}
         onDelete={onDelete}
+        onSetColumns={onSetColumns}
       />
       <div className="question-number">
         {question.answerBlank && (
@@ -202,20 +273,24 @@ function PageItemView({
   item,
   orderedIds,
   idsBySection,
+  columnSettings,
   selection,
   onEdit,
   onDuplicate,
   onDelete,
   onAdd,
+  onSetColumns,
 }: {
   item: PageItem
   orderedIds: readonly string[]
   idsBySection: Record<QuestionType, string[]>
+  columnSettings: Record<string, ColumnSetting>
   selection: Selection
   onEdit: (questionId: string) => void
   onDuplicate: (questionId: string) => void
   onDelete: (questionId: string) => void
   onAdd: (section: QuestionType) => void
+  onSetColumns: (questionId: string, columns: ColumnSetting) => void
 }) {
   switch (item.kind) {
     case 'section-heading':
@@ -239,11 +314,13 @@ function PageItemView({
         <QuestionView
           question={item.question}
           selected={selection.isSelected(item.question.id)}
+          columns={columnSettings[item.question.id] ?? 'auto'}
           orderedIds={orderedIds}
           selection={selection}
           onEdit={onEdit}
           onDuplicate={onDuplicate}
           onDelete={onDelete}
+          onSetColumns={onSetColumns}
         />
       )
     case 'add-question':
@@ -288,6 +365,7 @@ export function ExamPage({
   onDuplicate,
   onDelete,
   onAdd,
+  onSetColumns,
 }: {
   exam: Exam
   version: Version
@@ -296,12 +374,15 @@ export function ExamPage({
   onDuplicate: (questionId: string) => void
   onDelete: (questionId: string) => void
   onAdd: (section: QuestionType) => void
+  onSetColumns: (questionId: string, columns: ColumnSetting) => void
 }) {
-  // Measurement is stubbed until pagination needs it: every question lands on
-  // one unbounded page.
-  const pages = renderExam(exam, version, unmeasured)
+  // `domMeasure` is real for `choiceWidth` (#11); `itemHeight` is still a
+  // stub returning 0, so every question lands on one unbounded page until #7
+  // gives it a real one — see `src/dom-measure.ts`.
+  const pages = renderExam(exam, version, domMeasure)
   const orderedIds = orderedQuestionIds(pages)
   const idsBySection = questionIdsBySection(pages)
+  const columnSettings = columnSettingsOf(exam)
   const clearOnBackground = clearOnBackgroundClick(selection)
 
   return (
@@ -315,11 +396,13 @@ export function ExamPage({
               item={item}
               orderedIds={orderedIds}
               idsBySection={idsBySection}
+              columnSettings={columnSettings}
               selection={selection}
               onEdit={onEdit}
               onDuplicate={onDuplicate}
               onDelete={onDelete}
               onAdd={onAdd}
+              onSetColumns={onSetColumns}
             />
           ))}
         </article>

@@ -164,6 +164,20 @@ describe('editing questions', () => {
     expect(store.getState().exam.questions[0]!.columns).toBe(2)
   })
 
+  test('a column override survives a later content edit', async () => {
+    const { store, questions } = await withQuestions(1)
+    store.setQuestionColumns(questions[0]!.id, 4)
+    // Mirrors what the question dialog's save path does: spread the current
+    // question (columns included) over a new doc, the way `QuestionDialog`'s
+    // `onSave` handler in App.tsx builds `saved`.
+    const current = store.getState().exam.questions[0]!
+    store.updateQuestion({
+      ...current,
+      doc: { type: 'doc', content: [{ type: 'paragraph' }] },
+    })
+    expect(store.getState().exam.questions[0]!.columns).toBe(4)
+  })
+
   test('the exam title is editable', async () => {
     const { store } = await freshStore()
     store.setTitle('Chem Unit 3')

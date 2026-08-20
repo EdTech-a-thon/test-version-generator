@@ -4,6 +4,8 @@ import {
   SECTION_TITLE,
   renderExam,
   unmeasured,
+  type ColumnCount,
+  type Measure,
   type Page,
   type PageItem,
   type RenderedQuestion,
@@ -247,9 +249,15 @@ describe('choice letters', () => {
   })
 })
 
+// These tests are about `layOutGrid`'s column-major mechanics, not about
+// auto-resolution — each question pins an explicit column count so the
+// result doesn't depend on the injected (unmeasured, in this describe block)
+// `Measure`.
 describe('the choice grid', () => {
   test('fills column-major over ceil(n / 2) rows at two columns', () => {
-    const exam = examOf([multipleChoice('m1', ['a', 'b', 'c', 'd'])])
+    const exam = examOf([
+      { ...multipleChoice('m1', ['a', 'b', 'c', 'd']), columns: 2 as const },
+    ])
     const [question] = renderedQuestions(render(exam))
     expect(question!.grid!.columns).toBe(2)
     expect(question!.grid!.rows).toBe(2)
@@ -260,7 +268,9 @@ describe('the choice grid', () => {
   })
 
   test('an odd count leaves the last cell of the second column empty', () => {
-    const exam = examOf([multipleChoice('m1', ['a', 'b', 'c', 'd', 'e'])])
+    const exam = examOf([
+      { ...multipleChoice('m1', ['a', 'b', 'c', 'd', 'e']), columns: 2 as const },
+    ])
     const [question] = renderedQuestions(render(exam))
     expect(question!.grid!.rows).toBe(3)
     expect(gridRows(question!)).toEqual([
@@ -271,7 +281,7 @@ describe('the choice grid', () => {
   })
 
   test('three choices lay out down the first column first', () => {
-    const exam = examOf([multipleChoice('m1', ['a', 'b', 'c'])])
+    const exam = examOf([{ ...multipleChoice('m1', ['a', 'b', 'c']), columns: 2 as const }])
     const [question] = renderedQuestions(render(exam))
     expect(gridRows(question!)).toEqual([
       ['Aa', 'Cc'],
@@ -280,7 +290,7 @@ describe('the choice grid', () => {
   })
 
   test('two choices sit side by side on one row', () => {
-    const exam = examOf([multipleChoice('m1', ['a', 'b'])])
+    const exam = examOf([{ ...multipleChoice('m1', ['a', 'b']), columns: 2 as const }])
     const [question] = renderedQuestions(render(exam))
     expect(gridRows(question!)).toEqual([['Aa', 'Bb']])
   })
@@ -299,12 +309,113 @@ describe('the choice grid', () => {
   })
 
   test('letters carry into the grid in version order', () => {
-    const exam = examOf([multipleChoice('m1', ['a', 'b', 'c', 'd'])])
+    const exam = examOf([
+      { ...multipleChoice('m1', ['a', 'b', 'c', 'd']), columns: 2 as const },
+    ])
     const version = versionOf(['m1'], { m1: ['d', 'c', 'b', 'a'] })
     const [question] = renderedQuestions(render(exam, version))
     expect(gridRows(question!)).toEqual([
       ['Ad', 'Cb'],
       ['Bc', 'Da'],
     ])
+  })
+})
+
+describe('auto column resolution', () => {
+  function widthMeasure(width: number): Measure {
+    return { choiceWidth: () => width, itemHeight: () => 0 }
+  }
+
+  function resolvedColumns(choiceCount: number, width: number): ColumnCount {
+    const ids = Array.from({ length: choiceCount }, (_unused, index) => `c${index}`)
+    const exam = examOf([multipleChoice('m1', ids)])
+    const pages = renderExam(exam, versionOf(), widthMeasure(width))
+    return renderedQuestions(pages)[0]!.grid!.columns
+  }
+
+  for (const choiceCount of [2, 3, 4, 5]) {
+    test(`with ${choiceCount} choices, a narrow choice resolves to 4 columns`, () => {
+      expect(resolvedColumns(choiceCount, 100)).toBe(4)
+    })
+
+    test(`with ${choiceCount} choices, a medium choice resolves to 2 columns`, () => {
+      expect(resolvedColumns(choiceCount, 200)).toBe(2)
+    })
+
+    test(`with ${choiceCount} choices, a wide choice resolves to 1 column`, () => {
+      expect(resolvedColumns(choiceCount, 400)).toBe(1)
+    })
+  }
+
+  test('a choice wider than the whole content box still resolves to 1 column, not 0', () => {
+    expect(resolvedColumns(3, 5000)).toBe(1)
+  })
+
+  test('the widest choice decides the column count, not the first or the average', () => {
+    const exam = examOf([multipleChoice('m1', ['a', 'b', 'c', 'd'])])
+    const measure: Measure = {
+      choiceWidth: (choice) => (choice.id === 'c' ? 400 : 10),
+      itemHeight: () => 0,
+    }
+    const [question] = renderedQuestions(renderExam(exam, versionOf(), measure))
+    expect(question!.grid!.columns).toBe(1)
+  })
+
+  test('an image in any choice resolves to a single column under auto, regardless of measured width', () => {
+    const imageChoice: ProseMirrorJSON = {
+      type: 'multipleChoiceChoice',
+      attrs: { correct: false, id: 'c' },
+      content: [{ type: 'image-block', attrs: { src: 'diagram.png' } }],
+    }
+    const exam: Exam = examOf([
+      {
+        id: 'm1',
+        type: 'multiple-choice',
+        doc: {
+          type: 'doc',
+          content: [
+            { type: 'paragraph', content: [{ type: 'text', text: 'stem' }] },
+            { type: 'multipleChoice', content: [choice('a'), choice('b'), imageChoice] },
+          ],
+        },
+        columns: 'auto',
+      },
+    ])
+    // width 1 would resolve to 4 columns if the image weren't there.
+    const [question] = renderedQuestions(renderExam(exam, versionOf(), widthMeasure(1)))
+    expect(question!.grid!.columns).toBe(1)
+  })
+
+  test('an explicit override ignores measurement entirely', () => {
+    const exam = examOf([
+      { ...multipleChoice('m1', ['a', 'b', 'c', 'd']), columns: 4 as const },
+    ])
+    // width 5000 would force 1 column under auto.
+    const [question] = renderedQuestions(renderExam(exam, versionOf(), widthMeasure(5000)))
+    expect(question!.grid!.columns).toBe(4)
+  })
+
+  test('an explicit override survives a content edit that would otherwise resolve differently under auto', () => {
+    const original: Question = { ...multipleChoice('m1', ['a', 'b']), columns: 2 as const }
+    const edited: Question = {
+      ...original,
+      doc: {
+        type: 'doc',
+        content: [
+          { type: 'paragraph', content: [{ type: 'text', text: 'edited stem' }] },
+          {
+            type: 'multipleChoice',
+            content: ['a', 'b', 'c', 'd'].map((id) => choice(id)),
+          },
+        ],
+      },
+    }
+    // Narrow enough that all four post-edit choices would resolve to 4
+    // columns under auto — the override must still win.
+    const narrow = widthMeasure(100)
+    const before = renderedQuestions(renderExam(examOf([original]), versionOf(), narrow))
+    const after = renderedQuestions(renderExam(examOf([edited]), versionOf(), narrow))
+    expect(before[0]!.grid!.columns).toBe(2)
+    expect(after[0]!.grid!.columns).toBe(2)
   })
 })
