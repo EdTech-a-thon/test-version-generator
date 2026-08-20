@@ -17,6 +17,9 @@
 import { useLayoutEffect, useRef, useState, type CSSProperties, type RefObject } from 'react'
 import {
   AddQuestionButton,
+  AnswerKeyEntry,
+  AnswerKeyHeading,
+  AnswerKeySection,
   QuestionContent,
   SectionHeadingContent,
 } from './page-item-view'
@@ -303,6 +306,12 @@ function PageItemView({
       )
     case 'add-question':
       return <AddQuestionButton item={item} onAdd={onAdd} />
+    case 'answer-key-heading':
+      return <AnswerKeyHeading />
+    case 'answer-key-section':
+      return <AnswerKeySection item={item} />
+    case 'answer-key-entry':
+      return <AnswerKeyEntry item={item} />
     default: {
       const unreachable: never = item
       return unreachable
@@ -320,6 +329,12 @@ function keyOf(item: PageItem): string {
       return `question-${item.question.id}`
     case 'add-question':
       return `add-${item.section}`
+    case 'answer-key-heading':
+      return 'answer-key-heading'
+    case 'answer-key-section':
+      return `answer-key-section-${item.section}`
+    case 'answer-key-entry':
+      return `answer-key-entry-${item.number}`
     default: {
       const unreachable: never = item
       return unreachable
@@ -380,6 +395,13 @@ function PageHeaderView({
           </div>
         </header>
       )
+    case 'answer-key':
+      return (
+        <header className="page-header page-header--answer-key">
+          <div className="page-identity">{id}</div>
+          <h1 className="exam-title">{title}</h1>
+        </header>
+      )
     default: {
       const unreachable: never = header
       return unreachable
@@ -405,6 +427,7 @@ const PAGE_GEOMETRY = {
   '--page-margin': `${PAGE_MARGIN}px`,
   '--page-header-first': `${HEADER_HEIGHT.first}px`,
   '--page-header-later': `${HEADER_HEIGHT.later}px`,
+  '--page-header-answer-key': `${HEADER_HEIGHT['answer-key']}px`,
   '--page-footer': `${FOOTER_HEIGHT}px`,
 } as CSSProperties
 

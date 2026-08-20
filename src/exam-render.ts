@@ -136,12 +136,44 @@ export type AddQuestionItem = {
   section: QuestionType
 }
 
+// The answer key's own content items. The repeated title lives in the page's
+// furniture (see `PageHeader`'s `'answer-key'` variant) rather than packing
+// as an item — it is drawn the same way the test's own title is, on every
+// key page, since the key carries only one header variant. What does pack is
+// the "Answer Section" heading, one grouping heading per section that holds a
+// question, and one line per question.
+export type AnswerKeyHeadingItem = { kind: 'answer-key-heading' }
+
+export type AnswerKeySectionItem = {
+  kind: 'answer-key-section'
+  section: QuestionType
+  title: string
+}
+
+// One line of the key: a question's number and, for multiple choice, the
+// correct letter under this version's ordering. `letter` is `null` for a
+// free-response question — the key still gives it a blank so the numbering
+// lines up with the test.
+export type AnswerKeyEntryItem = {
+  kind: 'answer-key-entry'
+  number: number
+  letter: string | null
+}
+
 // One thing that occupies vertical space on a page, in print order.
-export type PageItem = SectionHeadingItem | QuestionItem | AddQuestionItem
+export type PageItem =
+  | SectionHeadingItem
+  | QuestionItem
+  | AddQuestionItem
+  | AnswerKeyHeadingItem
+  | AnswerKeySectionItem
+  | AnswerKeyEntryItem
 
 // Which furniture a page carries. The first page takes the Name/Class/Date
-// line and the title; later pages take a Name blank alone.
-export type PageHeader = 'first' | 'later'
+// line and the title; later pages take a Name blank alone; the answer key —
+// begun fresh after the last test page, footer restarted at 1 — takes the
+// version ID alone plus the repeated title, and carries no Name line at all.
+export type PageHeader = 'first' | 'later' | 'answer-key'
 
 export type Page = {
   /** Printed in the footer, 1-based. */
@@ -173,8 +205,15 @@ export const PAGE_CONTENT_WIDTH = PAGE_WIDTH - 2 * PAGE_MARGIN
 const PAGE_BOX_HEIGHT = PAGE_HEIGHT - 2 * PAGE_MARGIN
 
 // Exhaustive over `PageHeader` on purpose: a new variant cannot be added
-// without deciding how tall its furniture is.
-export const HEADER_HEIGHT: Record<PageHeader, number> = { first: 84, later: 30 }
+// without deciding how tall its furniture is. The answer key's header carries
+// the same two lines the first test page's does — a single identity line
+// (here, just the ID) and the full title beneath it — so it takes the same
+// total height as `first`, even though what's on the identity line differs.
+export const HEADER_HEIGHT: Record<PageHeader, number> = {
+  first: 84,
+  later: 30,
+  'answer-key': 84,
+}
 
 export const FOOTER_HEIGHT = 36
 
@@ -187,8 +226,22 @@ export function pageContentHeight(header: PageHeader): number {
 // choice fits without wrapping.
 const AUTO_CANDIDATES: readonly ColumnCount[] = [4, 2, 1]
 
+// The choice grid does not span the page's full content width: it renders
+// inside `.question-body`, the second column of `.exam-question`'s grid in
+// styles.css (`grid-template-columns: 92px 1fr; gap: 6px;`) — the number
+// column sits to its left. These two numbers are copied from that rule
+// because CSS can't be read from here at build time; if that rule's column
+// width or gap ever changes, this must change with it.
+const QUESTION_NUMBER_COLUMN_WIDTH = 92
+const QUESTION_NUMBER_COLUMN_GAP = 6
+
+/** The width a choice grid is actually laid out in — derived from
+ *  `PAGE_CONTENT_WIDTH` so the two numbers cannot drift apart on their own. */
+export const CHOICE_AREA_WIDTH =
+  PAGE_CONTENT_WIDTH - QUESTION_NUMBER_COLUMN_WIDTH - QUESTION_NUMBER_COLUMN_GAP
+
 function columnWidth(columns: ColumnCount): number {
-  return PAGE_CONTENT_WIDTH / columns
+  return CHOICE_AREA_WIDTH / columns
 }
 
 // True when `node` or anything nested inside it is an image, inline or
@@ -363,9 +416,20 @@ function pieceOf(
 // A question is atomic by default — it moves to the next page whole whenever it
 // would fit there. Only a question that exceeds a full content box on its own is
 // broken up, and then at the part boundaries above, as late as each page allows.
-function paginate(items: PageItem[], measure: Measure): Page[] {
+//
+// `initialHeader` and `continuedHeader` are what makes this the same function
+// for both the test (`'first'` then `'later'`) and the answer key (`'answer-key'`
+// on every page it takes — the key carries only one header variant). Page
+// numbers always start at 1 within one call, which is what gives the key its
+// own restarted footer: it is simply a second, independent call.
+function paginate(
+  items: PageItem[],
+  measure: Measure,
+  initialHeader: PageHeader = 'first',
+  continuedHeader: PageHeader = 'later',
+): Page[] {
   const pages: Page[] = []
-  let header: PageHeader = 'first'
+  let header: PageHeader = initialHeader
   let box = pageContentHeight(header)
   let current: PageItem[] = []
   let used = 0
@@ -374,7 +438,7 @@ function paginate(items: PageItem[], measure: Measure): Page[] {
     pages.push({ number: pages.length + 1, header, items: current })
     current = []
     used = 0
-    header = 'later'
+    header = continuedHeader
     box = pageContentHeight(header)
   }
 
@@ -425,7 +489,7 @@ function paginate(items: PageItem[], measure: Measure): Page[] {
     // It does not fit here. Move it forward whole if a page of its own would
     // hold it; otherwise it is genuinely oversized, and splitting starts in
     // whatever room is left rather than wasting the rest of this page.
-    if (current.length > 0 && height <= pageContentHeight('later')) {
+    if (current.length > 0 && height <= pageContentHeight(continuedHeader)) {
       flush()
       place(item, height)
       continue
@@ -436,6 +500,37 @@ function paginate(items: PageItem[], measure: Measure): Page[] {
   return pages
 }
 
+// Derive the key from the exact rendered questions that students see, so its
+// numbering and version-relative choice letters cannot drift from the test.
+// A question split across pages appears more than once in `testPages`; the id
+// set ensures it still contributes exactly one answer line.
+function renderAnswerKeyItems(testPages: readonly Page[]): PageItem[] {
+  const items: PageItem[] = [{ kind: 'answer-key-heading' }]
+  const seen = new Set<string>()
+  let section: QuestionType | null = null
+
+  for (const page of testPages) {
+    for (const item of page.items) {
+      if (item.kind !== 'question' || seen.has(item.question.id)) continue
+      seen.add(item.question.id)
+      if (item.question.type !== section) {
+        section = item.question.type
+        items.push({
+          kind: 'answer-key-section',
+          section,
+          title: SECTION_TITLE[section],
+        })
+      }
+      items.push({
+        kind: 'answer-key-entry',
+        number: item.question.number,
+        letter: item.question.choices.find((choice) => choice.correct)?.letter ?? null,
+      })
+    }
+  }
+  return items
+}
+
 // The whole render, in one pure call: the exam, the ordering to print it in,
 // and how to measure. Nothing here reads the DOM, a clock, or a random source.
 export function renderExam(
@@ -443,5 +538,12 @@ export function renderExam(
   version: Version,
   measure: Measure,
 ): Page[] {
-  return paginate(renderItems(exam, version, measure), measure)
+  const testPages = paginate(renderItems(exam, version, measure), measure)
+  const keyPages = paginate(
+    renderAnswerKeyItems(testPages),
+    measure,
+    'answer-key',
+    'answer-key',
+  )
+  return [...testPages, ...keyPages]
 }

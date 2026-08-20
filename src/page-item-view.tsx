@@ -14,6 +14,8 @@
 import { DocView } from './doc-view'
 import type {
   AddQuestionItem,
+  AnswerKeyEntryItem,
+  AnswerKeySectionItem,
   ChoiceGrid,
   PageItem,
   QuestionItem,
@@ -118,6 +120,25 @@ export function AddQuestionButton({
   )
 }
 
+export function AnswerKeyHeading() {
+  return <h2 className="answer-key-heading">Answer Section</h2>
+}
+
+export function AnswerKeySection({ item }: { item: AnswerKeySectionItem }) {
+  return <h3 className="answer-key-section">{item.title}</h3>
+}
+
+export function AnswerKeyEntry({ item }: { item: AnswerKeyEntryItem }) {
+  return (
+    <div className="answer-key-entry">
+      <span>{item.number}.</span>
+      <span className="answer-key-answer" aria-label={item.letter ?? 'Blank answer'}>
+        {item.letter}
+      </span>
+    </div>
+  )
+}
+
 // One page item at its printed size, with no handlers and no gutter — what
 // `dom-measure.ts` renders off-screen to read a height back off.
 //
@@ -139,6 +160,12 @@ export function PageItemMeasureView({ item }: { item: PageItem }) {
       )
     case 'add-question':
       return <AddQuestionButton item={item} />
+    case 'answer-key-heading':
+      return <AnswerKeyHeading />
+    case 'answer-key-section':
+      return <AnswerKeySection item={item} />
+    case 'answer-key-entry':
+      return <AnswerKeyEntry item={item} />
     default: {
       const unreachable: never = item
       return unreachable

@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import {
+  CHOICE_AREA_WIDTH,
   FOOTER_HEIGHT,
   HEADER_HEIGHT,
   PAGE_CONTENT_WIDTH,
@@ -75,7 +76,11 @@ function versionOf(
 }
 
 function render(exam: Exam, version: Version = versionOf()): Page[] {
-  return renderExam(exam, version, unmeasured)
+  return testPages(renderExam(exam, version, unmeasured))
+}
+
+function testPages(pages: Page[]): Page[] {
+  return pages.filter((page) => page.header !== 'answer-key')
 }
 
 function itemsOf(pages: Page[]): PageItem[] {
@@ -436,6 +441,7 @@ describe('page geometry', () => {
     expect([PAGE_WIDTH, PAGE_HEIGHT]).toEqual([816, 1056])
     expect(PAGE_MARGIN).toBe(96)
     expect(PAGE_CONTENT_WIDTH).toBe(624)
+    expect(CHOICE_AREA_WIDTH).toBe(526)
   })
 
   test('subtracts the header and footer from the content box', () => {
@@ -446,6 +452,88 @@ describe('page geometry', () => {
 
   test('leaves the first page shorter, because its header carries the title too', () => {
     expect(pageContentHeight('first')).toBeLessThan(pageContentHeight('later'))
+  })
+})
+
+describe('answer key', () => {
+  function keyItems(exam: Exam, version: Version = versionOf()): PageItem[] {
+    return renderExam(exam, version, unmeasured)
+      .filter((page) => page.header === 'answer-key')
+      .flatMap((page) => page.items)
+  }
+
+  test('correct letters follow the current version choice ordering', () => {
+    const exam = examOf([multipleChoice('m1', ['a', 'b', 'c'], 'a')])
+    const version = versionOf(['m1'], { m1: ['c', 'a', 'b'] })
+    expect(keyItems(exam, version)).toContainEqual({
+      kind: 'answer-key-entry',
+      number: 1,
+      letter: 'B',
+    })
+  })
+
+  test('starts fresh after the test and restarts footer numbering at one', () => {
+    const pages = renderExam(
+      examOf([open('o1'), open('o2')]),
+      versionOf(),
+      {
+        choiceWidth: () => 0,
+        itemHeight: (item) => item.kind === 'question' ? 500 : 0,
+      },
+    )
+    const firstKey = pages.findIndex((page) => page.header === 'answer-key')
+    expect(firstKey).toBeGreaterThan(0)
+    expect(pages[firstKey - 1]!.header).not.toBe('answer-key')
+    expect(pages[firstKey]!.number).toBe(1)
+  })
+
+  test('lists free-response questions with a blank answer', () => {
+    expect(keyItems(examOf([open('o1')]))).toContainEqual({
+      kind: 'answer-key-entry',
+      number: 1,
+      letter: null,
+    })
+  })
+
+  test('carries the title header and answer-section groupings on key pages', () => {
+    const keyPages = renderExam(
+      examOf([multipleChoice('m1', ['a'], 'a'), open('o1')]),
+      versionOf(),
+      unmeasured,
+    ).filter((page) => page.header === 'answer-key')
+    expect(keyPages.every((page) => page.header === 'answer-key')).toBe(true)
+    expect(keyPages[0]!.items).toEqual([
+      { kind: 'answer-key-heading' },
+      { kind: 'answer-key-section', section: 'multiple-choice', title: 'Multiple Choice' },
+      { kind: 'answer-key-entry', number: 1, letter: 'A' },
+      { kind: 'answer-key-section', section: 'open', title: 'Short Answer' },
+      { kind: 'answer-key-entry', number: 2, letter: null },
+    ])
+  })
+
+  test('lists a question only once when its test rendering is split', () => {
+    const question: Question = {
+      ...open('o1'),
+      doc: {
+        type: 'doc',
+        content: [
+          { type: 'paragraph', content: [{ type: 'text', text: 'first' }] },
+          { type: 'paragraph', content: [{ type: 'text', text: 'second' }] },
+        ],
+      },
+    }
+    const pages = renderExam(
+      examOf([question]),
+      versionOf(),
+      {
+        choiceWidth: () => 0,
+        itemHeight: (item) => item.kind === 'question' ? item.stem.length * 500 : 0,
+      },
+    )
+    const entries = pages.flatMap((page) =>
+      page.items.filter((item) => item.kind === 'answer-key-entry'),
+    )
+    expect(entries).toEqual([{ kind: 'answer-key-entry', number: 1, letter: null }])
   })
 })
 
@@ -524,7 +612,7 @@ describe('page packing', () => {
   test('a question that fits in the remaining space stays on the page, whole', () => {
     const exam = examOf([tall('o1', 1), tall('o2', 1)])
     const third = Math.floor(FIRST_BOX / 3)
-    const pages = renderExam(exam, versionOf(), stubHeights({ o1: third, o2: third }))
+    const pages = testPages(renderExam(exam, versionOf(), stubHeights({ o1: third, o2: third })))
     expect(pageShape(pages)).toEqual([['section-heading', 'q:o1', 'q:o2', 'add-question']])
     expect(questionItems(pages).every((item) => item.numbered)).toBe(true)
   })
@@ -532,7 +620,7 @@ describe('page packing', () => {
   test('a question that does not fit moves to the next page whole rather than straddling', () => {
     const exam = examOf([tall('o1', 1), tall('o2', 1)])
     const tooTall = Math.ceil(FIRST_BOX * 0.6)
-    const pages = renderExam(exam, versionOf(), stubHeights({ o1: tooTall, o2: tooTall }))
+    const pages = testPages(renderExam(exam, versionOf(), stubHeights({ o1: tooTall, o2: tooTall })))
     expect(pageShape(pages)).toEqual([
       ['section-heading', 'q:o1'],
       ['q:o2', 'add-question'],
@@ -547,7 +635,7 @@ describe('page packing', () => {
   test('a question taller than a full content box splits at top-level block boundaries', () => {
     const exam = examOf([tall('o1', 10)])
     // Ten 100px blocks is 1000px: more than either content box.
-    const pages = renderExam(exam, versionOf(), stubHeights({ o1: 100 }))
+    const pages = testPages(renderExam(exam, versionOf(), stubHeights({ o1: 100 })))
     expect(pages).toHaveLength(2)
     const pieces = questionItems(pages)
     expect(pieces).toHaveLength(2)
@@ -597,22 +685,22 @@ describe('page packing', () => {
   test('the header variant is first on page one and later on every page after', () => {
     const exam = examOf([tall('o1', 1), tall('o2', 1), tall('o3', 1)])
     const perPage = Math.ceil(FIRST_BOX * 0.9)
-    const pages = renderExam(
+    const pages = testPages(renderExam(
       exam,
       versionOf(),
       stubHeights({ o1: perPage, o2: perPage, o3: perPage }),
-    )
+    ))
     expect(pages.map((page) => page.header)).toEqual(['first', 'later', 'later'])
   })
 
   test('footers are numbered from one, in order', () => {
     const exam = examOf([tall('o1', 1), tall('o2', 1), tall('o3', 1)])
     const perPage = Math.ceil(FIRST_BOX * 0.9)
-    const pages = renderExam(
+    const pages = testPages(renderExam(
       exam,
       versionOf(),
       stubHeights({ o1: perPage, o2: perPage, o3: perPage }),
-    )
+    ))
     expect(pages.map((page) => page.number)).toEqual([1, 2, 3])
   })
 
@@ -620,7 +708,7 @@ describe('page packing', () => {
     const exam = examOf([tall('o1', 1), tall('o2', 1)])
     // Taller than the first page's box, shorter than a later page's.
     const between = LATER_BOX
-    const pages = renderExam(exam, versionOf(), stubHeights({ o1: 10, o2: between }))
+    const pages = testPages(renderExam(exam, versionOf(), stubHeights({ o1: 10, o2: between })))
     expect(pageShape(pages)).toEqual([
       ['section-heading', 'q:o1'],
       ['q:o2', 'add-question'],
@@ -630,11 +718,11 @@ describe('page packing', () => {
 
   test('section headings and add-question controls take up room too', () => {
     const exam = examOf([tall('o1', 1)])
-    const pages = renderExam(
+    const pages = testPages(renderExam(
       exam,
       versionOf(),
       stubHeights({ o1: FIRST_BOX - 10 }, {}, 70),
-    )
+    ))
     expect(pageShape(pages)).toEqual([['section-heading'], ['q:o1'], ['add-question']])
   })
 
