@@ -23,6 +23,8 @@ button { cursor: pointer; }
 .print-button:hover, .secondary-button:hover { background: #ebddcd; }
 .primary-button { border-color: #9f5037; color: #fffaf3; background: #9f5037; }
 .primary-button:hover { background: #87422e; }
+.secondary-button:disabled { color: #a8988c; background: #f7eee3; cursor: not-allowed; }
+.secondary-button:disabled:hover { background: #f7eee3; }
 
 .exam-workspace { min-height: calc(100vh - 58px); padding: 0 24px; }
 .exam-page {
@@ -34,11 +36,23 @@ button { cursor: pointer; }
 .exam-page { font-family: Georgia, 'Times New Roman', serif; font-size: 15px; line-height: 1.45; }
 .exam-title { margin: 0 0 30px; font: 700 26px/1.2 Georgia, serif; }
 .exam-section { margin: 0 0 18px; }
+.exam-section-titlebar { display: flex; align-items: baseline; gap: 10px; }
 .section-title { margin: 0; font: 700 17px/1.3 Georgia, serif; }
+.section-select-all {
+  padding: 2px 8px; border: 1px solid transparent; border-radius: 5px;
+  color: #9f5037; background: transparent;
+  font-family: Arial, Helvetica, sans-serif; font-size: 12px; font-weight: 600;
+}
+.section-select-all:hover { background: #f7eee3; }
 .section-instructions { margin: 4px 0 0; font-style: italic; }
 .exam-question {
   position: relative; display: grid; grid-template-columns: 92px 1fr; gap: 6px;
   margin-bottom: 26px;
+}
+/* Persists regardless of hover, unlike the gutter — it is the only sign a
+   question is selected when the mouse is elsewhere. */
+.exam-question--selected {
+  outline: 2px solid #9f5037; outline-offset: 6px; border-radius: 4px;
 }
 .question-number { display: flex; align-items: baseline; gap: 8px; font-weight: 700; }
 /* The line a student writes their letter on. */
@@ -67,6 +81,8 @@ button { cursor: pointer; }
 }
 .exam-question:hover .question-gutter,
 .question-gutter:focus-within { opacity: 1; }
+.gutter-select { display: flex; align-items: center; padding: 0 3px; border-right: 1px solid #e8dfd2; }
+.gutter-select input { margin: 0; accent-color: #9f5037; cursor: pointer; }
 .gutter-actions { display: flex; gap: 4px; }
 .gutter-button {
   padding: 4px 7px; border: 0; border-radius: 5px;
@@ -191,9 +207,13 @@ button { cursor: pointer; }
 
 @media print {
   /* Chrome off: only the test prints. */
-  .document-bar, .question-gutter, .add-question, .shuffle-select { display: none; }
+  .document-bar, .question-gutter, .add-question, .shuffle-select, .section-select-all {
+    display: none;
+  }
   body, :root { background: #fff; }
   .exam-workspace { padding: 0; }
   .exam-page { width: 100%; min-height: 0; padding: 0; box-shadow: none; }
   .exam-question { break-inside: avoid; }
+  /* Selection is editing chrome too — never printed. */
+  .exam-question--selected { outline: none; }
 }

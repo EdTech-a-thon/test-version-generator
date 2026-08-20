@@ -23,12 +23,14 @@ import {
   createQuestion,
   duplicateQuestion,
   questionById,
+  shuffleAnswers,
   shuffleQuestions,
   withTypeSwitched,
 } from './exam'
 import type { Question, QuestionType } from './exam'
 import type { ExamStore } from './exam-store'
 import { ExamPage } from './exam-page'
+import { useSelection } from './use-selection'
 
 function CrepeQuestion({
   value,
@@ -211,6 +213,13 @@ export default function App({ store }: { store: ExamStore }) {
   // A question being written. A new one is a full question that the store has
   // not been told about yet, so saving is the same call either way.
   const [editing, setEditing] = useState<Question | null>(null)
+  // Selection lives here, alongside the store: it is the seam #11's toolbar
+  // column control (also selection-wide) will read from, the same way
+  // "Shuffle answers" below does.
+  const selection = useSelection()
+  const canShuffleAnswers = [...selection.selectedIds].some(
+    (questionId) => questionById(draft.exam, questionId)?.type === 'multiple-choice',
+  )
 
   return (
     <>
@@ -241,6 +250,19 @@ export default function App({ store }: { store: ExamStore }) {
             <option value="open">Short Answer section</option>
             <option value="all">All sections</option>
           </select>
+          <button
+            type="button"
+            className="secondary-button"
+            aria-label="Shuffle answers of the selected questions"
+            disabled={!canShuffleAnswers}
+            onClick={() =>
+              store.updateCurrentVersion((version) =>
+                shuffleAnswers(draft.exam, version, [...selection.selectedIds], Math.random),
+              )
+            }
+          >
+            Shuffle answers (selection)
+          </button>
           <button type="button" className="print-button" onClick={() => window.print()}>Print</button>
         </div>
       </header>
@@ -248,6 +270,7 @@ export default function App({ store }: { store: ExamStore }) {
       <ExamPage
         exam={draft.exam}
         version={version}
+        selection={selection}
         onEdit={(questionId) => setEditing(questionById(draft.exam, questionId) ?? null)}
         onDuplicate={(questionId) => {
           const question = questionById(draft.exam, questionId)

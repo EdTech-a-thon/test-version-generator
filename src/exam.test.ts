@@ -10,6 +10,7 @@ import {
   orderedQuestions,
   questionById,
   questionsInSection,
+  shuffleAnswers,
   shuffleQuestions,
   withQuestionAppended,
   withQuestionRemoved,
@@ -333,5 +334,69 @@ describe('shuffleQuestions', () => {
     expect(new Set(ids(questionsInSection(exam, result, 'multiple-choice')))).toEqual(
       new Set(['q1', 'q2', 'q3']),
     )
+  })
+})
+
+describe('shuffleAnswers', () => {
+  test('is a permutation of the same choice ids, with nothing lost or duplicated', () => {
+    const exam = examOf([multipleChoice('q1', ['a', 'b', 'c', 'd'], 'c')])
+    const version = versionOf(['q1'])
+    const result = shuffleAnswers(exam, version, ['q1'], fixedRandom([0.9, 0.1, 0.5]))
+    expect(result.choiceOrder.q1).toHaveLength(4)
+    expect(new Set(result.choiceOrder.q1)).toEqual(new Set(['a', 'b', 'c', 'd']))
+  })
+
+  test('unselected questions are untouched', () => {
+    const exam = examOf([
+      multipleChoice('q1', ['a', 'b'], 'a'),
+      multipleChoice('q2', ['a', 'b'], 'b'),
+    ])
+    const version = versionOf(['q1', 'q2'], { q2: ['a', 'b'] })
+    const result = shuffleAnswers(exam, version, ['q1'], fixedRandom([0.9]))
+    expect(result.choiceOrder.q2).toEqual(['a', 'b'])
+  })
+
+  test('the correct answer stays attached to its choice through the permutation', () => {
+    const exam = examOf([multipleChoice('q1', ['a', 'b', 'c'], 'b')])
+    const version = versionOf(['q1'])
+    const result = shuffleAnswers(exam, version, ['q1'], fixedRandom([0.9, 0.4]))
+    const question = questionById(exam, 'q1')!
+    const shuffledChoices = orderedChoices(question, result)
+    expect(shuffledChoices.find((choice) => choice.correct)?.id).toBe('b')
+  })
+
+  test('choice letters follow the new order — the letter shown is the position on this paper', () => {
+    const exam = examOf([multipleChoice('q1', ['a', 'b', 'c'])])
+    const version = versionOf(['q1'])
+    const result = shuffleAnswers(exam, version, ['q1'], fixedRandom([0.9, 0.4]))
+    // orderedChoices returns choices in this version's order; the letter a
+    // student sees is that position, so asserting the order asserts the
+    // letters too.
+    expect(result.choiceOrder.q1).toEqual(
+      orderedChoices(questionById(exam, 'q1')!, result).map((choice) => choice.id),
+    )
+  })
+
+  test('a selected open question is skipped safely and gets no choiceOrder entry', () => {
+    const exam = examOf([open('o1')])
+    const version = versionOf(['o1'])
+    const result = shuffleAnswers(exam, version, ['o1'], fixedRandom([0.9]))
+    expect(result.choiceOrder.o1).toBeUndefined()
+  })
+
+  test('a fixed random source produces a fixed ordering', () => {
+    const exam = examOf([multipleChoice('q1', ['a', 'b', 'c', 'd'])])
+    const version = versionOf(['q1'])
+    const a = shuffleAnswers(exam, version, ['q1'], fixedRandom([0.9, 0.2, 0.6]))
+    const b = shuffleAnswers(exam, version, ['q1'], fixedRandom([0.9, 0.2, 0.6]))
+    expect(a.choiceOrder.q1).toEqual(b.choiceOrder.q1)
+  })
+
+  test('question content is never modified by a shuffle', () => {
+    const exam = examOf([multipleChoice('q1', ['a', 'b', 'c'], 'b')])
+    const version = versionOf(['q1'])
+    const before = structuredClone(exam)
+    shuffleAnswers(exam, version, ['q1'], fixedRandom([0.9]))
+    expect(exam).toEqual(before)
   })
 })

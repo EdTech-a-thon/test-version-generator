@@ -292,3 +292,26 @@ export function shuffleQuestions(
   })
   return { ...version, questionOrder }
 }
+
+// Reorders `choiceOrder` for each given question id. Only a multiple-choice
+// question with at least two choices actually moves: an open question, or
+// one with fewer than two choices, is left exactly as recorded. That makes
+// it safe to pass a mixed selection straight through — as the toolbar's
+// "Shuffle answers" does — without filtering it first. A question id this
+// exam has no choices for, or does not know at all, is silently skipped.
+export function shuffleAnswers(
+  exam: Exam,
+  version: Version,
+  questionIds: readonly string[],
+  random: RandomSource,
+): Version {
+  const choiceOrder = { ...version.choiceOrder }
+  for (const questionId of questionIds) {
+    const question = questionById(exam, questionId)
+    if (!question) continue
+    const ids = orderedChoices(question, version).map((choice) => choice.id)
+    if (ids.length < 2) continue
+    choiceOrder[questionId] = shuffled(ids, random)
+  }
+  return { ...version, choiceOrder }
+}
