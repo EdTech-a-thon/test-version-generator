@@ -547,3 +547,30 @@ export function renderExam(
   )
   return [...testPages, ...keyPages]
 }
+
+export interface PrintContent {
+  test: boolean
+  answerKey: boolean
+}
+
+export interface PrintedVersion {
+  version: Version
+  pages: Page[]
+}
+
+/** Render each version as its own document, then choose the streams requested
+ * by the print panel. Keeping the render calls independent is what restarts
+ * both test and answer-key page numbering for every version. */
+export function renderPrintPages(
+  exam: Exam,
+  versions: readonly Version[],
+  measure: Measure,
+  content: PrintContent,
+): PrintedVersion[] {
+  return versions.map((version) => ({
+    version,
+    pages: renderExam(exam, version, measure).filter((page) =>
+      page.header === 'answer-key' ? content.answerKey : content.test,
+    ),
+  }))
+}

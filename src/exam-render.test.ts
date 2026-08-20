@@ -11,6 +11,7 @@ import {
   SECTION_TITLE,
   pageContentHeight,
   renderExam,
+  renderPrintPages,
   unmeasured,
   type ColumnCount,
   type Measure,
@@ -534,6 +535,53 @@ describe('answer key', () => {
       page.items.filter((item) => item.kind === 'answer-key-entry'),
     )
     expect(entries).toEqual([{ kind: 'answer-key-entry', number: 1, letter: null }])
+  })
+})
+
+describe('print selection', () => {
+  test('prints only the selected test and answer-key streams', () => {
+    const exam = examOf([multipleChoice('m1', ['a', 'b'], 'a')])
+    const version = versionOf(['m1'])
+
+    const testOnly = renderPrintPages(exam, [version], unmeasured, {
+      test: true,
+      answerKey: false,
+    })[0]!.pages
+    const keyOnly = renderPrintPages(exam, [version], unmeasured, {
+      test: false,
+      answerKey: true,
+    })[0]!.pages
+
+    expect(testOnly.length).toBeGreaterThan(0)
+    expect(testOnly.every((page) => page.header !== 'answer-key')).toBe(true)
+    expect(keyOnly.length).toBeGreaterThan(0)
+    expect(keyOnly.every((page) => page.header === 'answer-key')).toBe(true)
+  })
+
+  test('renders every version independently so each stream restarts at page one', () => {
+    const exam = examOf([multipleChoice('m1', ['a', 'b'], 'a')])
+    const versions = [
+      { ...versionOf(['m1'], { m1: ['a', 'b'] }), id: 'v-a', letter: 'A' },
+      { ...versionOf(['m1'], { m1: ['b', 'a'] }), id: 'v-b', letter: 'B' },
+    ]
+    const groups = renderPrintPages(exam, versions, unmeasured, {
+      test: true,
+      answerKey: true,
+    })
+
+    expect(groups.map((group) => group.version.letter)).toEqual(['A', 'B'])
+    expect(groups.map((group) => group.pages[0]!.number)).toEqual([1, 1])
+    expect(groups.map((group) =>
+      group.pages.find((page) => page.header === 'answer-key')!.number,
+    )).toEqual([1, 1])
+    expect(groups.map((group) =>
+      group.pages.flatMap((page) => page.items).find(
+        (item) => item.kind === 'answer-key-entry',
+      ),
+    )).toEqual([
+      { kind: 'answer-key-entry', number: 1, letter: 'A' },
+      { kind: 'answer-key-entry', number: 1, letter: 'B' },
+    ])
   })
 })
 

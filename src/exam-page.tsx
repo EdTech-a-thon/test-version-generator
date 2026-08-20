@@ -29,8 +29,9 @@ import {
   PAGE_HEIGHT,
   PAGE_MARGIN,
   PAGE_WIDTH,
-  renderExam,
+  renderPrintPages,
   unmeasured,
+  type PrintContent,
   type Page,
   type PageHeader,
   type PageItem,
@@ -452,14 +453,20 @@ function usePaginatedExam(
   exam: Exam,
   version: Version,
   workspace: RefObject<HTMLElement | null>,
+  content: PrintContent,
 ): Page[] {
-  const [pages, setPages] = useState<Page[]>(() => renderExam(exam, version, unmeasured))
+  const { test, answerKey } = content
+  const [pages, setPages] = useState<Page[]>(() =>
+    renderPrintPages(exam, [version], unmeasured, content)[0]!.pages,
+  )
   const measured = useRef(false)
 
   useLayoutEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined
     let live = true
-    const repaginate = () => setPages(renderExam(exam, version, domMeasure))
+    const repaginate = () => setPages(
+      renderPrintPages(exam, [version], domMeasure, { test, answerKey })[0]!.pages,
+    )
     const schedule = () => {
       if (!live) return
       clearTimeout(timer)
@@ -487,7 +494,7 @@ function usePaginatedExam(
       clearTimeout(timer)
       element?.removeEventListener('load', onAssetLoad, true)
     }
-  }, [exam, version, workspace])
+  }, [exam, version, workspace, test, answerKey])
 
   return pages
 }
@@ -502,6 +509,7 @@ export function ExamPage({
   onAdd,
   onSetColumns,
   unsavedDraft = false,
+  content = { test: true, answerKey: true },
 }: {
   exam: Exam
   version: Version
@@ -512,9 +520,10 @@ export function ExamPage({
   onAdd: (section: QuestionType) => void
   onSetColumns: (questionId: string, columns: ColumnSetting) => void
   unsavedDraft?: boolean
+  content?: PrintContent
 }) {
   const workspace = useRef<HTMLElement | null>(null)
-  const pages = usePaginatedExam(exam, version, workspace)
+  const pages = usePaginatedExam(exam, version, workspace, content)
   const orderedIds = orderedQuestionIds(pages)
   const idsBySection = questionIdsBySection(pages)
   const columnSettings = columnSettingsOf(exam)
@@ -528,7 +537,11 @@ export function ExamPage({
       onClick={clearOnBackground}
     >
       {pages.map((page) => (
-        <article className="exam-page" key={page.number} onClick={clearOnBackground}>
+        <article
+          className="exam-page"
+          key={`${page.header}-${page.number}`}
+          onClick={clearOnBackground}
+        >
           <PageHeaderView
             header={page.header}
             title={exam.title}

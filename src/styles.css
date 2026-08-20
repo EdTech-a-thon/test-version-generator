@@ -38,6 +38,18 @@ button { cursor: pointer; }
 .secondary-button:disabled { color: #a8988c; background: #f7eee3; cursor: not-allowed; }
 .secondary-button:disabled:hover { background: #f7eee3; }
 
+.print-panel {
+  position: sticky; top: 58px; z-index: 19;
+  display: flex; align-items: center; justify-content: flex-end; gap: 22px;
+  padding: 12px 18px; border-bottom: 1px solid #d8cbbb; background: #fffaf3;
+  box-shadow: 0 3px 8px rgb(91 68 47 / 10%);
+}
+.print-panel fieldset { display: flex; gap: 12px; margin: 0; padding: 0; border: 0; }
+.print-panel legend { float: left; margin-right: 4px; font-weight: 700; }
+.print-panel label { display: flex; align-items: center; gap: 5px; }
+.print-panel input { margin: 0; accent-color: #9f5037; }
+.print-output { display: none; }
+
 /* The rendered test. Everything below the document bar is a view of what the
    printer will produce; nothing in it is typeable.
 
@@ -312,15 +324,20 @@ button { cursor: pointer; }
   /* Chrome off: only the test prints. The measuring host is chrome too, and
      an off-screen block left in the flow prints as blank sheets. */
   .document-bar, .question-gutter, .add-question, .shuffle-select,
-  .section-select-all, .measure-host {
+  .section-select-all, .measure-host, .print-panel, .editor-output,
+  .dialog-backdrop {
     display: none;
   }
+  .print-output { display: block; }
   body, :root { background: #fff; }
   .exam-workspace { min-height: 0; padding: 0; overflow: visible; }
   /* Geometry stays exactly as it is on screen — only the paper around it goes
      away. Each sheet is one page; the last does not force a blank one after. */
   .exam-page { margin: 0; box-shadow: none; break-after: page; }
   .exam-page:last-of-type { break-after: auto; }
+  .print-output .exam-workspace:not(:last-child) .exam-page:last-of-type {
+    break-after: page;
+  }
   .exam-question { break-inside: avoid; }
   /* Selection is editing chrome too — never printed. */
   .exam-question--selected { outline: none; }

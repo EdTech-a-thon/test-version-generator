@@ -1,4 +1,4 @@
-import { useRef, useState, useSyncExternalStore } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { Milkdown, useEditor } from '@milkdown/react'
 import { Crepe } from '@milkdown/crepe'
 import { editorViewCtx } from '@milkdown/kit/core'
@@ -31,6 +31,7 @@ import type { ColumnSetting, Question, QuestionType } from './exam'
 import type { ExamStore } from './exam-store'
 import { ColumnControl, ExamPage } from './exam-page'
 import { useSelection } from './use-selection'
+import type { PrintContent } from './exam-render'
 
 function CrepeQuestion({
   value,
@@ -214,6 +215,16 @@ export default function App({ store }: { store: ExamStore }) {
   // not been told about yet, so saving is the same call either way.
   const [editing, setEditing] = useState<Question | null>(null)
   const [pendingVersionId, setPendingVersionId] = useState<string | null>(null)
+  const [printPanelOpen, setPrintPanelOpen] = useState(false)
+  const [printContent, setPrintContent] = useState<PrintContent>({
+    test: true,
+    answerKey: false,
+  })
+  const [printAllVersions, setPrintAllVersions] = useState(false)
+  const [printRequest, setPrintRequest] = useState<{
+    content: PrintContent
+    versions: typeof draft.versions
+  } | null>(null)
   // Selection lives here, alongside the store: it is the seam #11's toolbar
   // column control (also selection-wide) will read from, the same way
   // "Shuffle answers" below does.
@@ -232,6 +243,15 @@ export default function App({ store }: { store: ExamStore }) {
   )
   const selectionColumns: ColumnSetting | undefined =
     selectedColumnSettings.size === 1 ? [...selectedColumnSettings][0] : undefined
+
+  useEffect(() => {
+    if (!printRequest) return
+    const frame = window.requestAnimationFrame(() => {
+      window.print()
+      setPrintRequest(null)
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [printRequest])
 
   return (
     <>
@@ -339,28 +359,114 @@ export default function App({ store }: { store: ExamStore }) {
           >
             Shuffle answers (selection)
           </button>
-          <button type="button" className="print-button" onClick={() => window.print()}>Print</button>
+          <button
+            type="button"
+            className="print-button"
+            aria-expanded={printPanelOpen}
+            onClick={() => setPrintPanelOpen((open) => !open)}
+          >Print</button>
         </div>
       </header>
 
-      <ExamPage
-        exam={draft.exam}
-        version={version}
-        selection={selection}
-        onEdit={(questionId) => setEditing(questionById(draft.exam, questionId) ?? null)}
-        onDuplicate={(questionId) => {
-          const question = questionById(draft.exam, questionId)
-          if (question) store.addQuestion(duplicateQuestion(question))
-        }}
-        onDelete={(questionId) => {
-          if (window.confirm('Delete this question?')) {
-            store.removeQuestion(questionId)
-          }
-        }}
-        onAdd={(section) => setEditing(createQuestion(section))}
-        onSetColumns={(questionId, columns) => store.setQuestionColumns(questionId, columns)}
-        unsavedDraft={!store.hasSavedVersions()}
-      />
+      {printPanelOpen && (
+        <section className="print-panel" aria-label="Print options">
+          <fieldset>
+            <legend>Content</legend>
+            <label>
+              <input
+                type="checkbox"
+                checked={printContent.test}
+                onChange={(event) => setPrintContent({
+                  ...printContent,
+                  test: event.target.checked,
+                })}
+              />
+              Test
+            </label>
+            <label>
+              <input
+                type="checkbox"
+                checked={printContent.answerKey}
+                onChange={(event) => setPrintContent({
+                  ...printContent,
+                  answerKey: event.target.checked,
+                })}
+              />
+              Answer key
+            </label>
+          </fieldset>
+          <fieldset>
+            <legend>Versions</legend>
+            <label>
+              <input
+                type="radio"
+                name="print-version-scope"
+                checked={!printAllVersions}
+                onChange={() => setPrintAllVersions(false)}
+              />
+              This version
+            </label>
+            <label>
+              <input
+                type="radio"
+                name="print-version-scope"
+                checked={printAllVersions}
+                onChange={() => setPrintAllVersions(true)}
+              />
+              All versions
+            </label>
+          </fieldset>
+          <button
+            type="button"
+            className="primary-button"
+            disabled={!printContent.test && !printContent.answerKey}
+            onClick={() => setPrintRequest({
+              content: { ...printContent },
+              versions: printAllVersions ? [...draft.versions] : [version],
+            })}
+          >Print selected</button>
+        </section>
+      )}
+
+      <div className="editor-output">
+        <ExamPage
+          exam={draft.exam}
+          version={version}
+          selection={selection}
+          onEdit={(questionId) => setEditing(questionById(draft.exam, questionId) ?? null)}
+          onDuplicate={(questionId) => {
+            const question = questionById(draft.exam, questionId)
+            if (question) store.addQuestion(duplicateQuestion(question))
+          }}
+          onDelete={(questionId) => {
+            if (window.confirm('Delete this question?')) {
+              store.removeQuestion(questionId)
+            }
+          }}
+          onAdd={(section) => setEditing(createQuestion(section))}
+          onSetColumns={(questionId, columns) => store.setQuestionColumns(questionId, columns)}
+          unsavedDraft={!store.hasSavedVersions()}
+        />
+      </div>
+
+      {printRequest && (
+        <div className="print-output">
+          {printRequest.versions.map((printedVersion) => (
+            <ExamPage
+              key={printedVersion.id}
+              exam={draft.exam}
+              version={printedVersion}
+              selection={selection}
+              onEdit={() => {}}
+              onDuplicate={() => {}}
+              onDelete={() => {}}
+              onAdd={() => {}}
+              onSetColumns={() => {}}
+              content={printRequest.content}
+            />
+          ))}
+        </div>
+      )}
 
       {pendingVersionId && (
         <div className="dialog-backdrop" role="presentation">
