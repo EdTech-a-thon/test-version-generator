@@ -1,30 +1,35 @@
 // The real `Measure` the app hands to `renderExam`, as opposed to the stubs
 // tests inject (see `exam-render.ts`'s `unmeasured` and the hand-built
-// `Measure`s in `exam-render.test.ts`).
+// `Measure`s in `exam-render.test.ts`). Both halves work the same way: ask the
+// browser what the real thing comes out as, off-screen, and hand back a number.
 //
-// `choiceWidth` (#11) is real: it asks a detached `<canvas>` for the width a
-// choice's text would take on one line, using the same font the choice grid
-// prints in. A canvas measurement needs no element mounted in the live DOM,
-// which is why this can be a plain module-level singleton rather than
-// something a component has to construct and hold onto.
+// `choiceWidth` (#11) asks a detached `<canvas>` for the width a choice's text
+// would take on one line, using the same font the choice grid prints in. A
+// canvas measurement needs no element in the live DOM at all.
 //
-// `itemHeight` (#7's seam) is still the stub — 0 for everything, same as
-// `unmeasured` — because measuring a page item's height means laying out its
-// actual rendered content (rich text, images, a choice grid) at the content
-// box's width, which canvas text metrics can't do. That half belongs in this
-// file too: replace the `itemHeight` below with something that mounts (or
-// reuses) an off-screen container sized to the page's content width — see
-// `PAGE_CONTENT_WIDTH` in `exam-render.ts`, which `itemHeight` will need
-// alongside a content-height counterpart — renders the `PageItem` into it
-// (the same views `exam-page.tsx` uses on-screen: `DocView` for a stem or
-// choice body, `ChoiceGridView`'s markup for a grid), and reads back
-// `scrollHeight`. Keeping both functions in one `Measure` here, rather than
-// splitting real measurement across two places, is what "slots in alongside"
-// means: `domMeasure` stays the single real implementation `exam-page.tsx`
-// imports, before and after #7 lands.
+// `itemHeight` (#7) needs layout, not text metrics: a page item's height is the
+// height of its rich text, its images and its choice grid once they are laid out
+// at the page's content width. So it renders the item — through
+// `PageItemMeasureView`, the very components `exam-page.tsx` draws on screen —
+// into one reused off-screen host sized to `PAGE_CONTENT_WIDTH`, and measures
+// the host.
+//
+// Two things about that host matter and are easy to undo by accident:
+//
+//   - It is `display: flow-root` (see `.measure-host` in styles.css), so a top
+//     item margin is contained rather than collapsing out of the host and going
+//     unmeasured.
+//   - Page items must keep a zero top margin, since each one is measured alone
+//     and the heights are then summed. Bottom margins are what separates them.
+//
+// This is the one place in the app that reads a layout property, and it is why
+// `renderExam` never has to: everything downstream of `Measure` is arithmetic.
 
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
 import type { Choice } from './exam'
-import type { Measure } from './exam-render'
+import { PAGE_CONTENT_WIDTH, type Measure, type PageItem } from './exam-render'
+import { PageItemMeasureView } from './page-item-view'
 import type { ProseMirrorJSON } from './question-doc'
 
 // Matches `.choice-body` in styles.css (inherited from `.exam-page`'s
@@ -67,10 +72,40 @@ function choiceWidth(choice: Choice): number {
   return ctx.measureText(textOf(choice.node)).width + CHOICE_PREFIX_ALLOWANCE
 }
 
-// `itemHeight` is the stub half of this `Measure` — see the file comment for
-// exactly where #7 replaces it.
-function itemHeight(): number {
-  return 0
+let host: HTMLElement | null | undefined
+
+// Lazy and cached, like the canvas above: one host for the process, appended
+// once and reused for every measurement. It carries `.exam-page` so the item
+// inherits exactly the typography it will print in; `.measure-host` overrides
+// the page's own size and position and takes it out of sight.
+function measureHost(): HTMLElement | null {
+  if (host === undefined) {
+    if (typeof document === 'undefined') {
+      host = null
+    } else {
+      host = document.createElement('div')
+      host.className = 'exam-page measure-host'
+      host.setAttribute('aria-hidden', 'true')
+      // From the same constant packing uses, so the width an item is measured
+      // at is by construction the width it is packed against.
+      host.style.width = `${PAGE_CONTENT_WIDTH}px`
+      document.body.appendChild(host)
+    }
+  }
+  return host
+}
+
+// Static markup rather than a React root: measurement is a synchronous question
+// asked from inside another component's effect, and a second root rendering
+// there would be fighting React's own scheduling for no gain — nothing in a
+// measured item is interactive or stateful.
+function itemHeight(item: PageItem): number {
+  const element = measureHost()
+  if (!element) return 0
+  element.innerHTML = renderToStaticMarkup(createElement(PageItemMeasureView, { item }))
+  // Fractional, unlike `scrollHeight`: the heights of a dozen items are summed
+  // against a fixed box, and a rounded pixel each would be a rounded page.
+  return element.getBoundingClientRect().height
 }
 
 export const domMeasure: Measure = { choiceWidth, itemHeight }

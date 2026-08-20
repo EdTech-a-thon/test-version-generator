@@ -9,11 +9,11 @@
 // is testable without a browser: the render function never touches a layout
 // property itself, it asks `Measure` for one.
 //
-// What is deliberately not here yet: the page content box is unbounded, so
-// everything lands on one page — a single point in this file rather than an
-// assumption spread through it, see `PAGE_CONTENT_HEIGHT`. Column resolution
-// (`resolveColumns`) is real: it picks the widest of 4, 2, 1 columns whose
-// longest choice fits without wrapping, using the injected `Measure`.
+// Packing is atomic by default: a question that fits stays whole, and one that
+// does not fit moves to the next page whole. Only a question that alone exceeds
+// a full content box is ever split, and then only at the boundaries between its
+// top-level stem blocks — never through a choice grid, and never leaving a bare
+// question number at the foot of a page.
 
 import {
   SECTION_ORDER,
@@ -57,9 +57,10 @@ export type Measure = {
   itemHeight(item: PageItem): number
 }
 
-// A stub that reports nothing. Enough while the page is unbounded and columns
-// are fixed; the app replaces it with real measurement once pagination and
-// automatic columns need it.
+// A stub that reports nothing: every item is zero-height and every choice
+// zero-width, so an exam packs onto one page and `'auto'` resolves to the
+// widest column count. Tests that are not about geometry inject this; the app
+// injects `domMeasure`.
 export const unmeasured: Measure = {
   choiceWidth: () => 0,
   itemHeight: () => 0,
@@ -106,9 +107,26 @@ export type SectionHeadingItem = {
   instructions: string
 }
 
+// A question, or as much of one as this page has room for.
+//
+// The common case is one item carrying the whole question: `stem` is the
+// question's own stem, `numbered` is true, and `grid` is the question's own
+// grid. A question too tall for any page comes out as consecutive pieces of the
+// same `question` instead — the first carrying the number line, the last
+// carrying the grid, and each carrying a run of top-level stem blocks. Views
+// draw the item, never the question behind it, so a split needs no special case
+// on screen or on paper.
 export type QuestionItem = {
   kind: 'question'
+  /** The whole question, for identity, numbering, selection and the answer key. */
   question: RenderedQuestion
+  /** The top-level stem blocks this piece prints, in order. */
+  stem: ProseMirrorJSON[]
+  /** Whether this piece prints the number line and answer blank. Only the first
+   *  piece does, and never alone: it always carries stem or grid with it. */
+  numbered: boolean
+  /** The choice grid, on the single piece that prints it. Never split. */
+  grid: ChoiceGrid | null
 }
 
 // Closes a section: adding from here makes a question of that section's type,
@@ -132,12 +150,38 @@ export type Page = {
   items: PageItem[]
 }
 
-// Page geometry: US Letter at 96dpi with 1" margins on every side (per the
-// spec, 816×1056px). The content box is 624px wide. Height is unbounded for
-// now, so packing produces a single page — #7's job to bound. Width is real
-// today: it is what a choice's column is measured against under `'auto'`.
-const PAGE_CONTENT_WIDTH = 816 - 2 * 96
-const PAGE_CONTENT_HEIGHT = Number.POSITIVE_INFINITY
+// ---------------------------------------------------------------------------
+// Page geometry
+//
+// US Letter at 96dpi: an 816×1056px sheet with 1" (96px) margins on every side,
+// leaving a 624×864px box. The header and footer come out of that box's height,
+// so how much packing may fill depends on which header the page carries — the
+// first page's Name/Class/Date line plus the title is taller than a later
+// page's Name line alone.
+//
+// These are the numbers the screen uses as well: `exam-page.tsx` publishes them
+// as CSS custom properties so the rendered page is laid out at exactly the size
+// packed against, and the print `@page` is the same sheet. A mismatch here is
+// what makes content creep onto an extra sheet on paper.
+export const PAGE_WIDTH = 816
+export const PAGE_HEIGHT = 1056
+export const PAGE_MARGIN = 96
+
+/** The width a page item is laid out at — what `Measure` measures against. */
+export const PAGE_CONTENT_WIDTH = PAGE_WIDTH - 2 * PAGE_MARGIN
+
+const PAGE_BOX_HEIGHT = PAGE_HEIGHT - 2 * PAGE_MARGIN
+
+// Exhaustive over `PageHeader` on purpose: a new variant cannot be added
+// without deciding how tall its furniture is.
+export const HEADER_HEIGHT: Record<PageHeader, number> = { first: 84, later: 30 }
+
+export const FOOTER_HEIGHT = 36
+
+/** How much vertical space packing may fill on a page carrying `header`. */
+export function pageContentHeight(header: PageHeader): number {
+  return PAGE_BOX_HEIGHT - HEADER_HEIGHT[header] - FOOTER_HEIGHT
+}
 
 // Auto tries these, widest first, and settles on the first whose column a
 // choice fits without wrapping.
@@ -259,10 +303,7 @@ function renderItems(exam: Exam, version: Version, measure: Measure): PageItem[]
       })
     }
     for (const question of questions) {
-      items.push({
-        kind: 'question',
-        question: renderQuestion(question, version, number, measure),
-      })
+      items.push(wholeQuestion(renderQuestion(question, version, number, measure)))
       number += 1
     }
     items.push({ kind: 'add-question', section })
@@ -270,28 +311,126 @@ function renderItems(exam: Exam, version: Version, measure: Measure): PageItem[]
   return items
 }
 
+/** The question, whole, as one page item — packing's starting point. */
+function wholeQuestion(question: RenderedQuestion): QuestionItem {
+  return {
+    kind: 'question',
+    question,
+    stem: question.stem,
+    numbered: true,
+    grid: question.grid,
+  }
+}
+
+// The indivisible parts a question may be broken between: its number line glued
+// to the first stem block, so a split can never strand a bare number at the foot
+// of a page; then one part per remaining top-level block; then the choice grid
+// whole, since a grid is never split. A question with no stem at all is a single
+// part, so it moves rather than coming apart.
+type QuestionPart = {
+  stem: ProseMirrorJSON[]
+  numbered: boolean
+  grid: ChoiceGrid | null
+}
+
+function partsOf(question: RenderedQuestion): QuestionPart[] {
+  const [first, ...rest] = question.stem
+  if (first === undefined) {
+    return [{ stem: [], numbered: true, grid: question.grid }]
+  }
+  const parts: QuestionPart[] = [{ stem: [first], numbered: true, grid: null }]
+  for (const block of rest) parts.push({ stem: [block], numbered: false, grid: null })
+  if (question.grid) parts.push({ stem: [], numbered: false, grid: question.grid })
+  return parts
+}
+
+/** Consecutive parts, gathered back into the one item that prints them. */
+function pieceOf(
+  question: RenderedQuestion,
+  parts: readonly QuestionPart[],
+): QuestionItem {
+  return {
+    kind: 'question',
+    question,
+    stem: parts.flatMap((part) => part.stem),
+    numbered: parts.some((part) => part.numbered),
+    grid: parts.find((part) => part.grid !== null)?.grid ?? null,
+  }
+}
+
 // Packing: fill a page until the next item does not fit, then start another.
-// With an unbounded content box that is one page — the shape #7 grows into.
+//
+// A question is atomic by default — it moves to the next page whole whenever it
+// would fit there. Only a question that exceeds a full content box on its own is
+// broken up, and then at the part boundaries above, as late as each page allows.
 function paginate(items: PageItem[], measure: Measure): Page[] {
   const pages: Page[] = []
+  let header: PageHeader = 'first'
+  let box = pageContentHeight(header)
   let current: PageItem[] = []
   let used = 0
 
   const flush = () => {
-    pages.push({
-      number: pages.length + 1,
-      header: pages.length === 0 ? 'first' : 'later',
-      items: current,
-    })
+    pages.push({ number: pages.length + 1, header, items: current })
     current = []
     used = 0
+    header = 'later'
+    box = pageContentHeight(header)
+  }
+
+  const place = (item: PageItem, height: number) => {
+    current.push(item)
+    used += height
+  }
+
+  // Breaks one question across as many pages as it needs, each page taking as
+  // many consecutive parts as still fit. A part taller than a whole page is
+  // placed alone and overflows rather than looping forever — there is nothing
+  // smaller to break it into.
+  const split = (question: RenderedQuestion) => {
+    const parts = partsOf(question)
+    let start = 0
+    while (start < parts.length) {
+      let end = start + 1
+      let piece = pieceOf(question, parts.slice(start, end))
+      let height = measure.itemHeight(piece)
+      if (height > box - used && current.length > 0) {
+        flush()
+        continue
+      }
+      while (end < parts.length) {
+        const grown = pieceOf(question, parts.slice(start, end + 1))
+        const grownHeight = measure.itemHeight(grown)
+        if (grownHeight > box - used) break
+        piece = grown
+        height = grownHeight
+        end += 1
+      }
+      place(piece, height)
+      start = end
+    }
   }
 
   for (const item of items) {
     const height = measure.itemHeight(item)
-    if (current.length > 0 && used + height > PAGE_CONTENT_HEIGHT) flush()
-    current.push(item)
-    used += height
+    if (height <= box - used) {
+      place(item, height)
+      continue
+    }
+    if (item.kind !== 'question') {
+      if (current.length > 0) flush()
+      place(item, height)
+      continue
+    }
+    // It does not fit here. Move it forward whole if a page of its own would
+    // hold it; otherwise it is genuinely oversized, and splitting starts in
+    // whatever room is left rather than wasting the rest of this page.
+    if (current.length > 0 && height <= pageContentHeight('later')) {
+      flush()
+      place(item, height)
+      continue
+    }
+    split(item.question)
   }
   flush()
   return pages

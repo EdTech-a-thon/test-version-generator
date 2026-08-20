@@ -4,18 +4,37 @@
 // model's pages look like — never what is on them, in what order, or under
 // which number. Nothing here is typeable: a double-click opens the question
 // dialog instead, and every editing control lives in chrome that print hides.
+//
+// A page is a real sheet: fixed at the geometry `exam-render.ts` packed
+// against, published to CSS as custom properties so the two cannot drift, with
+// the furniture — the identity line, the title, the page number — drawn here
+// off `Page.header` and `Page.number` rather than being content that packs.
+//
+// The one asynchronous thing on this page is measurement, and it is the reason
+// `pages` is state rather than a value computed during render: see
+// `usePaginatedExam`.
 
-import { useRef } from 'react'
-import { DocView } from './doc-view'
+import { useLayoutEffect, useRef, useState, type CSSProperties, type RefObject } from 'react'
 import {
+  AddQuestionButton,
+  QuestionContent,
+  SectionHeadingContent,
+} from './page-item-view'
+import {
+  FOOTER_HEIGHT,
+  HEADER_HEIGHT,
+  PAGE_HEIGHT,
+  PAGE_MARGIN,
+  PAGE_WIDTH,
   renderExam,
-  type ChoiceGrid,
+  unmeasured,
   type Page,
+  type PageHeader,
   type PageItem,
+  type QuestionItem,
   type RenderedQuestion,
 } from './exam-render'
 import type { ColumnSetting, Exam, QuestionType, Version } from './exam'
-import type { ProseMirrorJSON } from './question-doc'
 import type { Selection } from './use-selection'
 import { domMeasure } from './dom-measure'
 
@@ -40,11 +59,6 @@ function questionIdsBySection(pages: readonly Page[]): Record<QuestionType, stri
     }
   }
   return bySection
-}
-
-/** The blocks inside a node — a choice's own paragraphs, say. */
-function blocksOf(node: ProseMirrorJSON): ProseMirrorJSON[] {
-  return Array.isArray(node.content) ? (node.content as ProseMirrorJSON[]) : []
 }
 
 /** Every question's raw column setting, keyed by id — what the gutter's and
@@ -168,36 +182,13 @@ function QuestionGutter({
   )
 }
 
-// The grid is drawn as a real table so that a cell's answer stays inside its
-// column, and every border is off: on paper this is a layout, not a table.
-function ChoiceGridView({ grid }: { grid: ChoiceGrid }) {
-  return (
-    <table className="choice-grid" data-columns={grid.columns}>
-      <tbody>
-        {grid.cells.map((row, rowIndex) => (
-          <tr key={rowIndex}>
-            {row.map((choice, columnIndex) => (
-              <td key={columnIndex} className="choice-cell">
-                {choice && (
-                  <>
-                    <span className="choice-letter">{choice.letter}.</span>
-                    <DocView
-                      className="choice-body"
-                      content={blocksOf(choice.node)}
-                    />
-                  </>
-                )}
-              </td>
-            ))}
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  )
-}
-
+// A question on the page, or the piece of one this page carries: the same
+// content `dom-measure.ts` measured, wrapped in the chrome that makes it
+// selectable, editable and droppable. A continued piece is chrome-free — its
+// gutter, and everything that gutter does, belongs to the piece that carries
+// the question's number.
 function QuestionView({
-  question,
+  item,
   selected,
   columns,
   orderedIds,
@@ -207,7 +198,7 @@ function QuestionView({
   onDelete,
   onSetColumns,
 }: {
-  question: RenderedQuestion
+  item: QuestionItem
   selected: boolean
   columns: ColumnSetting
   orderedIds: readonly string[]
@@ -222,6 +213,7 @@ function QuestionView({
   // never lands — a double-click opens the editor without leaving a stray
   // selection behind.
   const pendingClick = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const question = item.question
 
   return (
     <section
@@ -246,25 +238,18 @@ function QuestionView({
         onEdit(question.id)
       }}
     >
-      <QuestionGutter
-        question={question}
-        selected={selected}
-        columns={columns}
-        onToggleSelect={selection.toggle}
-        onDuplicate={onDuplicate}
-        onDelete={onDelete}
-        onSetColumns={onSetColumns}
-      />
-      <div className="question-number">
-        {question.answerBlank && (
-          <span className="answer-blank" aria-label="Answer blank" />
-        )}
-        <span className="question-count">{question.number}.</span>
-      </div>
-      <div className="question-body">
-        <DocView className="question-stem" content={question.stem} />
-        {question.grid && <ChoiceGridView grid={question.grid} />}
-      </div>
+      {item.numbered && (
+        <QuestionGutter
+          question={question}
+          selected={selected}
+          columns={columns}
+          onToggleSelect={selection.toggle}
+          onDuplicate={onDuplicate}
+          onDelete={onDelete}
+          onSetColumns={onSetColumns}
+        />
+      )}
+      <QuestionContent item={item} />
     </section>
   )
 }
@@ -296,23 +281,16 @@ function PageItemView({
     case 'section-heading':
       return (
         <header className="exam-section">
-          <div className="exam-section-titlebar">
-            <h2 className="section-title">{item.title}</h2>
-            <button
-              type="button"
-              className="section-select-all"
-              onClick={() => selection.selectAll(idsBySection[item.section])}
-            >
-              Select all
-            </button>
-          </div>
-          <p className="section-instructions">{item.instructions}</p>
+          <SectionHeadingContent
+            item={item}
+            onSelectAll={() => selection.selectAll(idsBySection[item.section])}
+          />
         </header>
       )
     case 'question':
       return (
         <QuestionView
-          question={item.question}
+          item={item}
           selected={selection.isSelected(item.question.id)}
           columns={columnSettings[item.question.id] ?? 'auto'}
           orderedIds={orderedIds}
@@ -324,16 +302,11 @@ function PageItemView({
         />
       )
     case 'add-question':
-      return (
-        <button
-          type="button"
-          className="add-question"
-          onClick={() => onAdd(item.section)}
-        >
-          + Add {item.section === 'multiple-choice' ? 'multiple choice' : 'short answer'}{' '}
-          question
-        </button>
-      )
+      return <AddQuestionButton item={item} onAdd={onAdd} />
+    default: {
+      const unreachable: never = item
+      return unreachable
+    }
   }
 }
 
@@ -342,9 +315,75 @@ function keyOf(item: PageItem): string {
     case 'section-heading':
       return `heading-${item.section}`
     case 'question':
+      // A split question never has two of its pieces on one page, so its id is
+      // still unique within the page that keys by it.
       return `question-${item.question.id}`
     case 'add-question':
       return `add-${item.section}`
+    default: {
+      const unreachable: never = item
+      return unreachable
+    }
+  }
+}
+
+// The furniture at the top of a sheet, drawn from the variant packing chose.
+// The first page identifies the paper and names the test; every later page
+// carries just enough to reunite a dropped stack and to stop a student swapping
+// a page in from another version. Neither repeats the section heading — that is
+// content, and content is packed, not drawn here.
+//
+// Exhaustive over `PageHeader`: #8's answer-key variant will not compile until
+// its furniture is drawn, and #12 already reads the version's own letter here
+// rather than assuming 'A'.
+function PageHeaderView({
+  header,
+  title,
+  letter,
+}: {
+  header: PageHeader
+  title: string
+  letter: string
+}) {
+  const id = <span className="page-id">ID: {letter}</span>
+  switch (header) {
+    case 'first':
+      return (
+        <header className="page-header page-header--first">
+          <div className="page-identity">
+            <span className="identity-field">
+              Name:
+              <span className="identity-blank" />
+            </span>
+            <span className="identity-field">
+              Class:
+              <span className="identity-blank" />
+            </span>
+            <span className="identity-field">
+              Date:
+              <span className="identity-blank" />
+            </span>
+            {id}
+          </div>
+          <h1 className="exam-title">{title}</h1>
+        </header>
+      )
+    case 'later':
+      return (
+        <header className="page-header page-header--later">
+          <div className="page-identity">
+            <span className="identity-field">
+              Name:
+              <span className="identity-blank" />
+            </span>
+            {id}
+          </div>
+        </header>
+      )
+    default: {
+      const unreachable: never = header
+      return unreachable
+    }
   }
 }
 
@@ -355,6 +394,79 @@ function clearOnBackgroundClick(selection: Selection) {
   return (event: { target: EventTarget | null; currentTarget: EventTarget | null }) => {
     if (event.target === event.currentTarget) selection.clear()
   }
+}
+
+// The geometry `exam-render.ts` packed against, handed to CSS. Screen and paper
+// agree only if the sheet is laid out at the size it was packed for, and the
+// only way to be sure of that is for both to read the same numbers.
+const PAGE_GEOMETRY = {
+  '--page-width': `${PAGE_WIDTH}px`,
+  '--page-height': `${PAGE_HEIGHT}px`,
+  '--page-margin': `${PAGE_MARGIN}px`,
+  '--page-header-first': `${HEADER_HEIGHT.first}px`,
+  '--page-header-later': `${HEADER_HEIGHT.later}px`,
+  '--page-footer': `${FOOTER_HEIGHT}px`,
+} as CSSProperties
+
+// How long editing settles before the page is measured and packed again.
+// Measurement is the expensive, DOM-touching half of the render and it re-runs
+// on every keystroke's worth of change, so it waits for a pause.
+const REPAGINATE_DEBOUNCE_MS = 150
+
+// Pagination, kept in state rather than computed while rendering.
+//
+// `renderExam` is pure, but the `Measure` the app gives it reads real layout,
+// which cannot be done from inside a React render. So the first pass runs in a
+// layout effect — before the browser paints, so no unpaginated flash is ever
+// seen — and every pass after it is debounced.
+//
+// Two things can invalidate a measurement after the fact: a web font arriving
+// (KaTeX loads its own), and an image finishing decoding, since an image whose
+// bytes have not arrived measures as nothing. Each gets one re-measurement per
+// edit — enough to settle, and bounded, so a measurement can never chase its
+// own result round in a loop.
+function usePaginatedExam(
+  exam: Exam,
+  version: Version,
+  workspace: RefObject<HTMLElement | null>,
+): Page[] {
+  const [pages, setPages] = useState<Page[]>(() => renderExam(exam, version, unmeasured))
+  const measured = useRef(false)
+
+  useLayoutEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let live = true
+    const repaginate = () => setPages(renderExam(exam, version, domMeasure))
+    const schedule = () => {
+      if (!live) return
+      clearTimeout(timer)
+      timer = setTimeout(repaginate, REPAGINATE_DEBOUNCE_MS)
+    }
+
+    if (measured.current) schedule()
+    else {
+      measured.current = true
+      repaginate()
+    }
+
+    document.fonts?.ready.then(schedule, () => {})
+    let imagesSettled = false
+    const onAssetLoad = () => {
+      if (imagesSettled) return
+      imagesSettled = true
+      schedule()
+    }
+    const element = workspace.current
+    element?.addEventListener('load', onAssetLoad, true)
+
+    return () => {
+      live = false
+      clearTimeout(timer)
+      element?.removeEventListener('load', onAssetLoad, true)
+    }
+  }, [exam, version, workspace])
+
+  return pages
 }
 
 export function ExamPage({
@@ -376,35 +488,45 @@ export function ExamPage({
   onAdd: (section: QuestionType) => void
   onSetColumns: (questionId: string, columns: ColumnSetting) => void
 }) {
-  // `domMeasure` is real for `choiceWidth` (#11); `itemHeight` is still a
-  // stub returning 0, so every question lands on one unbounded page until #7
-  // gives it a real one — see `src/dom-measure.ts`.
-  const pages = renderExam(exam, version, domMeasure)
+  const workspace = useRef<HTMLElement | null>(null)
+  const pages = usePaginatedExam(exam, version, workspace)
   const orderedIds = orderedQuestionIds(pages)
   const idsBySection = questionIdsBySection(pages)
   const columnSettings = columnSettingsOf(exam)
   const clearOnBackground = clearOnBackgroundClick(selection)
 
   return (
-    <main className="exam-workspace" onClick={clearOnBackground}>
+    <main
+      className="exam-workspace"
+      ref={workspace}
+      style={PAGE_GEOMETRY}
+      onClick={clearOnBackground}
+    >
       {pages.map((page) => (
         <article className="exam-page" key={page.number} onClick={clearOnBackground}>
-          {page.header === 'first' && <h1 className="exam-title">{exam.title}</h1>}
-          {page.items.map((item) => (
-            <PageItemView
-              key={keyOf(item)}
-              item={item}
-              orderedIds={orderedIds}
-              idsBySection={idsBySection}
-              columnSettings={columnSettings}
-              selection={selection}
-              onEdit={onEdit}
-              onDuplicate={onDuplicate}
-              onDelete={onDelete}
-              onAdd={onAdd}
-              onSetColumns={onSetColumns}
-            />
-          ))}
+          <PageHeaderView
+            header={page.header}
+            title={exam.title}
+            letter={version.letter}
+          />
+          <div className="page-content" onClick={clearOnBackground}>
+            {page.items.map((item) => (
+              <PageItemView
+                key={keyOf(item)}
+                item={item}
+                orderedIds={orderedIds}
+                idsBySection={idsBySection}
+                columnSettings={columnSettings}
+                selection={selection}
+                onEdit={onEdit}
+                onDuplicate={onDuplicate}
+                onDelete={onDelete}
+                onAdd={onAdd}
+                onSetColumns={onSetColumns}
+              />
+            ))}
+          </div>
+          <footer className="page-footer">{page.number}</footer>
         </article>
       ))}
     </main>

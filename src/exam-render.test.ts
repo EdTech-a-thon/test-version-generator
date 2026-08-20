@@ -1,13 +1,21 @@
 import { describe, expect, test } from 'bun:test'
 import {
+  FOOTER_HEIGHT,
+  HEADER_HEIGHT,
+  PAGE_CONTENT_WIDTH,
+  PAGE_HEIGHT,
+  PAGE_MARGIN,
+  PAGE_WIDTH,
   SECTION_INSTRUCTIONS,
   SECTION_TITLE,
+  pageContentHeight,
   renderExam,
   unmeasured,
   type ColumnCount,
   type Measure,
   type Page,
   type PageItem,
+  type QuestionItem,
   type RenderedQuestion,
 } from './exam-render'
 import type { Exam, Question, Version } from './exam'
@@ -92,7 +100,7 @@ function gridRows(question: RenderedQuestion): string[][] {
 }
 
 describe('pages', () => {
-  test('an exam renders as a single unbounded first page', () => {
+  test('an exam that fits renders as a single first page', () => {
     const pages = render(examOf([multipleChoice('q1', ['a', 'b'])]))
     expect(pages).toHaveLength(1)
     expect(pages[0]!.number).toBe(1)
@@ -417,5 +425,224 @@ describe('auto column resolution', () => {
     const after = renderedQuestions(renderExam(examOf([edited]), versionOf(), narrow))
     expect(before[0]!.grid!.columns).toBe(2)
     expect(after[0]!.grid!.columns).toBe(2)
+  })
+})
+
+// Packing, driven entirely by stubbed heights: no DOM is involved, and the
+// numbers below are chosen against the real content boxes so the assertions
+// stay honest if the page furniture is ever resized.
+describe('page geometry', () => {
+  test('is US Letter at 96dpi with one-inch margins', () => {
+    expect([PAGE_WIDTH, PAGE_HEIGHT]).toEqual([816, 1056])
+    expect(PAGE_MARGIN).toBe(96)
+    expect(PAGE_CONTENT_WIDTH).toBe(624)
+  })
+
+  test('subtracts the header and footer from the content box', () => {
+    const box = PAGE_HEIGHT - 2 * PAGE_MARGIN
+    expect(pageContentHeight('first')).toBe(box - HEADER_HEIGHT.first - FOOTER_HEIGHT)
+    expect(pageContentHeight('later')).toBe(box - HEADER_HEIGHT.later - FOOTER_HEIGHT)
+  })
+
+  test('leaves the first page shorter, because its header carries the title too', () => {
+    expect(pageContentHeight('first')).toBeLessThan(pageContentHeight('later'))
+  })
+})
+
+describe('page packing', () => {
+  const FIRST_BOX = pageContentHeight('first')
+  const LATER_BOX = pageContentHeight('later')
+
+  /** An open question with `blocks` top-level paragraphs in its stem. */
+  function tall(id: string, blocks: number): Question {
+    return {
+      id,
+      type: 'open',
+      doc: {
+        type: 'doc',
+        content: Array.from({ length: blocks }, (_unused, index) => ({
+          type: 'paragraph',
+          content: [{ type: 'text', text: `${id} block ${index}` }],
+        })),
+      },
+      columns: 'auto',
+    }
+  }
+
+  /** A multiple-choice question with `blocks` stem paragraphs and two choices. */
+  function tallChoice(id: string, blocks: number): Question {
+    return {
+      ...multipleChoice(id, ['a', 'b']),
+      doc: {
+        type: 'doc',
+        content: [
+          ...Array.from({ length: blocks }, (_unused, index) => ({
+            type: 'paragraph',
+            content: [{ type: 'text', text: `${id} block ${index}` }],
+          })),
+          {
+            type: 'multipleChoice',
+            content: ['a', 'b'].map((cid) => choice(cid)),
+          },
+        ],
+      },
+    }
+  }
+
+  // Every stem block of question `id` is `blockHeight[id]` tall and its grid is
+  // `gridHeight[id]` tall, so a piece's height follows from what it carries —
+  // which is what makes splitting testable without a DOM. Section headings and
+  // add-question controls take `chrome`.
+  function stubHeights(
+    blockHeight: Record<string, number>,
+    gridHeight: Record<string, number> = {},
+    chrome = 0,
+  ): Measure {
+    return {
+      choiceWidth: () => 0,
+      itemHeight: (item) => {
+        if (item.kind !== 'question') return chrome
+        const perBlock = blockHeight[item.question.id] ?? 0
+        const grid = item.grid ? (gridHeight[item.question.id] ?? 0) : 0
+        return item.stem.length * perBlock + grid
+      },
+    }
+  }
+
+  function questionItems(pages: Page[]): QuestionItem[] {
+    return itemsOf(pages).flatMap((item) => (item.kind === 'question' ? [item] : []))
+  }
+
+  function pageShape(pages: Page[]): string[][] {
+    return pages.map((page) =>
+      page.items.map((item) =>
+        item.kind === 'question' ? `q:${item.question.id}` : item.kind,
+      ),
+    )
+  }
+
+  test('a question that fits in the remaining space stays on the page, whole', () => {
+    const exam = examOf([tall('o1', 1), tall('o2', 1)])
+    const third = Math.floor(FIRST_BOX / 3)
+    const pages = renderExam(exam, versionOf(), stubHeights({ o1: third, o2: third }))
+    expect(pageShape(pages)).toEqual([['section-heading', 'q:o1', 'q:o2', 'add-question']])
+    expect(questionItems(pages).every((item) => item.numbered)).toBe(true)
+  })
+
+  test('a question that does not fit moves to the next page whole rather than straddling', () => {
+    const exam = examOf([tall('o1', 1), tall('o2', 1)])
+    const tooTall = Math.ceil(FIRST_BOX * 0.6)
+    const pages = renderExam(exam, versionOf(), stubHeights({ o1: tooTall, o2: tooTall }))
+    expect(pageShape(pages)).toEqual([
+      ['section-heading', 'q:o1'],
+      ['q:o2', 'add-question'],
+    ])
+    // Whole means whole: the moved question still carries its number line and
+    // every one of its stem blocks.
+    const moved = questionItems(pages)[1]!
+    expect(moved.numbered).toBe(true)
+    expect(moved.stem).toHaveLength(1)
+  })
+
+  test('a question taller than a full content box splits at top-level block boundaries', () => {
+    const exam = examOf([tall('o1', 10)])
+    // Ten 100px blocks is 1000px: more than either content box.
+    const pages = renderExam(exam, versionOf(), stubHeights({ o1: 100 }))
+    expect(pages).toHaveLength(2)
+    const pieces = questionItems(pages)
+    expect(pieces).toHaveLength(2)
+    expect(pieces.map((piece) => piece.stem.length)).toEqual([
+      Math.floor(FIRST_BOX / 100),
+      10 - Math.floor(FIRST_BOX / 100),
+    ])
+    // The blocks come out in order, each printed exactly once.
+    expect(pieces.flatMap((piece) => piece.stem)).toEqual(pieces[0]!.question.stem)
+  })
+
+  test('only the first piece of a split question carries the number line', () => {
+    const pages = renderExam(examOf([tall('o1', 10)]), versionOf(), stubHeights({ o1: 100 }))
+    expect(questionItems(pages).map((piece) => piece.numbered)).toEqual([true, false])
+  })
+
+  test('a split never leaves a question number alone at the foot of a page', () => {
+    // o1 all but fills page one; o2 is far too tall to fit anywhere whole, so
+    // it must split — but its first piece cannot start in the 44px left over.
+    const exam = examOf([tall('o1', 1), tall('o2', 12)])
+    const pages = renderExam(
+      exam,
+      versionOf(),
+      stubHeights({ o1: FIRST_BOX - 44, o2: 100 }),
+    )
+    expect(pages[0]!.items.map((item) => item.kind)).toEqual([
+      'section-heading',
+      'question',
+    ])
+    for (const piece of questionItems(pages)) {
+      if (piece.numbered) expect(piece.stem.length + (piece.grid ? 1 : 0)).toBeGreaterThan(0)
+    }
+  })
+
+  test('a choice grid is never split, and travels whole on the last piece', () => {
+    // Eight 100px stem blocks plus a 200px grid: 1000px in all.
+    const exam = examOf([tallChoice('m1', 8)])
+    const pages = renderExam(exam, versionOf(), stubHeights({ m1: 100 }, { m1: 200 }))
+    const pieces = questionItems(pages)
+    expect(pieces.length).toBeGreaterThan(1)
+    expect(pieces.map((piece) => piece.grid !== null)).toEqual(
+      pieces.map((_piece, index) => index === pieces.length - 1),
+    )
+    expect(pieces.at(-1)!.grid).toEqual(pieces[0]!.question.grid)
+  })
+
+  test('the header variant is first on page one and later on every page after', () => {
+    const exam = examOf([tall('o1', 1), tall('o2', 1), tall('o3', 1)])
+    const perPage = Math.ceil(FIRST_BOX * 0.9)
+    const pages = renderExam(
+      exam,
+      versionOf(),
+      stubHeights({ o1: perPage, o2: perPage, o3: perPage }),
+    )
+    expect(pages.map((page) => page.header)).toEqual(['first', 'later', 'later'])
+  })
+
+  test('footers are numbered from one, in order', () => {
+    const exam = examOf([tall('o1', 1), tall('o2', 1), tall('o3', 1)])
+    const perPage = Math.ceil(FIRST_BOX * 0.9)
+    const pages = renderExam(
+      exam,
+      versionOf(),
+      stubHeights({ o1: perPage, o2: perPage, o3: perPage }),
+    )
+    expect(pages.map((page) => page.number)).toEqual([1, 2, 3])
+  })
+
+  test('later pages are taller, so a question that overflows page one can fit page two whole', () => {
+    const exam = examOf([tall('o1', 1), tall('o2', 1)])
+    // Taller than the first page's box, shorter than a later page's.
+    const between = LATER_BOX
+    const pages = renderExam(exam, versionOf(), stubHeights({ o1: 10, o2: between }))
+    expect(pageShape(pages)).toEqual([
+      ['section-heading', 'q:o1'],
+      ['q:o2', 'add-question'],
+    ])
+    expect(questionItems(pages)[1]!.stem).toHaveLength(1)
+  })
+
+  test('section headings and add-question controls take up room too', () => {
+    const exam = examOf([tall('o1', 1)])
+    const pages = renderExam(
+      exam,
+      versionOf(),
+      stubHeights({ o1: FIRST_BOX - 10 }, {}, 70),
+    )
+    expect(pageShape(pages)).toEqual([['section-heading'], ['q:o1'], ['add-question']])
+  })
+
+  test('an unsplit question carries the whole question, so the page is the only thing that changed', () => {
+    const pages = render(examOf([multipleChoice('m1', ['a', 'b'])]))
+    const [item] = questionItems(pages)
+    expect(item!.stem).toEqual(item!.question.stem)
+    expect(item!.grid).toEqual(item!.question.grid)
+    expect(item!.numbered).toBe(true)
   })
 })

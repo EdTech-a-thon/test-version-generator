@@ -26,15 +26,68 @@ button { cursor: pointer; }
 .secondary-button:disabled { color: #a8988c; background: #f7eee3; cursor: not-allowed; }
 .secondary-button:disabled:hover { background: #f7eee3; }
 
-.exam-workspace { min-height: calc(100vh - 58px); padding: 0 24px; }
-.exam-page {
-  width: min(860px, 100%); min-height: calc(100vh - 58px); margin: 0 auto; padding: 64px 72px;
-  background: #fffdf8; box-shadow: 0 2px 8px rgb(91 68 47 / 18%);
-}
 /* The rendered test. Everything below the document bar is a view of what the
-   printer will produce; nothing in it is typeable. */
-.exam-page { font-family: Georgia, 'Times New Roman', serif; font-size: 15px; line-height: 1.45; }
-.exam-title { margin: 0 0 30px; font: 700 26px/1.2 Georgia, serif; }
+   printer will produce; nothing in it is typeable.
+
+   A page is a real sheet at the geometry `exam-render.ts` packed against —
+   US Letter, 816x1056px at 96dpi with 1in margins. Every number below comes
+   from the `--page-*` custom properties `exam-page.tsx` sets from that
+   module's own constants, so the box content was packed into and the box it
+   is laid out in cannot drift apart. The `@page` rule at the foot of this
+   file is the same sheet in inches. */
+.exam-workspace {
+  min-height: calc(100vh - 58px); padding: 26px 24px; overflow-x: auto;
+}
+.exam-page {
+  position: relative; display: flex; flex-direction: column;
+  width: var(--page-width); height: var(--page-height);
+  margin: 0 auto 26px; padding: var(--page-margin);
+  background: #fffdf8; box-shadow: 0 2px 8px rgb(91 68 47 / 18%);
+  /* The sheet is exactly as big as it is: content that overruns is clipped
+     here rather than pushing the page out of shape and hiding the fact that
+     a measurement was wrong. */
+  overflow: hidden;
+  font-family: Georgia, 'Times New Roman', serif; font-size: 15px; line-height: 1.45;
+}
+
+/* Page furniture. Fixed heights, because the packer subtracted exactly these
+   from the sheet before deciding what fits. */
+.page-header { flex: none; display: flex; flex-direction: column; }
+.page-header--first { height: var(--page-header-first); }
+.page-header--later { height: var(--page-header-later); }
+.page-identity {
+  flex: none; height: var(--page-header-later);
+  display: flex; align-items: baseline; gap: 20px;
+}
+.identity-field { flex: 1 1 0; display: flex; align-items: baseline; gap: 6px; white-space: nowrap; }
+.identity-blank { flex: 1 1 auto; min-width: 48px; border-bottom: 1px solid #332a24; }
+.page-id { flex: none; font-weight: 700; white-space: nowrap; }
+/* Takes whatever the identity line leaves of the first page's header, and sits
+   on the bottom of it. */
+.page-header--first .exam-title {
+  flex: 1 1 auto; display: flex; align-items: flex-end;
+  margin: 0; font: 700 26px/1.2 Georgia, serif;
+}
+/* A flex item, so its children's margins stay inside it — the same containment
+   the measuring host relies on. */
+.page-content { flex: 1 1 auto; min-height: 0; }
+.page-footer {
+  flex: none; height: var(--page-footer);
+  display: flex; align-items: flex-end; justify-content: center;
+  font-size: 13px;
+}
+
+/* Where `dom-measure.ts` lays a page item out to find its height: off-screen,
+   at the content width, and `flow-root` so a child's margin is contained and
+   measured rather than collapsing out and going missing. Inherits `.exam-page`
+   typography; overrides everything about `.exam-page`'s size and place. */
+.measure-host {
+  position: absolute; top: 0; left: -10000px;
+  display: flow-root; height: auto; margin: 0; padding: 0;
+  visibility: hidden; pointer-events: none;
+  overflow: visible; background: none; box-shadow: none;
+}
+
 .exam-section { margin: 0 0 18px; }
 .exam-section-titlebar { display: flex; align-items: baseline; gap: 10px; }
 .section-title { margin: 0; font: 700 17px/1.3 Georgia, serif; }
@@ -70,9 +123,11 @@ button { cursor: pointer; }
 .choice-body p { margin: 0 0 2px; }
 
 /* The gutter: hidden until the question is hovered or something in it has
-   focus, so the page reads as paper until the teacher reaches for it. */
+   focus, so the page reads as paper until the teacher reaches for it. It sits
+   above the question and inside the sheet — the page clips whatever hangs off
+   it, so a gutter out in the margin would be cut in half. */
 .question-gutter {
-  position: absolute; top: -2px; right: calc(100% + 24px);
+  position: absolute; top: -34px; left: 0; z-index: 2;
   display: flex; align-items: flex-start; gap: 6px; padding: 5px;
   border: 1px solid #d8c5b2; border-radius: 8px; background: #fff9f1;
   box-shadow: 0 2px 7px rgb(91 68 47 / 12%);
@@ -207,24 +262,36 @@ button { cursor: pointer; }
 }
 @keyframes mc-caret-blink { 50% { opacity: 0; } }
 
-@media (max-width: 1320px) { .question-gutter { right: auto; left: 0; top: -34px; } }
-@media (max-width: 800px) {
-  .exam-workspace { padding: 0; }
-  .exam-page { padding: 40px 24px; }
-  .question-gutter { position: static; grid-column: 1 / -1; margin-bottom: 8px; opacity: 1; }
+/* The sheet keeps its size on a narrow screen — it is a piece of paper, and
+   shrinking it would mean showing a layout the printer will not produce. The
+   workspace scrolls instead. */
+@media (max-width: 880px) {
+  .exam-workspace { padding: 16px 0; }
   .dialog-backdrop { padding: 0; }
   .question-dialog { width: 100%; height: 100vh; border-radius: 0; }
   .dialog-editor { padding: 0; }
 }
 
+/* The same sheet as `--page-width` / `--page-height`, in the units `@page`
+   takes: 816x1056px at 96dpi is 8.5in x 11in. The margins are already in the
+   page's own padding, so the sheet itself takes none — a second inch here
+   would shrink the box the content was packed for and push it onto an extra
+   sheet. */
+@page { size: 8.5in 11in; margin: 0; }
+
 @media print {
-  /* Chrome off: only the test prints. */
-  .document-bar, .question-gutter, .add-question, .shuffle-select, .section-select-all {
+  /* Chrome off: only the test prints. The measuring host is chrome too, and
+     an off-screen block left in the flow prints as blank sheets. */
+  .document-bar, .question-gutter, .add-question, .shuffle-select,
+  .section-select-all, .measure-host {
     display: none;
   }
   body, :root { background: #fff; }
-  .exam-workspace { padding: 0; }
-  .exam-page { width: 100%; min-height: 0; padding: 0; box-shadow: none; }
+  .exam-workspace { min-height: 0; padding: 0; overflow: visible; }
+  /* Geometry stays exactly as it is on screen — only the paper around it goes
+     away. Each sheet is one page; the last does not force a blank one after. */
+  .exam-page { margin: 0; box-shadow: none; break-after: page; }
+  .exam-page:last-of-type { break-after: auto; }
   .exam-question { break-inside: avoid; }
   /* Selection is editing chrome too — never printed. */
   .exam-question--selected { outline: none; }
