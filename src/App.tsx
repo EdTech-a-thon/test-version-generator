@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState, useSyncExternalStore } from 'react'
 import { Milkdown, useEditor } from '@milkdown/react'
 import { Crepe } from '@milkdown/crepe'
 import { editorViewCtx } from '@milkdown/kit/core'
@@ -18,95 +18,16 @@ import {
   uniqueChoiceIds,
 } from './multiple-choice'
 import { subscriptSchema, superscriptSchema } from './script-marks'
+import { cleanDocument, emptyDoc } from './question-doc'
+import type { ProseMirrorJSON } from './question-doc'
+import { orderedQuestions } from './exam'
+import type { Question, QuestionType } from './exam'
+import type { ExamStore } from './exam-store'
 
-type QuestionType = 'open' | 'multiple-choice'
-type Question = { id: string; type: QuestionType; doc: Record<string, unknown> }
-
-const questionsKey = 'exam-questions-v1'
-const titleKey = 'crepe-editor-title'
-const emptyDoc = { type: 'doc', content: [{ type: 'paragraph' }] }
-
-function cleanDocument(value: Record<string, unknown>) {
-  const cleanNode = (node: Record<string, unknown>): Record<string, unknown> => {
-    const clean: Record<string, unknown> = { type: String(node.type ?? 'paragraph') }
-    if (typeof node.text === 'string') clean.text = node.text
-    if (Array.isArray(node.marks)) {
-      clean.marks = node.marks.map((mark) => ({ type: String((mark as { type?: unknown }).type ?? '') }))
-    }
-    if (Array.isArray(node.content)) {
-      clean.content = node.content.map((child) => cleanNode(child as Record<string, unknown>))
-    }
-    if (node.type === 'multipleChoice') {
-      const attrs = (node.attrs ?? {}) as Record<string, unknown>
-      // Old model stored the correct answer as an id on the parent; the new
-      // model stores a boolean on each choice.
-      const legacyCorrectId = typeof attrs.correct === 'string' ? attrs.correct : ''
-      const originalChoices = Array.isArray(node.content)
-        ? (node.content as Array<Record<string, unknown>>)
-        : []
-      let choices = Array.isArray(clean.content)
-        ? (clean.content as Array<Record<string, unknown>>)
-        : []
-
-      if (choices.length < 2 && Array.isArray(attrs.choices)) {
-        // Very old model kept the answers as HTML in a `choices` attr.
-        choices = (attrs.choices as unknown[]).map((choice, index) => {
-          const item = choice as Record<string, unknown>
-          const holder = document.createElement('div')
-          holder.innerHTML = String(item.html ?? `Answer ${index + 1}`)
-          return {
-            type: 'multipleChoiceChoice',
-            attrs: {
-              correct: item.id != null && item.id === legacyCorrectId,
-              id: typeof item.id === 'string' ? item.id : '',
-            },
-            content: [
-              {
-                type: 'paragraph',
-                content: holder.textContent
-                  ? [{ type: 'text', text: holder.textContent }]
-                  : undefined,
-              },
-            ],
-          }
-        })
-      } else {
-        choices.forEach((choiceClean, index) => {
-          const orig = (originalChoices[index]?.attrs ?? {}) as Record<string, unknown>
-          const byLegacyId = legacyCorrectId !== '' &&
-            typeof orig.id === 'string' && orig.id === legacyCorrectId
-          // Keep the id set by the choice branch below; only settle `correct`.
-          choiceClean.attrs = {
-            ...(choiceClean.attrs as Record<string, unknown> | undefined),
-            correct: orig.correct === true || byLegacyId,
-          }
-        })
-      }
-
-      while (choices.length < 2) {
-        choices.push({
-          type: 'multipleChoiceChoice',
-          attrs: { correct: false, id: '' },
-          content: [{ type: 'paragraph' }],
-        })
-      }
-      clean.content = choices
-    } else if (node.type === 'multipleChoiceChoice') {
-      const attrs = (node.attrs ?? {}) as Record<string, unknown>
-      clean.attrs = {
-        correct: attrs.correct === true,
-        id: typeof attrs.id === 'string' ? attrs.id : '',
-      }
-    }
-    return clean
-  }
-  return cleanNode(value)
-}
-
-function questionDoc(type: QuestionType) {
+function questionDoc(type: QuestionType): ProseMirrorJSON {
   return type === 'multiple-choice'
     ? { type: 'doc', content: [{ type: 'paragraph' }, newMultipleChoiceNode()] }
-    : emptyDoc
+    : structuredClone(emptyDoc)
 }
 
 function CrepeQuestion({
@@ -114,9 +35,9 @@ function CrepeQuestion({
   readonly = false,
   onChange,
 }: {
-  value: Record<string, unknown>
+  value: ProseMirrorJSON
   readonly?: boolean
-  onChange?: (doc: Record<string, unknown>) => void
+  onChange?: (doc: ProseMirrorJSON) => void
 }) {
   useEditor((root) => {
     const safeValue = cleanDocument(value)
@@ -183,7 +104,7 @@ function CrepeQuestion({
       })
       if (onChange) {
         listener.updated((_ctx, doc) =>
-          onChange(cleanDocument(doc.toJSON() as Record<string, unknown>)),
+          onChange(cleanDocument(doc.toJSON() as ProseMirrorJSON)),
         )
       }
     })
@@ -204,7 +125,7 @@ function QuestionDialog({
   const [type, setType] = useState<QuestionType>(
     question?.type ?? 'multiple-choice',
   )
-  const [doc, setDoc] = useState<Record<string, unknown>>(
+  const [doc, setDoc] = useState<ProseMirrorJSON>(
     question?.doc ?? questionDoc('multiple-choice'),
   )
   const latestDoc = useRef(doc)
@@ -212,7 +133,7 @@ function QuestionDialog({
   const changeType = (next: QuestionType) => {
     setType(next)
     const safeCurrent = cleanDocument(latestDoc.current)
-    const content = (safeCurrent.content as Array<Record<string, unknown>> | undefined) ?? []
+    const content = (safeCurrent.content as ProseMirrorJSON[] | undefined) ?? []
     const withoutGrid = content.filter((node) => node.type !== 'multipleChoice')
     const nextDoc = {
       type: 'doc',
@@ -270,9 +191,11 @@ function QuestionDialog({
             className="primary-button"
             onClick={() =>
               onSave({
+                ...question,
                 id: question?.id ?? crypto.randomUUID(),
                 type,
                 doc: cleanDocument(latestDoc.current),
+                columns: question?.columns ?? 'auto',
               })
             }
           >
@@ -284,15 +207,11 @@ function QuestionDialog({
   )
 }
 
-export default function App() {
-  const [title, setTitle] = useState(() => localStorage.getItem(titleKey) ?? 'Untitled exam')
-  const [questions, setQuestions] = useState<Question[]>(() => {
-    try { return JSON.parse(localStorage.getItem(questionsKey) ?? '[]') }
-    catch { return [] }
-  })
+export default function App({ store }: { store: ExamStore }) {
+  const draft = useSyncExternalStore(store.subscribe, store.getState)
+  const version = store.currentVersion()
+  const questions = orderedQuestions(draft.exam, version)
   const [editing, setEditing] = useState<Question | 'new' | null>(null)
-
-  useEffect(() => localStorage.setItem(questionsKey, JSON.stringify(questions)), [questions])
 
   return (
     <>
@@ -300,11 +219,8 @@ export default function App() {
         <input
           aria-label="Exam name"
           className="document-title"
-          value={title}
-          onChange={(event) => {
-            setTitle(event.target.value)
-            localStorage.setItem(titleKey, event.target.value)
-          }}
+          value={draft.exam.title}
+          onChange={(event) => store.setTitle(event.target.value)}
         />
         <div className="header-actions">
           <button type="button" className="secondary-button" onClick={() => setEditing('new')}>+ Add question</button>
@@ -314,7 +230,7 @@ export default function App() {
 
       <main className="exam-workspace">
         <article className="exam-page">
-          <h1>{title}</h1>
+          <h1>{draft.exam.title}</h1>
           {questions.length === 0 && (
             <button className="empty-exam" type="button" onClick={() => setEditing('new')}>
               Add your first question
@@ -329,7 +245,7 @@ export default function App() {
                   type="button"
                   onClick={() => {
                     if (window.confirm(`Delete question ${index + 1}?`)) {
-                      setQuestions((items) => items.filter((item) => item.id !== question.id))
+                      store.removeQuestion(question.id)
                     }
                   }}
                 >Delete</button>
@@ -348,10 +264,8 @@ export default function App() {
           question={editing === 'new' ? undefined : editing}
           onCancel={() => setEditing(null)}
           onSave={(saved) => {
-            setQuestions((items) => {
-              const exists = items.some((item) => item.id === saved.id)
-              return exists ? items.map((item) => item.id === saved.id ? saved : item) : [...items, saved]
-            })
+            if (editing === 'new') store.addQuestion(saved)
+            else store.updateQuestion(saved)
             setEditing(null)
           }}
         />
