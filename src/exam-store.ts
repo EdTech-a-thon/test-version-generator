@@ -172,7 +172,7 @@ export type ExamStore = {
   /** Replaces the question's content in place, adding it if it is unknown. */
   updateQuestion(question: Question): void
   removeQuestion(questionId: string): void
-  setQuestionColumns(questionId: string, columns: ColumnSetting): void
+  setQuestionColumns(questionIds: readonly string[], columns: ColumnSetting): void
 
   /** Replaces the version with this id, or adds it if there is none. */
   putVersion(version: Version): void
@@ -183,6 +183,10 @@ export type ExamStore = {
   deleteVersion(versionId: string): void
 
   hasSavedVersions(): boolean
+  canUndo(): boolean
+  canRedo(): boolean
+  undo(): void
+  redo(): void
   save(): Promise<void>
   discard(): Promise<void>
   saveAsNewVersion(): Promise<Version>
@@ -202,6 +206,9 @@ export function createExamStore(options: {
   let saved: SavedState | null = options.saved ?? null
   const listeners = new Set<() => void>()
   let pending: Promise<void> = Promise.resolve()
+  const undoStack: WorkingDraft[] = []
+  const redoStack: WorkingDraft[] = []
+  const HISTORY_LIMIT = 100
 
   // Writes are chained rather than fired in parallel, so the last change is the
   // last thing written no matter how fast the teacher types.
@@ -219,9 +226,15 @@ export function createExamStore(options: {
   const apply = (
     next: (draft: WorkingDraft) => WorkingDraft,
     dirty: boolean,
+    recordHistory = false,
   ) => {
     const updated = next(state)
     if (updated === state) return
+    if (recordHistory) {
+      undoStack.push(state)
+      if (undoStack.length > HISTORY_LIMIT) undoStack.shift()
+      redoStack.length = 0
+    }
     state = dirty ? { ...updated, dirty: true } : updated
     mirror()
     for (const listener of listeners) listener()
@@ -230,7 +243,19 @@ export function createExamStore(options: {
   // An edit: the single place the dirty flag is raised. Which version is being
   // viewed is not an edit, so it does not come through here.
   const change = (next: (draft: WorkingDraft) => WorkingDraft) =>
-    apply(next, true)
+    apply(next, true, true)
+
+  const restoreHistory = (
+    source: WorkingDraft[],
+    destination: WorkingDraft[],
+  ) => {
+    const restored = source.pop()
+    if (!restored) return
+    destination.push(state)
+    state = restored
+    mirror()
+    for (const listener of listeners) listener()
+  }
 
   const mapVersions = (
     draft: WorkingDraft,
@@ -294,16 +319,18 @@ export function createExamStore(options: {
         ),
       ),
 
-    setQuestionColumns: (questionId, columns) =>
+    setQuestionColumns: (questionIds, columns) => {
+      const selected = new Set(questionIds)
       change((draft) => ({
         ...draft,
         exam: {
           ...draft.exam,
           questions: draft.exam.questions.map((question) =>
-            question.id === questionId ? { ...question, columns } : question,
+            selected.has(question.id) ? { ...question, columns } : question,
           ),
         },
-      })),
+      }))
+    },
 
     putVersion: (version) =>
       change((draft) => ({
@@ -354,6 +381,11 @@ export function createExamStore(options: {
 
     hasSavedVersions: () => saved !== null && saved.versions.length > 0,
 
+    canUndo: () => undoStack.length > 0,
+    canRedo: () => redoStack.length > 0,
+    undo: () => restoreHistory(undoStack, redoStack),
+    redo: () => restoreHistory(redoStack, undoStack),
+
     save: async () => {
       const current = store.currentVersion()
       const versions = saved ? state.versions : [current]
@@ -376,6 +408,8 @@ export function createExamStore(options: {
             dirty: false,
           }
         : createWorkingDraft()
+      undoStack.length = 0
+      redoStack.length = 0
       apply(() => restored, false)
       await pending
     },

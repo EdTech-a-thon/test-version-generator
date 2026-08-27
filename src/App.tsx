@@ -22,17 +22,24 @@ import type { ProseMirrorJSON } from './question-doc'
 import {
   createQuestion,
   duplicateQuestion,
-  moveQuestion,
+  moveQuestions,
   questionById,
   shuffleAnswers,
-  shuffleQuestions,
+  shuffleSelectedQuestions,
   withTypeSwitched,
 } from './exam'
-import type { ColumnSetting, Question, QuestionType } from './exam'
+import type { Question, QuestionType } from './exam'
 import type { ExamStore } from './exam-store'
-import { ColumnControl, ExamPage } from './exam-page'
+import { ExamPage } from './exam-page'
 import { useSelection } from './use-selection'
-import type { PrintContent } from './exam-render'
+import {
+  STUDENT_TEST,
+  planExport,
+  type ExportContentSelection,
+} from './export-plan'
+import { domMeasure } from './dom-measure'
+import { ContextMenu, type MenuPoint } from './context-menu'
+import { ChevronDown, Download, Plus, Printer, Redo2, Undo2 } from 'lucide-react'
 
 function CrepeQuestion({
   value,
@@ -144,6 +151,17 @@ function QuestionDialog({
     setDoc(switched.doc)
   }
 
+  const saveQuestion = () => {
+    const saved: Question = {
+      ...question,
+      type,
+      doc: cleanDocument(latestDoc.current),
+    }
+    if (stash.current) saved.stashedChoices = stash.current
+    else delete saved.stashedChoices
+    onSave(saved)
+  }
+
   return (
     <div
       className="dialog-backdrop"
@@ -158,6 +176,17 @@ function QuestionDialog({
         if (event.key === 'Escape') {
           event.stopPropagation()
           onCancel()
+        }
+      }}
+      onKeyDownCapture={(event) => {
+        if (
+          event.key === 'Enter'
+          && (event.ctrlKey || event.metaKey)
+          && !event.altKey
+        ) {
+          event.preventDefault()
+          event.stopPropagation()
+          saveQuestion()
         }
       }}
     >
@@ -190,16 +219,7 @@ function QuestionDialog({
           <button
             type="button"
             className="primary-button"
-            onClick={() => {
-              const saved: Question = {
-                ...question,
-                type,
-                doc: cleanDocument(latestDoc.current),
-              }
-              if (stash.current) saved.stashedChoices = stash.current
-              else delete saved.stashedChoices
-              onSave(saved)
-            }}
+            onClick={saveQuestion}
           >
             Save question
           </button>
@@ -211,163 +231,203 @@ function QuestionDialog({
 
 export default function App({ store }: { store: ExamStore }) {
   const draft = useSyncExternalStore(store.subscribe, store.getState)
+  // There is exactly one version and it is the one on the page. The store can
+  // still hold several — the model is unchanged — but nothing here creates,
+  // names, switches or deletes one: shuffling mutates this version in place,
+  // and Save writes it.
   const version = store.currentVersion()
   // A question being written. A new one is a full question that the store has
   // not been told about yet, so saving is the same call either way.
-  const [editing, setEditing] = useState<Question | null>(null)
-  const [pendingVersionId, setPendingVersionId] = useState<string | null>(null)
+  //
+  // `after` is the question a plus was clicked beside. The store only ever
+  // appends, so where a new question belongs is remembered here and applied as
+  // a move once it exists and has an id to move.
+  const [editing, setEditing] = useState<{
+    question: Question
+    after: string | null
+  } | null>(null)
   const [printPanelOpen, setPrintPanelOpen] = useState(false)
-  const [printContent, setPrintContent] = useState<PrintContent>({
+  const [exportMenuPoint, setExportMenuPoint] = useState<MenuPoint | null>(null)
+  const [exportingDocx, setExportingDocx] = useState(false)
+  const exportButton = useRef<HTMLButtonElement>(null)
+  const [contentSelection, setContentSelection] = useState<ExportContentSelection>({
     test: true,
     answerKey: false,
   })
-  const [printAllVersions, setPrintAllVersions] = useState(false)
-  const [printRequest, setPrintRequest] = useState<{
-    content: PrintContent
-    versions: typeof draft.versions
-  } | null>(null)
-  // Selection lives here, alongside the store: it is the seam #11's toolbar
-  // column control (also selection-wide) will read from, the same way
-  // "Shuffle answers" below does.
+  const [printRequest, setPrintRequest] = useState<ExportContentSelection | null>(null)
+  // Selection lives here, alongside the store, so page interactions and
+  // selection-wide context-menu actions share one source of truth.
   const selection = useSelection()
-  const canShuffleAnswers = [...selection.selectedIds].some(
-    (questionId) => questionById(draft.exam, questionId)?.type === 'multiple-choice',
-  )
-  // The toolbar's column control (#11) reads the same selection "Shuffle
-  // answers" does. Its highlighted option is the selection's common setting,
-  // or nothing highlighted when the selection is empty or mixed — there is
-  // no single value to show as pressed.
-  const selectedColumnSettings = new Set(
-    [...selection.selectedIds].map(
-      (questionId) => questionById(draft.exam, questionId)?.columns,
-    ),
-  )
-  const selectionColumns: ColumnSetting | undefined =
-    selectedColumnSettings.size === 1 ? [...selectedColumnSettings][0] : undefined
+  const clearSelection = selection.clear
 
   useEffect(() => {
-    if (!printRequest) return
-    const frame = window.requestAnimationFrame(() => {
-      window.print()
-      setPrintRequest(null)
+    if (editing) return
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (
+        event.key.toLowerCase() === 'z'
+        && (event.ctrlKey || event.metaKey)
+        && !event.altKey
+      ) {
+        event.preventDefault()
+        if (event.shiftKey) store.redo()
+        else store.undo()
+        return
+      }
+      if (event.key !== 'Escape') return
+      clearSelection()
+      if (printPanelOpen) {
+        setPrintPanelOpen(false)
+        exportButton.current?.focus()
+      }
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [clearSelection, editing, printPanelOpen, store])
+
+  const closeExportMenu = () => {
+    setExportMenuPoint(null)
+    exportButton.current?.focus()
+  }
+
+  const toggleExportMenu = () => {
+    if (exportMenuPoint) {
+      closeExportMenu()
+      return
+    }
+    const rect = exportButton.current?.getBoundingClientRect()
+    if (rect) setExportMenuPoint({ x: rect.right, y: rect.bottom + 4 })
+  }
+
+  const downloadDocx = async () => {
+    setExportingDocx(true)
+    void store.save().catch((error: unknown) => {
+      console.error('Could not save the exam while exporting DOCX', error)
     })
-    return () => window.cancelAnimationFrame(frame)
-  }, [printRequest])
+    try {
+      // Download orchestration plans, then hands the plan over: the adapter
+      // never sees the exam, so DOCX cannot drift from what print would show.
+      const plan = planExport({
+        exam: draft.exam,
+        version,
+        selection: STUDENT_TEST,
+        measure: domMeasure,
+      })
+      const { downloadExamDocx } = await import('./docx-export')
+      await downloadExamDocx(plan)
+    } catch (error) {
+      console.error('Could not export the exam as DOCX', error)
+      window.alert('Could not create the DOCX file. Please try again.')
+    } finally {
+      setExportingDocx(false)
+    }
+  }
+
+  // Printing and DOCX download are commits: there is no Save button, so the
+  // moment the teacher exports, what is on the page becomes the saved exam.
+  // The print write is fired rather than awaited — it goes to IndexedDB and
+  // has nothing to say about what the printer receives, so a slow or failed
+  // write must never be what stops the paper coming out.
+  //
+  // The print document stays mounted until `afterprint` says the browser is
+  // done with it. Unmounting in the frame that follows `window.print()` assumes
+  // the dialog has already read the DOM, and a preview that re-reads it — or a
+  // headless capture that never opens a dialog at all — would find nothing
+  // there. Off screen the extra markup costs nothing: `.print-output` is
+  // `display: none` until print media applies.
+  useEffect(() => {
+    if (!printRequest) return
+    void store.save().catch((error: unknown) => {
+      console.error('Could not save the exam while printing', error)
+    })
+    const done = () => setPrintRequest(null)
+    window.addEventListener('afterprint', done)
+    const frame = window.requestAnimationFrame(() => window.print())
+    return () => {
+      window.removeEventListener('afterprint', done)
+      window.cancelAnimationFrame(frame)
+    }
+  }, [printRequest, store])
 
   return (
     <>
       <header className="document-bar">
-        <input
-          aria-label="Exam name"
-          className="document-title"
-          value={draft.exam.title}
-          onChange={(event) => store.setTitle(event.target.value)}
-        />
-        <div className="header-actions">
-          <select
-            className="version-picker"
-            aria-label="Version"
-            value={store.hasSavedVersions() ? version.id : 'draft'}
-            onChange={(event) => {
-              const versionId = event.target.value
-              if (draft.dirty) setPendingVersionId(versionId)
-              else store.selectVersion(versionId)
-            }}
-          >
-            {!store.hasSavedVersions() && <option value="draft">Unsaved draft</option>}
-            {store.hasSavedVersions() && draft.versions.map((item) => (
-              <option value={item.id} key={item.id}>{item.letter}</option>
-            ))}
-          </select>
-          {store.hasSavedVersions() && (
-            <>
-              <button
-                type="button"
-                className="secondary-button compact-button"
-                onClick={() => {
-                  const letter = window.prompt('Rename this version', version.letter)?.trim()
-                  if (letter) store.renameVersion(version.id, letter)
-                }}
-              >Rename</button>
-              <button
-                type="button"
-                className="secondary-button compact-button"
-                disabled={draft.versions.length === 1}
-                onClick={() => {
-                  if (window.confirm(`Delete version ${version.letter}?`)) {
-                    store.deleteVersion(version.id)
-                  }
-                }}
-              >Delete</button>
-            </>
-          )}
-          <span className="save-control">
-            <button type="button" className="primary-button" onClick={() => void store.save()}>
-              Save
-            </button>
-            {draft.dirty && <span className="dirty-bubble" aria-label="Unsaved changes" />}
-          </span>
-          <button
-            type="button"
-            className="secondary-button compact-button"
-            disabled={!draft.dirty}
-            onClick={() => void store.discard()}
-          >Discard</button>
-          <button
-            type="button"
-            className="secondary-button"
-            onClick={() => void store.saveAsNewVersion()}
-          >Save as new version</button>
-          <ColumnControl
-            value={selectionColumns}
-            ariaLabel="Set answer columns for the selected questions"
-            disabled={selection.selectedIds.size === 0}
-            onChange={(columns) => {
-              for (const questionId of selection.selectedIds) {
-                store.setQuestionColumns(questionId, columns)
-              }
-            }}
+        {/* The mark sits at the far left of the bar with the exam's name beside
+            it, the way a document editor puts its logo next to the file name. */}
+        <div className="document-identity">
+          <img className="app-logo" src="/logo.png" alt="Crepe" width={36} height={36} />
+          <input
+            aria-label="Exam name"
+            className="document-title"
+            value={draft.exam.title}
+            onChange={(event) => store.setTitle(event.target.value)}
           />
-          <select
-            className="shuffle-select"
-            aria-label="Shuffle questions by section — ignores the current selection"
-            value=""
-            onChange={(event) => {
-              const scope = event.target.value as QuestionType | 'all' | ''
-              if (scope) {
-                store.updateCurrentVersion((version) =>
-                  shuffleQuestions(draft.exam, version, scope, Math.random),
-                )
-              }
-              event.target.value = ''
-            }}
-          >
-            <option value="" disabled>Shuffle questions…</option>
-            <option value="multiple-choice">Multiple Choice section</option>
-            <option value="open">Short Answer section</option>
-            <option value="all">All sections</option>
-          </select>
+        </div>
+        <div className="header-actions">
           <button
             type="button"
-            className="secondary-button"
-            aria-label="Shuffle answers of the selected questions"
-            disabled={!canShuffleAnswers}
-            onClick={() =>
-              store.updateCurrentVersion((version) =>
-                shuffleAnswers(draft.exam, version, [...selection.selectedIds], Math.random),
-              )
-            }
+            className="toolbar-icon-button"
+            aria-label="Undo"
+            title="Undo (Ctrl/Cmd+Z)"
+            disabled={!store.canUndo()}
+            onClick={store.undo}
           >
-            Shuffle answers (selection)
+            <Undo2 />
           </button>
           <button
             type="button"
-            className="print-button"
-            aria-expanded={printPanelOpen}
-            onClick={() => setPrintPanelOpen((open) => !open)}
-          >Print</button>
+            className="toolbar-icon-button"
+            aria-label="Redo"
+            title="Redo (Ctrl/Cmd+Shift+Z)"
+            disabled={!store.canRedo()}
+            onClick={store.redo}
+          >
+            <Redo2 />
+          </button>
+          <button
+            type="button"
+            className="secondary-button insert-question-button"
+            onClick={() => setEditing({ question: createQuestion('multiple-choice'), after: null })}
+          >
+            <Plus />
+            Insert question
+          </button>
+          <button
+            ref={exportButton}
+            type="button"
+            className="export-button"
+            aria-haspopup="menu"
+            aria-expanded={exportMenuPoint !== null}
+            disabled={exportingDocx}
+            onClick={toggleExportMenu}
+          >
+            {exportingDocx ? 'Exporting…' : 'Export'}
+            <ChevronDown />
+          </button>
         </div>
       </header>
+
+      {exportMenuPoint && (
+        <ContextMenu
+          point={exportMenuPoint}
+          side="left"
+          ariaLabel="Export options"
+          items={[
+            {
+              kind: 'action',
+              label: 'Print…',
+              icon: <Printer />,
+              onSelect: () => setPrintPanelOpen(true),
+            },
+            {
+              kind: 'action',
+              label: 'Download DOCX',
+              icon: <Download />,
+              onSelect: () => void downloadDocx(),
+            },
+          ]}
+          onClose={closeExportMenu}
+        />
+      )}
 
       {printPanelOpen && (
         <section className="print-panel" aria-label="Print options">
@@ -376,9 +436,9 @@ export default function App({ store }: { store: ExamStore }) {
             <label>
               <input
                 type="checkbox"
-                checked={printContent.test}
-                onChange={(event) => setPrintContent({
-                  ...printContent,
+                checked={contentSelection.test}
+                onChange={(event) => setContentSelection({
+                  ...contentSelection,
                   test: event.target.checked,
                 })}
               />
@@ -387,44 +447,20 @@ export default function App({ store }: { store: ExamStore }) {
             <label>
               <input
                 type="checkbox"
-                checked={printContent.answerKey}
-                onChange={(event) => setPrintContent({
-                  ...printContent,
+                checked={contentSelection.answerKey}
+                onChange={(event) => setContentSelection({
+                  ...contentSelection,
                   answerKey: event.target.checked,
                 })}
               />
               Answer key
             </label>
           </fieldset>
-          <fieldset>
-            <legend>Versions</legend>
-            <label>
-              <input
-                type="radio"
-                name="print-version-scope"
-                checked={!printAllVersions}
-                onChange={() => setPrintAllVersions(false)}
-              />
-              This version
-            </label>
-            <label>
-              <input
-                type="radio"
-                name="print-version-scope"
-                checked={printAllVersions}
-                onChange={() => setPrintAllVersions(true)}
-              />
-              All versions
-            </label>
-          </fieldset>
           <button
             type="button"
             className="primary-button"
-            disabled={!printContent.test && !printContent.answerKey}
-            onClick={() => setPrintRequest({
-              content: { ...printContent },
-              versions: printAllVersions ? [...draft.versions] : [version],
-            })}
+            disabled={!contentSelection.test && !contentSelection.answerKey}
+            onClick={() => setPrintRequest({ ...contentSelection })}
           >Print selected</button>
         </section>
       )}
@@ -434,7 +470,10 @@ export default function App({ store }: { store: ExamStore }) {
           exam={draft.exam}
           version={version}
           selection={selection}
-          onEdit={(questionId) => setEditing(questionById(draft.exam, questionId) ?? null)}
+          onEdit={(questionId) => {
+            const question = questionById(draft.exam, questionId)
+            if (question) setEditing({ question, after: null })
+          }}
           onDuplicate={(questionId) => {
             const question = questionById(draft.exam, questionId)
             if (question) store.addQuestion(duplicateQuestion(question))
@@ -442,13 +481,31 @@ export default function App({ store }: { store: ExamStore }) {
           onDelete={(questionId) => {
             if (window.confirm('Delete this question?')) {
               store.removeQuestion(questionId)
+              selection.clear()
             }
           }}
-          onAdd={(section) => setEditing(createQuestion(section))}
-          onSetColumns={(questionId, columns) => store.setQuestionColumns(questionId, columns)}
-          onMoveQuestion={(questionId, targetId, placement) =>
+          onAdd={(section, afterQuestionId) =>
+            setEditing({
+              question: createQuestion(section),
+              after: afterQuestionId ?? null,
+            })
+          }
+          onSetColumns={(questionIds, columns) =>
+            store.setQuestionColumns(questionIds, columns)
+          }
+          onShuffleAnswers={(questionIds) =>
             store.updateCurrentVersion((current) =>
-              moveQuestion(draft.exam, current, questionId, targetId, placement),
+              shuffleAnswers(draft.exam, current, questionIds, Math.random),
+            )
+          }
+          onShuffleSelectedQuestions={(questionIds) =>
+            store.updateCurrentVersion((current) =>
+              shuffleSelectedQuestions(draft.exam, current, questionIds, Math.random),
+            )
+          }
+          onMoveQuestions={(questionIds, targetId, placement) =>
+            store.updateCurrentVersion((current) =>
+              moveQuestions(draft.exam, current, questionIds, targetId, placement),
             )
           }
           unsavedDraft={!store.hasSavedVersions()}
@@ -457,51 +514,39 @@ export default function App({ store }: { store: ExamStore }) {
 
       {printRequest && (
         <div className="print-output">
-          {printRequest.versions.map((printedVersion) => (
-            <ExamPage
-              key={printedVersion.id}
-              exam={draft.exam}
-              version={printedVersion}
-              selection={selection}
-              onEdit={() => {}}
-              onDuplicate={() => {}}
-              onDelete={() => {}}
-              onAdd={() => {}}
-              onSetColumns={() => {}}
-              onMoveQuestion={() => {}}
-              content={printRequest.content}
-            />
-          ))}
-        </div>
-      )}
-
-      {pendingVersionId && (
-        <div className="dialog-backdrop" role="presentation">
-          <section className="switch-dialog" role="dialog" aria-modal="true" aria-label="Unsaved changes">
-            <h2>Save changes before switching versions?</h2>
-            <p>The unsaved ordering belongs to version {version.letter}.</p>
-            <div className="dialog-actions">
-              <button type="button" className="primary-button" onClick={() => {
-                void store.save().then(() => store.selectVersion(pendingVersionId))
-                setPendingVersionId(null)
-              }}>Save</button>
-              <button type="button" className="secondary-button" onClick={() => {
-                void store.discard().then(() => store.selectVersion(pendingVersionId))
-                setPendingVersionId(null)
-              }}>Discard</button>
-              <button type="button" className="secondary-button" onClick={() => setPendingVersionId(null)}>Cancel</button>
-            </div>
-          </section>
+          <ExamPage
+            exam={draft.exam}
+            version={version}
+            selection={selection}
+            onEdit={() => {}}
+            onDuplicate={() => {}}
+            onDelete={() => {}}
+            onAdd={() => {}}
+            onSetColumns={() => {}}
+            onShuffleAnswers={() => {}}
+            onShuffleSelectedQuestions={() => {}}
+            onMoveQuestions={() => {}}
+            contentSelection={printRequest}
+          />
         </div>
       )}
 
       {editing && (
         <QuestionDialog
-          question={editing}
-          isNew={!questionById(draft.exam, editing.id)}
+          question={editing.question}
+          isNew={!questionById(draft.exam, editing.question.id)}
           onCancel={() => setEditing(null)}
           onSave={(saved) => {
             store.updateQuestion(saved)
+            // Read the exam back rather than closing over `draft`: the move
+            // needs the version that already contains the question it is
+            // moving, and the store has just produced it.
+            if (editing.after) {
+              const after = editing.after
+              store.updateCurrentVersion((version) =>
+                moveQuestions(store.getState().exam, version, [saved.id], after, 'after'),
+              )
+            }
             setEditing(null)
           }}
         />

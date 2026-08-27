@@ -9,6 +9,13 @@ button { cursor: pointer; }
   display: flex; align-items: center; justify-content: space-between; gap: 20px;
   border-bottom: 1px solid #e8dfd2; background: #fffaf3;
 }
+.document-identity { display: flex; align-items: center; gap: 10px; min-width: 0; }
+/* Fixed box, `contain` fit: the mark keeps its aspect ratio whatever the
+   source file's proportions turn out to be. */
+.app-logo {
+  flex: none; width: 36px; height: 36px; object-fit: contain;
+  -webkit-user-select: none; user-select: none;
+}
 .document-title {
   width: min(420px, 55vw); padding: 5px 7px; border: 1px solid transparent;
   border-radius: 4px; color: #332a24; background: transparent; font-size: 18px; outline: none;
@@ -17,26 +24,32 @@ button { cursor: pointer; }
 .document-title:focus { border-color: #b65f43; box-shadow: inset 0 0 0 1px #b65f43; }
 .header-actions, .dialog-actions { display: flex; align-items: center; gap: 10px; }
 .header-actions { flex-wrap: wrap; justify-content: flex-end; gap: 7px; }
-.version-picker {
-  min-height: 36px; max-width: 130px; padding: 7px 28px 7px 9px;
-  border: 1px solid #cdb9a6; border-radius: 6px; background: #fffdf8; font-weight: 600;
-}
-.compact-button { padding-inline: 9px; }
-.save-control { position: relative; }
-.dirty-bubble {
-  position: absolute; top: -5px; right: -5px; width: 12px; height: 12px;
-  border: 2px solid #fffaf3; border-radius: 50%; background: #f2c94c;
-  box-shadow: 0 1px 2px rgb(55 42 33 / 25%);
-}
-.print-button, .primary-button, .secondary-button {
+.export-button, .primary-button, .secondary-button {
   min-height: 36px; padding: 8px 14px; border: 1px solid #bda995; border-radius: 8px;
   color: #4e3b2f; background: #f7eee3; font-weight: 600;
 }
-.print-button:hover, .secondary-button:hover { background: #ebddcd; }
+.export-button {
+  display: inline-flex; align-items: center; gap: 6px;
+  border-color: #9f5037; color: #fffaf3; background: #9f5037;
+}
+.export-button svg { width: 15px; height: 15px; stroke-width: 2; }
+.export-button:hover { background: #87422e; }
+.export-button:disabled { opacity: 0.72; cursor: wait; }
+.secondary-button:hover { background: #ebddcd; }
 .primary-button { border-color: #9f5037; color: #fffaf3; background: #9f5037; }
 .primary-button:hover { background: #87422e; }
 .secondary-button:disabled { color: #a8988c; background: #f7eee3; cursor: not-allowed; }
 .secondary-button:disabled:hover { background: #f7eee3; }
+.toolbar-icon-button {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 36px; height: 36px; padding: 0; border: 1px solid transparent; border-radius: 8px;
+  color: #6e5b4d; background: transparent;
+}
+.toolbar-icon-button:hover:not(:disabled) { background: #f7eee3; }
+.toolbar-icon-button:disabled { color: #c5b8ac; cursor: not-allowed; }
+.toolbar-icon-button svg { width: 18px; height: 18px; stroke-width: 2; }
+.insert-question-button { display: inline-flex; align-items: center; gap: 6px; }
+.insert-question-button svg { width: 17px; height: 17px; stroke-width: 2; }
 
 .print-panel {
   position: sticky; top: 58px; z-index: 19;
@@ -53,7 +66,7 @@ button { cursor: pointer; }
 /* The rendered test. Everything below the document bar is a view of what the
    printer will produce; nothing in it is typeable.
 
-   A page is a real sheet at the geometry `exam-render.ts` packed against —
+   A page is a real sheet at the geometry `export-plan.ts` packed against —
    US Letter, 816x1056px at 96dpi with 1in margins. Every number below comes
    from the `--page-*` custom properties `exam-page.tsx` sets from that
    module's own constants, so the box content was packed into and the box it
@@ -118,15 +131,8 @@ button { cursor: pointer; }
   overflow: visible; background: none; box-shadow: none;
 }
 
-.exam-section { margin: 0 0 18px; }
-.exam-section-titlebar { display: flex; align-items: baseline; gap: 10px; }
+.exam-section { margin: 16px 0 18px; }
 .section-title { margin: 0; font: 700 17px/1.3 Georgia, serif; }
-.section-select-all {
-  padding: 2px 8px; border: 1px solid transparent; border-radius: 5px;
-  color: #9f5037; background: transparent;
-  font-family: Arial, Helvetica, sans-serif; font-size: 12px; font-weight: 600;
-}
-.section-select-all:hover { background: #f7eee3; }
 .section-instructions { margin: 4px 0 0; font-style: italic; }
 .answer-key-heading { margin: 0 0 18px; font: 700 20px/1.3 Georgia, serif; }
 .answer-key-section { margin: 0 0 10px; font: 700 17px/1.3 Georgia, serif; }
@@ -136,17 +142,82 @@ button { cursor: pointer; }
 .answer-key-answer { min-height: 1.45em; border-bottom: 1px solid #332a24; text-align: center; }
 .exam-question {
   position: relative; display: grid; grid-template-columns: 92px 1fr; gap: 6px;
-  margin-bottom: 26px;
+  margin-bottom: 26px; border-radius: 4px; cursor: grab;
+  transition: background-color 90ms ease, box-shadow 90ms ease;
 }
-/* Persists regardless of hover, unlike the gutter — it is the only sign a
-   question is selected when the mouse is elsewhere. */
-.exam-question--selected {
-  outline: 2px solid #9f5037; outline-offset: 6px; border-radius: 4px;
+.exam-question, .exam-question * { -webkit-user-drag: none; }
+.exam-question:active { cursor: grabbing; }
+
+/* Pointer capture keeps the page, rather than native HTML dragging, in charge
+   of the cursor. The root class also covers the bars outside the workspace. */
+.question-drag-active,
+.question-drag-active *,
+.exam-workspace--dragging,
+.exam-workspace--dragging * { cursor: grabbing !important; }
+.question-drag-active { user-select: none; }
+
+/* A page-owned counterpart to the browser's drag image. It keeps the exact
+   question markup and grab offset without surrendering the cursor to native
+   HTML drag-and-drop. */
+.question-drag-preview {
+  position: fixed; z-index: 1000; max-height: 70vh; overflow: hidden;
+  padding: 8px; border-radius: 6px; pointer-events: none;
+  opacity: 0.82; background: #fffdf8;
+  box-shadow: 0 8px 24px rgb(55 42 33 / 24%);
 }
+.question-drag-preview .exam-question { margin-bottom: 18px; cursor: grabbing; }
+.question-drag-preview .exam-question:last-child { margin-bottom: 0; }
+.question-drag-preview .question-handles { display: none; }
+.question-drag-preview[data-count]:not([data-count="1"])::after {
+  content: attr(data-count) ' questions'; position: absolute; top: 6px; right: 6px;
+  padding: 3px 7px; border-radius: 999px; color: #fffaf3; background: #9f5037;
+  font: 600 12px/1.3 Arial, Helvetica, sans-serif;
+}
+
+/* Hover and selection are painted with a background plus a matching spread
+   `box-shadow`, never padding: the shadow bleeds the colour past the box
+   without taking up a pixel of layout, and this box's height has to stay
+   exactly the height `dom-measure.ts` reported or screen and paper drift.
+
+   Selection persists regardless of hover — it is the only sign a question is
+   selected once the mouse is elsewhere — so it is stated last and wins. */
+.exam-question:hover { background: #f6f1e8; box-shadow: 0 0 0 7px #f6f1e8; }
+.exam-question--selected,
+.exam-question--selected:hover {
+  background: #f4e0cf; box-shadow: 0 0 0 7px #f4e0cf;
+}
+
+/* A drop can move the dragged question beyond the release point, leaving the
+   displaced question geometrically hovered. Until the pointer moves again,
+   put that feedback on the question that actually moved. Selection keeps its
+   stronger, persistent colour. */
+.exam-workspace--drop-feedback
+  .exam-question:hover:not(.exam-question--dropped):not(.exam-question--selected) {
+  background: none; box-shadow: none;
+}
+.exam-question--dropped:not(.exam-question--selected),
+.exam-question--dropped:hover:not(.exam-question--selected) {
+  background: #f6f1e8; box-shadow: 0 0 0 7px #f6f1e8;
+}
+
+/* The question being dragged, dimmed in place while its ghost follows the
+   pointer — so the row you lifted stays findable underneath. */
+.exam-question--dragging { opacity: 0.4; }
+
+/* The drop line: where the question would land if it were let go now. It sits
+   in the 26px gap between questions, so it never covers what it is pointing
+   between. */
+.exam-question[data-drop]::after {
+  content: ''; position: absolute; left: 0; right: 0; height: 2px;
+  border-radius: 2px; background: #9f5037;
+}
+.exam-question[data-drop="before"]::after { top: -14px; }
+.exam-question[data-drop="after"]::after { bottom: -14px; }
 .question-number { display: flex; align-items: baseline; gap: 8px; font-weight: 700; }
 /* The line a student writes their letter on. */
 .answer-blank { flex: 1; border-bottom: 1px solid #332a24; transform: translateY(-3px); }
 .question-count { white-space: nowrap; }
+.doc-content { white-space: pre-wrap; }
 .question-stem > :first-child { margin-top: 0; }
 .question-stem > :last-child { margin-bottom: 0; }
 
@@ -158,51 +229,82 @@ button { cursor: pointer; }
 .choice-body > :last-child { margin-bottom: 0; }
 .choice-body p { margin: 0 0 2px; }
 
-/* The gutter: hidden until the question is hovered or something in it has
-   focus, so the page reads as paper until the teacher reaches for it. It sits
-   above the question and inside the sheet — the page clips whatever hangs off
-   it, so a gutter out in the margin would be cut in half. */
-.question-gutter {
-  position: absolute; top: -34px; left: 0; z-index: 2;
-  display: flex; align-items: flex-start; gap: 6px; padding: 5px;
-  border: 1px solid #d8c5b2; border-radius: 8px; background: #fff9f1;
-  box-shadow: 0 2px 7px rgb(91 68 47 / 12%);
+/* The handles: a plus and a grip in the margin beside a question, hidden until
+   it is hovered or one of them has focus, so the page still reads as paper.
+
+   They sit out in the sheet's own padding, which is inside the page box, so
+   `overflow: hidden` on the sheet does not cut them off. The menu the grip
+   opens could not live there — it portals to the body instead. 52px of controls
+   inside a 72px margin leaves them clear of the paper's edge. */
+.question-handles {
+  position: absolute; top: -1px; left: -56px; z-index: 2;
+  display: flex; align-items: center; gap: 2px;
   opacity: 0; transition: opacity 90ms ease-in;
-  font-family: Arial, Helvetica, sans-serif;
 }
-.exam-question:hover .question-gutter,
-.question-gutter:focus-within { opacity: 1; }
-.gutter-select { display: flex; align-items: center; padding: 0 3px; border-right: 1px solid #e8dfd2; }
-.gutter-select input { margin: 0; accent-color: #9f5037; cursor: pointer; }
-.gutter-actions { display: flex; gap: 4px; }
-.gutter-button {
-  padding: 4px 7px; border: 0; border-radius: 5px;
-  color: #786457; background: transparent; font-size: 13px; white-space: nowrap;
+.exam-question:hover .question-handles,
+.question-handles:focus-within { opacity: 1; }
+.question-handle {
+  display: flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px; padding: 0; border: 0; border-radius: 5px;
+  color: #b3a498; background: transparent;
 }
-.gutter-button:hover { color: #4e3b2f; background: #eadbcc; }
-.drag-handle { cursor: grab; }
-.drag-handle:active { cursor: grabbing; }
+.question-handle svg { width: 16px; height: 16px; stroke-width: 2; }
+.question-handle:hover { color: #4e3b2f; background: #eadbcc; }
+.question-handle:focus-visible { outline: 2px solid #9f5037; outline-offset: 1px; }
+.question-handle { cursor: pointer; }
 
-/* The segmented Auto | 1 | 2 | 4 column control (#11), shared by the gutter
-   and the toolbar. */
-.column-control { display: inline-flex; align-items: center; gap: 2px; }
-.column-option {
-  min-width: 24px; padding: 4px 7px; border: 1px solid #cdb9a6; border-radius: 5px;
-  color: #6e5b4d; background: #fffdf8; font-size: 12px; font-weight: 700; line-height: 1;
+/* The context menu: shadcn/ui's ContextMenu in this app's palette. Fixed and
+   portalled to the body, since the sheet it is raised over clips its own
+   overflow; `left`/`top` come from the component, which has already flipped
+   and clamped them against the viewport. */
+.context-menu {
+  position: fixed; z-index: 60; min-width: 196px; max-height: 80vh; overflow-y: auto;
+  padding: 4px; border: 1px solid #e0d3c2; border-radius: 8px; background: #fffdf8;
+  box-shadow: 0 10px 30px rgb(55 42 33 / 18%), 0 2px 6px rgb(55 42 33 / 10%);
+  font-family: Arial, Helvetica, sans-serif; font-size: 13px;
+  animation: context-menu-in 90ms ease-out;
 }
-.column-option:hover { background: #f7eee3; }
-.column-option[aria-pressed="true"] { color: #fffaf3; background: #9f5037; border-color: #9f5037; }
-.column-option:disabled { color: #a8988c; background: #f7eee3; cursor: not-allowed; }
-.gutter-columns { display: flex; gap: 4px; padding-left: 6px; border-left: 1px solid #e8dfd2; }
+@keyframes context-menu-in {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) { .context-menu { animation: none; } }
+.context-menu-item {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 6px 8px; border: 0; border-radius: 5px;
+  color: #4e3b2f; background: transparent; font: inherit; text-align: left;
+}
+.context-menu-item:hover, .context-menu-item:focus { background: #f2e6d8; outline: none; }
+.context-menu-item--destructive { color: #a3321f; }
+.context-menu-item--destructive:hover,
+.context-menu-item--destructive:focus { background: #f8e0da; }
+/* One leading slot for every row, whether it holds an action's icon or a radio
+   row's dot, so the labels line up down the whole menu. */
+.context-menu-icon {
+  flex: none; display: flex; align-items: center; justify-content: center;
+  width: 16px; height: 16px; color: #8b7868;
+}
+.context-menu-icon svg { width: 15px; height: 15px; stroke-width: 1.9; }
+.context-menu-format-icon {
+  flex: none; display: flex; align-items: center; justify-content: center;
+  width: 18px; height: 16px; color: #8b7868;
+}
+.context-menu-format-icon svg { width: 18px; height: 14px; stroke-width: 1.4; }
+.context-menu-item-label { flex: 1; }
+.context-menu-radio-indicator {
+  flex: none; display: flex; align-items: center; justify-content: center;
+  width: 12px; height: 16px;
+}
+.context-menu-item--destructive .context-menu-icon { color: #b8503c; }
+.context-menu-dot {
+  width: 6px; height: 6px; border-radius: 50%; background: #9f5037;
+}
+.context-menu-label {
+  padding: 7px 8px 3px; color: #8b7868;
+  font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+}
+.context-menu-separator { height: 1px; margin: 4px -1px; background: #eadfd0; }
 
-/* Adding from the end of a section: the type is implied by where it sits. */
-.add-question {
-  width: 100%; margin: 0 0 34px; padding: 12px;
-  border: 1px dashed #cdb9a6; border-radius: 8px;
-  color: #806b5e; background: transparent;
-  font-family: Arial, Helvetica, sans-serif; font-size: 14px; text-align: left;
-}
-.add-question:hover { color: #9f5037; background: #fdf5ec; }
 
 /* Question content. */
 .doc-figure { margin: 8px 0; }
@@ -221,21 +323,13 @@ button { cursor: pointer; }
   grid-template-rows: auto 1fr auto; overflow: hidden; border-radius: 10px;
   background: #fffaf3; box-shadow: 0 18px 55px rgb(55 42 33 / 30%);
 }
-.switch-dialog {
-  width: min(470px, 100%); padding: 24px; border-radius: 10px;
-  background: #fffaf3; box-shadow: 0 18px 55px rgb(55 42 33 / 30%);
-}
-.switch-dialog h2 { margin: 0 0 8px; font-size: 20px; }
-.switch-dialog p { margin: 0 0 22px; color: #6e5b4d; }
-.switch-dialog .dialog-actions { padding: 0; border: 0; }
 .dialog-header, .dialog-actions { padding: 14px 18px; border-bottom: 1px solid #e8dfd2; }
 .dialog-header { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
 .dialog-header h2 { margin: 0; font-size: 18px; }
 .dialog-header label { display: flex; align-items: center; gap: 9px; color: #6e5b4d; font-size: 13px; }
-.dialog-header select, .choice-controls select, .shuffle-select {
+.dialog-header select, .choice-controls select {
   padding: 7px 30px 7px 9px; border: 1px solid #cdb9a6; border-radius: 6px; background: #fffdf8;
 }
-.shuffle-select { min-height: 36px; color: #4e3b2f; font-weight: 600; }
 .dialog-actions { justify-content: flex-end; border-top: 1px solid #e8dfd2; border-bottom: 0; }
 .dialog-editor { min-height: 0; padding: 0 32px; overflow-y: auto; background: #fffdf8; }
 .dialog-editor .milkdown { min-height: 100%; --crepe-color-background: #fffdf8; }
@@ -327,8 +421,8 @@ button { cursor: pointer; }
 @media print {
   /* Chrome off: only the test prints. The measuring host is chrome too, and
      an off-screen block left in the flow prints as blank sheets. */
-  .document-bar, .question-gutter, .add-question, .shuffle-select,
-  .section-select-all, .measure-host, .print-panel, .editor-output,
+  .document-bar, .question-handles, .context-menu,
+  .measure-host, .print-panel, .editor-output,
   .dialog-backdrop {
     display: none;
   }
@@ -343,6 +437,11 @@ button { cursor: pointer; }
     break-after: page;
   }
   .exam-question { break-inside: avoid; }
-  /* Selection is editing chrome too — never printed. */
-  .exam-question--selected { outline: none; }
+  /* Selection, hover and drag feedback are all editing chrome — never printed. */
+  .exam-question,
+  .exam-question:hover,
+  .exam-question--selected {
+    background: none; box-shadow: none; opacity: 1;
+  }
+  .exam-question[data-drop]::after { display: none; }
 }

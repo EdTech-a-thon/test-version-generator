@@ -11,16 +11,19 @@ import {
   SECTION_TITLE,
   pageContentHeight,
   isAnswerKeyHeader,
-  renderExam,
-  renderPrintPages,
+  buildExportDocument,
+  planExport,
+  planPrintExport,
   unmeasured,
+  STUDENT_TEST,
   type ColumnCount,
   type Measure,
-  type Page,
+  type ExportContentSelection,
+  type PlannedPage,
   type PageItem,
   type QuestionItem,
-  type RenderedQuestion,
-} from './exam-render'
+  type PlannedQuestion,
+} from './export-plan'
 import type { Exam, Question, Version } from './exam'
 import type { ProseMirrorJSON } from './question-doc'
 
@@ -77,30 +80,42 @@ function versionOf(
   return { id: 'v1', letter: 'A', questionOrder, choiceOrder }
 }
 
-function render(exam: Exam, version: Version = versionOf()): Page[] {
-  return testPages(renderExam(exam, version, unmeasured))
+const WHOLE_DOCUMENT: ExportContentSelection = { test: true, answerKey: true }
+
+/** The planner's whole interface, in the shape these tests read it: a plan's
+ *  pages for one version, with both documents selected. */
+function planPages(
+  exam: Exam,
+  version: Version,
+  measure: Measure,
+): PlannedPage[] {
+  return planExport({ exam, version, selection: WHOLE_DOCUMENT, measure }).pages
 }
 
-function testPages(pages: Page[]): Page[] {
+function render(exam: Exam, version: Version = versionOf()): PlannedPage[] {
+  return testPages(planPages(exam, version, unmeasured))
+}
+
+function testPages(pages: PlannedPage[]): PlannedPage[] {
   return pages.filter((page) => !isAnswerKeyHeader(page.header))
 }
 
-function itemsOf(pages: Page[]): PageItem[] {
+function itemsOf(pages: PlannedPage[]): PageItem[] {
   return pages.flatMap((page) => page.items)
 }
 
-function headings(pages: Page[]): PageItem[] {
+function headings(pages: PlannedPage[]): PageItem[] {
   return itemsOf(pages).filter((item) => item.kind === 'section-heading')
 }
 
-function renderedQuestions(pages: Page[]): RenderedQuestion[] {
+function plannedQuestions(pages: PlannedPage[]): PlannedQuestion[] {
   return itemsOf(pages).flatMap((item) =>
     item.kind === 'question' ? [item.question] : [],
   )
 }
 
 /** The grid read row by row, with an empty cell written as a dash. */
-function gridRows(question: RenderedQuestion): string[][] {
+function gridRows(question: PlannedQuestion): string[][] {
   return (question.grid?.cells ?? []).map((row) =>
     row.map((cell) => (cell ? `${cell.letter}${cell.id}` : '-')),
   )
@@ -114,14 +129,11 @@ describe('pages', () => {
     expect(pages[0]!.header).toBe('first')
   })
 
-  test('an empty exam still renders a page, so a new exam has somewhere to add to', () => {
+  test('an empty exam still renders a blank page', () => {
     const pages = render(examOf([]))
     expect(pages).toHaveLength(1)
     expect(headings(pages)).toHaveLength(0)
-    expect(itemsOf(pages).map((item) => item.kind)).toEqual([
-      'add-question',
-      'add-question',
-    ])
+    expect(itemsOf(pages)).toEqual([])
   })
 
   test('rendering leaves the exam and the version untouched', () => {
@@ -143,12 +155,14 @@ describe('sections', () => {
         section: 'multiple-choice',
         title: 'Multiple Choice',
         instructions: SECTION_INSTRUCTIONS['multiple-choice'],
+        keepWithNext: true,
       },
       {
         kind: 'section-heading',
         section: 'open',
         title: 'Short Answer',
         instructions: SECTION_INSTRUCTIONS.open,
+        keepWithNext: true,
       },
     ])
   })
@@ -170,24 +184,13 @@ describe('sections', () => {
     expect(headings(pages)[0]).toMatchObject({ section: 'multiple-choice' })
   })
 
-  test('an add-question control closes every section, carrying that section type', () => {
+  test('the printable item stream contains no editing-only insertion controls', () => {
     const pages = render(examOf([multipleChoice('q1', ['a', 'b']), open('q2')]))
-    expect(itemsOf(pages)).toEqual([
-      expect.objectContaining({ kind: 'section-heading', section: 'multiple-choice' }),
-      expect.objectContaining({ kind: 'question' }),
-      { kind: 'add-question', section: 'multiple-choice' },
-      expect.objectContaining({ kind: 'section-heading', section: 'open' }),
-      expect.objectContaining({ kind: 'question' }),
-      { kind: 'add-question', section: 'open' },
-    ])
-  })
-
-  test('keeps an editing-only add control at an empty section position without its heading', () => {
-    const pages = render(examOf([multipleChoice('q1', ['a', 'b'])]))
-    expect(headings(pages)).toHaveLength(1)
-    expect(itemsOf(pages).filter((item) => item.kind === 'add-question')).toEqual([
-      { kind: 'add-question', section: 'multiple-choice' },
-      { kind: 'add-question', section: 'open' },
+    expect(itemsOf(pages).map((item) => item.kind)).toEqual([
+      'section-heading',
+      'question',
+      'section-heading',
+      'question',
     ])
   })
 })
@@ -200,7 +203,7 @@ describe('questions', () => {
       open('o2'),
       multipleChoice('m2', ['c', 'd']),
     ])
-    const rendered = renderedQuestions(render(exam))
+    const rendered = plannedQuestions(render(exam))
     expect(rendered.map((question) => [question.id, question.number])).toEqual([
       ['m1', 1],
       ['m2', 2],
@@ -215,26 +218,58 @@ describe('questions', () => {
       multipleChoice('m2', ['c', 'd']),
       open('o1'),
     ])
-    const rendered = renderedQuestions(render(exam, versionOf(['m2', 'o1', 'm1'])))
+    const rendered = plannedQuestions(render(exam, versionOf(['m2', 'o1', 'm1'])))
     expect(rendered.map((question) => question.id)).toEqual(['m2', 'm1', 'o1'])
     expect(rendered.map((question) => question.number)).toEqual([1, 2, 3])
   })
 
   test('multiple choice is prefixed with an answer blank; short answer is not', () => {
     const exam = examOf([multipleChoice('m1', ['a', 'b']), open('o1')])
-    const rendered = renderedQuestions(render(exam))
+    const rendered = plannedQuestions(render(exam))
     expect(rendered.map((question) => question.answerBlank)).toEqual([true, false])
   })
 
   test('the stem is the question document without its choice list', () => {
-    const rendered = renderedQuestions(render(examOf([multipleChoice('m1', ['a', 'b'])])))
+    const rendered = plannedQuestions(render(examOf([multipleChoice('m1', ['a', 'b'])])))
     expect(rendered[0]!.stem).toEqual([
       { type: 'paragraph', content: [{ type: 'text', text: 'stem m1' }] },
     ])
   })
 
+  test('ignores the single trailing blank paragraph before multiple-choice answers', () => {
+    const question = multipleChoice('m1', ['a', 'b'])
+    const choiceList = (question.doc.content as ProseMirrorJSON[]).at(-1)!
+    question.doc.content = [
+      { type: 'paragraph', content: [{ type: 'text', text: 'Question' }] },
+      { type: 'paragraph' },
+      choiceList,
+    ]
+
+    const [rendered] = plannedQuestions(render(examOf([question])))
+    expect(rendered!.stem).toEqual([
+      { type: 'paragraph', content: [{ type: 'text', text: 'Question' }] },
+    ])
+  })
+
+  test('preserves additional blank paragraphs the teacher added before the answers', () => {
+    const question = multipleChoice('m1', ['a', 'b'])
+    const choiceList = (question.doc.content as ProseMirrorJSON[]).at(-1)!
+    question.doc.content = [
+      { type: 'paragraph', content: [{ type: 'text', text: 'Question' }] },
+      { type: 'paragraph' },
+      { type: 'paragraph' },
+      choiceList,
+    ]
+
+    const [rendered] = plannedQuestions(render(examOf([question])))
+    expect(rendered!.stem).toEqual([
+      { type: 'paragraph', content: [{ type: 'text', text: 'Question' }] },
+      { type: 'paragraph' },
+    ])
+  })
+
   test('a short-answer question has no choices and no grid', () => {
-    const rendered = renderedQuestions(render(examOf([open('o1')])))
+    const rendered = plannedQuestions(render(examOf([open('o1')])))
     expect(rendered[0]!.choices).toEqual([])
     expect(rendered[0]!.grid).toBeNull()
   })
@@ -244,7 +279,7 @@ describe('choice letters', () => {
   test('follow the version ordering rather than authoring order', () => {
     const exam = examOf([multipleChoice('m1', ['a', 'b', 'c', 'd'], 'a')])
     const version = versionOf(['m1'], { m1: ['c', 'd', 'a', 'b'] })
-    const [question] = renderedQuestions(render(exam, version))
+    const [question] = plannedQuestions(render(exam, version))
     expect(question!.choices.map((c) => [c.letter, c.id])).toEqual([
       ['A', 'c'],
       ['B', 'd'],
@@ -256,7 +291,7 @@ describe('choice letters', () => {
   test('the correct answer keeps its letter position, whatever the ordering', () => {
     const exam = examOf([multipleChoice('m1', ['a', 'b', 'c', 'd'], 'a')])
     const version = versionOf(['m1'], { m1: ['c', 'd', 'a', 'b'] })
-    const [question] = renderedQuestions(render(exam, version))
+    const [question] = plannedQuestions(render(exam, version))
     const correct = question!.choices.find((c) => c.correct)
     expect(correct).toMatchObject({ id: 'a', letter: 'C' })
   })
@@ -264,7 +299,7 @@ describe('choice letters', () => {
   test('a choice the ordering has never heard of is lettered last', () => {
     const exam = examOf([multipleChoice('m1', ['a', 'b', 'c'])])
     const version = versionOf(['m1'], { m1: ['c', 'gone', 'a'] })
-    const [question] = renderedQuestions(render(exam, version))
+    const [question] = plannedQuestions(render(exam, version))
     expect(question!.choices.map((c) => [c.letter, c.id])).toEqual([
       ['A', 'c'],
       ['B', 'a'],
@@ -282,7 +317,7 @@ describe('the choice grid', () => {
     const exam = examOf([
       { ...multipleChoice('m1', ['a', 'b', 'c', 'd']), columns: 2 as const },
     ])
-    const [question] = renderedQuestions(render(exam))
+    const [question] = plannedQuestions(render(exam))
     expect(question!.grid!.columns).toBe(2)
     expect(question!.grid!.rows).toBe(2)
     expect(gridRows(question!)).toEqual([
@@ -295,7 +330,7 @@ describe('the choice grid', () => {
     const exam = examOf([
       { ...multipleChoice('m1', ['a', 'b', 'c', 'd', 'e']), columns: 2 as const },
     ])
-    const [question] = renderedQuestions(render(exam))
+    const [question] = plannedQuestions(render(exam))
     expect(question!.grid!.rows).toBe(3)
     expect(gridRows(question!)).toEqual([
       ['Aa', 'Dd'],
@@ -306,7 +341,7 @@ describe('the choice grid', () => {
 
   test('three choices lay out down the first column first', () => {
     const exam = examOf([{ ...multipleChoice('m1', ['a', 'b', 'c']), columns: 2 as const }])
-    const [question] = renderedQuestions(render(exam))
+    const [question] = plannedQuestions(render(exam))
     expect(gridRows(question!)).toEqual([
       ['Aa', 'Cc'],
       ['Bb', '-'],
@@ -315,14 +350,14 @@ describe('the choice grid', () => {
 
   test('two choices sit side by side on one row', () => {
     const exam = examOf([{ ...multipleChoice('m1', ['a', 'b']), columns: 2 as const }])
-    const [question] = renderedQuestions(render(exam))
+    const [question] = plannedQuestions(render(exam))
     expect(gridRows(question!)).toEqual([['Aa', 'Bb']])
   })
 
   test('an explicit column count overrides the automatic one', () => {
     const one = { ...multipleChoice('m1', ['a', 'b', 'c']), columns: 1 as const }
     const four = { ...multipleChoice('m2', ['a', 'b', 'c', 'd', 'e']), columns: 4 as const }
-    const [first, second] = renderedQuestions(render(examOf([one, four])))
+    const [first, second] = plannedQuestions(render(examOf([one, four])))
     expect(gridRows(first!)).toEqual([['Aa'], ['Bb'], ['Cc']])
     expect(second!.grid!.columns).toBe(4)
     expect(second!.grid!.rows).toBe(2)
@@ -337,7 +372,7 @@ describe('the choice grid', () => {
       { ...multipleChoice('m1', ['a', 'b', 'c', 'd']), columns: 2 as const },
     ])
     const version = versionOf(['m1'], { m1: ['d', 'c', 'b', 'a'] })
-    const [question] = renderedQuestions(render(exam, version))
+    const [question] = plannedQuestions(render(exam, version))
     expect(gridRows(question!)).toEqual([
       ['Ad', 'Cb'],
       ['Bc', 'Da'],
@@ -353,8 +388,8 @@ describe('auto column resolution', () => {
   function resolvedColumns(choiceCount: number, width: number): ColumnCount {
     const ids = Array.from({ length: choiceCount }, (_unused, index) => `c${index}`)
     const exam = examOf([multipleChoice('m1', ids)])
-    const pages = renderExam(exam, versionOf(), widthMeasure(width))
-    return renderedQuestions(pages)[0]!.grid!.columns
+    const pages = planPages(exam, versionOf(), widthMeasure(width))
+    return plannedQuestions(pages)[0]!.grid!.columns
   }
 
   for (const choiceCount of [2, 3, 4, 5]) {
@@ -381,7 +416,7 @@ describe('auto column resolution', () => {
       choiceWidth: (choice) => (choice.id === 'c' ? 400 : 10),
       itemHeight: () => 0,
     }
-    const [question] = renderedQuestions(renderExam(exam, versionOf(), measure))
+    const [question] = plannedQuestions(planPages(exam, versionOf(), measure))
     expect(question!.grid!.columns).toBe(1)
   })
 
@@ -406,7 +441,7 @@ describe('auto column resolution', () => {
       },
     ])
     // width 1 would resolve to 4 columns if the image weren't there.
-    const [question] = renderedQuestions(renderExam(exam, versionOf(), widthMeasure(1)))
+    const [question] = plannedQuestions(planPages(exam, versionOf(), widthMeasure(1)))
     expect(question!.grid!.columns).toBe(1)
   })
 
@@ -415,7 +450,7 @@ describe('auto column resolution', () => {
       { ...multipleChoice('m1', ['a', 'b', 'c', 'd']), columns: 4 as const },
     ])
     // width 5000 would force 1 column under auto.
-    const [question] = renderedQuestions(renderExam(exam, versionOf(), widthMeasure(5000)))
+    const [question] = plannedQuestions(planPages(exam, versionOf(), widthMeasure(5000)))
     expect(question!.grid!.columns).toBe(4)
   })
 
@@ -437,8 +472,8 @@ describe('auto column resolution', () => {
     // Narrow enough that all four post-edit choices would resolve to 4
     // columns under auto — the override must still win.
     const narrow = widthMeasure(100)
-    const before = renderedQuestions(renderExam(examOf([original]), versionOf(), narrow))
-    const after = renderedQuestions(renderExam(examOf([edited]), versionOf(), narrow))
+    const before = plannedQuestions(planPages(examOf([original]), versionOf(), narrow))
+    const after = plannedQuestions(planPages(examOf([edited]), versionOf(), narrow))
     expect(before[0]!.grid!.columns).toBe(2)
     expect(after[0]!.grid!.columns).toBe(2)
   })
@@ -448,11 +483,11 @@ describe('auto column resolution', () => {
 // numbers below are chosen against the real content boxes so the assertions
 // stay honest if the page furniture is ever resized.
 describe('page geometry', () => {
-  test('is US Letter at 96dpi with one-inch margins', () => {
+  test('is US Letter at 96dpi with three-quarter-inch margins', () => {
     expect([PAGE_WIDTH, PAGE_HEIGHT]).toEqual([816, 1056])
-    expect(PAGE_MARGIN).toBe(96)
-    expect(PAGE_CONTENT_WIDTH).toBe(624)
-    expect(CHOICE_AREA_WIDTH).toBe(526)
+    expect(PAGE_MARGIN).toBe(72)
+    expect(PAGE_CONTENT_WIDTH).toBe(672)
+    expect(CHOICE_AREA_WIDTH).toBe(574)
   })
 
   test('subtracts the header and footer from the content box', () => {
@@ -464,11 +499,16 @@ describe('page geometry', () => {
   test('leaves the first page shorter, because its header carries the title too', () => {
     expect(pageContentHeight('first')).toBeLessThan(pageContentHeight('later'))
   })
+
+  test('continuation headers leave extra clearance before page content', () => {
+    expect(HEADER_HEIGHT.later).toBe(42)
+    expect(HEADER_HEIGHT['answer-key-later']).toBe(42)
+  })
 })
 
 describe('answer key', () => {
   function keyItems(exam: Exam, version: Version = versionOf()): PageItem[] {
-    return renderExam(exam, version, unmeasured)
+    return planPages(exam, version, unmeasured)
       .filter((page) => isAnswerKeyHeader(page.header))
       .flatMap((page) => page.items)
   }
@@ -484,7 +524,7 @@ describe('answer key', () => {
   })
 
   test('starts fresh after the test and restarts footer numbering at one', () => {
-    const pages = renderExam(
+    const pages = planPages(
       examOf([open('o1'), open('o2')]),
       versionOf(),
       {
@@ -507,7 +547,7 @@ describe('answer key', () => {
   })
 
   test('carries the title header and answer-section groupings on key pages', () => {
-    const keyPages = renderExam(
+    const keyPages = planPages(
       examOf([multipleChoice('m1', ['a'], 'a'), open('o1')]),
       versionOf(),
       unmeasured,
@@ -523,12 +563,18 @@ describe('answer key', () => {
   })
 
   test('repeats the title only on the first answer-key page', () => {
-    const keyPages = renderExam(
+    const keyPages = planPages(
       examOf([open('o1'), open('o2'), open('o3')]),
       versionOf(),
       {
         choiceWidth: () => 0,
-        itemHeight: (item) => item.kind === 'answer-key-entry' ? 400 : 0,
+        // Just over half a page each, taken from the geometry rather than
+        // written out, so one entry per page stays one entry per page if the
+        // margins or the furniture are ever resized.
+        itemHeight: (item) =>
+          item.kind === 'answer-key-entry'
+            ? pageContentHeight('answer-key-later') * 0.6
+            : 0,
       },
     ).filter((page) => page.header.startsWith('answer-key'))
 
@@ -552,7 +598,7 @@ describe('answer key', () => {
         ],
       },
     }
-    const pages = renderExam(
+    const pages = planPages(
       examOf([question]),
       versionOf(),
       {
@@ -572,11 +618,11 @@ describe('print selection', () => {
     const exam = examOf([multipleChoice('m1', ['a', 'b'], 'a')])
     const version = versionOf(['m1'])
 
-    const testOnly = renderPrintPages(exam, [version], unmeasured, {
+    const testOnly = planPrintExport(exam, [version], unmeasured, {
       test: true,
       answerKey: false,
     })[0]!.pages
-    const keyOnly = renderPrintPages(exam, [version], unmeasured, {
+    const keyOnly = planPrintExport(exam, [version], unmeasured, {
       test: false,
       answerKey: true,
     })[0]!.pages
@@ -593,7 +639,7 @@ describe('print selection', () => {
       { ...versionOf(['m1'], { m1: ['a', 'b'] }), id: 'v-a', letter: 'A' },
       { ...versionOf(['m1'], { m1: ['b', 'a'] }), id: 'v-b', letter: 'B' },
     ]
-    const groups = renderPrintPages(exam, versions, unmeasured, {
+    const groups = planPrintExport(exam, versions, unmeasured, {
       test: true,
       answerKey: true,
     })
@@ -656,8 +702,8 @@ describe('page packing', () => {
 
   // Every stem block of question `id` is `blockHeight[id]` tall and its grid is
   // `gridHeight[id]` tall, so a piece's height follows from what it carries —
-  // which is what makes splitting testable without a DOM. Section headings and
-  // add-question controls take `chrome`.
+  // which is what makes splitting testable without a DOM. Section headings
+  // take `chrome`.
   function stubHeights(
     blockHeight: Record<string, number>,
     gridHeight: Record<string, number> = {},
@@ -674,11 +720,11 @@ describe('page packing', () => {
     }
   }
 
-  function questionItems(pages: Page[]): QuestionItem[] {
+  function questionItems(pages: PlannedPage[]): QuestionItem[] {
     return itemsOf(pages).flatMap((item) => (item.kind === 'question' ? [item] : []))
   }
 
-  function pageShape(pages: Page[]): string[][] {
+  function pageShape(pages: PlannedPage[]): string[][] {
     return pages.map((page) =>
       page.items.map((item) =>
         item.kind === 'question' ? `q:${item.question.id}` : item.kind,
@@ -689,18 +735,18 @@ describe('page packing', () => {
   test('a question that fits in the remaining space stays on the page, whole', () => {
     const exam = examOf([tall('o1', 1), tall('o2', 1)])
     const third = Math.floor(FIRST_BOX / 3)
-    const pages = testPages(renderExam(exam, versionOf(), stubHeights({ o1: third, o2: third })))
-    expect(pageShape(pages)).toEqual([['add-question', 'section-heading', 'q:o1', 'q:o2', 'add-question']])
+    const pages = testPages(planPages(exam, versionOf(), stubHeights({ o1: third, o2: third })))
+    expect(pageShape(pages)).toEqual([['section-heading', 'q:o1', 'q:o2']])
     expect(questionItems(pages).every((item) => item.numbered)).toBe(true)
   })
 
   test('a question that does not fit moves to the next page whole rather than straddling', () => {
     const exam = examOf([tall('o1', 1), tall('o2', 1)])
     const tooTall = Math.ceil(FIRST_BOX * 0.6)
-    const pages = testPages(renderExam(exam, versionOf(), stubHeights({ o1: tooTall, o2: tooTall })))
+    const pages = testPages(planPages(exam, versionOf(), stubHeights({ o1: tooTall, o2: tooTall })))
     expect(pageShape(pages)).toEqual([
-      ['add-question', 'section-heading', 'q:o1'],
-      ['q:o2', 'add-question'],
+      ['section-heading', 'q:o1'],
+      ['q:o2'],
     ])
     // Whole means whole: the moved question still carries its number line and
     // every one of its stem blocks.
@@ -712,7 +758,7 @@ describe('page packing', () => {
   test('a question taller than a full content box splits at top-level block boundaries', () => {
     const exam = examOf([tall('o1', 10)])
     // Ten 100px blocks is 1000px: more than either content box.
-    const pages = testPages(renderExam(exam, versionOf(), stubHeights({ o1: 100 })))
+    const pages = testPages(planPages(exam, versionOf(), stubHeights({ o1: 100 })))
     expect(pages).toHaveLength(2)
     const pieces = questionItems(pages)
     expect(pieces).toHaveLength(2)
@@ -725,7 +771,7 @@ describe('page packing', () => {
   })
 
   test('only the first piece of a split question carries the number line', () => {
-    const pages = renderExam(examOf([tall('o1', 10)]), versionOf(), stubHeights({ o1: 100 }))
+    const pages = planPages(examOf([tall('o1', 10)]), versionOf(), stubHeights({ o1: 100 }))
     expect(questionItems(pages).map((piece) => piece.numbered)).toEqual([true, false])
   })
 
@@ -733,13 +779,12 @@ describe('page packing', () => {
     // o1 all but fills page one; o2 is far too tall to fit anywhere whole, so
     // it must split — but its first piece cannot start in the 44px left over.
     const exam = examOf([tall('o1', 1), tall('o2', 12)])
-    const pages = renderExam(
+    const pages = planPages(
       exam,
       versionOf(),
       stubHeights({ o1: FIRST_BOX - 44, o2: 100 }),
     )
     expect(pages[0]!.items.map((item) => item.kind)).toEqual([
-      'add-question',
       'section-heading',
       'question',
     ])
@@ -751,7 +796,7 @@ describe('page packing', () => {
   test('a choice grid is never split, and travels whole on the last piece', () => {
     // Eight 100px stem blocks plus a 200px grid: 1000px in all.
     const exam = examOf([tallChoice('m1', 8)])
-    const pages = renderExam(exam, versionOf(), stubHeights({ m1: 100 }, { m1: 200 }))
+    const pages = planPages(exam, versionOf(), stubHeights({ m1: 100 }, { m1: 200 }))
     const pieces = questionItems(pages)
     expect(pieces.length).toBeGreaterThan(1)
     expect(pieces.map((piece) => piece.grid !== null)).toEqual(
@@ -763,7 +808,7 @@ describe('page packing', () => {
   test('the header variant is first on page one and later on every page after', () => {
     const exam = examOf([tall('o1', 1), tall('o2', 1), tall('o3', 1)])
     const perPage = Math.ceil(FIRST_BOX * 0.9)
-    const pages = testPages(renderExam(
+    const pages = testPages(planPages(
       exam,
       versionOf(),
       stubHeights({ o1: perPage, o2: perPage, o3: perPage }),
@@ -774,7 +819,7 @@ describe('page packing', () => {
   test('footers are numbered from one, in order', () => {
     const exam = examOf([tall('o1', 1), tall('o2', 1), tall('o3', 1)])
     const perPage = Math.ceil(FIRST_BOX * 0.9)
-    const pages = testPages(renderExam(
+    const pages = testPages(planPages(
       exam,
       versionOf(),
       stubHeights({ o1: perPage, o2: perPage, o3: perPage }),
@@ -786,25 +831,48 @@ describe('page packing', () => {
     const exam = examOf([tall('o1', 1), tall('o2', 1)])
     // Taller than the first page's box, shorter than a later page's.
     const between = LATER_BOX
-    const pages = testPages(renderExam(exam, versionOf(), stubHeights({ o1: 10, o2: between })))
+    const pages = testPages(planPages(exam, versionOf(), stubHeights({ o1: 10, o2: between })))
     expect(pageShape(pages)).toEqual([
-      ['add-question', 'section-heading', 'q:o1'],
-      ['q:o2', 'add-question'],
+      ['section-heading', 'q:o1'],
+      ['q:o2'],
     ])
     expect(questionItems(pages)[1]!.stem).toHaveLength(1)
   })
 
-  test('section headings and add-question controls take up room too', () => {
+  test('section headings take up room too', () => {
     const exam = examOf([tall('o1', 1)])
-    const pages = testPages(renderExam(
+    const pages = testPages(planPages(
       exam,
       versionOf(),
       stubHeights({ o1: FIRST_BOX - 10 }, {}, 70),
     ))
     expect(pageShape(pages)).toEqual([
-      ['add-question', 'section-heading'],
+      ['section-heading'],
       ['q:o1'],
-      ['add-question'],
+    ])
+  })
+
+  test('a section heading moves with its first question instead of being orphaned', () => {
+    const chrome = 70
+    const exam = examOf([tallChoice('m1', 1), tall('o1', 1)])
+    const pages = testPages(planPages(
+      exam,
+      versionOf(),
+      stubHeights(
+        {
+          // Leave enough room for the Short Answer heading, but not its first
+          // question, after the Multiple Choice section.
+          m1: FIRST_BOX - 2 * chrome - 10,
+          o1: 100,
+        },
+        {},
+        chrome,
+      ),
+    ))
+
+    expect(pageShape(pages)).toEqual([
+      ['section-heading', 'q:m1'],
+      ['section-heading', 'q:o1'],
     ])
   })
 
@@ -814,5 +882,130 @@ describe('page packing', () => {
     expect(item!.stem).toEqual(item!.question.stem)
     expect(item!.grid).toEqual(item!.question.grid)
     expect(item!.numbered).toBe(true)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// The planning interface
+//
+// Everything below reads the plan the way an Export Adapter does: as a
+// self-contained description of a document, with no exam, version or `Measure`
+// in reach.
+
+describe('the Layout Plan', () => {
+  const exam = examOf([multipleChoice('m1', ['a', 'b'], 'a'), open('o1')])
+  const version = { ...versionOf(['m1', 'o1']), letter: 'C' }
+
+  function planOf(selection: ExportContentSelection = WHOLE_DOCUMENT) {
+    return planExport({ exam, version, selection, measure: unmeasured })
+  }
+
+  test('carries the document metadata an adapter needs', () => {
+    const plan = planOf()
+    expect(plan.title).toBe('Chemistry Unit 3')
+    expect(plan.version).toEqual({ id: 'v1', letter: 'C' })
+  })
+
+  test('is cut to US Letter at the geometry packing used', () => {
+    expect(planOf().pageSize).toEqual({
+      width: PAGE_WIDTH,
+      height: PAGE_HEIGHT,
+      margin: PAGE_MARGIN,
+      contentWidth: PAGE_CONTENT_WIDTH,
+    })
+  })
+
+  test('marks an explicit break before every page but the first', () => {
+    const pages = planOf().pages
+    expect(pages.length).toBeGreaterThan(1)
+    expect(pages.map((page) => page.breakBefore)).toEqual([
+      false,
+      ...pages.slice(1).map(() => true),
+    ])
+  })
+
+  test('names each page’s stream, so the key is a document rather than a tail', () => {
+    const pages = planOf().pages
+    expect(pages.map((page) => page.stream)).toEqual(['test', 'answer-key'])
+    expect(pages.map((page) => page.furniture.pageNumber)).toEqual([1, 1])
+  })
+
+  test('decides page furniture once, for both adapters to print', () => {
+    const [testPage, keyPage] = planOf().pages
+    expect(testPage!.furniture).toEqual({
+      identityFields: ['Name', 'Class', 'Date'],
+      title: 'Chemistry Unit 3',
+      versionLabel: 'ID: C',
+      pageNumber: 1,
+    })
+    // The key is the teacher's copy: nothing for a student to fill in.
+    expect(keyPage!.furniture.identityFields).toEqual([])
+    expect(keyPage!.furniture.versionLabel).toBe('ID: C')
+  })
+
+  test('drops the title on a continuation page but never the version', () => {
+    const tall: Measure = {
+      choiceWidth: () => 0,
+      itemHeight: (item) => (item.kind === 'question' ? 600 : 0),
+    }
+    const pages = planExport({
+      exam,
+      version,
+      selection: { test: true, answerKey: false },
+      measure: tall,
+    }).pages
+    expect(pages.length).toBe(2)
+    expect(pages[1]!.furniture).toEqual({
+      identityFields: ['Name'],
+      title: null,
+      versionLabel: 'ID: C',
+      pageNumber: 2,
+    })
+  })
+
+  test('lays out only the documents the selection asks for', () => {
+    expect(planOf({ test: true, answerKey: false }).pages.map((page) => page.stream))
+      .toEqual(['test'])
+    expect(planOf({ test: false, answerKey: true }).pages.map((page) => page.stream))
+      .toEqual(['answer-key'])
+    expect(planOf({ test: false, answerKey: false }).pages).toEqual([])
+  })
+
+  test('reports the selection it was planned for', () => {
+    expect(planOf(STUDENT_TEST).selection).toEqual({ test: true, answerKey: false })
+  })
+})
+
+describe('the Export Document', () => {
+  const exam = examOf([multipleChoice('m1', ['a', 'b'], 'b'), open('o1')])
+  const version = versionOf(['m1', 'o1'])
+
+  test('derives both documents whatever the selection', () => {
+    const document = buildExportDocument(exam, version, STUDENT_TEST, unmeasured)
+    expect(document.test.length).toBeGreaterThan(0)
+    expect(document.answerKey.length).toBeGreaterThan(0)
+    expect(document.selection).toEqual(STUDENT_TEST)
+  })
+
+  test('derives the key from the numbered, lettered questions the test shows', () => {
+    const document = buildExportDocument(exam, version, STUDENT_TEST, unmeasured)
+    expect(document.answerKey).toEqual([
+      { kind: 'answer-key-heading' },
+      {
+        kind: 'answer-key-section',
+        section: 'multiple-choice',
+        title: SECTION_TITLE['multiple-choice'],
+      },
+      { kind: 'answer-key-entry', number: 1, letter: 'B' },
+      { kind: 'answer-key-section', section: 'open', title: SECTION_TITLE.open },
+      { kind: 'answer-key-entry', number: 2, letter: null },
+    ])
+  })
+
+  test('is page-free: the same content however it is measured', () => {
+    const tall: Measure = { choiceWidth: () => 0, itemHeight: () => 900 }
+    expect(buildExportDocument(exam, version, STUDENT_TEST, tall).test).toEqual(
+      buildExportDocument(exam, version, STUDENT_TEST, unmeasured).test,
+    )
   })
 })

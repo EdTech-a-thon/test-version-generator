@@ -161,13 +161,30 @@ describe('editing questions', () => {
 
   test('a column override is recorded on the question', async () => {
     const { store, questions } = await withQuestions(1)
-    store.setQuestionColumns(questions[0]!.id, 2)
+    store.setQuestionColumns([questions[0]!.id], 2)
     expect(store.getState().exam.questions[0]!.columns).toBe(2)
+  })
+
+  test('a column override applies to the whole selected set as one edit', async () => {
+    const { store, questions } = await withQuestions(3)
+    store.setQuestionColumns([questions[0]!.id, questions[2]!.id], 2)
+    expect(store.getState().exam.questions.map((question) => question.columns)).toEqual([
+      2,
+      'auto',
+      2,
+    ])
+
+    store.undo()
+    expect(store.getState().exam.questions.map((question) => question.columns)).toEqual([
+      'auto',
+      'auto',
+      'auto',
+    ])
   })
 
   test('a column override survives a later content edit', async () => {
     const { store, questions } = await withQuestions(1)
-    store.setQuestionColumns(questions[0]!.id, 4)
+    store.setQuestionColumns([questions[0]!.id], 4)
     // Mirrors what the question dialog's save path does: spread the current
     // question (columns included) over a new doc, the way `QuestionDialog`'s
     // `onSave` handler in App.tsx builds `saved`.
@@ -183,6 +200,45 @@ describe('editing questions', () => {
     const { store } = await freshStore()
     store.setTitle('Chem Unit 3')
     expect(store.getState().exam.title).toBe('Chem Unit 3')
+  })
+})
+
+describe('undo and redo', () => {
+  test('restores edits in both directions and reports button availability', async () => {
+    const { store } = await freshStore()
+    expect(store.canUndo()).toBe(false)
+    expect(store.canRedo()).toBe(false)
+
+    store.setTitle('Changed')
+    expect(store.canUndo()).toBe(true)
+    store.undo()
+    expect(store.getState().exam.title).toBe('Untitled exam')
+    expect(store.canUndo()).toBe(false)
+    expect(store.canRedo()).toBe(true)
+
+    store.redo()
+    expect(store.getState().exam.title).toBe('Changed')
+    expect(store.canUndo()).toBe(true)
+    expect(store.canRedo()).toBe(false)
+  })
+
+  test('a new edit after undo clears the redo branch', async () => {
+    const { store } = await freshStore()
+    store.setTitle('First')
+    store.undo()
+    store.setTitle('Second')
+
+    expect(store.canRedo()).toBe(false)
+    expect(store.getState().exam.title).toBe('Second')
+  })
+
+  test('restored history is mirrored to the draft backend', async () => {
+    const { backend, store } = await freshStore()
+    store.setTitle('Changed')
+    store.undo()
+    await store.whenSettled()
+
+    expect(backend.value?.exam.title).toBe('Untitled exam')
   })
 })
 

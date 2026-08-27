@@ -5,6 +5,45 @@
 
 export type ProseMirrorJSON = Record<string, unknown>
 
+// The document nodes and marks export supports, named once.
+//
+// A node here must have a mapping in every one of: `doc-view.tsx` (how print
+// draws it), `docx-export.ts` (how Word holds it), `export-fingerprint.ts` (the
+// content line it reduces to) and `print-fingerprint.ts` (how that line is read
+// back out of print's markup) — and a fixture in `export-fixtures.ts`, which is
+// what `export-parity.test.ts` checks. A newly supported editor node that skips
+// any of those fails its export coverage instead of quietly flattening.
+export const SUPPORTED_NODES = [
+  'paragraph',
+  'heading',
+  'blockquote',
+  'bullet_list',
+  'ordered_list',
+  'list_item',
+  'code_block',
+  'hr',
+  'table',
+  'table_header_row',
+  'table_row',
+  'table_header',
+  'table_cell',
+  'image',
+  'image-block',
+  'math_inline',
+  'hardbreak',
+  'text',
+] as const
+
+export const SUPPORTED_MARKS = [
+  'strong',
+  'emphasis',
+  'inlineCode',
+  'strike_through',
+  'subscript',
+  'superscript',
+  'link',
+] as const
+
 export const emptyDoc: ProseMirrorJSON = {
   type: 'doc',
   content: [{ type: 'paragraph' }],
@@ -99,6 +138,21 @@ export function choiceIdOf(node: ProseMirrorJSON): string {
 export function choiceIsCorrect(node: ProseMirrorJSON): boolean {
   const attrs = (node.attrs ?? {}) as Record<string, unknown>
   return attrs.correct === true
+}
+
+function isBlankParagraph(node: ProseMirrorJSON | undefined): boolean {
+  return node?.type === 'paragraph' && childrenOf(node).length === 0
+}
+
+// The top-level blocks that visibly belong to a question stem. Crepe keeps one
+// empty paragraph immediately before a multiple-choice block as the editing
+// boundary between the question and its answers. That boundary is not
+// teacher-authored space, so the read-only and exported documents ignore it;
+// any additional empty paragraphs remain and therefore still add space.
+export function stemNodesOf(doc: ProseMirrorJSON): ProseMirrorJSON[] {
+  const choiceList = multipleChoiceNodeOf(doc)
+  const stem = childrenOf(doc).filter((node) => node !== choiceList)
+  return choiceList && isBlankParagraph(stem.at(-1)) ? stem.slice(0, -1) : stem
 }
 
 // The document with its multiple-choice node taken out, if it has one. A

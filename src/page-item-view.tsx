@@ -13,15 +13,15 @@
 
 import { DocView } from './doc-view'
 import type {
-  AddQuestionItem,
   AnswerKeyEntryItem,
   AnswerKeySectionItem,
   ChoiceGrid,
+  PageFurniture,
+  PageHeader,
   PageItem,
   QuestionItem,
   SectionHeadingItem,
-} from './exam-render'
-import type { QuestionType } from './exam'
+} from './export-plan'
 import type { ProseMirrorJSON } from './question-doc'
 
 /** The blocks inside a node — a choice's own paragraphs, say. */
@@ -74,49 +74,12 @@ export function QuestionContent({ item }: { item: QuestionItem }) {
   )
 }
 
-// "Select all" is editing chrome, but it sits on the heading's own baseline and
-// so is part of how tall the heading is. It is drawn whether or not anything
-// wants the click, so measurement and screen agree; print hides it.
-export function SectionHeadingContent({
-  item,
-  onSelectAll,
-}: {
-  item: SectionHeadingItem
-  onSelectAll?: () => void
-}) {
+export function SectionHeadingContent({ item }: { item: SectionHeadingItem }) {
   return (
     <>
-      <div className="exam-section-titlebar">
-        <h2 className="section-title">{item.title}</h2>
-        <button type="button" className="section-select-all" onClick={onSelectAll}>
-          Select all
-        </button>
-      </div>
+      <h2 className="section-title">{item.title}</h2>
       <p className="section-instructions">{item.instructions}</p>
     </>
-  )
-}
-
-function addQuestionLabel(section: QuestionType): string {
-  return section === 'multiple-choice' ? 'multiple choice' : 'short answer'
-}
-
-// Adding from the end of a section: the type is implied by where it sits.
-export function AddQuestionButton({
-  item,
-  onAdd,
-}: {
-  item: AddQuestionItem
-  onAdd?: (section: QuestionType) => void
-}) {
-  return (
-    <button
-      type="button"
-      className="add-question"
-      onClick={() => onAdd?.(item.section)}
-    >
-      + Add {addQuestionLabel(item.section)} question
-    </button>
   )
 }
 
@@ -139,6 +102,42 @@ export function AnswerKeyEntry({ item }: { item: AnswerKeyEntryItem }) {
   )
 }
 
+// The furniture at the top of a sheet, drawn from the variant packing chose.
+// The first page identifies the paper and names the test; every later page
+// carries just enough to reunite a dropped stack and to stop a student swapping
+// a page in from another version. Neither repeats the section heading — that is
+// content, and content is packed, not drawn here.
+//
+// Driven by the plan's own furniture rather than by a switch of its own: the
+// identity fields, the repeated title and the version label are planning
+// decisions, so the DOCX adapter prints exactly the same ones. The header
+// variant survives only as a class, because how tall each variant is remains a
+// layout constant that CSS and packing must agree on.
+export function PageHeaderContent({
+  header,
+  furniture,
+}: {
+  header: PageHeader
+  furniture: PageFurniture
+}) {
+  return (
+    <header className={`page-header page-header--${header}`}>
+      <div className="page-identity">
+        {furniture.identityFields.map((field) => (
+          <span className="identity-field" key={field}>
+            {field}:
+            <span className="identity-blank" />
+          </span>
+        ))}
+        <span className="page-id">{furniture.versionLabel}</span>
+      </div>
+      {furniture.title !== null && (
+        <h1 className="exam-title">{furniture.title}</h1>
+      )}
+    </header>
+  )
+}
+
 // One page item at its printed size, with no handlers and no gutter — what
 // `dom-measure.ts` renders off-screen to read a height back off.
 //
@@ -158,8 +157,6 @@ export function PageItemMeasureView({ item }: { item: PageItem }) {
           <QuestionContent item={item} />
         </section>
       )
-    case 'add-question':
-      return <AddQuestionButton item={item} />
     case 'answer-key-heading':
       return <AnswerKeyHeading />
     case 'answer-key-section':

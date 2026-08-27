@@ -1,6 +1,6 @@
-// The real `Measure` the app hands to `renderExam`, as opposed to the stubs
-// tests inject (see `exam-render.ts`'s `unmeasured` and the hand-built
-// `Measure`s in `exam-render.test.ts`). Both halves work the same way: ask the
+// The real `Measure` the app hands to `planExport`, as opposed to the stubs
+// tests inject (see `export-plan.ts`'s `unmeasured` and the hand-built
+// `Measure`s in `export-plan.test.ts`). Both halves work the same way: ask the
 // browser what the real thing comes out as, off-screen, and hand back a number.
 //
 // `choiceWidth` (#11) asks a detached `<canvas>` for the width a choice's text
@@ -23,12 +23,12 @@
 //     and the heights are then summed. Bottom margins are what separates them.
 //
 // This is the one place in the app that reads a layout property, and it is why
-// `renderExam` never has to: everything downstream of `Measure` is arithmetic.
+// `planExport` never has to: everything downstream of `Measure` is arithmetic.
 
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import type { Choice } from './exam'
-import { PAGE_CONTENT_WIDTH, type Measure, type PageItem } from './exam-render'
+import { PAGE_CONTENT_WIDTH, type Measure, type PageItem } from './export-plan'
 import { PageItemMeasureView } from './page-item-view'
 import type { ProseMirrorJSON } from './question-doc'
 
@@ -95,6 +95,22 @@ function measureHost(): HTMLElement | null {
   return host
 }
 
+// Heights already found, keyed by the exact markup they were found for.
+//
+// The key is the rendered markup itself, which is the whole of what decides a
+// height once the width and the typography are fixed — so a hit cannot be a
+// wrong answer the way a hand-picked key (id, or content minus some field
+// thought not to matter) could be.
+//
+// This is what makes reordering cheap. Shuffling or dragging changes which
+// items sit where, not what any of them contains, so all but the handful whose
+// printed number changed hit the cache and never touch layout at all.
+const heights = new Map<string, number>()
+
+// Big enough for a long exam's items several times over, small enough that an
+// afternoon of editing cannot grow it without bound.
+const HEIGHT_CACHE_LIMIT = 600
+
 // Static markup rather than a React root: measurement is a synchronous question
 // asked from inside another component's effect, and a second root rendering
 // there would be fighting React's own scheduling for no gain — nothing in a
@@ -102,10 +118,28 @@ function measureHost(): HTMLElement | null {
 function itemHeight(item: PageItem): number {
   const element = measureHost()
   if (!element) return 0
-  element.innerHTML = renderToStaticMarkup(createElement(PageItemMeasureView, { item }))
+  const markup = renderToStaticMarkup(createElement(PageItemMeasureView, { item }))
+  const remembered = heights.get(markup)
+  if (remembered !== undefined) return remembered
+  element.innerHTML = markup
   // Fractional, unlike `scrollHeight`: the heights of a dozen items are summed
   // against a fixed box, and a rounded pixel each would be a rounded page.
-  return element.getBoundingClientRect().height
+  const height = element.getBoundingClientRect().height
+  if (heights.size >= HEIGHT_CACHE_LIMIT) heights.clear()
+  heights.set(markup, height)
+  return height
 }
 
-export const domMeasure: Measure = { choiceWidth, itemHeight }
+// Throw the remembered heights away, for when the same markup would now measure
+// differently: a web font has arrived, or an image has finished decoding and
+// stopped measuring as nothing. Callers that re-measure on those events must
+// call this first, or they will re-measure straight out of a stale cache.
+function invalidate(): void {
+  heights.clear()
+}
+
+export const domMeasure: Measure & { invalidate(): void } = {
+  choiceWidth,
+  itemHeight,
+  invalidate,
+}

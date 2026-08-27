@@ -1,25 +1,27 @@
 // The exam page: what the teacher looks at, and what the printer prints.
 //
-// Everything on it comes from `renderExam`, so this file only decides what the
-// model's pages look like — never what is on them, in what order, or under
-// which number. Nothing here is typeable: a double-click opens the question
-// dialog instead, and every editing control lives in chrome that print hides.
+// This is the print Export Adapter: everything on it comes from the Layout Plan
+// `export-plan.ts` returns, so this file only decides what a planned page looks
+// like — never what is on it, in what order, or under which number. Nothing
+// here is typeable: a double-click opens the question dialog instead, and every
+// editing control lives in chrome that print hides.
 //
-// A page is a real sheet: fixed at the geometry `exam-render.ts` packed
+// A page is a real sheet: fixed at the geometry `export-plan.ts` packed
 // against, published to CSS as custom properties so the two cannot drift, with
-// the furniture — the identity line, the title, the page number — drawn here
-// off `Page.header` and `Page.number` rather than being content that packs.
+// the furniture — the identity line, the title, the page number — drawn from
+// the plan's own `PageFurniture` rather than being content that packs. The DOCX
+// adapter prints the same furniture from the same field.
 //
 // The one asynchronous thing on this page is measurement, and it is the reason
 // `pages` is state rather than a value computed during render: see
 // `usePaginatedExam`.
 
-import { useLayoutEffect, useRef, useState, type CSSProperties, type DragEvent, type RefObject } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type RefObject } from 'react'
 import {
-  AddQuestionButton,
   AnswerKeyEntry,
   AnswerKeyHeading,
   AnswerKeySection,
+  PageHeaderContent,
   QuestionContent,
   SectionHeadingContent,
 } from './page-item-view'
@@ -29,173 +31,240 @@ import {
   PAGE_HEIGHT,
   PAGE_MARGIN,
   PAGE_WIDTH,
-  renderPrintPages,
+  planExport,
   unmeasured,
-  type PrintContent,
-  type Page,
-  type PageHeader,
+  type ExportContentSelection,
+  type LayoutPlan,
+  type PlannedPage,
   type PageItem,
   type QuestionItem,
-  type RenderedQuestion,
-} from './exam-render'
-import type { ColumnSetting, Exam, QuestionType, Version } from './exam'
+  type PlannedQuestion,
+} from './export-plan'
+import type {
+  ColumnSetting,
+  Exam,
+  QuestionPlacement,
+  QuestionType,
+  Version,
+} from './exam'
 import type { Selection } from './use-selection'
+import { Copy, EllipsisVertical, ListPlus, Pencil, Plus, Shuffle, Sparkles, Trash2 } from 'lucide-react'
+import {
+  ContextMenu,
+  type MenuItem,
+  type MenuPoint,
+  type MenuSide,
+} from './context-menu'
 import { domMeasure } from './dom-measure'
 
-// How long a click waits before it commits to being a single click rather
-// than the first half of a double-click. Long enough for a real dblclick,
-// short enough that a single click still feels immediate.
-const CLICK_COMMIT_DELAY_MS = 220
-
 /** Every question id across every page, in on-page (number) order. */
-function orderedQuestionIds(pages: readonly Page[]): string[] {
+function orderedQuestionIds(pages: readonly PlannedPage[]): string[] {
   return pages.flatMap((page) =>
     page.items.flatMap((item) => (item.kind === 'question' ? [item.question.id] : [])),
   )
 }
 
-/** Question ids grouped by section, in on-page order — what "Select all" within a section acts on. */
-function questionIdsBySection(pages: readonly Page[]): Record<QuestionType, string[]> {
-  const bySection: Record<QuestionType, string[]> = { 'multiple-choice': [], open: [] }
-  for (const page of pages) {
-    for (const item of page.items) {
-      if (item.kind === 'question') bySection[item.question.type].push(item.question.id)
-    }
-  }
-  return bySection
-}
-
-/** Every question's raw column setting, keyed by id — what the gutter's and
- * toolbar's segmented controls highlight, as opposed to `RenderedQuestion`'s
- * already-resolved `grid.columns`. */
+/** Every question's raw column setting, keyed by id — what its context menu
+ * highlights, as opposed to `PlannedQuestion`'s resolved `grid.columns`. */
 function columnSettingsOf(exam: Exam): Record<string, ColumnSetting> {
   const byId: Record<string, ColumnSetting> = {}
   for (const question of exam.questions) byId[question.id] = question.columns
   return byId
 }
 
-const COLUMN_OPTIONS: readonly { label: string; value: ColumnSetting }[] = [
+// The four answer-column settings, spelled out because a bare number in a menu
+// would not explain itself.
+const COLUMN_MENU_OPTIONS: readonly { label: string; value: ColumnSetting }[] = [
   { label: 'Auto', value: 'auto' },
-  { label: '1', value: 1 },
-  { label: '2', value: 2 },
-  { label: '4', value: 4 },
+  { label: '1 column', value: 1 },
+  { label: '2 columns', value: 2 },
+  { label: '4 columns', value: 4 },
 ]
 
-// The segmented Auto | 1 | 2 | 4 control, shared by the question gutter and
-// the toolbar (#11): both read a `ColumnSetting` and call back with one.
-// `value` is `undefined` when the toolbar's selection has no single common
-// setting to highlight — every option then renders unpressed rather than one
-// being picked arbitrarily.
-export function ColumnControl({
-  value,
-  onChange,
-  ariaLabel,
-  disabled = false,
-  className,
-}: {
-  value: ColumnSetting | undefined
-  onChange: (columns: ColumnSetting) => void
-  ariaLabel: string
-  disabled?: boolean
-  className?: string
-}) {
+function ColumnLayoutIcon({ columns }: { columns: 1 | 2 | 4 }) {
+  const strokes = columns === 1
+    ? [
+        'M1.5 2h15',
+        'M1.5 5.33h15',
+        'M1.5 8.67h15',
+        'M1.5 12h15',
+      ]
+    : columns === 2
+      ? [
+          'M1.5 3.5h6',
+          'M10.5 3.5h6',
+          'M1.5 10.5h6',
+          'M10.5 10.5h6',
+        ]
+      : [
+          'M1.5 7h1.5',
+          'M6 7h1.5',
+          'M10.5 7h1.5',
+          'M15 7h1.5',
+        ]
   return (
-    <div
-      className={className ? `column-control ${className}` : 'column-control'}
-      role="group"
-      aria-label={ariaLabel}
+    <svg
+      viewBox="0 0 18 14"
+      fill="none"
+      stroke="currentColor"
+      aria-hidden="true"
+      data-column-layout={columns}
     >
-      {COLUMN_OPTIONS.map((option) => (
-        <button
-          key={String(option.value)}
-          type="button"
-          className="column-option"
-          aria-pressed={option.value === value}
-          disabled={disabled}
-          onClick={() => onChange(option.value)}
-        >
-          {option.label}
-        </button>
+      {strokes.map((stroke) => (
+        <path key={stroke} d={stroke} strokeLinecap="round" />
       ))}
-    </div>
+    </svg>
   )
 }
 
-// The gutter a question reveals on hover: a selection checkbox, Duplicate and
-// Delete, then #11's segmented Auto | 1 | 2 | 4 column control.
-//
-// Every click in here is stopped from bubbling to the question's own click
-// handler, so using the gutter never also selects, deselects, or extends a
-// range via the question underneath it.
-function QuestionGutter({
+// One list, however it was opened. The grip beside a question and a right-click
+// on the question itself raise exactly the same actions, which is what makes
+// the grip discoverable rather than a second, lesser control.
+function questionMenuItems({
   question,
-  selected,
   columns,
-  onToggleSelect,
+  onEdit,
   onDuplicate,
   onDelete,
+  onAdd,
   onSetColumns,
-  onDragStart,
-  onDragEnd,
+  onShuffleAnswers,
+  onShuffleSelectedQuestions,
+  selectedQuestionIds,
 }: {
-  question: RenderedQuestion
-  selected: boolean
+  question: PlannedQuestion
   columns: ColumnSetting
-  onToggleSelect: (questionId: string) => void
+  onEdit: (questionId: string) => void
   onDuplicate: (questionId: string) => void
   onDelete: (questionId: string) => void
-  onSetColumns: (questionId: string, columns: ColumnSetting) => void
-  onDragStart: (event: DragEvent<HTMLButtonElement>, questionId: string) => void
-  onDragEnd: () => void
+  onAdd: (section: QuestionType, afterQuestionId?: string) => void
+  onSetColumns: (questionIds: readonly string[], columns: ColumnSetting) => void
+  onShuffleAnswers: (questionIds: readonly string[]) => void
+  onShuffleSelectedQuestions: (questionIds: readonly string[]) => void
+  selectedQuestionIds: readonly string[]
+}): MenuItem[] {
+  const items: MenuItem[] = [
+    {
+      kind: 'action',
+      label: 'Edit question',
+      icon: <Pencil />,
+      onSelect: () => onEdit(question.id),
+    },
+    {
+      kind: 'action',
+      label: 'Duplicate',
+      icon: <Copy />,
+      onSelect: () => onDuplicate(question.id),
+    },
+    {
+      kind: 'action',
+      label: 'Add question below',
+      icon: <ListPlus />,
+      onSelect: () => onAdd(question.type, question.id),
+    },
+  ]
+  // Columns are a multiple-choice question's business. An open question has no
+  // answers to lay out, so the group is absent rather than present and inert.
+  if (question.type === 'multiple-choice') {
+    const answerQuestionIds = selectedQuestionIds.includes(question.id)
+      ? selectedQuestionIds
+      : [question.id]
+    items.push(
+      { kind: 'separator' },
+      {
+        kind: 'action',
+        label: 'Shuffle answer order',
+        icon: <Shuffle />,
+        onSelect: () => onShuffleAnswers(answerQuestionIds),
+      },
+      { kind: 'separator' },
+      { kind: 'label', label: 'Answer columns' },
+    )
+    for (const option of COLUMN_MENU_OPTIONS) {
+      items.push({
+        kind: 'radio',
+        label: option.label,
+        checked: option.value === columns,
+        icon: option.value === 'auto'
+          ? <Sparkles />
+          : <ColumnLayoutIcon columns={option.value} />,
+        onSelect: () => onSetColumns(answerQuestionIds, option.value),
+      })
+    }
+  }
+  if (selectedQuestionIds.length > 1 && selectedQuestionIds.includes(question.id)) {
+    items.push(
+      { kind: 'separator' },
+      {
+        kind: 'action',
+        label: 'Shuffle selected questions',
+        icon: <Shuffle />,
+        onSelect: () => onShuffleSelectedQuestions(selectedQuestionIds),
+      },
+    )
+  }
+  items.push(
+    { kind: 'separator' },
+    {
+      kind: 'action',
+      label: 'Delete',
+      icon: <Trash2 />,
+      destructive: true,
+      onSelect: () => onDelete(question.id),
+    },
+  )
+  return items
+}
+
+// The pair of controls a question reveals on hover, out in the sheet's margin:
+// a plus that adds another question below this one, and a three-dot button that
+// opens the question's menu beside it. Dragging is not their business — the
+// whole question is the drag source, so there is nothing left for a grip to do.
+//
+// Clicks are stopped from bubbling to the question's own handler, so reaching
+// for a handle never also selects, deselects, or extends a range through the
+// question underneath. A right-click is deliberately left to bubble: landing on
+// a handle rather than the text is a miss, and should still get the menu.
+function QuestionHandles({
+  question,
+  onAdd,
+  onOpenMenu,
+}: {
+  question: PlannedQuestion
+  onAdd: (section: QuestionType, afterQuestionId?: string) => void
+  onOpenMenu: (questionId: string, point: MenuPoint, side?: MenuSide) => void
 }) {
   return (
     <aside
-      className="question-gutter"
+      className="question-handles"
       aria-label={`Question ${question.number} controls`}
       onClick={(event) => event.stopPropagation()}
       onDoubleClick={(event) => event.stopPropagation()}
     >
-      <label className="gutter-select">
-        <input
-          type="checkbox"
-          checked={selected}
-          onChange={() => onToggleSelect(question.id)}
-          aria-label={`Select question ${question.number}`}
-        />
-      </label>
-      <div className="gutter-actions">
-        <button
-          type="button"
-          className="gutter-button drag-handle"
-          draggable
-          aria-label={`Drag question ${question.number} to reorder`}
-          onDragStart={(event) => onDragStart(event, question.id)}
-          onDragEnd={onDragEnd}
-        >
-          Drag
-        </button>
-        <button
-          type="button"
-          className="gutter-button"
-          onClick={() => onDuplicate(question.id)}
-        >
-          Duplicate
-        </button>
-        <button
-          type="button"
-          className="gutter-button"
-          onClick={() => onDelete(question.id)}
-        >
-          Delete
-        </button>
-      </div>
-      <div className="gutter-columns">
-        <ColumnControl
-          value={columns}
-          onChange={(next) => onSetColumns(question.id, next)}
-          ariaLabel={`Answer columns for question ${question.number}`}
-        />
-      </div>
+      <button
+        type="button"
+        className="question-handle"
+        aria-label={`Add a question after question ${question.number}`}
+        onClick={() => onAdd(question.type, question.id)}
+      >
+        <Plus />
+      </button>
+      <button
+        type="button"
+        className="question-handle menu-handle"
+        aria-haspopup="menu"
+        aria-label={`Actions for question ${question.number}`}
+        onClick={(event) => {
+          // Beside the grip and to its left, not under the pointer: a menu
+          // opened from a handle should read as belonging to that handle, and
+          // opening leftwards keeps it off the question it acts on. The point
+          // is the menu's right edge — `side` is what makes it one.
+          const bounds = event.currentTarget.getBoundingClientRect()
+          onOpenMenu(question.id, { x: bounds.left - 6, y: bounds.top }, 'left')
+        }}
+      >
+        <EllipsisVertical />
+      </button>
     </aside>
   )
 }
@@ -203,94 +272,163 @@ function QuestionGutter({
 // A question on the page, or the piece of one this page carries: the same
 // content `dom-measure.ts` measured, wrapped in the chrome that makes it
 // selectable, editable and droppable. A continued piece is chrome-free — its
-// gutter, and everything that gutter does, belongs to the piece that carries
-// the question's number.
+// handles, and everything they do, belong to the piece that carries the
+// question's number.
 function QuestionView({
   item,
   selected,
-  columns,
   orderedIds,
   selection,
   onEdit,
-  onDuplicate,
-  onDelete,
-  onSetColumns,
-  draggedQuestion,
+  onAdd,
+  onOpenMenu,
+  dragging,
+  dropped,
+  dropPlacement,
   onDragStart,
+  onDragMove,
+  onDrop,
   onDragEnd,
-  onMoveQuestion,
 }: {
   item: QuestionItem
   selected: boolean
-  columns: ColumnSetting
   orderedIds: readonly string[]
   selection: Selection
   onEdit: (questionId: string) => void
-  onDuplicate: (questionId: string) => void
-  onDelete: (questionId: string) => void
-  onSetColumns: (questionId: string, columns: ColumnSetting) => void
-  draggedQuestion: RenderedQuestion | null
-  onDragStart: (event: DragEvent<HTMLButtonElement>, questionId: string) => void
+  onAdd: (section: QuestionType, afterQuestionId?: string) => void
+  onOpenMenu: (questionId: string, point: MenuPoint, side?: MenuSide) => void
+  dragging: boolean
+  dropped: boolean
+  dropPlacement: QuestionPlacement | null
+  onDragStart: (
+    question: PlannedQuestion,
+    element: HTMLElement,
+    point: { x: number; y: number },
+  ) => void
+  onDragMove: (point: { x: number; y: number }) => void
+  onDrop: () => void
   onDragEnd: () => void
-  onMoveQuestion: (questionId: string, targetId: string, placement: 'before' | 'after') => void
 }) {
-  // A click is deferred rather than applied immediately, so that when it
-  // turns out to be the first half of a double-click, the deferred selection
-  // never lands — a double-click opens the editor without leaving a stray
-  // selection behind.
-  const pendingClick = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pointerDrag = useRef<{
+    id: number
+    startX: number
+    startY: number
+    dragging: boolean
+  } | null>(null)
+  const suppressClick = useRef(false)
   const question = item.question
+
+  const releasePointer = (event: ReactPointerEvent<HTMLElement>) => {
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId)
+    }
+  }
+
+  const classes = ['exam-question']
+  if (selected) classes.push('exam-question--selected')
+  if (dragging) classes.push('exam-question--dragging')
+  if (dropped) classes.push('exam-question--dropped')
 
   return (
     <section
-      className={selected ? 'exam-question exam-question--selected' : 'exam-question'}
+      className={classes.join(' ')}
       data-question-id={question.id}
-      onDragOver={(event) => {
-        if (item.numbered && draggedQuestion?.type === question.type && draggedQuestion.id !== question.id) {
-          event.preventDefault()
-          event.dataTransfer.dropEffect = 'move'
+      data-drop-target={item.numbered ? question.type : undefined}
+      data-drop={dropPlacement ?? undefined}
+      onPointerDown={(event) => {
+        if (event.button !== 0) return
+        const target = event.target as HTMLElement
+        if (target.closest('button, input, textarea, select, a, [contenteditable="true"]')) {
+          return
+        }
+        // Shift-click extends the app's question range, not the browser's
+        // native text range. Cancelling pointer-down is early enough to stop
+        // the native selection while still allowing the click event below.
+        if (event.shiftKey) event.preventDefault()
+        pointerDrag.current = {
+          id: event.pointerId,
+          startX: event.clientX,
+          startY: event.clientY,
+          dragging: false,
+        }
+        suppressClick.current = false
+        event.currentTarget.setPointerCapture(event.pointerId)
+      }}
+      onPointerMove={(event) => {
+        const gesture = pointerDrag.current
+        if (!gesture || gesture.id !== event.pointerId) return
+        if (!gesture.dragging) {
+          const distance = Math.hypot(
+            event.clientX - gesture.startX,
+            event.clientY - gesture.startY,
+          )
+          if (distance < 5) return
+          gesture.dragging = true
+          suppressClick.current = true
+          onDragStart(question, event.currentTarget, {
+            x: gesture.startX,
+            y: gesture.startY,
+          })
+        }
+        event.preventDefault()
+        onDragMove({ x: event.clientX, y: event.clientY })
+      }}
+      onPointerUp={(event) => {
+        const gesture = pointerDrag.current
+        if (!gesture || gesture.id !== event.pointerId) return
+        pointerDrag.current = null
+        releasePointer(event)
+        if (!gesture.dragging) return
+        event.preventDefault()
+        onDrop()
+      }}
+      onPointerCancel={(event) => {
+        const gesture = pointerDrag.current
+        if (!gesture || gesture.id !== event.pointerId) return
+        pointerDrag.current = null
+        releasePointer(event)
+        if (gesture.dragging) {
+          suppressClick.current = false
+          onDragEnd()
         }
       }}
-      onDrop={(event) => {
-        if (!item.numbered || !draggedQuestion || draggedQuestion.type !== question.type) return
-        event.preventDefault()
-        event.stopPropagation()
-        const bounds = event.currentTarget.getBoundingClientRect()
-        const placement = event.clientY < bounds.top + bounds.height / 2 ? 'before' : 'after'
-        onMoveQuestion(draggedQuestion.id, question.id, placement)
-        onDragEnd()
+      onLostPointerCapture={(event) => {
+        const gesture = pointerDrag.current
+        if (!gesture || gesture.id !== event.pointerId) return
+        pointerDrag.current = null
+        if (gesture.dragging) {
+          suppressClick.current = false
+          onDragEnd()
+        }
       }}
       onClick={(event) => {
-        const modifiers = {
+        if (suppressClick.current) {
+          suppressClick.current = false
+          event.preventDefault()
+          event.stopPropagation()
+          return
+        }
+        // The first click has already selected immediately. Ignore the second
+        // click's selection semantics and let `dblclick` open the editor; this
+        // also prevents Ctrl/Cmd-double-click from toggling the item twice.
+        if (event.detail > 1) return
+        selection.selectOne(question.id, orderedIds, {
           shiftKey: event.shiftKey,
           metaKey: event.metaKey,
           ctrlKey: event.ctrlKey,
-        }
-        pendingClick.current = setTimeout(() => {
-          pendingClick.current = null
-          selection.selectOne(question.id, orderedIds, modifiers)
-        }, CLICK_COMMIT_DELAY_MS)
+        })
       }}
-      onDoubleClick={() => {
-        if (pendingClick.current) {
-          clearTimeout(pendingClick.current)
-          pendingClick.current = null
-        }
-        onEdit(question.id)
+      onDoubleClick={() => onEdit(question.id)}
+      // A right-click anywhere on the question raises the same menu the grip
+      // does, under the pointer. A continued piece answers too — it is the
+      // same question, even though its handles belong to the numbered piece.
+      onContextMenu={(event) => {
+        event.preventDefault()
+        onOpenMenu(question.id, { x: event.clientX, y: event.clientY })
       }}
     >
       {item.numbered && (
-        <QuestionGutter
-          question={question}
-          selected={selected}
-          columns={columns}
-          onToggleSelect={selection.toggle}
-          onDuplicate={onDuplicate}
-          onDelete={onDelete}
-          onSetColumns={onSetColumns}
-          onDragStart={onDragStart}
-          onDragEnd={onDragEnd}
-        />
+        <QuestionHandles question={question} onAdd={onAdd} onOpenMenu={onOpenMenu} />
       )}
       <QuestionContent item={item} />
     </section>
@@ -300,42 +438,41 @@ function QuestionView({
 function PageItemView({
   item,
   orderedIds,
-  idsBySection,
-  columnSettings,
   selection,
   onEdit,
-  onDuplicate,
-  onDelete,
   onAdd,
-  onSetColumns,
-  draggedQuestion,
+  onOpenMenu,
+  draggedQuestionIds,
+  droppedQuestionIds,
+  dropTarget,
   onDragStart,
+  onDragMove,
+  onDrop,
   onDragEnd,
-  onMoveQuestion,
 }: {
   item: PageItem
   orderedIds: readonly string[]
-  idsBySection: Record<QuestionType, string[]>
-  columnSettings: Record<string, ColumnSetting>
   selection: Selection
   onEdit: (questionId: string) => void
-  onDuplicate: (questionId: string) => void
-  onDelete: (questionId: string) => void
-  onAdd: (section: QuestionType) => void
-  onSetColumns: (questionId: string, columns: ColumnSetting) => void
-  draggedQuestion: RenderedQuestion | null
-  onDragStart: (event: DragEvent<HTMLButtonElement>, questionId: string) => void
+  onAdd: (section: QuestionType, afterQuestionId?: string) => void
+  onOpenMenu: (questionId: string, point: MenuPoint, side?: MenuSide) => void
+  draggedQuestionIds: ReadonlySet<string>
+  droppedQuestionIds: ReadonlySet<string>
+  dropTarget: { questionId: string; placement: QuestionPlacement } | null
+  onDragStart: (
+    question: PlannedQuestion,
+    element: HTMLElement,
+    point: { x: number; y: number },
+  ) => void
+  onDragMove: (point: { x: number; y: number }) => void
+  onDrop: () => void
   onDragEnd: () => void
-  onMoveQuestion: (questionId: string, targetId: string, placement: 'before' | 'after') => void
 }) {
   switch (item.kind) {
     case 'section-heading':
       return (
         <header className="exam-section">
-          <SectionHeadingContent
-            item={item}
-            onSelectAll={() => selection.selectAll(idsBySection[item.section])}
-          />
+          <SectionHeadingContent item={item} />
         </header>
       )
     case 'question':
@@ -343,21 +480,22 @@ function PageItemView({
         <QuestionView
           item={item}
           selected={selection.isSelected(item.question.id)}
-          columns={columnSettings[item.question.id] ?? 'auto'}
           orderedIds={orderedIds}
           selection={selection}
           onEdit={onEdit}
-          onDuplicate={onDuplicate}
-          onDelete={onDelete}
-          onSetColumns={onSetColumns}
-          draggedQuestion={draggedQuestion}
+          onAdd={onAdd}
+          onOpenMenu={onOpenMenu}
+          dragging={draggedQuestionIds.has(item.question.id)}
+          dropped={droppedQuestionIds.has(item.question.id) && item.numbered}
+          dropPlacement={
+            dropTarget?.questionId === item.question.id ? dropTarget.placement : null
+          }
           onDragStart={onDragStart}
+          onDragMove={onDragMove}
+          onDrop={onDrop}
           onDragEnd={onDragEnd}
-          onMoveQuestion={onMoveQuestion}
         />
       )
-    case 'add-question':
-      return <AddQuestionButton item={item} onAdd={onAdd} />
     case 'answer-key-heading':
       return <AnswerKeyHeading />
     case 'answer-key-section':
@@ -379,8 +517,6 @@ function keyOf(item: PageItem): string {
       // A split question never has two of its pieces on one page, so its id is
       // still unique within the page that keys by it.
       return `question-${item.question.id}`
-    case 'add-question':
-      return `add-${item.section}`
     case 'answer-key-heading':
       return 'answer-key-heading'
     case 'answer-key-section':
@@ -389,79 +525,6 @@ function keyOf(item: PageItem): string {
       return `answer-key-entry-${item.number}`
     default: {
       const unreachable: never = item
-      return unreachable
-    }
-  }
-}
-
-// The furniture at the top of a sheet, drawn from the variant packing chose.
-// The first page identifies the paper and names the test; every later page
-// carries just enough to reunite a dropped stack and to stop a student swapping
-// a page in from another version. Neither repeats the section heading — that is
-// content, and content is packed, not drawn here.
-//
-// Exhaustive over `PageHeader`: #8's answer-key variant will not compile until
-// its furniture is drawn, and #12 already reads the version's own letter here
-// rather than assuming 'A'.
-function PageHeaderView({
-  header,
-  title,
-  letter,
-}: {
-  header: PageHeader
-  title: string
-  letter: string
-}) {
-  const id = <span className="page-id">ID: {letter}</span>
-  switch (header) {
-    case 'first':
-      return (
-        <header className="page-header page-header--first">
-          <div className="page-identity">
-            <span className="identity-field">
-              Name:
-              <span className="identity-blank" />
-            </span>
-            <span className="identity-field">
-              Class:
-              <span className="identity-blank" />
-            </span>
-            <span className="identity-field">
-              Date:
-              <span className="identity-blank" />
-            </span>
-            {id}
-          </div>
-          <h1 className="exam-title">{title}</h1>
-        </header>
-      )
-    case 'later':
-      return (
-        <header className="page-header page-header--later">
-          <div className="page-identity">
-            <span className="identity-field">
-              Name:
-              <span className="identity-blank" />
-            </span>
-            {id}
-          </div>
-        </header>
-      )
-    case 'answer-key':
-      return (
-        <header className="page-header page-header--answer-key">
-          <div className="page-identity">{id}</div>
-          <h1 className="exam-title">{title}</h1>
-        </header>
-      )
-    case 'answer-key-later':
-      return (
-        <header className="page-header page-header--answer-key-later">
-          <div className="page-identity">{id}</div>
-        </header>
-      )
-    default: {
-      const unreachable: never = header
       return unreachable
     }
   }
@@ -476,7 +539,7 @@ function clearOnBackgroundClick(selection: Selection) {
   }
 }
 
-// The geometry `exam-render.ts` packed against, handed to CSS. Screen and paper
+// The geometry `export-plan.ts` packed against, handed to CSS. Screen and paper
 // agree only if the sheet is laid out at the size it was packed for, and the
 // only way to be sure of that is for both to read the same numbers.
 const PAGE_GEOMETRY = {
@@ -490,14 +553,18 @@ const PAGE_GEOMETRY = {
   '--page-footer': `${FOOTER_HEIGHT}px`,
 } as CSSProperties
 
-// How long editing settles before the page is measured and packed again.
-// Measurement is the expensive, DOM-touching half of the render and it re-runs
-// on every keystroke's worth of change, so it waits for a pause.
+// How long *editing* settles before the page is measured and packed again.
+// Measurement is the expensive, DOM-touching half of the render, and the exam
+// title is typed a keystroke at a time, so content changes wait for a pause.
+//
+// Reordering does not: a drop or a shuffle is one discrete gesture with nothing
+// to coalesce, and waiting on it is just latency the teacher can feel. See
+// `usePaginatedExam`.
 const REPAGINATE_DEBOUNCE_MS = 150
 
 // Pagination, kept in state rather than computed while rendering.
 //
-// `renderExam` is pure, but the `Measure` the app gives it reads real layout,
+// `planExport` is pure, but the `Measure` the app gives it reads real layout,
 // which cannot be done from inside a React render. So the first pass runs in a
 // layout effect — before the browser paints, so no unpaginated flash is ever
 // seen — and every pass after it is debounced.
@@ -511,19 +578,32 @@ function usePaginatedExam(
   exam: Exam,
   version: Version,
   workspace: RefObject<HTMLElement | null>,
-  content: PrintContent,
-): Page[] {
-  const { test, answerKey } = content
-  const [pages, setPages] = useState<Page[]>(() =>
-    renderPrintPages(exam, [version], unmeasured, content)[0]!.pages,
+  selection: ExportContentSelection,
+): LayoutPlan {
+  const { test, answerKey } = selection
+  const [plan, setPlan] = useState<LayoutPlan>(() =>
+    planExport({ exam, version, selection, measure: unmeasured }),
   )
   const measured = useRef(false)
+  // What the last pagination was for, so this one can tell an edit from a
+  // reorder. A `Version` carries an ordering and nothing else, so a change to
+  // it alone cannot alter a single item's height.
+  const lastExam = useRef(exam)
+  // Bumped when a font or an image has settled and the remembered heights have
+  // been thrown away. It is a dependency rather than a captured callback so the
+  // re-measure always runs against the current exam, never a stale closure.
+  const [settled, setSettled] = useState(0)
 
   useLayoutEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined
     let live = true
-    const repaginate = () => setPages(
-      renderPrintPages(exam, [version], domMeasure, { test, answerKey })[0]!.pages,
+    const repaginate = () => setPlan(
+      planExport({
+        exam,
+        version,
+        selection: { test, answerKey },
+        measure: domMeasure,
+      }),
     )
     const schedule = () => {
       if (!live) return
@@ -531,30 +611,62 @@ function usePaginatedExam(
       timer = setTimeout(repaginate, REPAGINATE_DEBOUNCE_MS)
     }
 
-    if (measured.current) schedule()
-    else {
+    const edited = lastExam.current !== exam
+    lastExam.current = exam
+
+    if (!measured.current) {
       measured.current = true
       repaginate()
-    }
-
-    document.fonts?.ready.then(schedule, () => {})
-    let imagesSettled = false
-    const onAssetLoad = () => {
-      if (imagesSettled) return
-      imagesSettled = true
+    } else if (edited) {
+      // Content changed, and it may still be being typed.
       schedule()
+    } else {
+      // Ordering only. Nothing to wait for, and — because the items' markup is
+      // unchanged apart from their printed numbers — almost every height comes
+      // straight back out of `domMeasure`'s cache.
+      clearTimeout(timer)
+      repaginate()
     }
-    const element = workspace.current
-    element?.addEventListener('load', onAssetLoad, true)
 
     return () => {
       live = false
       clearTimeout(timer)
-      element?.removeEventListener('load', onAssetLoad, true)
     }
-  }, [exam, version, workspace, test, answerKey])
+  }, [exam, version, workspace, test, answerKey, settled])
 
-  return pages
+  // Assets settling is its own concern, and deliberately keyed on the exam
+  // rather than the version.
+  //
+  // `document.fonts.ready` is already resolved once the page has loaded, so a
+  // `.then` attached per pagination fires on the very next microtask — every
+  // time, reorders included. Left inside the effect above, that meant every
+  // drop threw the measured heights away and paid for a second pagination,
+  // which is exactly the cost the cache exists to avoid.
+  //
+  // Keyed on `exam`, it is what it was always meant to be: one re-measurement
+  // per edit — enough to settle, and bounded, so a measurement can never chase
+  // its own result round in a loop.
+  useEffect(() => {
+    let live = true
+    let done = false
+    const settle = () => {
+      if (!live || done) return
+      done = true
+      // Before the re-measure, never after: the whole point is that this same
+      // markup measures differently now.
+      domMeasure.invalidate()
+      setSettled((count) => count + 1)
+    }
+    document.fonts?.ready.then(settle, () => {})
+    const element = workspace.current
+    element?.addEventListener('load', settle, true)
+    return () => {
+      live = false
+      element?.removeEventListener('load', settle, true)
+    }
+  }, [exam, workspace])
+
+  return plan
 }
 
 export function ExamPage({
@@ -566,9 +678,11 @@ export function ExamPage({
   onDelete,
   onAdd,
   onSetColumns,
-  onMoveQuestion,
+  onShuffleAnswers,
+  onShuffleSelectedQuestions,
+  onMoveQuestions,
   unsavedDraft = false,
-  content = { test: true, answerKey: true },
+  contentSelection = { test: true, answerKey: true },
 }: {
   exam: Exam
   version: Version
@@ -576,33 +690,229 @@ export function ExamPage({
   onEdit: (questionId: string) => void
   onDuplicate: (questionId: string) => void
   onDelete: (questionId: string) => void
-  onAdd: (section: QuestionType) => void
-  onSetColumns: (questionId: string, columns: ColumnSetting) => void
-  onMoveQuestion: (questionId: string, targetId: string, placement: 'before' | 'after') => void
+  onAdd: (section: QuestionType, afterQuestionId?: string) => void
+  onSetColumns: (questionIds: readonly string[], columns: ColumnSetting) => void
+  onShuffleAnswers: (questionIds: readonly string[]) => void
+  onShuffleSelectedQuestions: (questionIds: readonly string[]) => void
+  onMoveQuestions: (
+    questionIds: readonly string[],
+    targetId: string,
+    placement: QuestionPlacement,
+  ) => void
   unsavedDraft?: boolean
-  content?: PrintContent
+  contentSelection?: ExportContentSelection
 }) {
   const workspace = useRef<HTMLElement | null>(null)
-  const pages = usePaginatedExam(exam, version, workspace, content)
+  const plan = usePaginatedExam(exam, version, workspace, contentSelection)
+  const pages = plan.pages
   const orderedIds = orderedQuestionIds(pages)
-  const idsBySection = questionIdsBySection(pages)
   const columnSettings = columnSettingsOf(exam)
   const clearOnBackground = clearOnBackgroundClick(selection)
-  const [draggedQuestionId, setDraggedQuestionId] = useState<string | null>(null)
-  const draggedQuestion = draggedQuestionId
-    ? pages.flatMap((page) => page.items).flatMap((item) =>
-        item.kind === 'question' && item.question.id === draggedQuestionId
-          ? [item.question]
+  // Pointer capture keeps this gesture in page control. Native HTML dragging
+  // owns the system cursor after `dragstart`, ignoring even a computed
+  // `cursor: grabbing`; a page-owned preview lets the closed hand remain while
+  // preserving the same source, marker, and drop state.
+  const dragged = useRef<{ ids: string[]; type: QuestionType } | null>(null)
+  const dragPreview = useRef<{
+    element: HTMLElement
+    offsetX: number
+    offsetY: number
+  } | null>(null)
+  const [draggedQuestionIds, setDraggedQuestionIds] = useState<ReadonlySet<string>>(
+    new Set(),
+  )
+  // After a successful drop, feedback belongs to the question that moved, not
+  // whichever question happens to remain under the stationary pointer. It
+  // lasts until the pointer moves again and normal geometric hover resumes.
+  const [droppedQuestionIds, setDroppedQuestionIds] = useState<ReadonlySet<string>>(
+    new Set(),
+  )
+  // Where the question would land if it were let go now — what the drop line
+  // is drawn from. Held next to the drag itself so exactly one line can show.
+  const pendingDrop = useRef<{
+    questionId: string
+    placement: QuestionPlacement
+  } | null>(null)
+  const [dropTarget, setDropTarget] = useState<{
+    questionId: string
+    placement: QuestionPlacement
+  } | null>(null)
+
+  const clearDragArtifacts = useCallback(() => {
+    dragPreview.current?.element.remove()
+    dragPreview.current = null
+    document.documentElement.classList.remove('question-drag-active')
+  }, [])
+  const endDrag = useCallback(() => {
+    dragged.current = null
+    pendingDrop.current = null
+    clearDragArtifacts()
+    setDraggedQuestionIds(new Set())
+    setDropTarget(null)
+  }, [clearDragArtifacts])
+  useEffect(() => clearDragArtifacts, [clearDragArtifacts])
+
+  const markDrop = useCallback(
+    (questionId: string, placement: QuestionPlacement) => {
+      const next = { questionId, placement }
+      pendingDrop.current = next
+      // `dragover` fires continuously; only a change in where the question
+      // would land is worth a re-render.
+      setDropTarget((current) =>
+        current?.questionId === questionId && current.placement === placement
+          ? current
+          : next,
+      )
+    },
+    [],
+  )
+  const clearDrop = useCallback(() => {
+    pendingDrop.current = null
+    setDropTarget(null)
+  }, [])
+
+  const beginDrag = useCallback((
+    question: PlannedQuestion,
+    element: HTMLElement,
+    point: { x: number; y: number },
+  ) => {
+    clearDragArtifacts()
+    const bounds = element.getBoundingClientRect()
+    const computed = getComputedStyle(element)
+    const ids = selection.isSelected(question.id)
+      ? [...new Set(orderedIds.filter((id) =>
+          selection.isSelected(id) &&
+          exam.questions.find((item) => item.id === id)?.type === question.type,
+        ))]
+      : [question.id]
+    if (!selection.isSelected(question.id)) {
+      selection.selectOne(question.id, orderedIds, {
+        shiftKey: false,
+        metaKey: false,
+        ctrlKey: false,
+      })
+    }
+    const preview = document.createElement('div')
+    preview.className = 'question-drag-preview'
+    preview.setAttribute('aria-hidden', 'true')
+    preview.setAttribute('inert', '')
+    preview.dataset.count = String(ids.length)
+    const selectedElements = Array.from(
+      workspace.current?.querySelectorAll<HTMLElement>('.exam-question[data-question-id]') ?? [],
+    ).filter((candidate) => ids.includes(candidate.dataset.questionId ?? ''))
+    for (const selectedElement of selectedElements) {
+      const clone = selectedElement.cloneNode(true) as HTMLElement
+      clone.classList.remove(
+        'exam-question--selected',
+        'exam-question--dragging',
+        'exam-question--dropped',
+      )
+      clone.removeAttribute('data-question-id')
+      clone.removeAttribute('data-drop-target')
+      clone.removeAttribute('data-drop')
+      clone.querySelectorAll('[id]').forEach((child) => child.removeAttribute('id'))
+      preview.append(clone)
+    }
+    Object.assign(preview.style, {
+      left: `${bounds.left}px`,
+      top: `${bounds.top}px`,
+      width: `${bounds.width}px`,
+      color: computed.color,
+      fontFamily: computed.fontFamily,
+      fontSize: computed.fontSize,
+      lineHeight: computed.lineHeight,
+    })
+    document.body.append(preview)
+    document.documentElement.classList.add('question-drag-active')
+    dragPreview.current = {
+      element: preview,
+      offsetX: point.x - bounds.left,
+      offsetY: point.y - bounds.top,
+    }
+    dragged.current = { ids, type: question.type }
+    setDroppedQuestionIds(new Set())
+    setDraggedQuestionIds(new Set(ids))
+  }, [clearDragArtifacts, exam.questions, orderedIds, selection])
+
+  const moveDrag = useCallback((point: { x: number; y: number }) => {
+    const preview = dragPreview.current
+    if (preview) {
+      preview.element.style.left = `${point.x - preview.offsetX}px`
+      preview.element.style.top = `${point.y - preview.offsetY}px`
+    }
+    const source = dragged.current
+    const target = document
+      .elementFromPoint(point.x, point.y)
+      ?.closest<HTMLElement>('.exam-question[data-drop-target]')
+    const targetId = target?.dataset.questionId
+    if (
+      !source ||
+      !target ||
+      !targetId ||
+      source.ids.includes(targetId) ||
+      target.dataset.dropTarget !== source.type
+    ) {
+      clearDrop()
+      return
+    }
+    const bounds = target.getBoundingClientRect()
+    markDrop(
+      targetId,
+      point.y < bounds.top + bounds.height / 2 ? 'before' : 'after',
+    )
+  }, [clearDrop, markDrop])
+
+  const finishDrag = useCallback(() => {
+    const source = dragged.current
+    const target = pendingDrop.current
+    if (source && target) {
+      onMoveQuestions(source.ids, target.questionId, target.placement)
+    }
+    endDrag()
+    if (source && target) setDroppedQuestionIds(new Set(source.ids))
+  }, [endDrag, onMoveQuestions])
+  // Keyed on the numbered piece: a split question's handles and menu belong to
+  // the piece carrying its number, and that is the one holding its `number`.
+  const questionsById = new Map(
+    pages
+      .flatMap((page) => page.items)
+      .flatMap((item) =>
+        item.kind === 'question' && item.numbered
+          ? [[item.question.id, item.question] as const]
           : [],
-      )[0] ?? null
-    : null
+      ),
+  )
+  // Which question's menu is open, and where it was raised. Held here rather
+  // than per question, so opening one menu closes any other by construction.
+  const [menu, setMenu] = useState<{
+    questionId: string
+    point: MenuPoint
+    side: MenuSide
+  } | null>(null)
+  const closeMenu = useCallback(() => setMenu(null), [])
+  const openMenu = useCallback(
+    (questionId: string, point: MenuPoint, side: MenuSide = 'right') =>
+      setMenu({ questionId, point, side }),
+    [],
+  )
+  // A question deleted while its own menu is open leaves the menu with nothing
+  // to act on, so it simply stops being rendered.
+  const menuQuestion = menu ? questionsById.get(menu.questionId) : undefined
+
+  const workspaceClasses = ['exam-workspace']
+  if (unsavedDraft) workspaceClasses.push('exam-workspace--unsaved')
+  if (draggedQuestionIds.size > 0) workspaceClasses.push('exam-workspace--dragging')
+  if (droppedQuestionIds.size > 0) workspaceClasses.push('exam-workspace--drop-feedback')
 
   return (
     <main
-      className={`exam-workspace${unsavedDraft ? ' exam-workspace--unsaved' : ''}`}
+      className={workspaceClasses.join(' ')}
       ref={workspace}
       style={PAGE_GEOMETRY}
       onClick={clearOnBackground}
+      onPointerMove={() => {
+        if (!dragged.current && droppedQuestionIds.size > 0) setDroppedQuestionIds(new Set())
+      }}
     >
       {pages.map((page) => (
         <article
@@ -610,10 +920,9 @@ export function ExamPage({
           key={`${page.header}-${page.number}`}
           onClick={clearOnBackground}
         >
-          <PageHeaderView
+          <PageHeaderContent
             header={page.header}
-            title={exam.title}
-            letter={version.letter}
+            furniture={page.furniture}
           />
           <div className="page-content" onClick={clearOnBackground}>
             {page.items.map((item) => (
@@ -621,28 +930,44 @@ export function ExamPage({
                 key={keyOf(item)}
                 item={item}
                 orderedIds={orderedIds}
-                idsBySection={idsBySection}
-                columnSettings={columnSettings}
                 selection={selection}
                 onEdit={onEdit}
-                onDuplicate={onDuplicate}
-                onDelete={onDelete}
                 onAdd={onAdd}
-                onSetColumns={onSetColumns}
-                draggedQuestion={draggedQuestion}
-                onDragStart={(event, questionId) => {
-                  event.dataTransfer.effectAllowed = 'move'
-                  event.dataTransfer.setData('text/plain', questionId)
-                  setDraggedQuestionId(questionId)
-                }}
-                onDragEnd={() => setDraggedQuestionId(null)}
-                onMoveQuestion={onMoveQuestion}
+                onOpenMenu={openMenu}
+                draggedQuestionIds={draggedQuestionIds}
+                droppedQuestionIds={droppedQuestionIds}
+                dropTarget={dropTarget}
+                onDragStart={beginDrag}
+                onDragMove={moveDrag}
+                onDrop={finishDrag}
+                onDragEnd={endDrag}
               />
             ))}
           </div>
-          <footer className="page-footer">{page.number}</footer>
+          <footer className="page-footer">{page.furniture.pageNumber}</footer>
         </article>
       ))}
+
+      {menu && menuQuestion && (
+        <ContextMenu
+          point={menu.point}
+          side={menu.side}
+          ariaLabel={`Question ${menuQuestion.number} actions`}
+          items={questionMenuItems({
+            question: menuQuestion,
+            columns: columnSettings[menuQuestion.id] ?? 'auto',
+            onEdit,
+            onDuplicate,
+            onDelete,
+            onAdd,
+            onSetColumns,
+            onShuffleAnswers,
+            onShuffleSelectedQuestions,
+            selectedQuestionIds: [...selection.selectedIds],
+          })}
+          onClose={closeMenu}
+        />
+      )}
     </main>
   )
 }

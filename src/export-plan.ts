@@ -1,13 +1,23 @@
-// The exam page, rendered.
+// Export planning: one Export Document, one Layout Plan.
 //
-// One pure function turns the canonical exam plus a version's ordering into
-// pages: it derives the sections, numbers the questions continuously across
-// them, assigns each choice the letter its position on this paper earns, lays
-// the choices out column-major, and packs the result into pages.
+// This is the single module that decides what an exam version *says* and how it
+// *falls onto pages*. Both Export Adapters — the React/HTML print path and the
+// DOCX writer — consume the Layout Plan it returns. Neither walks an `Exam`
+// itself, so a content or pagination rule is implemented and fixed once.
+//
+// The interface callers and tests use is `planExport`: an exam, one version,
+// the requested content selection and a `Measure` in; a complete `LayoutPlan`
+// out. The two stages behind it are internal:
+//
+//   1. Semantic derivation into an `ExportDocument` — sections, continuous
+//      question numbering, this version's choice order and the letters it
+//      earns, choice-grid topology, the answer key.
+//   2. Layout resolution into a `LayoutPlan` — page assignment, page furniture,
+//      footer numbering, and the explicit break decisions a serializer needs.
 //
 // Measurement is injected rather than taken from the DOM, so the whole pipeline
-// is testable without a browser: the render function never touches a layout
-// property itself, it asks `Measure` for one.
+// is testable without a browser: nothing here reads a layout property itself,
+// it asks `Measure` for one. Export Adapters never measure and never repaginate.
 //
 // Packing is atomic by default: a question that fits stays whole, and one that
 // does not fit moves to the next page whole. Only a question that alone exceeds
@@ -25,7 +35,7 @@ import {
   type QuestionType,
   type Version,
 } from './exam'
-import { multipleChoiceNodeOf, type ProseMirrorJSON } from './question-doc'
+import { stemNodesOf, type ProseMirrorJSON } from './question-doc'
 
 // The section headings and instruction lines a school test carries. Hardcoded
 // per section kind, never stored, never editable. The `'open'` question type
@@ -69,7 +79,7 @@ export const unmeasured: Measure = {
 // A choice as it prints: its letter is its position in this version's ordering,
 // so it is what the student writes on their paper and what the answer key
 // records.
-export type RenderedChoice = {
+export type PlannedChoice = {
   id: string
   letter: string
   correct: boolean
@@ -82,10 +92,10 @@ export type RenderedChoice = {
 export type ChoiceGrid = {
   columns: ColumnCount
   rows: number
-  cells: (RenderedChoice | null)[][]
+  cells: (PlannedChoice | null)[][]
 }
 
-export type RenderedQuestion = {
+export type PlannedQuestion = {
   id: string
   type: QuestionType
   /** Position on the printed test, counted continuously across sections. */
@@ -95,7 +105,7 @@ export type RenderedQuestion = {
   /** The question document's top-level blocks, without the choice list. */
   stem: ProseMirrorJSON[]
   /** The answers in this version's order, lettered. Empty for short answer. */
-  choices: RenderedChoice[]
+  choices: PlannedChoice[]
   /** How those answers lay out, or `null` when there are none. */
   grid: ChoiceGrid | null
 }
@@ -105,6 +115,9 @@ export type SectionHeadingItem = {
   section: QuestionType
   title: string
   instructions: string
+  /** A heading is never left at the foot of a page without its first question.
+   *  Packing enforces it; adapters carry it into their own keep-with-next. */
+  keepWithNext: true
 }
 
 // A question, or as much of one as this page has room for.
@@ -119,7 +132,7 @@ export type SectionHeadingItem = {
 export type QuestionItem = {
   kind: 'question'
   /** The whole question, for identity, numbering, selection and the answer key. */
-  question: RenderedQuestion
+  question: PlannedQuestion
   /** The top-level stem blocks this piece prints, in order. */
   stem: ProseMirrorJSON[]
   /** Whether this piece prints the number line and answer blank. Only the first
@@ -127,13 +140,6 @@ export type QuestionItem = {
   numbered: boolean
   /** The choice grid, on the single piece that prints it. Never split. */
   grid: ChoiceGrid | null
-}
-
-// Closes a section: adding from here makes a question of that section's type,
-// so the teacher never picks a type from a menu.
-export type AddQuestionItem = {
-  kind: 'add-question'
-  section: QuestionType
 }
 
 // The answer key's own content items. The repeated title lives in the page's
@@ -164,7 +170,6 @@ export type AnswerKeyEntryItem = {
 export type PageItem =
   | SectionHeadingItem
   | QuestionItem
-  | AddQuestionItem
   | AnswerKeyHeadingItem
   | AnswerKeySectionItem
   | AnswerKeyEntryItem
@@ -179,11 +184,72 @@ export function isAnswerKeyHeader(header: PageHeader): boolean {
   return header === 'answer-key' || header === 'answer-key-later'
 }
 
-export type Page = {
-  /** Printed in the footer, 1-based. */
+// Which document stream a page belongs to. The answer key begins fresh after
+// the last test page with its own restarted footer, so a plan can carry both.
+export type PageStream = 'test' | 'answer-key'
+
+// One planned sheet. Everything an Export Adapter needs to reproduce it without
+// measuring or repaginating: which furniture it carries, what number its footer
+// prints, the ordered items on it, and whether an explicit page break precedes
+// it in a serialized stream.
+export type PlannedPage = {
+  /** Printed in the footer, 1-based within its stream. */
   number: number
   header: PageHeader
+  stream: PageStream
+  /** What this page's header and footer say. Furniture is a planning decision,
+   *  so the two adapters print the same identity fields and the same footer
+   *  number rather than each deciding what a header variant means. */
+  furniture: PageFurniture
+  /** True for every page but the first of a serialized document: a DOCX or any
+   *  other linear format must break here rather than rediscover pagination. */
+  breakBefore: boolean
   items: PageItem[]
+}
+
+/** The blanks a page's header offers the student, in printed order. */
+export type IdentityField = 'Name' | 'Class' | 'Date'
+
+export type PageFurniture = {
+  identityFields: readonly IdentityField[]
+  /** The exam title, on the pages that repeat it; `null` on the rest. */
+  title: string | null
+  /** Which version's paper this is — printed on every page, both streams. */
+  versionLabel: string
+  /** What the footer prints. The same number as the page, named separately
+   *  because a footer is furniture rather than an item that packs. */
+  pageNumber: number
+}
+
+const IDENTITY_FIELDS: Record<PageHeader, readonly IdentityField[]> = {
+  first: ['Name', 'Class', 'Date'],
+  later: ['Name'],
+  // The key is the teacher's copy: it carries the version it belongs to and
+  // nothing for a student to fill in.
+  'answer-key': [],
+  'answer-key-later': [],
+}
+
+// Which variants repeat the exam title. The key repeats it on its first page
+// the way the test does, and drops it on continuation pages.
+const REPEATS_TITLE: Record<PageHeader, boolean> = {
+  first: true,
+  later: false,
+  'answer-key': true,
+  'answer-key-later': false,
+}
+
+function furnitureOf(
+  page: { header: PageHeader; number: number },
+  title: string,
+  versionLetter: string,
+): PageFurniture {
+  return {
+    identityFields: IDENTITY_FIELDS[page.header],
+    title: REPEATS_TITLE[page.header] ? title : null,
+    versionLabel: `ID: ${versionLetter}`,
+    pageNumber: page.number,
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -201,7 +267,7 @@ export type Page = {
 // what makes content creep onto an extra sheet on paper.
 export const PAGE_WIDTH = 816
 export const PAGE_HEIGHT = 1056
-export const PAGE_MARGIN = 96
+export const PAGE_MARGIN = 72
 
 /** The width a page item is laid out at — what `Measure` measures against. */
 export const PAGE_CONTENT_WIDTH = PAGE_WIDTH - 2 * PAGE_MARGIN
@@ -214,9 +280,9 @@ const PAGE_BOX_HEIGHT = PAGE_HEIGHT - 2 * PAGE_MARGIN
 // the ID and therefore use the shorter header height.
 export const HEADER_HEIGHT: Record<PageHeader, number> = {
   first: 84,
-  later: 30,
+  later: 42,
   'answer-key': 84,
-  'answer-key-later': 30,
+  'answer-key-later': 42,
 }
 
 export const FOOTER_HEIGHT = 36
@@ -295,7 +361,7 @@ function resolveColumns(
 // Column-major: `rows = ceil(n / columns)`, and the choices fill down the first
 // column before starting the second.
 function layOutGrid(
-  choices: RenderedChoice[],
+  choices: PlannedChoice[],
   columns: ColumnCount,
 ): ChoiceGrid | null {
   if (choices.length === 0) return null
@@ -309,23 +375,14 @@ function layOutGrid(
   return { columns, rows, cells }
 }
 
-/** The question's blocks with the choice list taken out. */
-function stemOf(question: Question): ProseMirrorJSON[] {
-  const blocks = Array.isArray(question.doc.content)
-    ? (question.doc.content as ProseMirrorJSON[])
-    : []
-  const choiceList = multipleChoiceNodeOf(question.doc)
-  return blocks.filter((block) => block !== choiceList)
-}
-
-function renderQuestion(
+function deriveQuestion(
   question: Question,
   version: Version,
   number: number,
   measure: Measure,
-): RenderedQuestion {
+): PlannedQuestion {
   const ordered = orderedChoices(question, version)
-  const choices: RenderedChoice[] = ordered.map((choice, index) => ({
+  const choices: PlannedChoice[] = ordered.map((choice, index) => ({
     id: choice.id,
     letter: letterAt(index),
     correct: choice.correct,
@@ -336,17 +393,16 @@ function renderQuestion(
     type: question.type,
     number,
     answerBlank: question.type === 'multiple-choice',
-    stem: stemOf(question),
+    stem: stemNodesOf(question.doc),
     choices,
     grid: layOutGrid(choices, resolveColumns(question, ordered, measure)),
   }
 }
 
 // Sections in fixed order, each omitted entirely when it holds no questions —
-// Empty sections omit their printed heading and instructions, but their add
-// control remains at the section's fixed editing position so either type can
-// always be created.
-function renderItems(exam: Exam, version: Version, measure: Measure): PageItem[] {
+// Empty sections omit their printed heading and instructions. Questions are
+// inserted from the application toolbar, outside the printable document.
+function deriveItems(exam: Exam, version: Version, measure: Measure): PageItem[] {
   const items: PageItem[] = []
   let number = 1
   for (const section of SECTION_ORDER) {
@@ -357,19 +413,19 @@ function renderItems(exam: Exam, version: Version, measure: Measure): PageItem[]
         section,
         title: SECTION_TITLE[section],
         instructions: SECTION_INSTRUCTIONS[section],
+        keepWithNext: true,
       })
     }
     for (const question of questions) {
-      items.push(wholeQuestion(renderQuestion(question, version, number, measure)))
+      items.push(wholeQuestion(deriveQuestion(question, version, number, measure)))
       number += 1
     }
-    items.push({ kind: 'add-question', section })
   }
   return items
 }
 
 /** The question, whole, as one page item — packing's starting point. */
-function wholeQuestion(question: RenderedQuestion): QuestionItem {
+function wholeQuestion(question: PlannedQuestion): QuestionItem {
   return {
     kind: 'question',
     question,
@@ -390,7 +446,7 @@ type QuestionPart = {
   grid: ChoiceGrid | null
 }
 
-function partsOf(question: RenderedQuestion): QuestionPart[] {
+function partsOf(question: PlannedQuestion): QuestionPart[] {
   const [first, ...rest] = question.stem
   if (first === undefined) {
     return [{ stem: [], numbered: true, grid: question.grid }]
@@ -403,7 +459,7 @@ function partsOf(question: RenderedQuestion): QuestionPart[] {
 
 /** Consecutive parts, gathered back into the one item that prints them. */
 function pieceOf(
-  question: RenderedQuestion,
+  question: PlannedQuestion,
   parts: readonly QuestionPart[],
 ): QuestionItem {
   return {
@@ -426,20 +482,27 @@ function pieceOf(
 // on every page it takes — the key carries only one header variant). Page
 // numbers always start at 1 within one call, which is what gives the key its
 // own restarted footer: it is simply a second, independent call.
+// What packing produces: which items landed on which sheet, under which header
+// variant. Furniture needs the document's title and version, which packing has
+// no business knowing, so `resolveLayout` is what turns these into
+// `PlannedPage`s.
+type PackedPage = Pick<PlannedPage, 'number' | 'header' | 'stream' | 'items'>
+
 function paginate(
   items: PageItem[],
   measure: Measure,
-  initialHeader: PageHeader = 'first',
-  continuedHeader: PageHeader = 'later',
-): Page[] {
-  const pages: Page[] = []
+  stream: PageStream,
+  initialHeader: PageHeader,
+  continuedHeader: PageHeader,
+): PackedPage[] {
+  const pages: PackedPage[] = []
   let header: PageHeader = initialHeader
   let box = pageContentHeight(header)
   let current: PageItem[] = []
   let used = 0
 
   const flush = () => {
-    pages.push({ number: pages.length + 1, header, items: current })
+    pages.push({ number: pages.length + 1, header, stream, items: current })
     current = []
     used = 0
     header = continuedHeader
@@ -455,7 +518,7 @@ function paginate(
   // many consecutive parts as still fit. A part taller than a whole page is
   // placed alone and overflows rather than looping forever — there is nothing
   // smaller to break it into.
-  const split = (question: RenderedQuestion) => {
+  const split = (question: PlannedQuestion) => {
     const parts = partsOf(question)
     let start = 0
     while (start < parts.length) {
@@ -479,8 +542,24 @@ function paginate(
     }
   }
 
-  for (const item of items) {
+  for (const [index, item] of items.entries()) {
     const height = measure.itemHeight(item)
+    // A section heading must share a page with at least the first indivisible
+    // piece of its first question. Reserve that space before committing the
+    // heading; otherwise a heading can fit in the last few lines of a page
+    // after every question in its section has moved forward.
+    if (item.kind === 'section-heading') {
+      const firstQuestion = items[index + 1]
+      if (firstQuestion?.kind === 'question') {
+        const [firstPart] = partsOf(firstQuestion.question)
+        const firstPieceHeight = firstPart
+          ? measure.itemHeight(pieceOf(firstQuestion.question, [firstPart]))
+          : 0
+        if (current.length > 0 && height + firstPieceHeight > box - used) {
+          flush()
+        }
+      }
+    }
     if (height <= box - used) {
       place(item, height)
       continue
@@ -493,7 +572,12 @@ function paginate(
     // It does not fit here. Move it forward whole if a page of its own would
     // hold it; otherwise it is genuinely oversized, and splitting starts in
     // whatever room is left rather than wasting the rest of this page.
-    if (current.length > 0 && height <= pageContentHeight(continuedHeader)) {
+    const followsSectionHeading = current.at(-1)?.kind === 'section-heading'
+    if (
+      current.length > 0
+      && !followsSectionHeading
+      && height <= pageContentHeight(continuedHeader)
+    ) {
       flush()
       place(item, height)
       continue
@@ -505,76 +589,176 @@ function paginate(
 }
 
 // Derive the key from the exact rendered questions that students see, so its
-// numbering and version-relative choice letters cannot drift from the test.
-// A question split across pages appears more than once in `testPages`; the id
-// set ensures it still contributes exactly one answer line.
-function renderAnswerKeyItems(testPages: readonly Page[]): PageItem[] {
+// numbering and version-relative choice letters cannot drift from the test. A
+// question that later splits across pages still contributes exactly one answer
+// line, because the key is derived before layout and the id set guards repeats.
+function deriveAnswerKey(testItems: readonly PageItem[]): PageItem[] {
   const items: PageItem[] = [{ kind: 'answer-key-heading' }]
   const seen = new Set<string>()
   let section: QuestionType | null = null
 
-  for (const page of testPages) {
-    for (const item of page.items) {
-      if (item.kind !== 'question' || seen.has(item.question.id)) continue
-      seen.add(item.question.id)
-      if (item.question.type !== section) {
-        section = item.question.type
-        items.push({
-          kind: 'answer-key-section',
-          section,
-          title: SECTION_TITLE[section],
-        })
-      }
+  for (const item of testItems) {
+    if (item.kind !== 'question' || seen.has(item.question.id)) continue
+    seen.add(item.question.id)
+    if (item.question.type !== section) {
+      section = item.question.type
       items.push({
-        kind: 'answer-key-entry',
-        number: item.question.number,
-        letter: item.question.choices.find((choice) => choice.correct)?.letter ?? null,
+        kind: 'answer-key-section',
+        section,
+        title: SECTION_TITLE[section],
       })
     }
+    items.push({
+      kind: 'answer-key-entry',
+      number: item.question.number,
+      letter: item.question.choices.find((choice) => choice.correct)?.letter ?? null,
+    })
   }
   return items
 }
 
-// The whole render, in one pure call: the exam, the ordering to print it in,
-// and how to measure. Nothing here reads the DOM, a clock, or a random source.
-export function renderExam(
-  exam: Exam,
-  version: Version,
-  measure: Measure,
-): Page[] {
-  const testPages = paginate(renderItems(exam, version, measure), measure)
-  const keyPages = paginate(
-    renderAnswerKeyItems(testPages),
-    measure,
-    'answer-key',
-    'answer-key-later',
-  )
-  return [...testPages, ...keyPages]
-}
+// ---------------------------------------------------------------------------
+// Stage 1: the Export Document
+//
+// Format-neutral content and presentation intent for one exam version: what the
+// paper says, in what order, under which numbers and letters — and nothing at
+// all about pages. Both streams are always derived; the selection decides which
+// of them the Layout Plan goes on to lay out.
 
-export interface PrintContent {
+/** Which of an exam version's documents an export covers. */
+export type ExportContentSelection = {
   test: boolean
   answerKey: boolean
 }
 
-export interface PrintedVersion {
-  version: Version
-  pages: Page[]
+/** The selection DOCX export uses: the student's paper, without the key. */
+export const STUDENT_TEST: ExportContentSelection = { test: true, answerKey: false }
+
+export type ExportDocument = {
+  title: string
+  version: { id: string; letter: string }
+  selection: ExportContentSelection
+  /** The student test's content items, in order, before page assignment. */
+  test: PageItem[]
+  /** The answer key's content items, in order, before page assignment. */
+  answerKey: PageItem[]
 }
 
-/** Render each version as its own document, then choose the streams requested
- * by the print panel. Keeping the render calls independent is what restarts
- * both test and answer-key page numbering for every version. */
-export function renderPrintPages(
+/** Semantic derivation, on its own. Exposed so tests and fingerprints can read
+ *  the semantic stage without a `Measure` that has an opinion about pages. */
+export function buildExportDocument(
+  exam: Exam,
+  version: Version,
+  selection: ExportContentSelection,
+  measure: Measure,
+): ExportDocument {
+  const test = deriveItems(exam, version, measure)
+  return {
+    title: exam.title,
+    version: { id: version.id, letter: version.letter },
+    selection,
+    test,
+    answerKey: deriveAnswerKey(test),
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Stage 2: the Layout Plan
+//
+// The Export Document resolved onto real sheets. Self-contained on purpose: an
+// adapter that has a plan needs neither the exam, the version, nor a `Measure`.
+
+export type PageSize = {
+  /** CSS pixels at 96dpi — US Letter, the geometry both outputs are cut to. */
+  width: number
+  height: number
+  margin: number
+  contentWidth: number
+}
+
+export const US_LETTER: PageSize = {
+  width: PAGE_WIDTH,
+  height: PAGE_HEIGHT,
+  margin: PAGE_MARGIN,
+  contentWidth: PAGE_CONTENT_WIDTH,
+}
+
+export type LayoutPlan = {
+  title: string
+  version: { id: string; letter: string }
+  selection: ExportContentSelection
+  pageSize: PageSize
+  pages: PlannedPage[]
+}
+
+export type PlanRequest = {
+  exam: Exam
+  version: Version
+  selection: ExportContentSelection
+  measure: Measure
+}
+
+/** Layout resolution, on its own: an Export Document onto sheets. Keeping the
+ *  two `paginate` calls independent is what restarts the answer key's footer. */
+function resolveLayout(
+  document: ExportDocument,
+  measure: Measure,
+): LayoutPlan {
+  const pages: PackedPage[] = []
+  if (document.selection.test) {
+    pages.push(...paginate(document.test, measure, 'test', 'first', 'later'))
+  }
+  if (document.selection.answerKey) {
+    pages.push(
+      ...paginate(
+        document.answerKey,
+        measure,
+        'answer-key',
+        'answer-key',
+        'answer-key-later',
+      ),
+    )
+  }
+  return {
+    title: document.title,
+    version: document.version,
+    selection: document.selection,
+    pageSize: US_LETTER,
+    // Every page but the first of the serialized document is preceded by an
+    // explicit break. A linear format must reproduce the plan's pagination
+    // rather than rediscover one of its own.
+    pages: pages.map((page, index) => ({
+      ...page,
+      furniture: furnitureOf(page, document.title, document.version.letter),
+      breakBefore: index > 0,
+    })),
+  }
+}
+
+/**
+ * The whole planning interface, in one pure call: an exam, the version to
+ * export, which of its documents to include, and how to measure. Nothing here
+ * reads the DOM, a clock, or a random source.
+ */
+export function planExport({
+  exam,
+  version,
+  selection,
+  measure,
+}: PlanRequest): LayoutPlan {
+  return resolveLayout(buildExportDocument(exam, version, selection, measure), measure)
+}
+
+/** One plan per version, for the print panel's multi-version document. Planning
+ *  each version independently is what restarts both test and answer-key page
+ *  numbering for every version. */
+export function planPrintExport(
   exam: Exam,
   versions: readonly Version[],
   measure: Measure,
-  content: PrintContent,
-): PrintedVersion[] {
-  return versions.map((version) => ({
-    version,
-    pages: renderExam(exam, version, measure).filter((page) =>
-      isAnswerKeyHeader(page.header) ? content.answerKey : content.test,
-    ),
-  }))
+  selection: ExportContentSelection,
+): LayoutPlan[] {
+  return versions.map((version) =>
+    planExport({ exam, version, selection, measure }),
+  )
 }

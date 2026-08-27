@@ -7,12 +7,14 @@ import {
   duplicateQuestion,
   nextVersionLetter,
   moveQuestion,
+  moveQuestions,
   orderedChoices,
   orderedQuestions,
   questionById,
   questionsInSection,
   shuffleAnswers,
   shuffleQuestions,
+  shuffleSelectedQuestions,
   withQuestionAppended,
   withQuestionRemoved,
   withTypeSwitched,
@@ -183,6 +185,29 @@ describe('version ordering edits', () => {
     const version = versionOf(['q1', 'o1'])
 
     expect(moveQuestion(exam, version, 'q1', 'o1', 'after')).toBe(version)
+  })
+
+  test('moves selected questions as one block and preserves their relative order', () => {
+    const exam = examOf(['q1', 'q2', 'q3', 'q4'].map((id) => multipleChoice(id, ['a'])))
+    const version = versionOf(['q1', 'q2', 'q3', 'q4'])
+
+    expect(
+      moveQuestions(exam, version, ['q2', 'q3'], 'q4', 'after').questionOrder,
+    ).toEqual(['q1', 'q4', 'q2', 'q3'])
+  })
+
+  test('a mixed selection moves only questions in the target section', () => {
+    const exam = examOf([
+      multipleChoice('q1', ['a']),
+      multipleChoice('q2', ['a']),
+      multipleChoice('q3', ['a']),
+      open('o1'),
+    ])
+    const version = versionOf(['q1', 'q2', 'q3', 'o1'])
+
+    expect(
+      moveQuestions(exam, version, ['q1', 'o1'], 'q3', 'after').questionOrder,
+    ).toEqual(['q2', 'q3', 'q1', 'o1'])
   })
 
   test('appending a question adds it to the end of the ordering, once', () => {
@@ -356,6 +381,40 @@ describe('shuffleQuestions', () => {
     expect(new Set(ids(questionsInSection(exam, result, 'multiple-choice')))).toEqual(
       new Set(['q1', 'q2', 'q3']),
     )
+  })
+})
+
+describe('shuffleSelectedQuestions', () => {
+  test('permutes selected slots while unselected questions keep their positions', () => {
+    const exam = examOf(
+      ['q1', 'q2', 'q3', 'q4', 'q5'].map((id) => multipleChoice(id, ['a'])),
+    )
+    const version = versionOf(['q1', 'q2', 'q3', 'q4', 'q5'])
+    const result = shuffleSelectedQuestions(
+      exam,
+      version,
+      ['q2', 'q4', 'q5'],
+      fixedRandom([0, 0]),
+    )
+
+    expect(result.questionOrder).toEqual(['q1', 'q4', 'q3', 'q5', 'q2'])
+  })
+
+  test('shuffles a mixed selection independently within each section', () => {
+    const exam = examOf([
+      multipleChoice('q1', ['a']),
+      multipleChoice('q2', ['a']),
+      open('o1'),
+      open('o2'),
+    ])
+    const result = shuffleSelectedQuestions(
+      exam,
+      versionOf(['q1', 'q2', 'o1', 'o2']),
+      ['q1', 'q2', 'o1', 'o2'],
+      fixedRandom([0]),
+    )
+
+    expect(result.questionOrder).toEqual(['q2', 'q1', 'o2', 'o1'])
   })
 })
 

@@ -82,8 +82,13 @@ function renderNode(node: ProseMirrorJSON, key: number): ReactNode {
       return <span key={key}>{withMarks(node, text(node.text))}</span>
     case 'hardbreak':
       return <br key={key} />
-    case 'paragraph':
-      return <p key={key}>{renderAll(node)}</p>
+    case 'paragraph': {
+      const content = renderAll(node)
+      // ProseMirror gives an empty paragraph a trailing break so it still
+      // occupies a line in the editor. Reproduce that in the read-only view;
+      // an empty <p> alone has no line box and adjacent margins collapse.
+      return <p key={key}>{content.length > 0 ? content : <br />}</p>
+    }
     case 'heading': {
       const level = Math.min(Math.max(Number(attrs.level) || 1, 1), 6)
       const Heading = `h${level}` as 'h1'
@@ -168,7 +173,7 @@ export function DocView({
   className?: string
 }) {
   return (
-    <div className={className}>
+    <div className={['doc-content', className].filter(Boolean).join(' ')}>
       {content.map((node, index) => renderNode(node, index))}
     </div>
   )

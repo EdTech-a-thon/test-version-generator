@@ -276,6 +276,52 @@ export function moveQuestion(
   return { ...version, questionOrder }
 }
 
+// Moves a selection as one block while preserving its on-page order. Only
+// selected questions in the target's section participate: sections are fixed
+// by question type, so a mixed selection can still be dragged without ever
+// moving a question into the wrong section.
+export function moveQuestions(
+  exam: Exam,
+  version: Version,
+  questionIds: readonly string[],
+  targetId: string,
+  placement: QuestionPlacement,
+): Version {
+  const target = questionById(exam, targetId)
+  if (!target) return version
+
+  const sectionIds = questionsInSection(exam, version, target.type).map(
+    (question) => question.id,
+  )
+  const selected = new Set(
+    questionIds.filter((id) => questionById(exam, id)?.type === target.type),
+  )
+  if (selected.size === 0 || selected.has(targetId)) return version
+
+  const moving = sectionIds.filter((id) => selected.has(id))
+  const remaining = sectionIds.filter((id) => !selected.has(id))
+  const targetIndex = remaining.indexOf(targetId)
+  if (targetIndex < 0) return version
+  remaining.splice(
+    targetIndex + (placement === 'after' ? 1 : 0),
+    0,
+    ...moving,
+  )
+
+  const questionOrder = SECTION_ORDER.flatMap((section) =>
+    section === target.type
+      ? remaining
+      : questionsInSection(exam, version, section).map((question) => question.id),
+  )
+  if (
+    questionOrder.length === version.questionOrder.length &&
+    questionOrder.every((id, index) => id === version.questionOrder[index])
+  ) {
+    return version
+  }
+  return { ...version, questionOrder }
+}
+
 // ---------------------------------------------------------------------------
 // Shuffling
 //
@@ -324,6 +370,29 @@ export function shuffleQuestions(
       (question) => question.id,
     )
     return targets.has(section) ? shuffled(ids, random) : ids
+  })
+  return { ...version, questionOrder }
+}
+
+// Shuffles only the selected slots. Unselected questions keep their exact
+// positions, and a selection spanning both sections is shuffled independently
+// within each section so section membership can never change.
+export function shuffleSelectedQuestions(
+  exam: Exam,
+  version: Version,
+  questionIds: readonly string[],
+  random: RandomSource,
+): Version {
+  const selected = new Set(questionIds)
+  const questionOrder = SECTION_ORDER.flatMap((section) => {
+    const ids = questionsInSection(exam, version, section).map(
+      (question) => question.id,
+    )
+    const shuffledIds = shuffled(ids.filter((id) => selected.has(id)), random)
+    let selectedIndex = 0
+    return ids.map((id) =>
+      selected.has(id) ? shuffledIds[selectedIndex++]! : id,
+    )
   })
   return { ...version, questionOrder }
 }

@@ -1,14 +1,9 @@
 // Question selection: click to select, Cmd/Ctrl-click to toggle, Shift-click
-// to extend a range, Select All within a section, clear on background click.
+// to extend a range, clear on background click or Escape.
 //
-// This is its own hook — not folded into `ExamPage`'s props — because #11
-// adds a toolbar column control that also acts on "whatever is selected".
-// Whoever owns this hook owns the seam both controls read: instantiate it
-// once (in `App`, alongside the store), pass the returned `Selection` down to
-// `ExamPage` for rendering checkboxes and outlines, and read
-// `selection.selectedIds` directly wherever a toolbar action needs to know
-// the current selection — no prop drilling through `ExamPage` required for
-// that part.
+// This is its own hook — not folded into `ExamPage` — because selection drives
+// both page chrome and selection-wide actions. `App` owns one instance and
+// passes it down so every interaction reads the same selected ids and anchor.
 
 import { useCallback, useRef, useState } from 'react'
 
@@ -32,8 +27,6 @@ export type Selection = {
   ) => void
   /** The hover checkbox: always toggles, regardless of modifiers. */
   toggle: (questionId: string) => void
-  /** Select All within a section: replaces the selection with exactly these ids. */
-  selectAll: (questionIds: readonly string[]) => void
   clear: () => void
 }
 
@@ -80,10 +73,6 @@ export function useSelection(): Selection {
     anchor.current = questionId
   }, [])
 
-  const selectAll = useCallback((questionIds: readonly string[]) => {
-    setSelectedIds(new Set(questionIds))
-  }, [])
-
   const clear = useCallback(() => {
     setSelectedIds(new Set())
     anchor.current = null
@@ -94,5 +83,5 @@ export function useSelection(): Selection {
     [selectedIds],
   )
 
-  return { selectedIds, isSelected, selectOne, toggle, selectAll, clear }
+  return { selectedIds, isSelected, selectOne, toggle, clear }
 }
