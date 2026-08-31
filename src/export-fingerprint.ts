@@ -24,6 +24,7 @@ import {
   type PageItem,
   type QuestionItem,
 } from './export-plan'
+import { versionRange } from './export-preparation'
 import type { ProseMirrorJSON } from './question-doc'
 
 /** One block of content, normalized. See `blockLine` for the vocabulary. */
@@ -516,21 +517,32 @@ function furnitureLines(furniture: PageFurniture): {
   }
 }
 
-/** The Layout Plan reduced to the comparison vocabulary. This is the reference
- *  side of every parity assertion: what the planned document says, page by page. */
-export function layoutPlanFingerprint(plan: LayoutPlan): ExportFingerprint {
+/**
+ * The prepared Layout Plans reduced to the comparison vocabulary. This is the
+ * reference side of every parity assertion: what the planned documents say,
+ * page by page, in published order.
+ *
+ * A collection rather than one plan because an export is a collection: the
+ * pages of every standalone student test and answer key run on, one after
+ * another, exactly as an adapter serializes them.
+ */
+export function layoutFingerprint(
+  plans: readonly LayoutPlan[],
+): ExportFingerprint {
   const images = new ImageOrdinals()
-  const pages = plan.pages.map((page) => ({
-    number: page.furniture.pageNumber,
-    width: plan.pageSize.width,
-    height: plan.pageSize.height,
-    margin: plan.pageSize.margin,
-    ...furnitureLines(page.furniture),
-    content: page.items.flatMap((item) => planItemLines(item, images)),
-  }))
+  const pages = plans.flatMap((plan) =>
+    plan.pages.map((page) => ({
+      number: page.furniture.pageNumber,
+      width: plan.pageSize.width,
+      height: plan.pageSize.height,
+      margin: plan.pageSize.margin,
+      ...furnitureLines(page.furniture),
+      content: page.items.flatMap((item) => planItemLines(item, images)),
+    })),
+  )
   return {
-    title: plan.title,
-    version: plan.version.letter,
+    title: plans[0]?.title ?? '',
+    version: versionRange([...new Set(plans.map((plan) => plan.version.letter))]),
     pages,
     media: images.list,
   }

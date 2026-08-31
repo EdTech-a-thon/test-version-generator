@@ -1,4 +1,4 @@
-# crepe-editor
+# test-parrot
 
 A Vite + React app for authoring multiple-choice questions in a Milkdown/Crepe rich-text editor.
 

@@ -1,8 +1,32 @@
-# Crepe Editor
+# Test Parrot
 
-Crepe Editor authors and publishes versioned exams while preserving the intended structure and layout across output formats.
+Test Parrot authors and publishes versioned exams while preserving the intended structure and layout across output formats.
 
 ## Language
+
+**Question Content**:
+The rich-text material authored for one question, including its stem and, when present, its answer choices.
+_Avoid_: Question text, editor content
+
+**Authored Image Size**:
+The width a teacher assigns to a block image relative to its printable container, such as the Question Content lane or an answer-choice cell. It preserves the image's intrinsic aspect ratio.
+_Avoid_: Image ratio, image height
+
+**Version**:
+One arrangement of an exam's shared Question Content, defined by question order within each Question Section and answer order within each question. A Version does not own a separate copy of Question Content.
+_Avoid_: Exam copy, content copy
+
+**Generated Version**:
+A distinct Version created for one export operation and discarded when that operation finishes. Generated Versions are unique within an export and labeled independently from A onward.
+_Avoid_: Saved version, persisted version
+
+**Question Section**:
+A group of questions of the same type whose boundary remains fixed across Versions, such as Multiple Choice or Short Answer.
+_Avoid_: Question category
+
+**Randomization**:
+The creation of an additional Generated Version by shuffling enabled order dimensions while preserving Question Content, correct answers, and Question Section boundaries.
+_Avoid_: Content shuffle, question mutation
 
 **Export Document**:
 The format-neutral semantic content and presentation intent for one exam version and content selection.

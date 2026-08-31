@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { Milkdown, useEditor } from '@milkdown/react'
 import { Crepe } from '@milkdown/crepe'
+import { keymapRef } from '@milkdown/crepe/feature/toolbar'
+import type { Ctx } from '@milkdown/kit/ctx'
 import { editorViewCtx } from '@milkdown/kit/core'
 import { Node as ProseNode } from '@milkdown/kit/prose/model'
 import { TextSelection } from '@milkdown/kit/prose/state'
 import { blockConfig } from '@milkdown/kit/plugin/block'
+import { uploadConfig } from '@milkdown/kit/plugin/upload'
 import '@milkdown/crepe/theme/common/style.css'
 import '@milkdown/crepe/theme/frame.css'
 import {
@@ -16,7 +19,16 @@ import {
   multipleChoiceView,
   uniqueChoiceIds,
 } from './multiple-choice'
-import { subscriptSchema, superscriptSchema } from './script-marks'
+import {
+  isScriptActive,
+  scriptKeymap,
+  subscriptIcon,
+  subscriptSchema,
+  superscriptIcon,
+  superscriptSchema,
+  toggleScript,
+} from './script-marks'
+import { leftArrowInputRule, rightArrowInputRule } from './text-arrows'
 import { cleanDocument } from './question-doc'
 import type { ProseMirrorJSON } from './question-doc'
 import {
@@ -30,23 +42,30 @@ import {
 } from './exam'
 import type { Question, QuestionType } from './exam'
 import type { ExamStore } from './exam-store'
-import { ExamPage } from './exam-page'
+import { ExamPage, PrintDocument } from './exam-page'
 import { useSelection } from './use-selection'
+import type { LayoutPlan } from './export-plan'
 import {
-  STUDENT_TEST,
-  planExport,
-  type ExportContentSelection,
-} from './export-plan'
+  DEFAULT_EXPORT_CONFIGURATION,
+  plansOf,
+  prepareExport,
+  type ExportConfiguration,
+  type PreparationProgress,
+} from './export-preparation'
+import { ExportDialog } from './export-dialog'
 import { domMeasure } from './dom-measure'
-import { ContextMenu, type MenuPoint } from './context-menu'
-import { ChevronDown, Download, Plus, Printer, Redo2, Undo2 } from 'lucide-react'
+import { saveImage } from './local-images'
+import { configurePastedImages } from './pasted-images'
+import { Plus, Redo2, Undo2 } from 'lucide-react'
 
 function CrepeQuestion({
   value,
   onChange,
+  onReady,
 }: {
   value: ProseMirrorJSON
   onChange: (doc: ProseMirrorJSON) => void
+  onReady: (readDocument: () => ProseMirrorJSON) => void
 }) {
   useEditor((root) => {
     const safeValue = cleanDocument(value)
@@ -59,13 +78,43 @@ function CrepeQuestion({
       },
       featureConfigs: {
         [Crepe.Feature.BlockEdit]: { advancedGroup: { codeBlock: null } },
+        [Crepe.Feature.ImageBlock]: { onUpload: saveImage },
         [Crepe.Feature.Placeholder]: { text: 'Write the question…' },
+        [Crepe.Feature.Toolbar]: {
+          buildToolbar: (builder) => {
+            builder
+              .getGroup('formatting')
+              .addItem('subscript', {
+                icon: subscriptIcon,
+                label: 'Subscript',
+                keymap: keymapRef<'ToggleSubscript' | 'ToggleSuperscript'>(
+                  scriptKeymap.key,
+                  'ToggleSubscript',
+                ),
+                active: (ctx: Ctx) => isScriptActive(ctx, 'subscript'),
+                onRun: (ctx: Ctx) => toggleScript(ctx, 'subscript'),
+              })
+              .addItem('superscript', {
+                icon: superscriptIcon,
+                label: 'Superscript',
+                keymap: keymapRef<'ToggleSubscript' | 'ToggleSuperscript'>(
+                  scriptKeymap.key,
+                  'ToggleSuperscript',
+                ),
+                active: (ctx: Ctx) => isScriptActive(ctx, 'superscript'),
+                onRun: (ctx: Ctx) => toggleScript(ctx, 'superscript'),
+              })
+          },
+        },
       },
     })
     crepe.editor
       .use(multipleChoiceMode(true))
       .use(subscriptSchema)
       .use(superscriptSchema)
+      .use(scriptKeymap)
+      .use(rightArrowInputRule)
+      .use(leftArrowInputRule)
       .use(multipleChoiceSchema)
       .use(multipleChoiceChoiceSchema)
       .use(multipleChoiceView)
@@ -77,6 +126,11 @@ function CrepeQuestion({
     // climbs to the multipleChoice node. Paragraphs inside a choice keep their
     // own handle, so lines can still be dragged within a choice or out of it.
     crepe.editor.config((ctx) => {
+      configurePastedImages(ctx)
+      ctx.update(uploadConfig.key, (prev) => ({
+        ...prev,
+        enableHtmlFileUploader: true,
+      }))
       ctx.update(blockConfig.key, (prev) => ({
         ...prev,
         filterNodes: (pos, node) => {
@@ -94,6 +148,7 @@ function CrepeQuestion({
     crepe.on((listener) => {
       listener.mounted((ctx) => {
         const view = ctx.get(editorViewCtx)
+        onReady(() => cleanDocument(view.state.doc.toJSON() as ProseMirrorJSON))
         const loadedDocument = ProseNode.fromJSON(view.state.schema, safeValue)
         const tr = view.state.tr.replaceWith(
           0,
@@ -129,6 +184,7 @@ function QuestionDialog({
   const [type, setType] = useState<QuestionType>(question.type)
   const [doc, setDoc] = useState<ProseMirrorJSON>(question.doc)
   const latestDoc = useRef(doc)
+  const readEditorDocument = useRef<(() => ProseMirrorJSON) | null>(null)
   // The stash the dialog currently knows about, kept alongside the doc so a
   // save mid-edit carries a lift/restore that happened before the editor's
   // own onChange has fired again. Starts from the question's persisted stash,
@@ -155,7 +211,7 @@ function QuestionDialog({
     const saved: Question = {
       ...question,
       type,
-      doc: cleanDocument(latestDoc.current),
+      doc: cleanDocument(readEditorDocument.current?.() ?? latestDoc.current),
     }
     if (stash.current) saved.stashedChoices = stash.current
     else delete saved.stashedChoices
@@ -209,6 +265,9 @@ function QuestionDialog({
         <div className="dialog-editor" key={type}>
           <CrepeQuestion
             value={doc}
+            onReady={(readDocument) => {
+              readEditorDocument.current = readDocument
+            }}
             onChange={(next) => {
               latestDoc.current = next
             }}
@@ -246,22 +305,31 @@ export default function App({ store }: { store: ExamStore }) {
     question: Question
     after: string | null
   } | null>(null)
-  const [printPanelOpen, setPrintPanelOpen] = useState(false)
-  const [exportMenuPoint, setExportMenuPoint] = useState<MenuPoint | null>(null)
-  const [exportingDocx, setExportingDocx] = useState(false)
+  // The export dialog, and the configuration it is showing. The configuration
+  // lives here rather than inside the dialog so that an export which fails
+  // after the dialog closed can reopen it with the teacher's settings intact;
+  // opening it from the Export button always starts from the defaults, because
+  // export configuration is deliberately not remembered between openings.
+  const [exportDialog, setExportDialog] = useState<{
+    configuration: ExportConfiguration
+    error: string | null
+  } | null>(null)
   const exportButton = useRef<HTMLButtonElement>(null)
-  const [contentSelection, setContentSelection] = useState<ExportContentSelection>({
-    test: true,
-    answerKey: false,
-  })
-  const [printRequest, setPrintRequest] = useState<ExportContentSelection | null>(null)
+  // What a finished preparation handed over: the plans print mounts, or the
+  // Word file to save. Set only once the dialog has closed, so the native
+  // action never starts behind a modal that is still up.
+  const [handoff, setHandoff] = useState<
+    | { format: 'print'; plans: LayoutPlan[]; configuration: ExportConfiguration }
+    | { format: 'docx'; blob: Blob; filename: string; configuration: ExportConfiguration }
+    | null
+  >(null)
   // Selection lives here, alongside the store, so page interactions and
   // selection-wide context-menu actions share one source of truth.
   const selection = useSelection()
   const clearSelection = selection.clear
 
   useEffect(() => {
-    if (editing) return
+    if (editing || exportDialog) return
     const onKeyDown = (event: KeyboardEvent) => {
       if (
         event.key.toLowerCase() === 'z'
@@ -275,58 +343,83 @@ export default function App({ store }: { store: ExamStore }) {
       }
       if (event.key !== 'Escape') return
       clearSelection()
-      if (printPanelOpen) {
-        setPrintPanelOpen(false)
-        exportButton.current?.focus()
-      }
     }
     document.addEventListener('keydown', onKeyDown)
     return () => document.removeEventListener('keydown', onKeyDown)
-  }, [clearSelection, editing, printPanelOpen, store])
+  }, [clearSelection, editing, exportDialog, store])
 
-  const closeExportMenu = () => {
-    setExportMenuPoint(null)
+  const closeExportDialog = () => {
+    setExportDialog(null)
     exportButton.current?.focus()
   }
 
-  const toggleExportMenu = () => {
-    if (exportMenuPoint) {
-      closeExportMenu()
+  /**
+   * One export, from the Export button to the moment the browser takes over.
+   *
+   * Saving first is what stops stale content being published: there is no Save
+   * button, so the export is the commit, and a failed write aborts the export
+   * with a message rather than quietly printing yesterday's exam.
+   *
+   * Then one call to the preparation seam, which is the only thing that decides
+   * how many Versions there are and what each of them says. DOCX is packaged
+   * here too, while the dialog is still up and can show progress and catch a
+   * failure; the final native action is handed back so it starts after the
+   * dialog has closed and focus is back on Export.
+   */
+  const runExport = async (
+    configuration: ExportConfiguration,
+    onProgress: (progress: PreparationProgress) => void,
+  ) => {
+    try {
+      await store.save()
+    } catch (error) {
+      console.error('Could not save the exam before exporting', error)
+      throw new Error(
+        'Your latest changes could not be saved, so the export was stopped. '
+        + 'Check your connection and try again.',
+      )
+    }
+
+    const prepared = prepareExport({
+      exam: store.getState().exam,
+      version: store.currentVersion(),
+      configuration,
+      // Not seeded: a later export deliberately draws a fresh set rather than
+      // reproducing an earlier one.
+      random: Math.random,
+      measure: domMeasure,
+      onProgress,
+    })
+    const plans = plansOf(prepared)
+
+    if (configuration.format === 'print') {
+      setHandoff({ format: 'print', plans, configuration })
       return
     }
-    const rect = exportButton.current?.getBoundingClientRect()
-    if (rect) setExportMenuPoint({ x: rect.right, y: rect.bottom + 4 })
-  }
-
-  const downloadDocx = async () => {
-    setExportingDocx(true)
-    void store.save().catch((error: unknown) => {
-      console.error('Could not save the exam while exporting DOCX', error)
-    })
     try {
-      // Download orchestration plans, then hands the plan over: the adapter
-      // never sees the exam, so DOCX cannot drift from what print would show.
-      const plan = planExport({
-        exam: draft.exam,
-        version,
-        selection: STUDENT_TEST,
-        measure: domMeasure,
+      // Loaded on demand: the Word writer and its ZIP machinery stay out of the
+      // application's initial bundle.
+      const { createExamDocx } = await import('./docx-export')
+      setHandoff({
+        format: 'docx',
+        blob: await createExamDocx(plans),
+        filename: prepared.filename,
+        configuration,
       })
-      const { downloadExamDocx } = await import('./docx-export')
-      await downloadExamDocx(plan)
     } catch (error) {
-      console.error('Could not export the exam as DOCX', error)
-      window.alert('Could not create the DOCX file. Please try again.')
-    } finally {
-      setExportingDocx(false)
+      console.error('Could not create the DOCX file', error)
+      throw new Error('The Word file could not be created. Please try again.')
     }
   }
 
-  // Printing and DOCX download are commits: there is no Save button, so the
-  // moment the teacher exports, what is on the page becomes the saved exam.
-  // The print write is fired rather than awaited — it goes to IndexedDB and
-  // has nothing to say about what the printer receives, so a slow or failed
-  // write must never be what stops the paper coming out.
+  /** A native action that never started: reopen the dialog on the same
+   *  configuration with something the teacher can act on. */
+  const exportFailed = (configuration: ExportConfiguration, message: string) => {
+    setHandoff(null)
+    setExportDialog({ configuration, error: message })
+  }
+
+  // The handoff, once the dialog is out of the way.
   //
   // The print document stays mounted until `afterprint` says the browser is
   // done with it. Unmounting in the frame that follows `window.print()` assumes
@@ -335,18 +428,38 @@ export default function App({ store }: { store: ExamStore }) {
   // there. Off screen the extra markup costs nothing: `.print-output` is
   // `display: none` until print media applies.
   useEffect(() => {
-    if (!printRequest) return
-    void store.save().catch((error: unknown) => {
-      console.error('Could not save the exam while printing', error)
-    })
-    const done = () => setPrintRequest(null)
+    if (!handoff) return
+    if (handoff.format === 'docx') {
+      const { blob, filename, configuration } = handoff
+      void import('./docx-export')
+        .then(({ saveDocxFile }) => {
+          saveDocxFile(blob, filename)
+          setHandoff(null)
+        })
+        .catch((error: unknown) => {
+          console.error('Could not start the DOCX download', error)
+          exportFailed(configuration, 'The download could not be started. Please try again.')
+        })
+      return
+    }
+    const done = () => setHandoff(null)
     window.addEventListener('afterprint', done)
-    const frame = window.requestAnimationFrame(() => window.print())
+    const frame = window.requestAnimationFrame(() => {
+      try {
+        window.print()
+      } catch (error) {
+        console.error('Could not open the print dialog', error)
+        exportFailed(
+          handoff.configuration,
+          'The print dialog could not be opened. Please try again.',
+        )
+      }
+    })
     return () => {
       window.removeEventListener('afterprint', done)
       window.cancelAnimationFrame(frame)
     }
-  }, [printRequest, store])
+  }, [handoff])
 
   return (
     <>
@@ -354,7 +467,7 @@ export default function App({ store }: { store: ExamStore }) {
         {/* The mark sits at the far left of the bar with the exam's name beside
             it, the way a document editor puts its logo next to the file name. */}
         <div className="document-identity">
-          <img className="app-logo" src="/logo.png" alt="Crepe" width={36} height={36} />
+          <img className="app-logo" src="/logo.png" alt="Test Parrot" width={36} height={36} />
           <input
             aria-label="Exam name"
             className="document-title"
@@ -395,74 +508,35 @@ export default function App({ store }: { store: ExamStore }) {
             ref={exportButton}
             type="button"
             className="export-button"
-            aria-haspopup="menu"
-            aria-expanded={exportMenuPoint !== null}
-            disabled={exportingDocx}
-            onClick={toggleExportMenu}
+            aria-haspopup="dialog"
+            aria-expanded={exportDialog !== null}
+            onClick={() =>
+              setExportDialog({
+                configuration: DEFAULT_EXPORT_CONFIGURATION,
+                error: null,
+              })
+            }
           >
-            {exportingDocx ? 'Exporting…' : 'Export'}
-            <ChevronDown />
+            Export
           </button>
         </div>
       </header>
 
-      {exportMenuPoint && (
-        <ContextMenu
-          point={exportMenuPoint}
-          side="left"
-          ariaLabel="Export options"
-          items={[
-            {
-              kind: 'action',
-              label: 'Print…',
-              icon: <Printer />,
-              onSelect: () => setPrintPanelOpen(true),
-            },
-            {
-              kind: 'action',
-              label: 'Download DOCX',
-              icon: <Download />,
-              onSelect: () => void downloadDocx(),
-            },
-          ]}
-          onClose={closeExportMenu}
+      {exportDialog && (
+        <ExportDialog
+          exam={draft.exam}
+          version={version}
+          configuration={exportDialog.configuration}
+          onConfigurationChange={(configuration) =>
+            setExportDialog((current) => (current ? { ...current, configuration } : current))
+          }
+          initialError={exportDialog.error}
+          onSubmit={async (configuration, onProgress) => {
+            await runExport(configuration, onProgress)
+            closeExportDialog()
+          }}
+          onCancel={closeExportDialog}
         />
-      )}
-
-      {printPanelOpen && (
-        <section className="print-panel" aria-label="Print options">
-          <fieldset>
-            <legend>Content</legend>
-            <label>
-              <input
-                type="checkbox"
-                checked={contentSelection.test}
-                onChange={(event) => setContentSelection({
-                  ...contentSelection,
-                  test: event.target.checked,
-                })}
-              />
-              Test
-            </label>
-            <label>
-              <input
-                type="checkbox"
-                checked={contentSelection.answerKey}
-                onChange={(event) => setContentSelection({
-                  ...contentSelection,
-                  answerKey: event.target.checked,
-                })}
-              />
-              Answer key
-            </label>
-          </fieldset>
-          <button
-            type="button"
-            className="primary-button"
-            disabled={!contentSelection.test && !contentSelection.answerKey}
-            onClick={() => setPrintRequest({ ...contentSelection })}
-          >Print selected</button>
-        </section>
       )}
 
       <div className="editor-output">
@@ -512,24 +586,7 @@ export default function App({ store }: { store: ExamStore }) {
         />
       </div>
 
-      {printRequest && (
-        <div className="print-output">
-          <ExamPage
-            exam={draft.exam}
-            version={version}
-            selection={selection}
-            onEdit={() => {}}
-            onDuplicate={() => {}}
-            onDelete={() => {}}
-            onAdd={() => {}}
-            onSetColumns={() => {}}
-            onShuffleAnswers={() => {}}
-            onShuffleSelectedQuestions={() => {}}
-            onMoveQuestions={() => {}}
-            contentSelection={printRequest}
-          />
-        </div>
-      )}
+      {handoff?.format === 'print' && <PrintDocument plans={handoff.plans} />}
 
       {editing && (
         <QuestionDialog

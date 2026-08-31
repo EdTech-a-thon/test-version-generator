@@ -748,17 +748,3 @@ export function planExport({
 }: PlanRequest): LayoutPlan {
   return resolveLayout(buildExportDocument(exam, version, selection, measure), measure)
 }
-
-/** One plan per version, for the print panel's multi-version document. Planning
- *  each version independently is what restarts both test and answer-key page
- *  numbering for every version. */
-export function planPrintExport(
-  exam: Exam,
-  versions: readonly Version[],
-  measure: Measure,
-  selection: ExportContentSelection,
-): LayoutPlan[] {
-  return versions.map((version) =>
-    planExport({ exam, version, selection, measure }),
-  )
-}

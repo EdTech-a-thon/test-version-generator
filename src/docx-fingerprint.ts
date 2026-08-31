@@ -356,7 +356,7 @@ export async function docxFingerprint(
   return {
     title: pkg.core ? (child(pkg.core, 'dc:title')?.text ?? '') : '',
     version: pkg.core
-      ? (child(pkg.core, 'dc:description')?.text ?? '').replace(/^Version /, '')
+      ? (child(pkg.core, 'dc:description')?.text ?? '').replace(/^Versions? /, '')
       : '',
     pages: sections.map((section, index) => pageOf(section, index, reader)),
     media: pkg.media,

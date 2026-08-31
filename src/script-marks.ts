@@ -1,10 +1,10 @@
 import type { Ctx } from '@milkdown/kit/ctx'
 import { editorViewCtx } from '@milkdown/kit/core'
-import { toggleMark } from '@milkdown/kit/prose/commands'
-import { $markSchema } from '@milkdown/kit/utils'
+import { $markSchema, $useKeymap } from '@milkdown/kit/utils'
 
 function scriptMark(name: 'subscript' | 'superscript', tag: 'sub' | 'sup') {
   return $markSchema(name, () => ({
+    excludes: name === 'subscript' ? 'superscript' : 'subscript',
     parseDOM: [{ tag }],
     toDOM: () => [tag, 0],
     parseMarkdown: {
@@ -21,23 +21,90 @@ function scriptMark(name: 'subscript' | 'superscript', tag: 'sub' | 'sup') {
 export const subscriptSchema = scriptMark('subscript', 'sub')
 export const superscriptSchema = scriptMark('superscript', 'sup')
 
-export function isScriptActive(ctx: Ctx, name: 'subscript' | 'superscript') {
+type ScriptName = 'subscript' | 'superscript'
+
+function eligibleTextRanges(ctx: Ctx) {
+  const view = ctx.get(editorViewCtx)
+  const { from, to } = view.state.selection
+  const ranges: Array<{ from: number; to: number; marks: readonly string[] }> = []
+  view.state.doc.nodesBetween(from, to, (node, pos) => {
+    if (!node.isText || node.marks.some((mark) => mark.type.name === 'inlineCode')) {
+      return
+    }
+    const start = Math.max(from, pos)
+    const end = Math.min(to, pos + node.nodeSize)
+    if (start < end) {
+      ranges.push({
+        from: start,
+        to: end,
+        marks: node.marks.map((mark) => mark.type.name),
+      })
+    }
+  })
+  return ranges
+}
+
+export function isScriptActive(ctx: Ctx, name: ScriptName) {
   const view = ctx.get(editorViewCtx)
   const type = view.state.schema.marks[name]
   if (!type) return false
-  const { from, to, empty, $from } = view.state.selection
-  return empty
-    ? Boolean(type.isInSet(view.state.storedMarks ?? $from.marks()))
-    : view.state.doc.rangeHasMark(from, to, type)
+  const { empty, $from } = view.state.selection
+  if (empty) {
+    return Boolean(type.isInSet(view.state.storedMarks ?? $from.marks()))
+  }
+  const ranges = eligibleTextRanges(ctx)
+  return ranges.length > 0 && ranges.every((range) => range.marks.includes(name))
 }
 
-export function toggleScript(ctx: Ctx, name: 'subscript' | 'superscript') {
+export function toggleScript(ctx: Ctx, name: ScriptName) {
   const view = ctx.get(editorViewCtx)
   const type = view.state.schema.marks[name]
   if (!type) return
-  toggleMark(type)(view.state, view.dispatch, view)
+  const oppositeName: ScriptName = name === 'subscript' ? 'superscript' : 'subscript'
+  const opposite = view.state.schema.marks[oppositeName]
+  const { empty, $from } = view.state.selection
+
+  if (empty) {
+    const marks = view.state.storedMarks ?? $from.marks()
+    if (marks.some((mark) => mark.type.name === 'inlineCode')) return
+    const tr = view.state.tr
+    if (opposite) tr.removeStoredMark(opposite)
+    if (type.isInSet(marks)) tr.removeStoredMark(type)
+    else tr.addStoredMark(type.create())
+    view.dispatch(tr)
+    view.focus()
+    return
+  }
+
+  const ranges = eligibleTextRanges(ctx)
+  if (ranges.length === 0) return
+  const remove = ranges.every((range) => range.marks.includes(name))
+  const tr = view.state.tr
+  for (const range of ranges) {
+    if (opposite) tr.removeMark(range.from, range.to, opposite)
+    if (remove) tr.removeMark(range.from, range.to, type)
+    else tr.addMark(range.from, range.to, type.create())
+  }
+  view.dispatch(tr)
   view.focus()
 }
+
+export const scriptKeymap = $useKeymap('scriptKeymap', {
+  ToggleSubscript: {
+    shortcuts: 'Mod-,',
+    command: (ctx) => () => {
+      toggleScript(ctx, 'subscript')
+      return true
+    },
+  },
+  ToggleSuperscript: {
+    shortcuts: 'Mod-.',
+    command: (ctx) => () => {
+      toggleScript(ctx, 'superscript')
+      return true
+    },
+  },
+})
 
 export const subscriptIcon = `
   <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">

@@ -32,7 +32,6 @@ button { cursor: pointer; }
   display: inline-flex; align-items: center; gap: 6px;
   border-color: #9f5037; color: #fffaf3; background: #9f5037;
 }
-.export-button svg { width: 15px; height: 15px; stroke-width: 2; }
 .export-button:hover { background: #87422e; }
 .export-button:disabled { opacity: 0.72; cursor: wait; }
 .secondary-button:hover { background: #ebddcd; }
@@ -51,16 +50,48 @@ button { cursor: pointer; }
 .insert-question-button { display: inline-flex; align-items: center; gap: 6px; }
 .insert-question-button svg { width: 17px; height: 17px; stroke-width: 2; }
 
-.print-panel {
-  position: sticky; top: 58px; z-index: 19;
-  display: flex; align-items: center; justify-content: flex-end; gap: 22px;
-  padding: 12px 18px; border-bottom: 1px solid #d8cbbb; background: #fffaf3;
-  box-shadow: 0 3px 8px rgb(91 68 47 / 10%);
+/* The export dialog. One modal over the document, rather than a strip that
+   pushes the page it is about out of the way. */
+.export-dialog {
+  width: min(520px, 100%); max-height: 94vh; display: grid;
+  grid-template-rows: auto 1fr auto; overflow: hidden; border-radius: 10px;
+  background: #fffaf3; box-shadow: 0 18px 55px rgb(55 42 33 / 30%);
 }
-.print-panel fieldset { display: flex; gap: 12px; margin: 0; padding: 0; border: 0; }
-.print-panel legend { float: left; margin-right: 4px; font-weight: 700; }
-.print-panel label { display: flex; align-items: center; gap: 5px; }
-.print-panel input { margin: 0; accent-color: #9f5037; }
+.export-dialog-body {
+  min-height: 0; padding: 16px 18px; display: grid; gap: 16px; overflow-y: auto;
+}
+.export-field {
+  display: grid; gap: 7px; margin: 0; padding: 0; border: 0;
+}
+.export-field legend { padding: 0; margin-bottom: 5px; font-weight: 700; }
+.export-field label { display: flex; align-items: center; gap: 7px; }
+.export-field input[type="checkbox"], .export-field input[type="radio"] {
+  margin: 0; accent-color: #9f5037;
+}
+.export-field:disabled { color: #a8988c; }
+.export-count { display: flex; align-items: center; gap: 9px; font-weight: 700; }
+.export-count input {
+  width: 84px; padding: 6px 8px; border: 1px solid #cdb9a6; border-radius: 6px;
+  background: #fffdf8; font-weight: 400;
+}
+.export-count input[aria-invalid="true"] { border-color: #a33b23; }
+.export-hint { margin: 0; color: #6e5b4d; font-size: 13px; }
+.export-error { margin: 0; color: #a33b23; font-size: 13px; }
+.export-actions { flex-wrap: wrap; }
+.export-status { flex: 1; min-width: 0; margin: 0; color: #6e5b4d; font-size: 13px; }
+.export-failure { flex-basis: 100%; order: -1; }
+/* The way into an exam that has nothing in it yet: a placeholder where the
+   first question will be, sized like a question rather than like a toolbar
+   control. Editing chrome — the printed document never has one, because an
+   exam with no questions has nothing to print. */
+.empty-exam-button {
+  display: flex; align-items: center; justify-content: center; gap: 7px;
+  width: 100%; min-height: 96px; border-style: dashed; border-color: #cdb9a6;
+  color: #6e5b4d; background: transparent;
+}
+.empty-exam-button:hover { border-color: #9f5037; color: #9f5037; background: #f7eee3; }
+.empty-exam-button svg { width: 17px; height: 17px; stroke-width: 2; }
+
 .print-output { display: none; }
 
 /* The rendered test. Everything below the document bar is a view of what the
@@ -332,8 +363,92 @@ button { cursor: pointer; }
 }
 .dialog-actions { justify-content: flex-end; border-top: 1px solid #e8dfd2; border-bottom: 0; }
 .dialog-editor { min-height: 0; padding: 0 32px; overflow-y: auto; background: #fffdf8; }
-.dialog-editor .milkdown { min-height: 100%; --crepe-color-background: #fffdf8; }
+.dialog-editor .milkdown {
+  min-height: 100%;
+  --crepe-color-background: #fffdf8;
+  --crepe-color-on-background: #4e3b2f;
+  --crepe-color-surface: #fffdf8;
+  --crepe-color-surface-low: #f2e6d8;
+  --crepe-color-on-surface: #4e3b2f;
+  --crepe-color-on-surface-variant: #4e3b2f;
+  --crepe-color-outline: #e0d3c2;
+  --crepe-color-primary: #9f5037;
+  --crepe-color-secondary: #f4e0cf;
+  --crepe-color-on-secondary: #4e3b2f;
+  --crepe-color-inverse: #4e3b2f;
+  --crepe-color-on-inverse: #fffdf8;
+  --crepe-color-inline-code: #9f5037;
+  --crepe-color-hover: #f2e6d8;
+  --crepe-color-selected: #f4e0cf;
+  --crepe-color-inline-area: #f2e6d8;
+}
 .dialog-editor .milkdown > .ProseMirror { min-height: 100%; padding: 46px max(36px, calc((100% - 720px) / 2)); }
+.dialog-editor .milkdown :is(input, textarea, [contenteditable="true"]) {
+  caret-color: #4e3b2f;
+}
+.dialog-editor .milkdown .ProseMirror-focused {
+  --prosemirror-virtual-cursor-color: #4e3b2f;
+}
+.dialog-editor .milkdown .cm-cursor { border-left-color: #4e3b2f; }
+.dialog-editor .milkdown .milkdown-toolbar .toolbar-item svg {
+  color: #4e3b2f;
+  fill: #4e3b2f;
+}
+.dialog-editor .milkdown .milkdown-toolbar .toolbar-item.active {
+  background: #f4e0cf;
+}
+.dialog-editor .milkdown .milkdown-toolbar .toolbar-item.active svg {
+  color: #9f5037;
+  fill: #9f5037;
+}
+.dialog-editor .milkdown .milkdown-toolbar .toolbar-item:hover {
+  background: #f2e6d8;
+}
+.dialog-editor .milkdown :is(
+  .milkdown-block-handle,
+  .milkdown-slash-menu,
+  .milkdown-link-preview,
+  .milkdown-link-edit,
+  .milkdown-code-block,
+  .milkdown-table-block,
+  .milkdown-list-item-block,
+  .milkdown-top-bar,
+  .milkdown-image-inline,
+  .milkdown-image-block
+) svg {
+  color: #4e3b2f !important;
+  fill: #4e3b2f !important;
+}
+.dialog-editor .milkdown :is(
+  .milkdown-block-handle,
+  .milkdown-slash-menu,
+  .milkdown-code-block,
+  .milkdown-table-block,
+  .milkdown-list-item-block,
+  .milkdown-top-bar,
+  .milkdown-image-inline,
+  .milkdown-image-block
+) :is(.active, .selected) svg {
+  color: #9f5037 !important;
+  fill: #9f5037 !important;
+}
+.dialog-editor .milkdown .milkdown-top-bar .top-bar-chevron svg {
+  color: #4e3b2f !important;
+  fill: none !important;
+  stroke: #4e3b2f !important;
+}
+
+/* Script marks stay inside the current line box: scientific notation should
+   not change the spacing of the paragraphs around it. */
+.dialog-editor .ProseMirror sub,
+.dialog-editor .ProseMirror sup {
+  position: relative;
+  font-size: 0.75em;
+  line-height: 0;
+  vertical-align: baseline;
+}
+.dialog-editor .ProseMirror sub { bottom: -0.25em; }
+.dialog-editor .ProseMirror sup { top: -0.5em; }
 
 /* Multiple choice: each answer is a cell with a radio on the left. */
 .milkdown [data-type="multiple-choice"] { margin: 20px 0; }
@@ -422,7 +537,7 @@ button { cursor: pointer; }
   /* Chrome off: only the test prints. The measuring host is chrome too, and
      an off-screen block left in the flow prints as blank sheets. */
   .document-bar, .question-handles, .context-menu,
-  .measure-host, .print-panel, .editor-output,
+  .measure-host, .editor-output,
   .dialog-backdrop {
     display: none;
   }

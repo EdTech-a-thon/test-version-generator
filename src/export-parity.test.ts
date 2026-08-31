@@ -12,21 +12,21 @@
 import { describe, expect, test } from 'bun:test'
 import { createExamDocx, type MediaLoader } from './docx-export'
 import { docxFingerprint } from './docx-fingerprint'
-import { FIXTURES, PIXEL_PNG, type Fixture } from './export-fixtures'
+import { FIXTURES, PIXEL_PNG, seededRandom, type Fixture } from './export-fixtures'
 import {
   compareFingerprints,
   describeDifferences,
   exportDocumentFingerprint,
-  layoutPlanFingerprint,
+  layoutFingerprint,
   type ExportFingerprint,
 } from './export-fingerprint'
 import {
   buildExportDocument,
-  planExport,
   unmeasured,
   STUDENT_TEST,
   type LayoutPlan,
 } from './export-plan'
+import { plansOf, prepareExport } from './export-preparation'
 import { printFingerprint } from './print-fingerprint'
 import {
   SUPPORTED_MARKS,
@@ -37,32 +37,35 @@ import {
 const noImages: MediaLoader = async () => null
 const pixel: MediaLoader = async () => PIXEL_PNG
 
-/** The whole document a fixture describes: the test, and the key where the
- *  fixture asks for one. What print produces. */
-function planOf(fixture: Fixture) {
-  return planExport({
-    exam: fixture.exam,
-    version: fixture.version,
-    selection: { test: true, answerKey: fixture.answerKey ?? false },
-    measure: fixture.measure,
-  })
-}
-
-/** The student test alone — the selection DOCX export covers. */
-function studentPlanOf(fixture: Fixture) {
-  return planExport({
-    exam: fixture.exam,
-    version: fixture.version,
-    selection: STUDENT_TEST,
-    measure: fixture.measure,
-  })
+/**
+ * The whole export a fixture describes, prepared the way the application
+ * prepares one: every Generated Version the fixture asks for, its student tests
+ * and — where the fixture asks for them — its answer keys, in published order.
+ *
+ * Both adapters are fed exactly this, so a difference between them is a real
+ * difference and never a difference in what each was asked to carry.
+ */
+function planOf(fixture: Fixture): LayoutPlan[] {
+  return plansOf(
+    prepareExport({
+      exam: fixture.exam,
+      version: fixture.version,
+      configuration: {
+        format: 'print',
+        selection: { test: true, answerKey: fixture.answerKey ?? false },
+        versionCount: fixture.versions ?? 1,
+        randomization: fixture.randomization ?? { questions: false, answers: false },
+      },
+      // Fixed, so a fixture's Generated Versions are the same arrangements
+      // every run and a failure is reproducible.
+      random: seededRandom(20260828),
+      measure: fixture.measure,
+    }),
+  )
 }
 
 async function docxOf(fixture: Fixture): Promise<ExportFingerprint> {
-  const blob = await createExamDocx(
-    studentPlanOf(fixture),
-    fixture.images ? pixel : noImages,
-  )
+  const blob = await createExamDocx(planOf(fixture), fixture.images ? pixel : noImages)
   return docxFingerprint(await blob.arrayBuffer())
 }
 
@@ -78,27 +81,72 @@ function expectSameDocument(
 describe('the DOCX Export Adapter carries the planned document', () => {
   for (const fixture of FIXTURES) {
     test(fixture.name, async () => {
-      expectSameDocument(
-        layoutPlanFingerprint(studentPlanOf(fixture)),
-        await docxOf(fixture),
-      )
+      expectSameDocument(layoutFingerprint(planOf(fixture)), await docxOf(fixture))
     })
   }
 
-  test('refuses a plan carrying an answer key, which is print-only', async () => {
-    const fixture = FIXTURES.find((item) => item.answerKey)!
-    expect(planOf(fixture).pages.some((page) => page.stream === 'answer-key')).toBe(true)
-    await expect(createExamDocx(planOf(fixture), noImages)).rejects.toThrow(
-      /answer key is print-only/,
+  test('packages every prepared document into one file', async () => {
+    const fixture = FIXTURES.find((item) => item.name.includes('three versions'))!
+    const plans = planOf(fixture)
+    const streams = plans.map((plan) =>
+      plan.pages[0]!.stream === 'answer-key' ? 'answer-key' : 'test',
     )
+
+    // Three tests then three keys: all student tests precede all answer keys.
+    expect(streams).toEqual([
+      'test', 'test', 'test',
+      'answer-key', 'answer-key', 'answer-key',
+    ])
+    expect(plans.map((plan) => plan.version.letter)).toEqual([
+      'A', 'B', 'C', 'A', 'B', 'C',
+    ])
+    // Every document starts its own page numbering at one.
+    expect(plans.map((plan) => plan.pages[0]!.furniture.pageNumber)).toEqual([
+      1, 1, 1, 1, 1, 1,
+    ])
+
+    const fingerprint = await docxOf(fixture)
+    expect(fingerprint.pages.length).toBe(
+      plans.reduce((count, plan) => count + plan.pages.length, 0),
+    )
+    expect(fingerprint.version).toBe('A-C')
+  })
+
+  test('gives every page its own version label, keys included', async () => {
+    const fixture = FIXTURES.find((item) => item.name.includes('three versions'))!
+    const fingerprint = await docxOf(fixture)
+    const labels = new Set(
+      fingerprint.pages.map(
+        (page) => /ID: ([A-Z])/.exec(page.header.join(' '))?.[1] ?? '(none)',
+      ),
+    )
+    expect([...labels].sort()).toEqual(['A', 'B', 'C'])
+  })
+
+  test('prints each version’s own answer letters in its own key', async () => {
+    const fixture = FIXTURES.find((item) =>
+      item.name.includes('two-choice question'),
+    )!
+    const plans = planOf(fixture)
+    const keys = plans.filter((plan) => plan.pages[0]!.stream === 'answer-key')
+    const letters = keys.map((plan) =>
+      plan.pages
+        .flatMap((page) => page.items)
+        .flatMap((item) => (item.kind === 'answer-key-entry' ? [item.letter] : [])),
+    )
+
+    // Two Versions of one two-choice question: the correct answer is A in one
+    // and B in the other, and each key says which.
+    expect(letters).toEqual([['A'], ['B']])
+    expectSameDocument(layoutFingerprint(plans), await docxOf(fixture))
   })
 })
 
 describe('the print Export Adapter carries the planned document', () => {
   for (const fixture of FIXTURES) {
     test(fixture.name, () => {
-      const plan = planOf(fixture)
-      expectSameDocument(layoutPlanFingerprint(plan), printFingerprint(plan))
+      const plans = planOf(fixture)
+      expectSameDocument(layoutFingerprint(plans), printFingerprint(plans))
     })
   }
 })
@@ -106,11 +154,9 @@ describe('the print Export Adapter carries the planned document', () => {
 describe('the two Export Adapters agree', () => {
   for (const fixture of FIXTURES) {
     test(fixture.name, async () => {
-      // Compared over the selection both cover: the student test.
-      expectSameDocument(
-        printFingerprint(studentPlanOf(fixture)),
-        await docxOf(fixture),
-      )
+      // The same prepared collection, both ways: same documents, same order,
+      // same pages, whichever format the teacher chose.
+      expectSameDocument(printFingerprint(planOf(fixture)), await docxOf(fixture))
     })
   }
 })
@@ -164,7 +210,9 @@ describe('the supported document vocabulary', () => {
 
   test('every page-header variant appears in a fixture', () => {
     const headers = new Set(
-      FIXTURES.flatMap((fixture) => planOf(fixture).pages.map((page) => page.header)),
+      FIXTURES.flatMap((fixture) =>
+        planOf(fixture).flatMap((plan) => plan.pages.map((page) => page.header)),
+      ),
     )
     expect([...headers].sort()).toEqual([
       'answer-key',
@@ -258,7 +306,7 @@ describe('the comparison detects the discrepancies it exists for', () => {
   const tableFixture = FIXTURES.find((item) => item.name.includes('table with a header'))!
 
   test('a choice grid collapsed into paragraphs', () => {
-    const expected = layoutPlanFingerprint(planOf(gridFixture))
+    const expected = layoutFingerprint(planOf(gridFixture))
     const collapsed = degrade(expected, (lines) =>
       lines.filter(
         (line) =>
@@ -274,7 +322,7 @@ describe('the comparison detects the discrepancies it exists for', () => {
   })
 
   test('an image replaced by placeholder text', () => {
-    const expected = layoutPlanFingerprint(planOf(imageFixture))
+    const expected = layoutFingerprint(planOf(imageFixture))
     const placeholders = {
       ...degrade(expected, (lines) =>
         lines.map((line) => line.replace(/⟨image:\d+⟩/g, '[Image: burner]')),
@@ -287,7 +335,7 @@ describe('the comparison detects the discrepancies it exists for', () => {
   })
 
   test('mathematics exported as raw source text', () => {
-    const expected = layoutPlanFingerprint(planOf(mathFixture))
+    const expected = layoutFingerprint(planOf(mathFixture))
     const raw = degrade(expected, (lines) =>
       lines.map((line) => line.replace(/⟨math:([^⟩]*)⟩/g, '$1')),
     )
@@ -297,7 +345,7 @@ describe('the comparison detects the discrepancies it exists for', () => {
   })
 
   test('a table flattened into tab-separated paragraphs', () => {
-    const expected = layoutPlanFingerprint(planOf(tableFixture))
+    const expected = layoutFingerprint(planOf(tableFixture))
     const flattened = degrade(expected, (lines) =>
       lines.flatMap((line) =>
         line.startsWith('table:') || line.startsWith('cell:') || line === '/table'
@@ -311,7 +359,7 @@ describe('the comparison detects the discrepancies it exists for', () => {
   })
 
   test('page furniture dropped', () => {
-    const expected = layoutPlanFingerprint(planOf(FIXTURES[0]!))
+    const expected = layoutFingerprint(planOf(FIXTURES[0]!))
     const bare: ExportFingerprint = {
       ...expected,
       pages: expected.pages.map((page) => ({ ...page, header: [], footer: [] })),
@@ -323,7 +371,7 @@ describe('the comparison detects the discrepancies it exists for', () => {
 
   test('content moved to another page', () => {
     const fixture = FIXTURES.find((item) => item.name.includes('moves whole'))!
-    const expected = layoutPlanFingerprint(planOf(fixture))
+    const expected = layoutFingerprint(planOf(fixture))
     expect(expected.pages.length).toBe(2)
     const moved: ExportFingerprint = {
       ...expected,
@@ -343,10 +391,10 @@ describe('the comparison detects the discrepancies it exists for', () => {
   // comparison rejects.
   test('a real DOCX built from a collapsed choice grid', async () => {
     const fixture = FIXTURES.find((item) => item.name.includes('four-column'))!
-    const plan = studentPlanOf(fixture)
+    const [plan] = planOf(fixture)
     const collapsed: LayoutPlan = {
-      ...plan,
-      pages: plan.pages.map((page) => ({
+      ...plan!,
+      pages: plan!.pages.map((page) => ({
         ...page,
         items: page.items.map((item) =>
           item.kind === 'question' && item.grid
@@ -367,9 +415,9 @@ describe('the comparison detects the discrepancies it exists for', () => {
         ),
       })),
     }
-    const blob = await createExamDocx(collapsed, noImages)
+    const blob = await createExamDocx([collapsed], noImages)
     const differences = compareFingerprints(
-      layoutPlanFingerprint(plan),
+      layoutFingerprint([plan!]),
       await docxFingerprint(await blob.arrayBuffer()),
     )
     expect(differences).not.toEqual([])
@@ -379,7 +427,7 @@ describe('the comparison detects the discrepancies it exists for', () => {
 
   test('a page lost altogether', () => {
     const fixture = FIXTURES.find((item) => item.name.includes('split across pages'))!
-    const expected = layoutPlanFingerprint(planOf(fixture))
+    const expected = layoutFingerprint(planOf(fixture))
     expect(expected.pages.length).toBeGreaterThan(1)
     const short: ExportFingerprint = { ...expected, pages: expected.pages.slice(0, 1) }
     const [difference] = compareFingerprints(expected, short)

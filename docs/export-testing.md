@@ -8,10 +8,16 @@ This document describes the implemented architecture and the acceptance strategy
 
 ## Architecture
 
-The export pipeline has one shared semantic stage and one shared layout stage, both inside `src/export-plan.ts`:
+The export pipeline has one preparation stage, one shared semantic stage and one shared layout stage. Preparation lives in `src/export-preparation.ts`; both shared stages live in `src/export-plan.ts`:
 
 ```text
-Exam + Version + content selection
+Exam + current Version + export configuration + Randomness
+                 |
+                 v
+        export preparation          Generated Versions, one
+                 |                  standalone document per
+                 v                  Version and stream
+   Exam + one Version + selection
                  |
                  v
           Export Document
@@ -28,11 +34,19 @@ Exam + Version + content selection
      Reference PDF   DOCX
 ```
 
-`planExport({ exam, version, selection, measure })` is the whole planning interface. Semantic derivation into an Export Document and pagination into a Layout Plan are internal stages behind it; callers never orchestrate them.
+`prepareExport({ exam, version, configuration, random, measure })` is the whole preparation interface, and the only application-level orchestrator of Generated Versions. It returns the ordered collection of standalone documents one export publishes — every student test A through the last Version, then every answer key A through the last — plus the filename a Word download takes. Randomization happens here and nowhere else: neither Export Adapter generates or reorders a Version.
+
+`planExport({ exam, version, selection, measure })` is the whole planning interface for one of those documents. Semantic derivation into an Export Document and pagination into a Layout Plan are internal stages behind it; callers never orchestrate them.
+
+Generated Versions are export-local. Their identifiers and labels belong to one export operation, start at A whatever the edited Version is called, and are never written to the exam store.
 
 The Layout Plan is self-contained. It carries the document title and version, the page size, the ordered pages, each page's header variant and furniture, its footer number, its stream (`test` or `answer-key`), its explicit `breakBefore`, and its ordered page items with question pieces and choice-grid cells. An adapter that has a plan needs neither the exam, the version, nor a `Measure`.
 
 Measurement stays injected. `dom-measure.ts` is the production adapter; `unmeasured` and the stubs in `export-fixtures.ts` are the deterministic substitutes tests use. Export Adapters never measure and never repaginate.
+
+Randomness is injected the same way. Production draws from `Math.random`, so a later export is a fresh set rather than a reproduction of an earlier one; tests and the out-of-band comparison pin a deterministic source.
+
+Both adapters consume the whole prepared collection. Print mounts every planned page of every document for one native Print operation (`PrintDocument` in `exam-page.tsx`); DOCX packages them into one combined file, one Word section per planned page, in the same order.
 
 ## Acceptance contract
 
@@ -46,7 +60,7 @@ Acceptance requires all of the following:
 
 Renderer-chosen line wrapping and element coordinates are not compared. An authored line break remains semantic content and an explicit page break remains structural content. Raster appearance and fonts are not acceptance criteria. Parity applies when the DOCX is first exported and opened; reflow after a user edits it is outside the contract.
 
-The current implementation covers one version's student test. Answer-key and multi-document export can extend the same representations later, but are separate product work.
+Parity covers the whole prepared collection: the same Generated Versions in the same order, the same Content Selection, the same page assignment per standalone document, the same page-number restarts, and the same Version label on every page of both streams.
 
 ## The shared fingerprint
 
@@ -79,9 +93,10 @@ The fingerprint deliberately excludes ZIP bytes and timestamps, package part ord
 
 `bun test` stays dependency-free and covers:
 
+- `src/export-preparation.test.ts` — the preparation interface: Version A preserving the current arrangement, Randomization per dimension, Question Section boundaries, distinctness, the maximum distinct count, termination, document ordering, page-number restarts, Version labels, progress and filenames.
 - `src/export-plan.test.ts` — the planning interface: ordering, sections, numbering, choice letters, grid topology, page geometry, packing, splitting, furniture, streams, breaks, and the Export Document on its own.
-- `src/export-parity.test.ts` — every fixture in `src/export-fixtures.ts`, three ways: the plan against the DOCX adapter, the plan against the print adapter, and the two adapters against each other. It also proves the comparison itself by degrading a real fingerprint the way the DOCX path used to differ and asserting each discrepancy is named.
-- `src/docx-export.test.ts` — packaging: MIME type, ZIP signature, filename, page size, one Word section per planned page, link relationships, packaged image bytes, and list numbering.
+- `src/export-parity.test.ts` — every fixture in `src/export-fixtures.ts`, prepared into its full collection of documents, three ways: the plans against the DOCX adapter, the plans against the print adapter, and the two adapters against each other. It also proves the comparison itself by degrading a real fingerprint the way the DOCX path used to differ and asserting each discrepancy is named.
+- `src/docx-export.test.ts` — packaging: MIME type, ZIP signature, filenames, page size, one Word section per planned page of every prepared document, page-number restarts, answer-key representation, link relationships, packaged image bytes, and list numbering.
 - `src/doc-view.test.ts` — authored whitespace in the read-only document view.
 
 Fixtures are committed as readable source in `src/export-fixtures.ts`. Generated DOCX and PDF binaries are never test truth.
@@ -92,9 +107,9 @@ Fixtures are committed as readable source in `src/export-fixtures.ts`. Generated
 
 1. Checks its prerequisites and reports exactly what is missing and how to install it. It never skips silently.
 2. Records the resolved tool versions, platform, locale and paper size.
-3. Seeds the real application with a fixture — its images included, put in the Cache Storage the image worker reads — waits for fonts and images to settle, and drives Export → Print… → Print selected.
+3. Seeds the real application with a fixture — its images included, put in the Cache Storage the image worker reads — waits for fonts and images to settle, and drives the real export dialog: format, Content Selection, Version count and Randomization, then Print.
 4. Takes the print output's own markup and captures it with the pinned Playwright Chromium as the Reference PDF.
-5. Downloads the real DOCX through the application's own Export menu.
+5. Downloads the real DOCX through the same dialog, on the same configuration and the same pinned random source, so both outputs publish the same Generated Versions.
 6. Compares the DOCX's structural fingerprint against that printed markup. The reference is the document the browser actually laid out, with real measurement deciding where the pages fell — not a plan the diagnostic rebuilt for itself, which could not know what the browser measured.
 7. Converts the DOCX with the pinned, headless LibreOffice Comparison Engine.
 8. Extracts a normalized per-page manifest from both PDFs and compares page count, page dimensions, and ordered content per page.
@@ -131,7 +146,7 @@ Editor interaction, storage, and other changes outside those branches do not inv
 
 ## Fixtures
 
-`src/export-fixtures.ts` holds the corpus: one minimal fixture per supported block, inline mark, link, authored break, list form, table shape, image form, math form, question type and choice-grid setting; boundary cases for a question moving whole to the next page and a question splitting across pages; and a realistic composite.
+`src/export-fixtures.ts` holds the corpus: one minimal fixture per supported block, inline mark, link, authored break, list form, table shape, image form, math form, question type and choice-grid setting; boundary cases for a question moving whole to the next page and a question splitting across pages; a realistic composite; and multi-Version fixtures — the composite in three randomized Versions with answer keys, both arrangements of a two-choice question, and question-order Randomization across two Question Sections. A fixture names its own Version count and Randomization; preparation turns it into the collection both adapters are fed.
 
 Every parity bug adds the smallest source fixture that reproduces it. The test must fail before the fix and pass after it.
 
@@ -157,7 +172,7 @@ These artifacts explain failures; they are not committed golden files.
 
 - **Mathematics is a native equation carrying its LaTeX source.** The DOCX adapter emits a real Office Math object, so Word treats the equation as an equation and it stays editable — but the object's content is the authored LaTeX rather than OMML's own fraction, radical and script structure, because translating LaTeX into OMML needs a parser this codebase does not have. `\frac{a}{b}` therefore appears inside the equation as it was written. The source is preserved and the representation is native; the typesetting is not.
 - **The out-of-band comparison cannot adjudicate typeset mathematics or ruled blanks.** Both are excluded from the PDF word comparison for the reasons above; both are asserted structurally in the fast suite.
-- **The answer key is print-only.** `createExamDocxDocument` refuses a plan carrying answer-key pages. The Layout Plan already represents the key, so adding the adapter mapping is the whole of the remaining work — but it is separate product work (issue #14 lists it as out of scope).
+- **Randomized exports are not reproducible.** No seed or generation record is persisted, so a second export of the same exam publishes a fresh set of Generated Versions. The out-of-band comparison pins `Math.random` in the page for exactly this reason; nothing in production does.
 
 ## Adding a supported document node
 

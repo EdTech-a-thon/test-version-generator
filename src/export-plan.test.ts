@@ -13,7 +13,6 @@ import {
   isAnswerKeyHeader,
   buildExportDocument,
   planExport,
-  planPrintExport,
   unmeasured,
   STUDENT_TEST,
   type ColumnCount,
@@ -613,19 +612,23 @@ describe('answer key', () => {
   })
 })
 
-describe('print selection', () => {
-  test('prints only the selected test and answer-key streams', () => {
+describe('content selection', () => {
+  test('plans only the selected test and answer-key streams', () => {
     const exam = examOf([multipleChoice('m1', ['a', 'b'], 'a')])
     const version = versionOf(['m1'])
 
-    const testOnly = planPrintExport(exam, [version], unmeasured, {
-      test: true,
-      answerKey: false,
-    })[0]!.pages
-    const keyOnly = planPrintExport(exam, [version], unmeasured, {
-      test: false,
-      answerKey: true,
-    })[0]!.pages
+    const testOnly = planExport({
+      exam,
+      version,
+      selection: { test: true, answerKey: false },
+      measure: unmeasured,
+    }).pages
+    const keyOnly = planExport({
+      exam,
+      version,
+      selection: { test: false, answerKey: true },
+      measure: unmeasured,
+    }).pages
 
     expect(testOnly.length).toBeGreaterThan(0)
     expect(testOnly.every((page) => !isAnswerKeyHeader(page.header))).toBe(true)
@@ -633,30 +636,17 @@ describe('print selection', () => {
     expect(keyOnly.every((page) => isAnswerKeyHeader(page.header))).toBe(true)
   })
 
-  test('renders every version independently so each stream restarts at page one', () => {
+  test('numbers a standalone answer key from page one', () => {
     const exam = examOf([multipleChoice('m1', ['a', 'b'], 'a')])
-    const versions = [
-      { ...versionOf(['m1'], { m1: ['a', 'b'] }), id: 'v-a', letter: 'A' },
-      { ...versionOf(['m1'], { m1: ['b', 'a'] }), id: 'v-b', letter: 'B' },
-    ]
-    const groups = planPrintExport(exam, versions, unmeasured, {
-      test: true,
-      answerKey: true,
+    const keyOnly = planExport({
+      exam,
+      version: versionOf(['m1']),
+      selection: { test: false, answerKey: true },
+      measure: unmeasured,
     })
 
-    expect(groups.map((group) => group.version.letter)).toEqual(['A', 'B'])
-    expect(groups.map((group) => group.pages[0]!.number)).toEqual([1, 1])
-    expect(groups.map((group) =>
-      group.pages.find((page) => page.header === 'answer-key')!.number,
-    )).toEqual([1, 1])
-    expect(groups.map((group) =>
-      group.pages.flatMap((page) => page.items).find(
-        (item) => item.kind === 'answer-key-entry',
-      ),
-    )).toEqual([
-      { kind: 'answer-key-entry', number: 1, letter: 'A' },
-      { kind: 'answer-key-entry', number: 1, letter: 'B' },
-    ])
+    expect(keyOnly.pages[0]!.number).toBe(1)
+    expect(keyOnly.pages[0]!.breakBefore).toBe(false)
   })
 })
 

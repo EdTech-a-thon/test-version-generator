@@ -22,6 +22,7 @@ import {
   AnswerKeyHeading,
   AnswerKeySection,
   PageHeaderContent,
+  PageItemMeasureView,
   QuestionContent,
   SectionHeadingContent,
 } from './page-item-view'
@@ -669,6 +670,48 @@ function usePaginatedExam(
   return plan
 }
 
+// The print Export Adapter's own document.
+//
+// One export is a collection of standalone documents — a student test or an
+// answer key, one per Generated Version — and this mounts every planned page of
+// every one of them, in the order `export-preparation.ts` prepared them, for a
+// single native Print operation.
+//
+// It plans nothing. `ExamPage` above paginates what the teacher is editing;
+// this draws plans that were already resolved, which is what lets several
+// Versions print together without any of them being repaginated per format.
+// Each document is its own workspace, and print CSS breaks a page between them.
+function PlannedDocument({ plan }: { plan: LayoutPlan }) {
+  return (
+    <main className="exam-workspace" style={PAGE_GEOMETRY}>
+      {plan.pages.map((page) => (
+        <article className="exam-page" key={`${page.stream}-${page.header}-${page.number}`}>
+          <PageHeaderContent header={page.header} furniture={page.furniture} />
+          <div className="page-content">
+            {page.items.map((item) => (
+              <PageItemMeasureView key={keyOf(item)} item={item} />
+            ))}
+          </div>
+          <footer className="page-footer">{page.furniture.pageNumber}</footer>
+        </article>
+      ))}
+    </main>
+  )
+}
+
+/** Everything one export publishes, mounted for the browser's Print dialog.
+ *  Hidden on screen — `.print-output` is `display: none` until print media
+ *  applies — and kept mounted until the browser says printing has finished. */
+export function PrintDocument({ plans }: { plans: readonly LayoutPlan[] }) {
+  return (
+    <div className="print-output">
+      {plans.map((plan, index) => (
+        <PlannedDocument key={`${plan.version.letter}-${plan.pages[0]?.stream}-${index}`} plan={plan} />
+      ))}
+    </div>
+  )
+}
+
 export function ExamPage({
   exam,
   version,
@@ -703,6 +746,7 @@ export function ExamPage({
   contentSelection?: ExportContentSelection
 }) {
   const workspace = useRef<HTMLElement | null>(null)
+  const blank = exam.questions.length === 0
   const plan = usePaginatedExam(exam, version, workspace, contentSelection)
   const pages = plan.pages
   const orderedIds = orderedQuestionIds(pages)
@@ -914,7 +958,7 @@ export function ExamPage({
         if (!dragged.current && droppedQuestionIds.size > 0) setDroppedQuestionIds(new Set())
       }}
     >
-      {pages.map((page) => (
+      {pages.map((page, index) => (
         <article
           className="exam-page"
           key={`${page.header}-${page.number}`}
@@ -925,6 +969,21 @@ export function ExamPage({
             furniture={page.furniture}
           />
           <div className="page-content" onClick={clearOnBackground}>
+            {/* An exam with nothing in it yet offers the first question where
+                the first question will go, rather than leaving a blank sheet
+                and a button in the header as the only way in. It is editing
+                chrome: it appears only while the exam is empty, and it is
+                never part of the printed document. */}
+            {blank && index === 0 && (
+              <button
+                type="button"
+                className="secondary-button empty-exam-button"
+                onClick={() => onAdd('multiple-choice')}
+              >
+                <Plus />
+                Insert your first question
+              </button>
+            )}
             {page.items.map((item) => (
               <PageItemView
                 key={keyOf(item)}

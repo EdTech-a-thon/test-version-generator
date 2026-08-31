@@ -1,16 +1,23 @@
 // The DOCX Export Adapter.
 //
 // The second translator from a Layout Plan into a real output format, beside
-// the print adapter in `exam-page.tsx`. It accepts a plan and nothing else:
-// there is no `Exam` and no `Version` in this file, so it cannot rediscover
-// document semantics or pagination of its own. What the plan says is on page
-// three, in what order, under which number and letter, is what page three of
-// the Word document says.
+// the print adapter in `exam-page.tsx`. It accepts prepared plans and nothing
+// else: there is no `Exam` and no `Version` in this file, so it cannot
+// rediscover document semantics or pagination of its own. What a plan says is
+// on page three, in what order, under which number and letter, is what that
+// page of the Word document says.
 //
-// The plan's pages are serialized explicitly. Each planned page becomes one
+// An export is an ordered collection of standalone documents — a student test
+// or an answer key, one per Generated Version — and they are packaged into one
+// combined file in exactly the order `export-preparation.ts` prepared them.
+// Nothing here reorders them, generates one, or decides how many there are.
+//
+// The plans' pages are serialized explicitly. Each planned page becomes one
 // Word section that starts on a new page and carries the header variant, footer
 // number and items the plan assigned it, rather than handing Word a flat stream
-// of paragraphs and hoping it repaginates the same way.
+// of paragraphs and hoping it repaginates the same way. A standalone document's
+// first page is a section like any other, so it starts on a new sheet and its
+// footer restarts at the number its own plan gave it.
 //
 // This module is loaded dynamically by App so the DOCX writer and its ZIP
 // machinery do not become part of the application's initial bundle. Image bytes
@@ -41,10 +48,14 @@ import {
   type ISectionOptions,
   type ParagraphChild,
 } from 'docx'
+import { versionRange } from './export-preparation'
 import {
   CHOICE_AREA_WIDTH,
+  type AnswerKeyEntryItem,
+  type AnswerKeySectionItem,
   type ChoiceGrid,
   type IdentityField,
+  US_LETTER,
   type LayoutPlan,
   type PageFurniture,
   type PageItem,
@@ -145,8 +156,8 @@ export const browserMedia: MediaLoader = async (src) => {
   }
 }
 
-/** Every image source the plan refers to, in first-appearance order. */
-export function imageSourcesOf(plan: LayoutPlan): string[] {
+/** Every image source the plans refer to, in first-appearance order. */
+export function imageSourcesOf(plans: readonly LayoutPlan[]): string[] {
   const sources: string[] = []
   const seen = new Set<string>()
   const visit = (node: ProseMirrorJSON) => {
@@ -159,12 +170,14 @@ export function imageSourcesOf(plan: LayoutPlan): string[] {
     }
     for (const child of childrenOf(node)) visit(child)
   }
-  for (const page of plan.pages) {
-    for (const item of page.items) {
-      if (item.kind !== 'question') continue
-      for (const block of item.stem) visit(block)
-      for (const row of item.grid?.cells ?? []) {
-        for (const cell of row) if (cell) visit(cell.node)
+  for (const plan of plans) {
+    for (const page of plan.pages) {
+      for (const item of page.items) {
+        if (item.kind !== 'question') continue
+        for (const block of item.stem) visit(block)
+        for (const row of item.grid?.cells ?? []) {
+          for (const cell of row) if (cell) visit(cell.node)
+        }
       }
     }
   }
@@ -172,10 +185,10 @@ export function imageSourcesOf(plan: LayoutPlan): string[] {
 }
 
 async function loadImages(
-  plan: LayoutPlan,
+  plans: readonly LayoutPlan[],
   media: MediaLoader,
 ): Promise<Map<string, ExportImage>> {
-  const sources = imageSourcesOf(plan)
+  const sources = imageSourcesOf(plans)
   const loaded = await Promise.all(sources.map((src) => media(src)))
   return new Map(
     sources.flatMap((src, index) => {
@@ -779,6 +792,34 @@ function questionContent(
   return [...stem, ...(item.grid ? [choiceGridTable(item.grid, build)] : [])]
 }
 
+// The answer key, in Word.
+//
+// The key's own heading and its per-section groupings are headings the same way
+// the test's section headings are, and one entry is one line: the question's
+// number, then the letter this Version's ordering earned — in bold, as print
+// draws it. The plan decided every one of those; nothing here reads a choice.
+
+const ANSWER_KEY_TITLE = 'Answer Section'
+
+function answerKeySection(item: AnswerKeySectionItem): Paragraph {
+  return new Paragraph({
+    text: item.title,
+    heading: HeadingLevel.HEADING_2,
+    spacing: { before: 100, after: 40 },
+  })
+}
+
+function answerKeyEntry(item: AnswerKeyEntryItem): Paragraph {
+  return new Paragraph({
+    children: [
+      new TextRun({ text: `${item.number}. ` }),
+      // A free-response question still takes a line, so the key's numbering
+      // matches the paper's; it simply has no letter to print.
+      ...(item.letter ? [new TextRun({ text: item.letter, bold: true })] : []),
+    ],
+  })
+}
+
 function itemContent(
   item: PageItem,
   build: BuildContext,
@@ -801,14 +842,18 @@ function itemContent(
       ]
     case 'question':
       return questionContent(item, build)
-    // The answer key is print-only for now, and `answerKeyIsPrintOnly` refuses
-    // such a plan before any of this runs. Reaching one of these means the plan
-    // carried a key past that guard, which is a bug worth hearing about rather
-    // than a page silently missing its answers.
     case 'answer-key-heading':
+      return [
+        new Paragraph({
+          text: ANSWER_KEY_TITLE,
+          heading: HeadingLevel.HEADING_1,
+          spacing: { before: 120, after: 60 },
+        }),
+      ]
     case 'answer-key-section':
+      return [answerKeySection(item)]
     case 'answer-key-entry':
-      throw new Error(`The DOCX adapter does not serialize \`${item.kind}\` items`)
+      return [answerKeyEntry(item)]
     default: {
       const unreachable: never = item
       return unreachable
@@ -908,75 +953,57 @@ function sectionOf(
 }
 
 /**
- * The Layout Plan as a Word document. Synchronous and pure: every image the
- * plan refers to has already been resolved into `images`, so this can be
- * asserted against in an ordinary test.
+ * The prepared plans as one Word document: every standalone student test and
+ * answer key, in the order preparation put them in, packaged together.
+ *
+ * Synchronous and pure — every image the plans refer to has already been
+ * resolved into `images`, so this can be asserted against in an ordinary test.
  */
-/**
- * DOCX export covers the student test. A plan carrying an answer key is
- * refused here rather than serialized into something the product has not
- * specified, so the gap is a message a caller can act on instead of a
- * difference someone finds in Word.
- */
-function answerKeyIsPrintOnly(plan: LayoutPlan): void {
-  if (plan.pages.some((page) => page.stream === 'answer-key')) {
-    throw new Error(
-      'DOCX export covers the student test; the answer key is print-only. '
-      + 'Plan with the `STUDENT_TEST` content selection.',
-    )
-  }
-}
-
 export function createExamDocxDocument(
-  plan: LayoutPlan,
+  plans: readonly LayoutPlan[],
   images: ReadonlyMap<string, ExportImage> = new Map(),
 ): Document {
-  answerKeyIsPrintOnly(plan)
   const numbering = new Numbering()
+  const first = plans[0]
   const build: BuildContext = {
     numbering,
     images,
-    contentWidth: plan.pageSize.contentWidth,
+    contentWidth: first?.pageSize.contentWidth ?? US_LETTER.contentWidth,
   }
   // Sections first: the list configurations only exist once the content that
   // uses them has been built.
-  const sections = plan.pages.map((page) => sectionOf(page, plan, build))
+  const sections = plans.flatMap((plan) =>
+    plan.pages.map((page) => sectionOf(page, plan, build)),
+  )
+  // Which papers the file holds, from the plans themselves rather than from a
+  // second count of the Versions someone asked for.
+  const labels = [...new Set(plans.map((plan) => plan.version.letter))]
   return new Document({
-    title: plan.title,
-    description: `Version ${plan.version.letter}`,
-    creator: 'Crepe',
+    title: first?.title ?? '',
+    description: `${labels.length > 1 ? 'Versions' : 'Version'} ${versionRange(labels)}`,
+    creator: 'Test Parrot',
     numbering: { config: numbering.config },
     sections: sections.length > 0 ? sections : [{ children: [] }],
   })
 }
 
 export async function createExamDocx(
-  plan: LayoutPlan,
+  plans: readonly LayoutPlan[],
   media: MediaLoader = browserMedia,
 ): Promise<Blob> {
-  const images = await loadImages(plan, media)
-  const blob = await Packer.toBlob(createExamDocxDocument(plan, images))
+  const images = await loadImages(plans, media)
+  const blob = await Packer.toBlob(createExamDocxDocument(plans, images))
   return blob.type === DOCX_MIME ? blob : new Blob([blob], { type: DOCX_MIME })
 }
 
-export function docxFilename(title: string): string {
-  const safe = title
-    .trim()
-    .replace(/[\\/:*?"<>|]+/g, '-')
-    .replace(/\s+/g, ' ')
-    .replace(/[. ]+$/g, '')
-  return `${safe || 'Untitled exam'}.docx`
-}
-
-export async function downloadExamDocx(
-  plan: LayoutPlan,
-  media: MediaLoader = browserMedia,
-): Promise<void> {
-  const blob = await createExamDocx(plan, media)
+/** Hands the finished package to the browser as a download. Separate from
+ *  building it so the application can package while its export dialog is still
+ *  up, and start the download only once the dialog has closed. */
+export function saveDocxFile(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
   link.href = url
-  link.download = docxFilename(plan.title)
+  link.download = filename
   document.body.append(link)
   link.click()
   link.remove()

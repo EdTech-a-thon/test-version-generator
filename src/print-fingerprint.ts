@@ -25,6 +25,7 @@ import {
   type Segment,
 } from './export-fingerprint'
 import type { LayoutPlan, PlannedPage } from './export-plan'
+import { versionRange } from './export-preparation'
 import { PageHeaderContent, PageItemMeasureView } from './page-item-view'
 import { parseXml, type XmlNode } from './xml'
 
@@ -55,7 +56,6 @@ const PRINT_HIDDEN = [
   'question-handles',
   'context-menu',
   'measure-host',
-  'print-panel',
   'dialog-backdrop',
 ]
 
@@ -450,14 +450,19 @@ function pageFingerprint(
   }
 }
 
-/** The print Export Adapter's own output, reduced to the shared vocabulary. */
-export function printFingerprint(plan: LayoutPlan): ExportFingerprint {
+/** The print Export Adapter's own output, reduced to the shared vocabulary —
+ *  every prepared document's pages, in the order print mounts them. */
+export function printFingerprint(
+  plans: readonly LayoutPlan[],
+): ExportFingerprint {
   let images = 0
   const reader: Reader = { nextImage: () => (images += 1) }
-  const pages = plan.pages.map((page) => pageFingerprint(page, plan, reader))
+  const pages = plans.flatMap((plan) =>
+    plan.pages.map((page) => pageFingerprint(page, plan, reader)),
+  )
   return {
-    title: plan.title,
-    version: plan.version.letter,
+    title: plans[0]?.title ?? '',
+    version: versionRange([...new Set(plans.map((plan) => plan.version.letter))]),
     pages,
     media: Array.from({ length: images }, () => 'image'),
   }

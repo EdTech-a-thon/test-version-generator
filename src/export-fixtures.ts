@@ -8,7 +8,8 @@
 // asserted through the shared fingerprint, so adding a fixture is cheap and a
 // new parity bug costs one more entry in this file.
 
-import type { Exam, Question, Version } from './exam'
+import type { Exam, Question, RandomSource, Version } from './exam'
+import type { Randomization } from './export-preparation'
 import {
   pageContentHeight,
   unmeasured,
@@ -104,6 +105,22 @@ export type Fixture = {
   /** Every image source in the fixture resolves to the same pixel. */
   images?: boolean
   answerKey?: boolean
+  /** How many Versions the export publishes. One unless the fixture is about
+   *  Generated Versions. */
+  versions?: number
+  /** Which dimensions Randomization may reorder for those Versions. */
+  randomization?: Randomization
+}
+
+/** A `RandomSource` that always draws the same sequence, so a fixture's
+ *  Generated Versions are the same arrangements every run. Nothing about the
+ *  generator matters beyond being deterministic and reasonably spread. */
+export function seededRandom(seed: number): RandomSource {
+  let state = seed >>> 0 || 1
+  return () => {
+    state = (state * 1664525 + 1013904223) >>> 0
+    return state / 0x100000000
+  }
 }
 
 const fixture = (
@@ -115,6 +132,74 @@ const fixture = (
 
 // ---------------------------------------------------------------------------
 // One fixture per supported feature
+
+// The composite exam, named so the multi-Version fixtures below can publish
+// the very same Question Content in several arrangements.
+const COMPOSITE_EXAM: Exam = {
+  title: 'Chemistry: Unit 3 Review',
+  questions: [
+    multipleChoice(
+      'm1',
+      'auto',
+      [
+        paragraph(
+          text('Which of the following is '),
+          text('not', mark('emphasis')),
+          text(' a state of matter?'),
+        ),
+      ],
+      [
+        choice('c1', false, paragraph(text('Solid'))),
+        choice('c2', false, paragraph(text('Liquid'))),
+        choice('c3', true, paragraph(text('Energy'))),
+        choice('c4', false, paragraph(text('Gas'))),
+      ],
+    ),
+    multipleChoice(
+      'm2',
+      1,
+      [
+        paragraph(text('Read the table, then answer.')),
+        {
+          type: 'table',
+          content: [
+            {
+              type: 'table_row',
+              content: [
+                { type: 'table_cell', content: [paragraph(text('Sample'))] },
+                { type: 'table_cell', content: [paragraph(text('Mass'))] },
+              ],
+            },
+            {
+              type: 'table_row',
+              content: [
+                { type: 'table_cell', content: [paragraph(text('A'))] },
+                { type: 'table_cell', content: [paragraph(text('12 g'))] },
+              ],
+            },
+          ],
+        },
+      ],
+      [
+        choice('c5', true, paragraph(text('Sample A is heavier.'))),
+        choice('c6', false, paragraph(text('Sample B is heavier.'))),
+      ],
+    ),
+    open(
+      'o1',
+      paragraph(
+        text('Using '),
+        { type: 'math_inline', attrs: { value: 'PV = nRT' } },
+        text(', explain the result.'),
+      ),
+      paragraph(),
+      {
+        type: 'image-block',
+        attrs: { src: '/local-images/graph.png', caption: 'Pressure against volume' },
+      },
+    ),
+  ],
+}
 
 export const FIXTURES: readonly Fixture[] = [
   fixture(
@@ -557,72 +642,90 @@ export const FIXTURES: readonly Fixture[] = [
 
   fixture(
     'a realistic composite exam',
+    COMPOSITE_EXAM,
+    version(['m2', 'm1'], { m1: ['c3', 'c1', 'c4', 'c2'] }),
+    { images: true, answerKey: true, measure: stubHeights({ m1: 300, m2: 300, o1: 300 }) },
+  ),
+
+  // ---------------------------------------------------------------------
+  // Generated Versions
+  //
+  // The same Question Content, published as several papers. What these add to
+  // the corpus is the shape of a multi-document export: tests before keys,
+  // every document numbered from its own page one, every page carrying its own
+  // Version label, and an answer key whose letters follow that Version's
+  // choice order rather than the one on screen.
+
+  fixture(
+    'a realistic composite exam in three versions with answer keys',
+    COMPOSITE_EXAM,
+    version(['m2', 'm1'], { m1: ['c3', 'c1', 'c4', 'c2'] }),
     {
-      title: 'Chemistry: Unit 3 Review',
+      images: true,
+      answerKey: true,
+      versions: 3,
+      randomization: { questions: true, answers: true },
+      measure: stubHeights({ m1: 300, m2: 300, o1: 300 }),
+    },
+  ),
+
+  // The smallest space Randomization can work in: one question with two
+  // choices arranges exactly two ways, so asking for both asks for the whole
+  // of it.
+  fixture(
+    'both possible arrangements of a two-choice question',
+    {
+      title: 'Two arrangements',
       questions: [
         multipleChoice(
           'm1',
-          'auto',
+          1,
+          [paragraph(text('Is the statement true?'))],
           [
-            paragraph(
-              text('Which of the following is '),
-              text('not', mark('emphasis')),
-              text(' a state of matter?'),
-            ),
+            choice('c1', true, paragraph(text('True'))),
+            choice('c2', false, paragraph(text('False'))),
           ],
+        ),
+      ],
+    },
+    version(['m1'], { m1: ['c1', 'c2'] }),
+    {
+      answerKey: true,
+      versions: 2,
+      randomization: { questions: false, answers: true },
+    },
+  ),
+
+  // Question Randomization alone, across two Question Sections that must stay
+  // separate, with the key omitted so the tests-only ordering is covered too.
+  fixture(
+    'question order randomized within each section',
+    {
+      title: 'Sections held apart',
+      questions: [
+        multipleChoice(
+          'm1',
+          1,
+          [paragraph(text('First multiple choice.'))],
           [
-            choice('c1', false, paragraph(text('Solid'))),
-            choice('c2', false, paragraph(text('Liquid'))),
-            choice('c3', true, paragraph(text('Energy'))),
-            choice('c4', false, paragraph(text('Gas'))),
+            choice('c1', true, paragraph(text('Yes'))),
+            choice('c2', false, paragraph(text('No'))),
           ],
         ),
         multipleChoice(
           'm2',
           1,
+          [paragraph(text('Second multiple choice.'))],
           [
-            paragraph(text('Read the table, then answer.')),
-            {
-              type: 'table',
-              content: [
-                {
-                  type: 'table_row',
-                  content: [
-                    { type: 'table_cell', content: [paragraph(text('Sample'))] },
-                    { type: 'table_cell', content: [paragraph(text('Mass'))] },
-                  ],
-                },
-                {
-                  type: 'table_row',
-                  content: [
-                    { type: 'table_cell', content: [paragraph(text('A'))] },
-                    { type: 'table_cell', content: [paragraph(text('12 g'))] },
-                  ],
-                },
-              ],
-            },
-          ],
-          [
-            choice('c5', true, paragraph(text('Sample A is heavier.'))),
-            choice('c6', false, paragraph(text('Sample B is heavier.'))),
+            choice('c3', false, paragraph(text('Yes'))),
+            choice('c4', true, paragraph(text('No'))),
           ],
         ),
-        open(
-          'o1',
-          paragraph(
-            text('Using '),
-            { type: 'math_inline', attrs: { value: 'PV = nRT' } },
-            text(', explain the result.'),
-          ),
-          paragraph(),
-          {
-            type: 'image-block',
-            attrs: { src: '/local-images/graph.png', caption: 'Pressure against volume' },
-          },
-        ),
+        open('o1', paragraph(text('First short answer.'))),
+        open('o2', paragraph(text('Second short answer.'))),
       ],
     },
-    version(['m2', 'm1'], { m1: ['c3', 'c1', 'c4', 'c2'] }),
-    { images: true, answerKey: true, measure: stubHeights({ m1: 300, m2: 300, o1: 300 }) },
+    version(['m1', 'm2', 'o1', 'o2']),
+    { versions: 4, randomization: { questions: true, answers: false } },
   ),
 ]
