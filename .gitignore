@@ -11,3 +11,6 @@ vite.config.d.ts
 
 # Diagnostic output from `bun run test:exports` — never committed.
 export-artifacts
+
+# Local env overrides (e.g. `vercel env pull`)
+.env*.local
