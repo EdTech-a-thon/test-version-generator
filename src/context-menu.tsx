@@ -1,0 +1,246 @@
+// A context menu: the floating list of actions a right-click puts under the
+// cursor, and the same list the question's grip opens beside itself.
+//
+// Hand-rolled rather than pulled in as a dependency, but modelled on shadcn/ui's
+// ContextMenu (which wraps Radix) — the same anatomy, items, separators, labels
+// and a radio group, and the same behaviour: open at a point, flip rather than
+// overflow the viewport, take the keyboard, and close on Escape, on a click
+// outside, or as soon as something is chosen.
+//
+// It portals onto `document.body` and positions itself `fixed`, because the
+// sheet it is opened over is `overflow: hidden` and would otherwise clip it.
+// That is the one structural difference from the gutter this replaced, which
+// could stay inside the page precisely because it never left the sheet.
+
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
+} from 'react'
+import { createPortal } from 'react-dom'
+
+/** Where the menu should appear, in viewport coordinates. */
+export type MenuPoint = { x: number; y: number }
+
+/** Which way the menu hangs from its point. `'right'` puts its left edge on
+ * the point and grows rightwards, the way a menu falls under a right-click;
+ * `'left'` puts its right edge there and grows leftwards, for a menu opened
+ * from a control it should sit beside rather than cover. Only the menu knows
+ * how wide it is, so this is its decision to make, not the caller's. */
+export type MenuSide = 'right' | 'left'
+
+export type MenuItem =
+  // Actions use the leading slot for their icon. Radio rows keep that slot for
+  // the selected dot and may put a format-preview icon beside it.
+  | {
+      kind: 'action'
+      label: string
+      onSelect: () => void
+      icon?: ReactNode
+      destructive?: boolean
+    }
+  | {
+      kind: 'radio'
+      label: string
+      checked: boolean
+      onSelect: () => void
+      icon?: ReactNode
+    }
+  | { kind: 'label'; label: string }
+  | { kind: 'separator' }
+
+/** The rows a keyboard can land on. Labels and separators are skipped over. */
+function isFocusable(item: MenuItem): boolean {
+  return item.kind === 'action' || item.kind === 'radio'
+}
+
+/** The last row End should land on. Written out rather than `findLastIndex`,
+ * which this project's TypeScript lib does not carry. */
+function lastFocusableIndex(items: readonly MenuItem[]): number {
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    if (isFocusable(items[index]!)) return index
+  }
+  return -1
+}
+
+// How close to the viewport edge the menu may sit before it is pushed back in.
+const VIEWPORT_MARGIN = 8
+
+export function ContextMenu({
+  point,
+  side = 'right',
+  items,
+  ariaLabel,
+  onClose,
+}: {
+  point: MenuPoint
+  side?: MenuSide
+  items: readonly MenuItem[]
+  ariaLabel: string
+  onClose: () => void
+}) {
+  const menu = useRef<HTMLDivElement | null>(null)
+  const itemElements = useRef<(HTMLButtonElement | null)[]>([])
+  const [position, setPosition] = useState<MenuPoint>(point)
+  const [active, setActive] = useState(() => items.findIndex(isFocusable))
+
+  // Placed before the browser paints, so the menu is never seen in the wrong
+  // spot. It hangs the way `side` asks, flips to the other side rather than
+  // run off the viewport, drops above the point rather than off the bottom,
+  // and is clamped either way so it can never end up outside entirely.
+  useLayoutEffect(() => {
+    const element = menu.current
+    if (!element) return
+    // `offsetWidth`/`offsetHeight`, not `getBoundingClientRect`: the open
+    // animation starts at `scale(0.96)` and the rect would report the
+    // transformed box, placing a left-hanging menu 4% of its width off.
+    const { offsetWidth: width, offsetHeight: height } = element
+    const maxX = window.innerWidth - width - VIEWPORT_MARGIN
+    const maxY = window.innerHeight - height - VIEWPORT_MARGIN
+    const wanted = side === 'left' ? point.x - width : point.x
+    const flipped = side === 'left' ? point.x : point.x - width
+    const fits = wanted >= VIEWPORT_MARGIN && wanted <= maxX
+    const x = fits ? wanted : flipped
+    const y = point.y > maxY ? point.y - height : point.y
+    setPosition({
+      x: Math.max(VIEWPORT_MARGIN, Math.min(x, maxX)),
+      y: Math.max(VIEWPORT_MARGIN, Math.min(y, maxY)),
+    })
+  }, [point, side])
+
+  // Roving tabindex: exactly one row is tabbable and it is the one that holds
+  // focus, so arrow keys move a real focus ring rather than a painted-on one.
+  useEffect(() => {
+    itemElements.current[active]?.focus()
+  }, [active])
+
+  useEffect(() => {
+    // Capture, so the menu is dismissed before the click reaches whatever is
+    // underneath it: closing the menu must never also select the question it
+    // was opened on.
+    const onPointerDown = (event: PointerEvent) => {
+      if (!menu.current?.contains(event.target as Node)) onClose()
+    }
+    // Any scroll — the window's or the workspace's — leaves the menu stranded
+    // away from what it was opened on, so it closes rather than drifting.
+    document.addEventListener('pointerdown', onPointerDown, true)
+    window.addEventListener('scroll', onClose, true)
+    window.addEventListener('resize', onClose)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown, true)
+      window.removeEventListener('scroll', onClose, true)
+      window.removeEventListener('resize', onClose)
+    }
+  }, [onClose])
+
+  const step = (from: number, delta: number): number => {
+    const total = items.length
+    for (let moved = 1; moved <= total; moved += 1) {
+      const index = (((from + delta * moved) % total) + total) % total
+      if (isFocusable(items[index]!)) return index
+    }
+    return from
+  }
+
+  const onKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    switch (event.key) {
+      case 'ArrowDown':
+        event.preventDefault()
+        setActive((index) => step(index, 1))
+        break
+      case 'ArrowUp':
+        event.preventDefault()
+        setActive((index) => step(index, -1))
+        break
+      case 'Home':
+        event.preventDefault()
+        setActive(items.findIndex(isFocusable))
+        break
+      case 'End':
+        event.preventDefault()
+        setActive(lastFocusableIndex(items))
+        break
+      case 'Escape':
+        // Stopped here: the question dialog and the print panel both listen
+        // for Escape further up, and closing the menu is the whole of what
+        // this key means while it is open.
+        event.preventDefault()
+        event.stopPropagation()
+        onClose()
+        break
+      case 'Tab':
+        event.preventDefault()
+        onClose()
+        break
+    }
+  }
+
+  return createPortal(
+    <div
+      ref={menu}
+      className="context-menu"
+      role="menu"
+      aria-label={ariaLabel}
+      style={{ left: position.x, top: position.y }}
+      onKeyDown={onKeyDown}
+      // A right-click inside the menu is a miss, not a request for a second
+      // menu on top of this one.
+      onContextMenu={(event) => event.preventDefault()}
+    >
+      {items.map((item, index) => {
+        if (item.kind === 'separator') {
+          return <div key={index} className="context-menu-separator" role="separator" />
+        }
+        if (item.kind === 'label') {
+          return (
+            <div key={index} className="context-menu-label">
+              {item.label}
+            </div>
+          )
+        }
+        const destructive = item.kind === 'action' && item.destructive
+        return (
+          <button
+            key={index}
+            ref={(element) => {
+              itemElements.current[index] = element
+            }}
+            type="button"
+            role={item.kind === 'radio' ? 'menuitemradio' : 'menuitem'}
+            aria-checked={item.kind === 'radio' ? item.checked : undefined}
+            className={
+              destructive
+                ? 'context-menu-item context-menu-item--destructive'
+                : 'context-menu-item'
+            }
+            tabIndex={index === active ? 0 : -1}
+            // Hovering moves the keyboard's place too, so the mouse and the
+            // arrow keys never disagree about which row is next.
+            onMouseEnter={() => setActive(index)}
+            onClick={() => {
+              item.onSelect()
+              onClose()
+            }}
+          >
+            <span
+              className={item.kind === 'radio' ? 'context-menu-format-icon' : 'context-menu-icon'}
+              aria-hidden="true"
+            >
+              {item.icon}
+            </span>
+            <span className="context-menu-item-label">{item.label}</span>
+            {item.kind === 'radio' && (
+              <span className="context-menu-radio-indicator" aria-hidden="true">
+                {item.checked && <span className="context-menu-dot" />}
+              </span>
+            )}
+          </button>
+        )
+      })}
+    </div>,
+    document.body,
+  )
+}

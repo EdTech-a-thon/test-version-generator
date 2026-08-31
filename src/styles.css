@@ -5,9 +5,16 @@ button, input, select { font: inherit; }
 button { cursor: pointer; }
 
 .document-bar {
-  position: sticky; top: 0; z-index: 20; height: 58px; padding: 9px 18px;
+  position: sticky; top: 0; z-index: 20; min-height: 58px; padding: 9px 18px;
   display: flex; align-items: center; justify-content: space-between; gap: 20px;
   border-bottom: 1px solid #e8dfd2; background: #fffaf3;
+}
+.document-identity { display: flex; align-items: center; gap: 10px; min-width: 0; }
+/* Fixed box, `contain` fit: the mark keeps its aspect ratio whatever the
+   source file's proportions turn out to be. */
+.app-logo {
+  flex: none; width: 36px; height: 36px; object-fit: contain;
+  -webkit-user-select: none; user-select: none;
 }
 .document-title {
   width: min(420px, 55vw); padding: 5px 7px; border: 1px solid transparent;
@@ -16,37 +23,327 @@ button { cursor: pointer; }
 .document-title:hover { border-color: #d8cbbb; }
 .document-title:focus { border-color: #b65f43; box-shadow: inset 0 0 0 1px #b65f43; }
 .header-actions, .dialog-actions { display: flex; align-items: center; gap: 10px; }
-.print-button, .primary-button, .secondary-button {
+.header-actions { flex-wrap: wrap; justify-content: flex-end; gap: 7px; }
+.export-button, .primary-button, .secondary-button {
   min-height: 36px; padding: 8px 14px; border: 1px solid #bda995; border-radius: 8px;
   color: #4e3b2f; background: #f7eee3; font-weight: 600;
 }
-.print-button:hover, .secondary-button:hover { background: #ebddcd; }
+.export-button {
+  display: inline-flex; align-items: center; gap: 6px;
+  border-color: #9f5037; color: #fffaf3; background: #9f5037;
+}
+.export-button:hover { background: #87422e; }
+.export-button:disabled { opacity: 0.72; cursor: wait; }
+.secondary-button:hover { background: #ebddcd; }
 .primary-button { border-color: #9f5037; color: #fffaf3; background: #9f5037; }
 .primary-button:hover { background: #87422e; }
+.secondary-button:disabled { color: #a8988c; background: #f7eee3; cursor: not-allowed; }
+.secondary-button:disabled:hover { background: #f7eee3; }
+.toolbar-icon-button {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 36px; height: 36px; padding: 0; border: 1px solid transparent; border-radius: 8px;
+  color: #6e5b4d; background: transparent;
+}
+.toolbar-icon-button:hover:not(:disabled) { background: #f7eee3; }
+.toolbar-icon-button:disabled { color: #c5b8ac; cursor: not-allowed; }
+.toolbar-icon-button svg { width: 18px; height: 18px; stroke-width: 2; }
+.insert-question-button { display: inline-flex; align-items: center; gap: 6px; }
+.insert-question-button svg { width: 17px; height: 17px; stroke-width: 2; }
 
-.exam-workspace { min-height: calc(100vh - 58px); padding: 0 24px; }
+/* The export dialog. One modal over the document, rather than a strip that
+   pushes the page it is about out of the way. */
+.export-dialog {
+  width: min(520px, 100%); max-height: 94vh; display: grid;
+  grid-template-rows: auto 1fr auto; overflow: hidden; border-radius: 10px;
+  background: #fffaf3; box-shadow: 0 18px 55px rgb(55 42 33 / 30%);
+}
+.export-dialog-body {
+  min-height: 0; padding: 16px 18px; display: grid; gap: 16px; overflow-y: auto;
+}
+.export-field {
+  display: grid; gap: 7px; margin: 0; padding: 0; border: 0;
+}
+.export-field legend { padding: 0; margin-bottom: 5px; font-weight: 700; }
+.export-field label { display: flex; align-items: center; gap: 7px; }
+.export-field input[type="checkbox"], .export-field input[type="radio"] {
+  margin: 0; accent-color: #9f5037;
+}
+.export-field:disabled { color: #a8988c; }
+.export-count { display: flex; align-items: center; gap: 9px; font-weight: 700; }
+.export-count input {
+  width: 84px; padding: 6px 8px; border: 1px solid #cdb9a6; border-radius: 6px;
+  background: #fffdf8; font-weight: 400;
+}
+.export-count input[aria-invalid="true"] { border-color: #a33b23; }
+.export-hint { margin: 0; color: #6e5b4d; font-size: 13px; }
+.export-error { margin: 0; color: #a33b23; font-size: 13px; }
+.export-actions { flex-wrap: wrap; }
+.export-status { flex: 1; min-width: 0; margin: 0; color: #6e5b4d; font-size: 13px; }
+.export-failure { flex-basis: 100%; order: -1; }
+/* The way into an exam that has nothing in it yet: a placeholder where the
+   first question will be, sized like a question rather than like a toolbar
+   control. Editing chrome — the printed document never has one, because an
+   exam with no questions has nothing to print. */
+.empty-exam-button {
+  display: flex; align-items: center; justify-content: center; gap: 7px;
+  width: 100%; min-height: 96px; border-style: dashed; border-color: #cdb9a6;
+  color: #6e5b4d; background: transparent;
+}
+.empty-exam-button:hover { border-color: #9f5037; color: #9f5037; background: #f7eee3; }
+.empty-exam-button svg { width: 17px; height: 17px; stroke-width: 2; }
+
+.print-output { display: none; }
+
+/* The rendered test. Everything below the document bar is a view of what the
+   printer will produce; nothing in it is typeable.
+
+   A page is a real sheet at the geometry `export-plan.ts` packed against —
+   US Letter, 816x1056px at 96dpi with 1in margins. Every number below comes
+   from the `--page-*` custom properties `exam-page.tsx` sets from that
+   module's own constants, so the box content was packed into and the box it
+   is laid out in cannot drift apart. The `@page` rule at the foot of this
+   file is the same sheet in inches. */
+.exam-workspace {
+  min-height: calc(100vh - 58px); padding: 26px 24px; overflow-x: auto;
+}
 .exam-page {
-  width: min(860px, 100%); min-height: calc(100vh - 58px); margin: 0 auto; padding: 64px 72px;
+  position: relative; display: flex; flex-direction: column;
+  width: var(--page-width); height: var(--page-height);
+  margin: 0 auto 26px; padding: var(--page-margin);
   background: #fffdf8; box-shadow: 0 2px 8px rgb(91 68 47 / 18%);
+  /* The sheet is exactly as big as it is: content that overruns is clipped
+     here rather than pushing the page out of shape and hiding the fact that
+     a measurement was wrong. */
+  overflow: hidden;
+  font-family: Georgia, 'Times New Roman', serif; font-size: 15px; line-height: 1.45;
 }
-.exam-page > h1 { margin: 0 0 48px; font: 700 30px/1.2 Georgia, serif; }
-.empty-exam {
-  width: 100%; padding: 42px; border: 1px dashed #cdb9a6; border-radius: 8px;
-  color: #806b5e; background: #fffaf3;
+
+/* Page furniture. Fixed heights, because the packer subtracted exactly these
+   from the sheet before deciding what fits. */
+.page-header { flex: none; display: flex; flex-direction: column; }
+.page-header--first { height: var(--page-header-first); }
+.page-header--later { height: var(--page-header-later); }
+.page-header--answer-key { height: var(--page-header-answer-key); }
+.page-header--answer-key-later { height: var(--page-header-answer-key-later); }
+.page-identity {
+  flex: none; height: var(--page-header-later);
+  display: flex; align-items: baseline; gap: 20px;
 }
-.exam-question { position: relative; display: grid; grid-template-columns: 34px 1fr; margin-bottom: 40px; }
-.question-number { padding-top: 4px; font-weight: 700; }
-.question-actions {
-  position: absolute; top: 0; right: calc(100% + 104px); width: 170px; padding: 12px;
-  display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
-  border: 1px solid #d8c5b2; border-radius: 8px; background: #fff9f1;
-  box-shadow: 0 2px 7px rgb(91 68 47 / 12%);
+.identity-field { flex: 1 1 0; display: flex; align-items: baseline; gap: 6px; white-space: nowrap; }
+.identity-blank { flex: 1 1 auto; min-width: 48px; border-bottom: 1px solid #332a24; }
+.page-id { flex: none; font-weight: 700; white-space: nowrap; }
+.exam-workspace--unsaved .page-id { color: #aaa19a; }
+/* Takes whatever the identity line leaves of the first page's header, and sits
+   on the bottom of it. */
+.page-header--first .exam-title,
+.page-header--answer-key .exam-title {
+  flex: 1 1 auto; display: flex; align-items: flex-end;
+  margin: 0; font: 700 26px/1.2 Georgia, serif;
 }
-.question-actions strong { grid-column: 1 / -1; font-size: 13px; }
-.question-actions button { padding: 5px; border: 0; border-radius: 5px; color: #786457; background: transparent; }
-.question-actions button:hover { background: #eadbcc; }
-.question-preview .milkdown { --crepe-color-background: transparent; background: transparent; }
-.question-preview .milkdown > .ProseMirror { min-height: 0; padding: 0; }
+.page-header--answer-key .page-identity,
+.page-header--answer-key-later .page-identity { justify-content: flex-end; }
+/* A flex item, so its children's margins stay inside it — the same containment
+   the measuring host relies on. */
+.page-content { flex: 1 1 auto; min-height: 0; }
+.page-footer {
+  flex: none; height: var(--page-footer);
+  display: flex; align-items: flex-end; justify-content: center;
+  font-size: 13px;
+}
+
+/* Where `dom-measure.ts` lays a page item out to find its height: off-screen,
+   at the content width, and `flow-root` so a child's margin is contained and
+   measured rather than collapsing out and going missing. Inherits `.exam-page`
+   typography; overrides everything about `.exam-page`'s size and place. */
+.measure-host {
+  position: absolute; top: 0; left: -10000px;
+  display: flow-root; height: auto; margin: 0; padding: 0;
+  visibility: hidden; pointer-events: none;
+  overflow: visible; background: none; box-shadow: none;
+}
+
+.exam-section { margin: 16px 0 18px; }
+.section-title { margin: 0; font: 700 17px/1.3 Georgia, serif; }
+.section-instructions { margin: 4px 0 0; font-style: italic; }
+.answer-key-heading { margin: 0 0 18px; font: 700 20px/1.3 Georgia, serif; }
+.answer-key-section { margin: 0 0 10px; font: 700 17px/1.3 Georgia, serif; }
+.answer-key-entry {
+  display: grid; grid-template-columns: 42px 56px; gap: 8px; margin: 0 0 8px;
+}
+.answer-key-answer { min-height: 1.45em; border-bottom: 1px solid #332a24; text-align: center; }
+.exam-question {
+  position: relative; display: grid; grid-template-columns: 92px 1fr; gap: 6px;
+  margin-bottom: 26px; border-radius: 4px; cursor: grab;
+  transition: background-color 90ms ease, box-shadow 90ms ease;
+}
+.exam-question, .exam-question * { -webkit-user-drag: none; }
+.exam-question:active { cursor: grabbing; }
+
+/* Pointer capture keeps the page, rather than native HTML dragging, in charge
+   of the cursor. The root class also covers the bars outside the workspace. */
+.question-drag-active,
+.question-drag-active *,
+.exam-workspace--dragging,
+.exam-workspace--dragging * { cursor: grabbing !important; }
+.question-drag-active { user-select: none; }
+
+/* A page-owned counterpart to the browser's drag image. It keeps the exact
+   question markup and grab offset without surrendering the cursor to native
+   HTML drag-and-drop. */
+.question-drag-preview {
+  position: fixed; z-index: 1000; max-height: 70vh; overflow: hidden;
+  padding: 8px; border-radius: 6px; pointer-events: none;
+  opacity: 0.82; background: #fffdf8;
+  box-shadow: 0 8px 24px rgb(55 42 33 / 24%);
+}
+.question-drag-preview .exam-question { margin-bottom: 18px; cursor: grabbing; }
+.question-drag-preview .exam-question:last-child { margin-bottom: 0; }
+.question-drag-preview .question-handles { display: none; }
+.question-drag-preview[data-count]:not([data-count="1"])::after {
+  content: attr(data-count) ' questions'; position: absolute; top: 6px; right: 6px;
+  padding: 3px 7px; border-radius: 999px; color: #fffaf3; background: #9f5037;
+  font: 600 12px/1.3 Arial, Helvetica, sans-serif;
+}
+
+/* Hover and selection are painted with a background plus a matching spread
+   `box-shadow`, never padding: the shadow bleeds the colour past the box
+   without taking up a pixel of layout, and this box's height has to stay
+   exactly the height `dom-measure.ts` reported or screen and paper drift.
+
+   Selection persists regardless of hover — it is the only sign a question is
+   selected once the mouse is elsewhere — so it is stated last and wins. */
+.exam-question:hover { background: #f6f1e8; box-shadow: 0 0 0 7px #f6f1e8; }
+.exam-question--selected,
+.exam-question--selected:hover {
+  background: #f4e0cf; box-shadow: 0 0 0 7px #f4e0cf;
+}
+
+/* A drop can move the dragged question beyond the release point, leaving the
+   displaced question geometrically hovered. Until the pointer moves again,
+   put that feedback on the question that actually moved. Selection keeps its
+   stronger, persistent colour. */
+.exam-workspace--drop-feedback
+  .exam-question:hover:not(.exam-question--dropped):not(.exam-question--selected) {
+  background: none; box-shadow: none;
+}
+.exam-question--dropped:not(.exam-question--selected),
+.exam-question--dropped:hover:not(.exam-question--selected) {
+  background: #f6f1e8; box-shadow: 0 0 0 7px #f6f1e8;
+}
+
+/* The question being dragged, dimmed in place while its ghost follows the
+   pointer — so the row you lifted stays findable underneath. */
+.exam-question--dragging { opacity: 0.4; }
+
+/* The drop line: where the question would land if it were let go now. It sits
+   in the 26px gap between questions, so it never covers what it is pointing
+   between. */
+.exam-question[data-drop]::after {
+  content: ''; position: absolute; left: 0; right: 0; height: 2px;
+  border-radius: 2px; background: #9f5037;
+}
+.exam-question[data-drop="before"]::after { top: -14px; }
+.exam-question[data-drop="after"]::after { bottom: -14px; }
+.question-number { display: flex; align-items: baseline; gap: 8px; font-weight: 700; }
+/* The line a student writes their letter on. */
+.answer-blank { flex: 1; border-bottom: 1px solid #332a24; transform: translateY(-3px); }
+.question-count { white-space: nowrap; }
+.doc-content { white-space: pre-wrap; }
+.question-stem > :first-child { margin-top: 0; }
+.question-stem > :last-child { margin-bottom: 0; }
+
+/* The choice grid: a table for the column-major layout, borderless everywhere. */
+.choice-grid { width: 100%; margin: 8px 0 0; border: 0; border-collapse: collapse; table-layout: fixed; }
+.choice-cell { padding: 1px 12px 1px 0; border: 0; vertical-align: top; }
+.choice-letter { float: left; margin-right: 6px; font-weight: 400; }
+.choice-body > :first-child { margin-top: 0; }
+.choice-body > :last-child { margin-bottom: 0; }
+.choice-body p { margin: 0 0 2px; }
+
+/* The handles: a plus and a grip in the margin beside a question, hidden until
+   it is hovered or one of them has focus, so the page still reads as paper.
+
+   They sit out in the sheet's own padding, which is inside the page box, so
+   `overflow: hidden` on the sheet does not cut them off. The menu the grip
+   opens could not live there — it portals to the body instead. 52px of controls
+   inside a 72px margin leaves them clear of the paper's edge. */
+.question-handles {
+  position: absolute; top: -1px; left: -56px; z-index: 2;
+  display: flex; align-items: center; gap: 2px;
+  opacity: 0; transition: opacity 90ms ease-in;
+}
+.exam-question:hover .question-handles,
+.question-handles:focus-within { opacity: 1; }
+.question-handle {
+  display: flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px; padding: 0; border: 0; border-radius: 5px;
+  color: #b3a498; background: transparent;
+}
+.question-handle svg { width: 16px; height: 16px; stroke-width: 2; }
+.question-handle:hover { color: #4e3b2f; background: #eadbcc; }
+.question-handle:focus-visible { outline: 2px solid #9f5037; outline-offset: 1px; }
+.question-handle { cursor: pointer; }
+
+/* The context menu: shadcn/ui's ContextMenu in this app's palette. Fixed and
+   portalled to the body, since the sheet it is raised over clips its own
+   overflow; `left`/`top` come from the component, which has already flipped
+   and clamped them against the viewport. */
+.context-menu {
+  position: fixed; z-index: 60; min-width: 196px; max-height: 80vh; overflow-y: auto;
+  padding: 4px; border: 1px solid #e0d3c2; border-radius: 8px; background: #fffdf8;
+  box-shadow: 0 10px 30px rgb(55 42 33 / 18%), 0 2px 6px rgb(55 42 33 / 10%);
+  font-family: Arial, Helvetica, sans-serif; font-size: 13px;
+  animation: context-menu-in 90ms ease-out;
+}
+@keyframes context-menu-in {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) { .context-menu { animation: none; } }
+.context-menu-item {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 6px 8px; border: 0; border-radius: 5px;
+  color: #4e3b2f; background: transparent; font: inherit; text-align: left;
+}
+.context-menu-item:hover, .context-menu-item:focus { background: #f2e6d8; outline: none; }
+.context-menu-item--destructive { color: #a3321f; }
+.context-menu-item--destructive:hover,
+.context-menu-item--destructive:focus { background: #f8e0da; }
+/* One leading slot for every row, whether it holds an action's icon or a radio
+   row's dot, so the labels line up down the whole menu. */
+.context-menu-icon {
+  flex: none; display: flex; align-items: center; justify-content: center;
+  width: 16px; height: 16px; color: #8b7868;
+}
+.context-menu-icon svg { width: 15px; height: 15px; stroke-width: 1.9; }
+.context-menu-format-icon {
+  flex: none; display: flex; align-items: center; justify-content: center;
+  width: 18px; height: 16px; color: #8b7868;
+}
+.context-menu-format-icon svg { width: 18px; height: 14px; stroke-width: 1.4; }
+.context-menu-item-label { flex: 1; }
+.context-menu-radio-indicator {
+  flex: none; display: flex; align-items: center; justify-content: center;
+  width: 12px; height: 16px;
+}
+.context-menu-item--destructive .context-menu-icon { color: #b8503c; }
+.context-menu-dot {
+  width: 6px; height: 6px; border-radius: 50%; background: #9f5037;
+}
+.context-menu-label {
+  padding: 7px 8px 3px; color: #8b7868;
+  font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+}
+.context-menu-separator { height: 1px; margin: 4px -1px; background: #eadfd0; }
+
+
+/* Question content. */
+.doc-figure { margin: 8px 0; }
+.doc-figure img, .question-stem img, .choice-body img { max-width: 100%; }
+.doc-figure figcaption { font-size: 13px; font-style: italic; }
+.doc-table { border-collapse: collapse; }
+.doc-table td, .doc-table th { padding: 3px 8px; border: 1px solid #b9a893; }
+.doc-math--block { display: block; margin: 6px 0; text-align: center; }
 
 .dialog-backdrop {
   position: fixed; inset: 0; z-index: 100; padding: 28px; display: grid; place-items: center;
@@ -66,8 +363,92 @@ button { cursor: pointer; }
 }
 .dialog-actions { justify-content: flex-end; border-top: 1px solid #e8dfd2; border-bottom: 0; }
 .dialog-editor { min-height: 0; padding: 0 32px; overflow-y: auto; background: #fffdf8; }
-.dialog-editor .milkdown { min-height: 100%; --crepe-color-background: #fffdf8; }
+.dialog-editor .milkdown {
+  min-height: 100%;
+  --crepe-color-background: #fffdf8;
+  --crepe-color-on-background: #4e3b2f;
+  --crepe-color-surface: #fffdf8;
+  --crepe-color-surface-low: #f2e6d8;
+  --crepe-color-on-surface: #4e3b2f;
+  --crepe-color-on-surface-variant: #4e3b2f;
+  --crepe-color-outline: #e0d3c2;
+  --crepe-color-primary: #9f5037;
+  --crepe-color-secondary: #f4e0cf;
+  --crepe-color-on-secondary: #4e3b2f;
+  --crepe-color-inverse: #4e3b2f;
+  --crepe-color-on-inverse: #fffdf8;
+  --crepe-color-inline-code: #9f5037;
+  --crepe-color-hover: #f2e6d8;
+  --crepe-color-selected: #f4e0cf;
+  --crepe-color-inline-area: #f2e6d8;
+}
 .dialog-editor .milkdown > .ProseMirror { min-height: 100%; padding: 46px max(36px, calc((100% - 720px) / 2)); }
+.dialog-editor .milkdown :is(input, textarea, [contenteditable="true"]) {
+  caret-color: #4e3b2f;
+}
+.dialog-editor .milkdown .ProseMirror-focused {
+  --prosemirror-virtual-cursor-color: #4e3b2f;
+}
+.dialog-editor .milkdown .cm-cursor { border-left-color: #4e3b2f; }
+.dialog-editor .milkdown .milkdown-toolbar .toolbar-item svg {
+  color: #4e3b2f;
+  fill: #4e3b2f;
+}
+.dialog-editor .milkdown .milkdown-toolbar .toolbar-item.active {
+  background: #f4e0cf;
+}
+.dialog-editor .milkdown .milkdown-toolbar .toolbar-item.active svg {
+  color: #9f5037;
+  fill: #9f5037;
+}
+.dialog-editor .milkdown .milkdown-toolbar .toolbar-item:hover {
+  background: #f2e6d8;
+}
+.dialog-editor .milkdown :is(
+  .milkdown-block-handle,
+  .milkdown-slash-menu,
+  .milkdown-link-preview,
+  .milkdown-link-edit,
+  .milkdown-code-block,
+  .milkdown-table-block,
+  .milkdown-list-item-block,
+  .milkdown-top-bar,
+  .milkdown-image-inline,
+  .milkdown-image-block
+) svg {
+  color: #4e3b2f !important;
+  fill: #4e3b2f !important;
+}
+.dialog-editor .milkdown :is(
+  .milkdown-block-handle,
+  .milkdown-slash-menu,
+  .milkdown-code-block,
+  .milkdown-table-block,
+  .milkdown-list-item-block,
+  .milkdown-top-bar,
+  .milkdown-image-inline,
+  .milkdown-image-block
+) :is(.active, .selected) svg {
+  color: #9f5037 !important;
+  fill: #9f5037 !important;
+}
+.dialog-editor .milkdown .milkdown-top-bar .top-bar-chevron svg {
+  color: #4e3b2f !important;
+  fill: none !important;
+  stroke: #4e3b2f !important;
+}
+
+/* Script marks stay inside the current line box: scientific notation should
+   not change the spacing of the paragraphs around it. */
+.dialog-editor .ProseMirror sub,
+.dialog-editor .ProseMirror sup {
+  position: relative;
+  font-size: 0.75em;
+  line-height: 0;
+  vertical-align: baseline;
+}
+.dialog-editor .ProseMirror sub { bottom: -0.25em; }
+.dialog-editor .ProseMirror sup { top: -0.5em; }
 
 /* Multiple choice: each answer is a cell with a radio on the left. */
 .milkdown [data-type="multiple-choice"] { margin: 20px 0; }
@@ -135,19 +516,47 @@ button { cursor: pointer; }
 }
 @keyframes mc-caret-blink { 50% { opacity: 0; } }
 
-@media (max-width: 1320px) { .question-actions { right: calc(100% + 50px); width: 140px; } .exam-workspace { padding-left: 180px; } }
-@media (max-width: 800px) {
-  .exam-workspace { padding: 0; }
-  .exam-page { padding: 40px 24px; }
-  .question-actions { position: static; grid-column: 1 / -1; width: 100%; margin-bottom: 14px; }
+/* The sheet keeps its size on a narrow screen — it is a piece of paper, and
+   shrinking it would mean showing a layout the printer will not produce. The
+   workspace scrolls instead. */
+@media (max-width: 880px) {
+  .exam-workspace { padding: 16px 0; }
   .dialog-backdrop { padding: 0; }
   .question-dialog { width: 100%; height: 100vh; border-radius: 0; }
   .dialog-editor { padding: 0; }
 }
 
+/* The same sheet as `--page-width` / `--page-height`, in the units `@page`
+   takes: 816x1056px at 96dpi is 8.5in x 11in. The margins are already in the
+   page's own padding, so the sheet itself takes none — a second inch here
+   would shrink the box the content was packed for and push it onto an extra
+   sheet. */
+@page { size: 8.5in 11in; margin: 0; }
+
 @media print {
-  .document-bar, .question-actions { display: none; }
+  /* Chrome off: only the test prints. The measuring host is chrome too, and
+     an off-screen block left in the flow prints as blank sheets. */
+  .document-bar, .question-handles, .context-menu,
+  .measure-host, .editor-output,
+  .dialog-backdrop {
+    display: none;
+  }
+  .print-output { display: block; }
   body, :root { background: #fff; }
-  .exam-workspace { padding: 0; }
-  .exam-page { width: 100%; min-height: 0; padding: 0; box-shadow: none; }
+  .exam-workspace { min-height: 0; padding: 0; overflow: visible; }
+  /* Geometry stays exactly as it is on screen — only the paper around it goes
+     away. Each sheet is one page; the last does not force a blank one after. */
+  .exam-page { margin: 0; box-shadow: none; break-after: page; }
+  .exam-page:last-of-type { break-after: auto; }
+  .print-output .exam-workspace:not(:last-child) .exam-page:last-of-type {
+    break-after: page;
+  }
+  .exam-question { break-inside: avoid; }
+  /* Selection, hover and drag feedback are all editing chrome — never printed. */
+  .exam-question,
+  .exam-question:hover,
+  .exam-question--selected {
+    background: none; box-shadow: none; opacity: 1;
+  }
+  .exam-question[data-drop]::after { display: none; }
 }

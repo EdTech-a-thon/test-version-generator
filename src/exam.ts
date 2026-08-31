@@ -1,0 +1,421 @@
+// The canonical exam model.
+//
+// There is exactly one copy of every question. A `Version` holds an ordering
+// and nothing else: which order the questions appear in, and which order each
+// question's choices appear in. Fixing a typo therefore fixes it in every
+// version, and shuffling one version never disturbs another.
+//
+// Orderings are tolerated rather than validated: a question or choice that the
+// ordering has never heard of is appended to the end of its section, and an id
+// in an ordering with nothing behind it is ignored. That is what keeps versions
+// valid across content edits without a migration step.
+
+import {
+  choiceIdOf,
+  choiceIsCorrect,
+  choiceNodesOf,
+  emptyDoc,
+  multipleChoiceNodeOf,
+  withFreshChoiceIds,
+  withMultipleChoice,
+  withoutMultipleChoice,
+  type ProseMirrorJSON,
+} from './question-doc'
+import { newMultipleChoiceNode } from './multiple-choice'
+
+export type QuestionType = 'multiple-choice' | 'open'
+
+// How many columns a multiple-choice question's answers lay out in. `'auto'`
+// defers to measurement; an explicit count disables that permanently.
+export type ColumnSetting = 'auto' | 1 | 2 | 4
+
+export type Question = {
+  id: string
+  type: QuestionType
+  doc: ProseMirrorJSON
+  // Choices preserved while the question's type is 'open', so switching type is
+  // never destructive. Only one stash is kept.
+  stashedChoices?: ProseMirrorJSON
+  columns: ColumnSetting
+}
+
+export type Exam = {
+  title: string
+  questions: Question[]
+}
+
+export type Version = {
+  id: string
+  letter: string
+  questionOrder: string[]
+  choiceOrder: Record<string, string[]>
+}
+
+// A choice as the page sees it: its stable id, whether it is the correct
+// answer, and the document node to render.
+export type Choice = {
+  id: string
+  correct: boolean
+  node: ProseMirrorJSON
+}
+
+// Sections are derived from question type, never stored, and always appear in
+// this order. `'open'` is the section a school test calls "Short Answer".
+export const SECTION_ORDER: readonly QuestionType[] = ['multiple-choice', 'open']
+
+export const DEFAULT_EXAM_TITLE = 'Untitled exam'
+
+function newQuestionDoc(type: QuestionType): ProseMirrorJSON {
+  return type === 'multiple-choice'
+    ? { type: 'doc', content: [{ type: 'paragraph' }, newMultipleChoiceNode()] }
+    : structuredClone(emptyDoc)
+}
+
+export function createQuestion(type: QuestionType): Question {
+  return {
+    id: crypto.randomUUID(),
+    type,
+    doc: newQuestionDoc(type),
+    columns: 'auto',
+  }
+}
+
+// A copy of the question, ready to be added as a question of its own. Its
+// choices are given fresh ids: `choiceOrder` is keyed by choice id, so a copy
+// that shared them would have its answers reordered along with the original's.
+export function duplicateQuestion(question: Question): Question {
+  const copy: Question = {
+    ...question,
+    id: crypto.randomUUID(),
+    doc: withFreshChoiceIds(question.doc),
+  }
+  if (question.stashedChoices) {
+    copy.stashedChoices = withFreshChoiceIds(question.stashedChoices)
+  }
+  return copy
+}
+
+// Switches a question's type.
+//
+// Multiple Choice -> Open Response lifts the multiple-choice node out of the
+// document into `stashedChoices`, replacing whatever was stashed there
+// before — converting to Open Response twice never accumulates history, it
+// just re-snapshots the current choices.
+//
+// Open Response -> Multiple Choice re-inserts the stash if there is one
+// (choice ids and correctness intact, so a version's `choiceOrder` still
+// lines up) or starts a fresh set of choices otherwise, and clears the
+// stash: it exists only while the question is Open Response.
+//
+// Switching to the type a question already is returns it unchanged.
+export function withTypeSwitched(question: Question, type: QuestionType): Question {
+  if (type === question.type) return question
+  if (type === 'open') {
+    return {
+      ...question,
+      type,
+      doc: withoutMultipleChoice(question.doc),
+      stashedChoices: multipleChoiceNodeOf(question.doc),
+    }
+  }
+  const { stashedChoices, ...rest } = question
+  return {
+    ...rest,
+    type,
+    doc: withMultipleChoice(question.doc, stashedChoices ?? newMultipleChoiceNode()),
+  }
+}
+
+export function createExam(title: string = DEFAULT_EXAM_TITLE): Exam {
+  return { title, questions: [] }
+}
+
+export function createVersion(letter = 'A'): Version {
+  return { id: crypto.randomUUID(), letter, questionOrder: [], choiceOrder: {} }
+}
+
+// 'A', 'B', 'C', … skipping letters already taken. Past 'Z' the letters keep
+// counting as 'AA', 'AB', … rather than colliding.
+export function nextVersionLetter(versions: readonly Version[]): string {
+  const taken = new Set(versions.map((version) => version.letter))
+  for (let index = 0; ; index += 1) {
+    const letter = versionLetterAt(index)
+    if (!taken.has(letter)) return letter
+  }
+}
+
+function versionLetterAt(index: number): string {
+  let letter = ''
+  let remaining = index
+  do {
+    letter = String.fromCharCode(65 + (remaining % 26)) + letter
+    remaining = Math.floor(remaining / 26) - 1
+  } while (remaining >= 0)
+  return letter
+}
+
+export function questionById(exam: Exam, id: string): Question | undefined {
+  return exam.questions.find((question) => question.id === id)
+}
+
+// The tolerance rule, in one place: keep the recorded order for everything that
+// still exists, drop ids that no longer resolve, and append anything the order
+// has never heard of. Duplicates in either list collapse to their first
+// occurrence.
+export function reconcileOrder(
+  order: readonly string[],
+  present: readonly string[],
+): string[] {
+  const remaining = new Set(present)
+  const result: string[] = []
+  for (const id of order) {
+    if (remaining.delete(id)) result.push(id)
+  }
+  for (const id of present) {
+    if (remaining.delete(id)) result.push(id)
+  }
+  return result
+}
+
+// The questions of one section, in the order this version puts them in.
+export function questionsInSection(
+  exam: Exam,
+  version: Version,
+  section: QuestionType,
+): Question[] {
+  const inSection = exam.questions.filter((question) => question.type === section)
+  const byId = new Map(inSection.map((question) => [question.id, question]))
+  return reconcileOrder(
+    version.questionOrder,
+    inSection.map((question) => question.id),
+  ).map((id) => byId.get(id)!)
+}
+
+// Every question in render order: each section in turn, each section in the
+// order this version puts it in.
+export function orderedQuestions(exam: Exam, version: Version): Question[] {
+  return SECTION_ORDER.flatMap((section) =>
+    questionsInSection(exam, version, section),
+  )
+}
+
+// The question's answers in authoring order, correctness included.
+export function choicesOf(question: Question): Choice[] {
+  return choiceNodesOf(question.doc).map((node) => ({
+    id: choiceIdOf(node),
+    correct: choiceIsCorrect(node),
+    node,
+  }))
+}
+
+// The question's answers in the order this version puts them in. A choice's
+// letter on the printed page is its position here, so correctness follows its
+// choice with no bookkeeping.
+export function orderedChoices(question: Question, version: Version): Choice[] {
+  const choices = choicesOf(question)
+  const byId = new Map(choices.map((choice) => [choice.id, choice]))
+  return reconcileOrder(
+    version.choiceOrder[question.id] ?? [],
+    choices.map((choice) => choice.id),
+  ).map((id) => byId.get(id)!)
+}
+
+export function withQuestionAppended(
+  version: Version,
+  questionId: string,
+): Version {
+  if (version.questionOrder.includes(questionId)) return version
+  return { ...version, questionOrder: [...version.questionOrder, questionId] }
+}
+
+export function withQuestionRemoved(
+  version: Version,
+  questionId: string,
+): Version {
+  const choiceOrder = { ...version.choiceOrder }
+  delete choiceOrder[questionId]
+  return {
+    ...version,
+    questionOrder: version.questionOrder.filter((id) => id !== questionId),
+    choiceOrder,
+  }
+}
+
+export type QuestionPlacement = 'before' | 'after'
+
+// Moves one question to an exact position in its derived section. A target in
+// another section is refused: ordering never changes a question's type.
+export function moveQuestion(
+  exam: Exam,
+  version: Version,
+  questionId: string,
+  targetId: string,
+  placement: QuestionPlacement,
+): Version {
+  const question = questionById(exam, questionId)
+  const target = questionById(exam, targetId)
+  if (!question || !target || question.type !== target.type || questionId === targetId) {
+    return version
+  }
+
+  const sectionIds = questionsInSection(exam, version, question.type).map(
+    (item) => item.id,
+  )
+  const withoutQuestion = sectionIds.filter((id) => id !== questionId)
+  const targetIndex = withoutQuestion.indexOf(targetId)
+  if (targetIndex < 0) return version
+  withoutQuestion.splice(targetIndex + (placement === 'after' ? 1 : 0), 0, questionId)
+
+  const questionOrder = SECTION_ORDER.flatMap((section) =>
+    section === question.type
+      ? withoutQuestion
+      : questionsInSection(exam, version, section).map((item) => item.id),
+  )
+  if (questionOrder.every((id, index) => id === version.questionOrder[index]) &&
+      questionOrder.length === version.questionOrder.length) return version
+  return { ...version, questionOrder }
+}
+
+// Moves a selection as one block while preserving its on-page order. Only
+// selected questions in the target's section participate: sections are fixed
+// by question type, so a mixed selection can still be dragged without ever
+// moving a question into the wrong section.
+export function moveQuestions(
+  exam: Exam,
+  version: Version,
+  questionIds: readonly string[],
+  targetId: string,
+  placement: QuestionPlacement,
+): Version {
+  const target = questionById(exam, targetId)
+  if (!target) return version
+
+  const sectionIds = questionsInSection(exam, version, target.type).map(
+    (question) => question.id,
+  )
+  const selected = new Set(
+    questionIds.filter((id) => questionById(exam, id)?.type === target.type),
+  )
+  if (selected.size === 0 || selected.has(targetId)) return version
+
+  const moving = sectionIds.filter((id) => selected.has(id))
+  const remaining = sectionIds.filter((id) => !selected.has(id))
+  const targetIndex = remaining.indexOf(targetId)
+  if (targetIndex < 0) return version
+  remaining.splice(
+    targetIndex + (placement === 'after' ? 1 : 0),
+    0,
+    ...moving,
+  )
+
+  const questionOrder = SECTION_ORDER.flatMap((section) =>
+    section === target.type
+      ? remaining
+      : questionsInSection(exam, version, section).map((question) => question.id),
+  )
+  if (
+    questionOrder.length === version.questionOrder.length &&
+    questionOrder.every((id, index) => id === version.questionOrder[index])
+  ) {
+    return version
+  }
+  return { ...version, questionOrder }
+}
+
+// ---------------------------------------------------------------------------
+// Shuffling
+//
+// Two pure functions on a version, each taking an injected random source so
+// a fixed sequence of draws produces a fixed ordering in tests. Neither
+// touches question content — only the ordering a version records.
+// Correctness is a boolean on the choice, so it always follows its choice
+// through a shuffle with no bookkeeping.
+
+// The same contract as `Math.random`: a float in [0, 1). The app passes
+// `Math.random` itself; a test passes a fixed sequence so the outcome is
+// reproducible.
+export type RandomSource = () => number
+
+// Fisher-Yates, driven entirely by the injected source.
+function shuffled<T>(items: readonly T[], random: RandomSource): T[] {
+  const result = items.slice()
+  for (let i = result.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(random() * (i + 1))
+    const tmp = result[i]!
+    result[i] = result[j]!
+    result[j] = tmp
+  }
+  return result
+}
+
+// Reorders `questionOrder` within the chosen section, or within every
+// section when `scope` is `'all'` — one section at a time, so a mixed-type
+// ordering never results. Each section's questions are drawn out via
+// `questionsInSection` (which already reconciles the order against what
+// currently exists), shuffled among themselves if targeted, and put back in
+// `SECTION_ORDER`.
+//
+// Deliberately ignores any current selection: the toolbar dropdown names the
+// scope explicitly instead, which is why this takes `scope`, not a set of
+// question ids.
+export function shuffleQuestions(
+  exam: Exam,
+  version: Version,
+  scope: QuestionType | 'all',
+  random: RandomSource,
+): Version {
+  const targets = new Set<QuestionType>(scope === 'all' ? SECTION_ORDER : [scope])
+  const questionOrder = SECTION_ORDER.flatMap((section) => {
+    const ids = questionsInSection(exam, version, section).map(
+      (question) => question.id,
+    )
+    return targets.has(section) ? shuffled(ids, random) : ids
+  })
+  return { ...version, questionOrder }
+}
+
+// Shuffles only the selected slots. Unselected questions keep their exact
+// positions, and a selection spanning both sections is shuffled independently
+// within each section so section membership can never change.
+export function shuffleSelectedQuestions(
+  exam: Exam,
+  version: Version,
+  questionIds: readonly string[],
+  random: RandomSource,
+): Version {
+  const selected = new Set(questionIds)
+  const questionOrder = SECTION_ORDER.flatMap((section) => {
+    const ids = questionsInSection(exam, version, section).map(
+      (question) => question.id,
+    )
+    const shuffledIds = shuffled(ids.filter((id) => selected.has(id)), random)
+    let selectedIndex = 0
+    return ids.map((id) =>
+      selected.has(id) ? shuffledIds[selectedIndex++]! : id,
+    )
+  })
+  return { ...version, questionOrder }
+}
+
+// Reorders `choiceOrder` for each given question id. Only a multiple-choice
+// question with at least two choices actually moves: an open question, or
+// one with fewer than two choices, is left exactly as recorded. That makes
+// it safe to pass a mixed selection straight through — as the toolbar's
+// "Shuffle answers" does — without filtering it first. A question id this
+// exam has no choices for, or does not know at all, is silently skipped.
+export function shuffleAnswers(
+  exam: Exam,
+  version: Version,
+  questionIds: readonly string[],
+  random: RandomSource,
+): Version {
+  const choiceOrder = { ...version.choiceOrder }
+  for (const questionId of questionIds) {
+    const question = questionById(exam, questionId)
+    if (!question) continue
+    const ids = orderedChoices(question, version).map((choice) => choice.id)
+    if (ids.length < 2) continue
+    choiceOrder[questionId] = shuffled(ids, random)
+  }
+  return { ...version, choiceOrder }
+}

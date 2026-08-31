@@ -1,10 +1,13 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { Milkdown, useEditor } from '@milkdown/react'
 import { Crepe } from '@milkdown/crepe'
+import { keymapRef } from '@milkdown/crepe/feature/toolbar'
+import type { Ctx } from '@milkdown/kit/ctx'
 import { editorViewCtx } from '@milkdown/kit/core'
 import { Node as ProseNode } from '@milkdown/kit/prose/model'
 import { TextSelection } from '@milkdown/kit/prose/state'
 import { blockConfig } from '@milkdown/kit/plugin/block'
+import { uploadConfig } from '@milkdown/kit/plugin/upload'
 import '@milkdown/crepe/theme/common/style.css'
 import '@milkdown/crepe/theme/frame.css'
 import {
@@ -14,109 +17,55 @@ import {
   multipleChoiceMode,
   multipleChoiceSchema,
   multipleChoiceView,
-  newMultipleChoiceNode,
   uniqueChoiceIds,
 } from './multiple-choice'
-import { subscriptSchema, superscriptSchema } from './script-marks'
-
-type QuestionType = 'open' | 'multiple-choice'
-type Question = { id: string; type: QuestionType; doc: Record<string, unknown> }
-
-const questionsKey = 'exam-questions-v1'
-const titleKey = 'crepe-editor-title'
-const emptyDoc = { type: 'doc', content: [{ type: 'paragraph' }] }
-
-function cleanDocument(value: Record<string, unknown>) {
-  const cleanNode = (node: Record<string, unknown>): Record<string, unknown> => {
-    const clean: Record<string, unknown> = { type: String(node.type ?? 'paragraph') }
-    if (typeof node.text === 'string') clean.text = node.text
-    if (Array.isArray(node.marks)) {
-      clean.marks = node.marks.map((mark) => ({ type: String((mark as { type?: unknown }).type ?? '') }))
-    }
-    if (Array.isArray(node.content)) {
-      clean.content = node.content.map((child) => cleanNode(child as Record<string, unknown>))
-    }
-    if (node.type === 'multipleChoice') {
-      const attrs = (node.attrs ?? {}) as Record<string, unknown>
-      // Old model stored the correct answer as an id on the parent; the new
-      // model stores a boolean on each choice.
-      const legacyCorrectId = typeof attrs.correct === 'string' ? attrs.correct : ''
-      const originalChoices = Array.isArray(node.content)
-        ? (node.content as Array<Record<string, unknown>>)
-        : []
-      let choices = Array.isArray(clean.content)
-        ? (clean.content as Array<Record<string, unknown>>)
-        : []
-
-      if (choices.length < 2 && Array.isArray(attrs.choices)) {
-        // Very old model kept the answers as HTML in a `choices` attr.
-        choices = (attrs.choices as unknown[]).map((choice, index) => {
-          const item = choice as Record<string, unknown>
-          const holder = document.createElement('div')
-          holder.innerHTML = String(item.html ?? `Answer ${index + 1}`)
-          return {
-            type: 'multipleChoiceChoice',
-            attrs: {
-              correct: item.id != null && item.id === legacyCorrectId,
-              id: typeof item.id === 'string' ? item.id : '',
-            },
-            content: [
-              {
-                type: 'paragraph',
-                content: holder.textContent
-                  ? [{ type: 'text', text: holder.textContent }]
-                  : undefined,
-              },
-            ],
-          }
-        })
-      } else {
-        choices.forEach((choiceClean, index) => {
-          const orig = (originalChoices[index]?.attrs ?? {}) as Record<string, unknown>
-          const byLegacyId = legacyCorrectId !== '' &&
-            typeof orig.id === 'string' && orig.id === legacyCorrectId
-          // Keep the id set by the choice branch below; only settle `correct`.
-          choiceClean.attrs = {
-            ...(choiceClean.attrs as Record<string, unknown> | undefined),
-            correct: orig.correct === true || byLegacyId,
-          }
-        })
-      }
-
-      while (choices.length < 2) {
-        choices.push({
-          type: 'multipleChoiceChoice',
-          attrs: { correct: false, id: '' },
-          content: [{ type: 'paragraph' }],
-        })
-      }
-      clean.content = choices
-    } else if (node.type === 'multipleChoiceChoice') {
-      const attrs = (node.attrs ?? {}) as Record<string, unknown>
-      clean.attrs = {
-        correct: attrs.correct === true,
-        id: typeof attrs.id === 'string' ? attrs.id : '',
-      }
-    }
-    return clean
-  }
-  return cleanNode(value)
-}
-
-function questionDoc(type: QuestionType) {
-  return type === 'multiple-choice'
-    ? { type: 'doc', content: [{ type: 'paragraph' }, newMultipleChoiceNode()] }
-    : emptyDoc
-}
+import {
+  isScriptActive,
+  scriptKeymap,
+  subscriptIcon,
+  subscriptSchema,
+  superscriptIcon,
+  superscriptSchema,
+  toggleScript,
+} from './script-marks'
+import { leftArrowInputRule, rightArrowInputRule } from './text-arrows'
+import { cleanDocument } from './question-doc'
+import type { ProseMirrorJSON } from './question-doc'
+import {
+  createQuestion,
+  duplicateQuestion,
+  moveQuestions,
+  questionById,
+  shuffleAnswers,
+  shuffleSelectedQuestions,
+  withTypeSwitched,
+} from './exam'
+import type { Question, QuestionType } from './exam'
+import type { ExamStore } from './exam-store'
+import { ExamPage, PrintDocument } from './exam-page'
+import { useSelection } from './use-selection'
+import type { LayoutPlan } from './export-plan'
+import {
+  DEFAULT_EXPORT_CONFIGURATION,
+  plansOf,
+  prepareExport,
+  type ExportConfiguration,
+  type PreparationProgress,
+} from './export-preparation'
+import { ExportDialog } from './export-dialog'
+import { domMeasure } from './dom-measure'
+import { saveImage } from './local-images'
+import { configurePastedImages } from './pasted-images'
+import { Plus, Redo2, Undo2 } from 'lucide-react'
 
 function CrepeQuestion({
   value,
-  readonly = false,
   onChange,
+  onReady,
 }: {
-  value: Record<string, unknown>
-  readonly?: boolean
-  onChange?: (doc: Record<string, unknown>) => void
+  value: ProseMirrorJSON
+  onChange: (doc: ProseMirrorJSON) => void
+  onReady: (readDocument: () => ProseMirrorJSON) => void
 }) {
   useEditor((root) => {
     const safeValue = cleanDocument(value)
@@ -126,18 +75,46 @@ function CrepeQuestion({
       features: {
         [Crepe.Feature.CodeMirror]: true,
         [Crepe.Feature.Latex]: true,
-        [Crepe.Feature.BlockEdit]: !readonly,
-        [Crepe.Feature.Toolbar]: !readonly,
       },
       featureConfigs: {
         [Crepe.Feature.BlockEdit]: { advancedGroup: { codeBlock: null } },
+        [Crepe.Feature.ImageBlock]: { onUpload: saveImage },
         [Crepe.Feature.Placeholder]: { text: 'Write the question…' },
+        [Crepe.Feature.Toolbar]: {
+          buildToolbar: (builder) => {
+            builder
+              .getGroup('formatting')
+              .addItem('subscript', {
+                icon: subscriptIcon,
+                label: 'Subscript',
+                keymap: keymapRef<'ToggleSubscript' | 'ToggleSuperscript'>(
+                  scriptKeymap.key,
+                  'ToggleSubscript',
+                ),
+                active: (ctx: Ctx) => isScriptActive(ctx, 'subscript'),
+                onRun: (ctx: Ctx) => toggleScript(ctx, 'subscript'),
+              })
+              .addItem('superscript', {
+                icon: superscriptIcon,
+                label: 'Superscript',
+                keymap: keymapRef<'ToggleSubscript' | 'ToggleSuperscript'>(
+                  scriptKeymap.key,
+                  'ToggleSuperscript',
+                ),
+                active: (ctx: Ctx) => isScriptActive(ctx, 'superscript'),
+                onRun: (ctx: Ctx) => toggleScript(ctx, 'superscript'),
+              })
+          },
+        },
       },
-    }).setReadonly(readonly)
+    })
     crepe.editor
-      .use(multipleChoiceMode(!readonly))
+      .use(multipleChoiceMode(true))
       .use(subscriptSchema)
       .use(superscriptSchema)
+      .use(scriptKeymap)
+      .use(rightArrowInputRule)
+      .use(leftArrowInputRule)
       .use(multipleChoiceSchema)
       .use(multipleChoiceChoiceSchema)
       .use(multipleChoiceView)
@@ -149,6 +126,11 @@ function CrepeQuestion({
     // climbs to the multipleChoice node. Paragraphs inside a choice keep their
     // own handle, so lines can still be dragged within a choice or out of it.
     crepe.editor.config((ctx) => {
+      configurePastedImages(ctx)
+      ctx.update(uploadConfig.key, (prev) => ({
+        ...prev,
+        enableHtmlFileUploader: true,
+      }))
       ctx.update(blockConfig.key, (prev) => ({
         ...prev,
         filterNodes: (pos, node) => {
@@ -166,26 +148,22 @@ function CrepeQuestion({
     crepe.on((listener) => {
       listener.mounted((ctx) => {
         const view = ctx.get(editorViewCtx)
+        onReady(() => cleanDocument(view.state.doc.toJSON() as ProseMirrorJSON))
         const loadedDocument = ProseNode.fromJSON(view.state.schema, safeValue)
         const tr = view.state.tr.replaceWith(
           0,
           view.state.doc.content.size,
           loadedDocument.content,
         )
-        // Start the editable dialog with the cursor on the first line (the
-        // question) so typing goes there straight away. Previews are read-only
-        // and must not grab focus.
-        if (!readonly) {
-          tr.setSelection(TextSelection.atStart(tr.doc))
-        }
+        // Start the dialog with the cursor on the first line (the question) so
+        // typing goes there straight away.
+        tr.setSelection(TextSelection.atStart(tr.doc))
         view.dispatch(tr)
-        if (!readonly) view.focus()
+        view.focus()
       })
-      if (onChange) {
-        listener.updated((_ctx, doc) =>
-          onChange(cleanDocument(doc.toJSON() as Record<string, unknown>)),
-        )
-      }
+      listener.updated((_ctx, doc) =>
+        onChange(cleanDocument(doc.toJSON() as ProseMirrorJSON)),
+      )
     })
     return crepe
   }, [])
@@ -194,32 +172,50 @@ function CrepeQuestion({
 
 function QuestionDialog({
   question,
+  isNew,
   onCancel,
   onSave,
 }: {
-  question?: Question
+  question: Question
+  isNew: boolean
   onCancel: () => void
   onSave: (question: Question) => void
 }) {
-  const [type, setType] = useState<QuestionType>(
-    question?.type ?? 'multiple-choice',
-  )
-  const [doc, setDoc] = useState<Record<string, unknown>>(
-    question?.doc ?? questionDoc('multiple-choice'),
-  )
+  const [type, setType] = useState<QuestionType>(question.type)
+  const [doc, setDoc] = useState<ProseMirrorJSON>(question.doc)
   const latestDoc = useRef(doc)
+  const readEditorDocument = useRef<(() => ProseMirrorJSON) | null>(null)
+  // The stash the dialog currently knows about, kept alongside the doc so a
+  // save mid-edit carries a lift/restore that happened before the editor's
+  // own onChange has fired again. Starts from the question's persisted stash,
+  // so an existing stash survives opening the dialog without touching type.
+  const stash = useRef(question.stashedChoices)
 
   const changeType = (next: QuestionType) => {
-    setType(next)
-    const safeCurrent = cleanDocument(latestDoc.current)
-    const content = (safeCurrent.content as Array<Record<string, unknown>> | undefined) ?? []
-    const withoutGrid = content.filter((node) => node.type !== 'multipleChoice')
-    const nextDoc = {
-      type: 'doc',
-      content: next === 'multiple-choice' ? [...withoutGrid, newMultipleChoiceNode()] : withoutGrid,
+    const switched = withTypeSwitched(
+      {
+        ...question,
+        type,
+        doc: cleanDocument(latestDoc.current),
+        stashedChoices: stash.current,
+      },
+      next,
+    )
+    stash.current = switched.stashedChoices
+    latestDoc.current = switched.doc
+    setType(switched.type)
+    setDoc(switched.doc)
+  }
+
+  const saveQuestion = () => {
+    const saved: Question = {
+      ...question,
+      type,
+      doc: cleanDocument(readEditorDocument.current?.() ?? latestDoc.current),
     }
-    latestDoc.current = nextDoc
-    setDoc(nextDoc)
+    if (stash.current) saved.stashedChoices = stash.current
+    else delete saved.stashedChoices
+    onSave(saved)
   }
 
   return (
@@ -238,6 +234,17 @@ function QuestionDialog({
           onCancel()
         }
       }}
+      onKeyDownCapture={(event) => {
+        if (
+          event.key === 'Enter'
+          && (event.ctrlKey || event.metaKey)
+          && !event.altKey
+        ) {
+          event.preventDefault()
+          event.stopPropagation()
+          saveQuestion()
+        }
+      }}
     >
       <section
         className="question-dialog"
@@ -246,7 +253,7 @@ function QuestionDialog({
         aria-label="Question editor"
       >
         <header className="dialog-header">
-          <h2>{question ? 'Edit question' : 'Add question'}</h2>
+          <h2>{isNew ? 'Add question' : 'Edit question'}</h2>
           <label>
             Type
             <select value={type} onChange={(event) => changeType(event.target.value as QuestionType)}>
@@ -258,6 +265,9 @@ function QuestionDialog({
         <div className="dialog-editor" key={type}>
           <CrepeQuestion
             value={doc}
+            onReady={(readDocument) => {
+              readEditorDocument.current = readDocument
+            }}
             onChange={(next) => {
               latestDoc.current = next
             }}
@@ -268,13 +278,7 @@ function QuestionDialog({
           <button
             type="button"
             className="primary-button"
-            onClick={() =>
-              onSave({
-                id: question?.id ?? crypto.randomUUID(),
-                type,
-                doc: cleanDocument(latestDoc.current),
-              })
-            }
+            onClick={saveQuestion}
           >
             Save question
           </button>
@@ -284,74 +288,322 @@ function QuestionDialog({
   )
 }
 
-export default function App() {
-  const [title, setTitle] = useState(() => localStorage.getItem(titleKey) ?? 'Untitled exam')
-  const [questions, setQuestions] = useState<Question[]>(() => {
-    try { return JSON.parse(localStorage.getItem(questionsKey) ?? '[]') }
-    catch { return [] }
-  })
-  const [editing, setEditing] = useState<Question | 'new' | null>(null)
+export default function App({ store }: { store: ExamStore }) {
+  const draft = useSyncExternalStore(store.subscribe, store.getState)
+  // There is exactly one version and it is the one on the page. The store can
+  // still hold several — the model is unchanged — but nothing here creates,
+  // names, switches or deletes one: shuffling mutates this version in place,
+  // and Save writes it.
+  const version = store.currentVersion()
+  // A question being written. A new one is a full question that the store has
+  // not been told about yet, so saving is the same call either way.
+  //
+  // `after` is the question a plus was clicked beside. The store only ever
+  // appends, so where a new question belongs is remembered here and applied as
+  // a move once it exists and has an id to move.
+  const [editing, setEditing] = useState<{
+    question: Question
+    after: string | null
+  } | null>(null)
+  // The export dialog, and the configuration it is showing. The configuration
+  // lives here rather than inside the dialog so that an export which fails
+  // after the dialog closed can reopen it with the teacher's settings intact;
+  // opening it from the Export button always starts from the defaults, because
+  // export configuration is deliberately not remembered between openings.
+  const [exportDialog, setExportDialog] = useState<{
+    configuration: ExportConfiguration
+    error: string | null
+  } | null>(null)
+  const exportButton = useRef<HTMLButtonElement>(null)
+  // What a finished preparation handed over: the plans print mounts, or the
+  // Word file to save. Set only once the dialog has closed, so the native
+  // action never starts behind a modal that is still up.
+  const [handoff, setHandoff] = useState<
+    | { format: 'print'; plans: LayoutPlan[]; configuration: ExportConfiguration }
+    | { format: 'docx'; blob: Blob; filename: string; configuration: ExportConfiguration }
+    | null
+  >(null)
+  // Selection lives here, alongside the store, so page interactions and
+  // selection-wide context-menu actions share one source of truth.
+  const selection = useSelection()
+  const clearSelection = selection.clear
 
-  useEffect(() => localStorage.setItem(questionsKey, JSON.stringify(questions)), [questions])
+  useEffect(() => {
+    if (editing || exportDialog) return
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (
+        event.key.toLowerCase() === 'z'
+        && (event.ctrlKey || event.metaKey)
+        && !event.altKey
+      ) {
+        event.preventDefault()
+        if (event.shiftKey) store.redo()
+        else store.undo()
+        return
+      }
+      if (event.key !== 'Escape') return
+      clearSelection()
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [clearSelection, editing, exportDialog, store])
+
+  const closeExportDialog = () => {
+    setExportDialog(null)
+    exportButton.current?.focus()
+  }
+
+  /**
+   * One export, from the Export button to the moment the browser takes over.
+   *
+   * Saving first is what stops stale content being published: there is no Save
+   * button, so the export is the commit, and a failed write aborts the export
+   * with a message rather than quietly printing yesterday's exam.
+   *
+   * Then one call to the preparation seam, which is the only thing that decides
+   * how many Versions there are and what each of them says. DOCX is packaged
+   * here too, while the dialog is still up and can show progress and catch a
+   * failure; the final native action is handed back so it starts after the
+   * dialog has closed and focus is back on Export.
+   */
+  const runExport = async (
+    configuration: ExportConfiguration,
+    onProgress: (progress: PreparationProgress) => void,
+  ) => {
+    try {
+      await store.save()
+    } catch (error) {
+      console.error('Could not save the exam before exporting', error)
+      throw new Error(
+        'Your latest changes could not be saved, so the export was stopped. '
+        + 'Check your connection and try again.',
+      )
+    }
+
+    const prepared = prepareExport({
+      exam: store.getState().exam,
+      version: store.currentVersion(),
+      configuration,
+      // Not seeded: a later export deliberately draws a fresh set rather than
+      // reproducing an earlier one.
+      random: Math.random,
+      measure: domMeasure,
+      onProgress,
+    })
+    const plans = plansOf(prepared)
+
+    if (configuration.format === 'print') {
+      setHandoff({ format: 'print', plans, configuration })
+      return
+    }
+    try {
+      // Loaded on demand: the Word writer and its ZIP machinery stay out of the
+      // application's initial bundle.
+      const { createExamDocx } = await import('./docx-export')
+      setHandoff({
+        format: 'docx',
+        blob: await createExamDocx(plans),
+        filename: prepared.filename,
+        configuration,
+      })
+    } catch (error) {
+      console.error('Could not create the DOCX file', error)
+      throw new Error('The Word file could not be created. Please try again.')
+    }
+  }
+
+  /** A native action that never started: reopen the dialog on the same
+   *  configuration with something the teacher can act on. */
+  const exportFailed = (configuration: ExportConfiguration, message: string) => {
+    setHandoff(null)
+    setExportDialog({ configuration, error: message })
+  }
+
+  // The handoff, once the dialog is out of the way.
+  //
+  // The print document stays mounted until `afterprint` says the browser is
+  // done with it. Unmounting in the frame that follows `window.print()` assumes
+  // the dialog has already read the DOM, and a preview that re-reads it — or a
+  // headless capture that never opens a dialog at all — would find nothing
+  // there. Off screen the extra markup costs nothing: `.print-output` is
+  // `display: none` until print media applies.
+  useEffect(() => {
+    if (!handoff) return
+    if (handoff.format === 'docx') {
+      const { blob, filename, configuration } = handoff
+      void import('./docx-export')
+        .then(({ saveDocxFile }) => {
+          saveDocxFile(blob, filename)
+          setHandoff(null)
+        })
+        .catch((error: unknown) => {
+          console.error('Could not start the DOCX download', error)
+          exportFailed(configuration, 'The download could not be started. Please try again.')
+        })
+      return
+    }
+    const done = () => setHandoff(null)
+    window.addEventListener('afterprint', done)
+    const frame = window.requestAnimationFrame(() => {
+      try {
+        window.print()
+      } catch (error) {
+        console.error('Could not open the print dialog', error)
+        exportFailed(
+          handoff.configuration,
+          'The print dialog could not be opened. Please try again.',
+        )
+      }
+    })
+    return () => {
+      window.removeEventListener('afterprint', done)
+      window.cancelAnimationFrame(frame)
+    }
+  }, [handoff])
 
   return (
     <>
       <header className="document-bar">
-        <input
-          aria-label="Exam name"
-          className="document-title"
-          value={title}
-          onChange={(event) => {
-            setTitle(event.target.value)
-            localStorage.setItem(titleKey, event.target.value)
-          }}
-        />
+        {/* The mark sits at the far left of the bar with the exam's name beside
+            it, the way a document editor puts its logo next to the file name. */}
+        <div className="document-identity">
+          <img className="app-logo" src="/logo.png" alt="Test Parrot" width={36} height={36} />
+          <input
+            aria-label="Exam name"
+            className="document-title"
+            value={draft.exam.title}
+            onChange={(event) => store.setTitle(event.target.value)}
+          />
+        </div>
         <div className="header-actions">
-          <button type="button" className="secondary-button" onClick={() => setEditing('new')}>+ Add question</button>
-          <button type="button" className="print-button" onClick={() => window.print()}>Print</button>
+          <button
+            type="button"
+            className="toolbar-icon-button"
+            aria-label="Undo"
+            title="Undo (Ctrl/Cmd+Z)"
+            disabled={!store.canUndo()}
+            onClick={store.undo}
+          >
+            <Undo2 />
+          </button>
+          <button
+            type="button"
+            className="toolbar-icon-button"
+            aria-label="Redo"
+            title="Redo (Ctrl/Cmd+Shift+Z)"
+            disabled={!store.canRedo()}
+            onClick={store.redo}
+          >
+            <Redo2 />
+          </button>
+          <button
+            type="button"
+            className="secondary-button insert-question-button"
+            onClick={() => setEditing({ question: createQuestion('multiple-choice'), after: null })}
+          >
+            <Plus />
+            Insert question
+          </button>
+          <button
+            ref={exportButton}
+            type="button"
+            className="export-button"
+            aria-haspopup="dialog"
+            aria-expanded={exportDialog !== null}
+            onClick={() =>
+              setExportDialog({
+                configuration: DEFAULT_EXPORT_CONFIGURATION,
+                error: null,
+              })
+            }
+          >
+            Export
+          </button>
         </div>
       </header>
 
-      <main className="exam-workspace">
-        <article className="exam-page">
-          <h1>{title}</h1>
-          {questions.length === 0 && (
-            <button className="empty-exam" type="button" onClick={() => setEditing('new')}>
-              Add your first question
-            </button>
-          )}
-          {questions.map((question, index) => (
-            <section className="exam-question" key={question.id}>
-              <aside className="question-actions">
-                <strong>Question {index + 1}</strong>
-                <button type="button" onClick={() => setEditing(question)}>Edit</button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (window.confirm(`Delete question ${index + 1}?`)) {
-                      setQuestions((items) => items.filter((item) => item.id !== question.id))
-                    }
-                  }}
-                >Delete</button>
-              </aside>
-              <div className="question-number">{index + 1}.</div>
-              <div className="question-preview">
-                <CrepeQuestion value={question.doc} readonly />
-              </div>
-            </section>
-          ))}
-        </article>
-      </main>
+      {exportDialog && (
+        <ExportDialog
+          exam={draft.exam}
+          version={version}
+          configuration={exportDialog.configuration}
+          onConfigurationChange={(configuration) =>
+            setExportDialog((current) => (current ? { ...current, configuration } : current))
+          }
+          initialError={exportDialog.error}
+          onSubmit={async (configuration, onProgress) => {
+            await runExport(configuration, onProgress)
+            closeExportDialog()
+          }}
+          onCancel={closeExportDialog}
+        />
+      )}
+
+      <div className="editor-output">
+        <ExamPage
+          exam={draft.exam}
+          version={version}
+          selection={selection}
+          onEdit={(questionId) => {
+            const question = questionById(draft.exam, questionId)
+            if (question) setEditing({ question, after: null })
+          }}
+          onDuplicate={(questionId) => {
+            const question = questionById(draft.exam, questionId)
+            if (question) store.addQuestion(duplicateQuestion(question))
+          }}
+          onDelete={(questionId) => {
+            if (window.confirm('Delete this question?')) {
+              store.removeQuestion(questionId)
+              selection.clear()
+            }
+          }}
+          onAdd={(section, afterQuestionId) =>
+            setEditing({
+              question: createQuestion(section),
+              after: afterQuestionId ?? null,
+            })
+          }
+          onSetColumns={(questionIds, columns) =>
+            store.setQuestionColumns(questionIds, columns)
+          }
+          onShuffleAnswers={(questionIds) =>
+            store.updateCurrentVersion((current) =>
+              shuffleAnswers(draft.exam, current, questionIds, Math.random),
+            )
+          }
+          onShuffleSelectedQuestions={(questionIds) =>
+            store.updateCurrentVersion((current) =>
+              shuffleSelectedQuestions(draft.exam, current, questionIds, Math.random),
+            )
+          }
+          onMoveQuestions={(questionIds, targetId, placement) =>
+            store.updateCurrentVersion((current) =>
+              moveQuestions(draft.exam, current, questionIds, targetId, placement),
+            )
+          }
+          unsavedDraft={!store.hasSavedVersions()}
+        />
+      </div>
+
+      {handoff?.format === 'print' && <PrintDocument plans={handoff.plans} />}
 
       {editing && (
         <QuestionDialog
-          question={editing === 'new' ? undefined : editing}
+          question={editing.question}
+          isNew={!questionById(draft.exam, editing.question.id)}
           onCancel={() => setEditing(null)}
           onSave={(saved) => {
-            setQuestions((items) => {
-              const exists = items.some((item) => item.id === saved.id)
-              return exists ? items.map((item) => item.id === saved.id ? saved : item) : [...items, saved]
-            })
+            store.updateQuestion(saved)
+            // Read the exam back rather than closing over `draft`: the move
+            // needs the version that already contains the question it is
+            // moving, and the store has just produced it.
+            if (editing.after) {
+              const after = editing.after
+              store.updateCurrentVersion((version) =>
+                moveQuestions(store.getState().exam, version, [saved.id], after, 'after'),
+              )
+            }
             setEditing(null)
           }}
         />

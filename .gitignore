@@ -1,9 +1,13 @@
 node_modules
 dist
-.next
+playwright-report
+test-results
 *.tsbuildinfo
 .DS_Store
 
 # tsc -b output for the vite config
 vite.config.js
 vite.config.d.ts
+
+# Diagnostic output from `bun run test:exports` — never committed.
+export-artifacts
