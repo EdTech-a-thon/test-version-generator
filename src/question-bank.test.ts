@@ -79,8 +79,26 @@ describe('referencing from the Exam Draft', () => {
     ])
   })
 
-  test('appends when the question it would follow is not on the Exam Draft', () => {
+  test('adds a reference immediately before a given one', () => {
+    expect(withReferenceAdded(draftOf(), 'q4', 'q2', 'before').questionIds).toEqual([
+      'q1',
+      'q4',
+      'q2',
+      'q3',
+    ])
+    // The placement the first position needs, and the one no "after" can say.
+    expect(withReferenceAdded(draftOf(), 'q4', 'q1', 'before').questionIds).toEqual([
+      'q4',
+      ...ids,
+    ])
+  })
+
+  test('appends when the question it would sit beside is not on the Exam Draft', () => {
     expect(withReferenceAdded(draftOf(), 'q4', 'elsewhere').questionIds).toEqual([
+      ...ids,
+      'q4',
+    ])
+    expect(withReferenceAdded(draftOf(), 'q4', 'elsewhere', 'before').questionIds).toEqual([
       ...ids,
       'q4',
     ])

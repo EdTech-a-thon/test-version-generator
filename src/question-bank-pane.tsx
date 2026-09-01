@@ -17,11 +17,12 @@
 // filter values and row selection are transient UI state — they are handed in
 // rather than stored, and they never enter the authoring history.
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import {
   CornerDownRight,
   EllipsisVertical,
   ListPlus,
+  PanelLeftClose,
   Pencil,
   Plus,
   Replace,
@@ -32,12 +33,14 @@ import { stemPreview, type StemPreviewBadge } from './stem-preview'
 import {
   DIFFICULTIES,
   DIFFICULTY_LABELS,
+  SECTION_LABELS,
   SECTION_ORDER,
   topicsOf,
   type Question,
   type QuestionType,
 } from './exam'
 import type { QuestionBank } from './question-bank'
+import type { WorkspaceDrag } from './use-workspace-drag'
 import {
   NO_FILTER,
   browseQuestionBank,
@@ -46,11 +49,6 @@ import {
   type DifficultyFilter,
   type QuestionBankFilter,
 } from './question-bank-view'
-
-const TYPE_LABELS: Record<QuestionType, string> = {
-  'multiple-choice': 'Multiple choice',
-  open: 'Short answer',
-}
 
 const BADGE_LABELS: Record<StemPreviewBadge, string> = {
   image: 'Image',
@@ -150,7 +148,7 @@ function FilterDropdown<T extends string>({
 // The fixed Question Sections, in the order the exam prints them.
 const TYPE_OPTIONS: FilterOption<QuestionType>[] = SECTION_ORDER.map((type) => ({
   value: type,
-  label: TYPE_LABELS[type],
+  label: SECTION_LABELS[type],
 }))
 
 const DIFFICULTY_OPTIONS: FilterOption<DifficultyFilter>[] = [
@@ -172,6 +170,8 @@ export function QuestionBankPane({
   onAddToExamDraft,
   onInsertAfterExamDraftSelection,
   onReplaceExamDraftSelection,
+  drag,
+  onCollapse,
 }: {
   bank: QuestionBank
   /** Which bank records the Exam Draft currently references. */
@@ -190,10 +190,119 @@ export function QuestionBankPane({
   onAddToExamDraft: (questionId: string) => void
   onInsertAfterExamDraftSelection: (questionId: string) => void
   onReplaceExamDraftSelection: (questionId: string) => void
+  /** The gesture in flight. A row that is not already on the Exam Draft is a
+   *  drag source for it; a row that is offers no gesture at all, because a
+   *  reference occurs at most once and refusing a drop after the fact would be
+   *  a worse way to say so. */
+  drag: WorkspaceDrag
+  onCollapse: () => void
 }) {
   const [menu, setMenu] = useState<{ questionId: string; point: MenuPoint } | null>(null)
   const questions = browseQuestionBank(bank, filter)
   const filtered = isFilterActive(filter)
+  // A gesture that has not yet moved far enough to be a drag. One pointer
+  // drags at a time, so this is the pane's rather than each row's — and until
+  // it passes the threshold a press is still on its way to being a click.
+  const gesture = useRef<{
+    id: number
+    questionId: string
+    type: QuestionType
+    startX: number
+    startY: number
+    dragging: boolean
+  } | null>(null)
+  // The row whose next click is the tail of a drag rather than a selection.
+  // Kept as an id rather than a flag, and given up on its own, so a click that
+  // never arrives — a row remounted under the pointer, a capture lost on a path
+  // nobody has thought of — cannot leave the whole bank unclickable.
+  const suppressClickFor = useRef<string | null>(null)
+
+  const forgetSuppressedClick = () => {
+    setTimeout(() => {
+      suppressClickFor.current = null
+    }, 0)
+  }
+
+  const releasePointer = (event: ReactPointerEvent<HTMLElement>) => {
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId)
+    }
+  }
+
+  /** The pointer handlers a row that is not on the Exam Draft carries. A row
+   *  that is carries none: it has nowhere to be dropped. */
+  const dragHandlers = (question: Question) => ({
+    onPointerDown: (event: ReactPointerEvent<HTMLElement>) => {
+      if (event.button !== 0) return
+      const target = event.target as HTMLElement
+      if (target.closest('button, input, textarea, select, a')) return
+      gesture.current = {
+        id: event.pointerId,
+        questionId: question.id,
+        type: question.type,
+        startX: event.clientX,
+        startY: event.clientY,
+        dragging: false,
+      }
+      suppressClickFor.current = null
+      event.currentTarget.setPointerCapture(event.pointerId)
+    },
+    onPointerMove: (event: ReactPointerEvent<HTMLElement>) => {
+      const held = gesture.current
+      if (!held || held.id !== event.pointerId) return
+      if (!held.dragging) {
+        const distance = Math.hypot(
+          event.clientX - held.startX,
+          event.clientY - held.startY,
+        )
+        if (distance < 5) return
+        held.dragging = true
+        suppressClickFor.current = held.questionId
+        drag.begin(
+          { pane: 'question-bank', questionId: held.questionId, type: held.type },
+          {
+            elements: [event.currentTarget],
+            bounds: event.currentTarget.getBoundingClientRect(),
+            point: { x: held.startX, y: held.startY },
+          },
+        )
+      }
+      event.preventDefault()
+      drag.move({ x: event.clientX, y: event.clientY })
+    },
+    onPointerUp: (event: ReactPointerEvent<HTMLElement>) => {
+      const held = gesture.current
+      if (!held || held.id !== event.pointerId) return
+      gesture.current = null
+      releasePointer(event)
+      if (!held.dragging) return
+      event.preventDefault()
+      drag.drop()
+      // The click this press is about to raise is the one to swallow. A timer
+      // rather than a flag left standing: click is dispatched before timers, so
+      // this runs after the click that is coming and nothing survives it.
+      forgetSuppressedClick()
+    },
+    onPointerCancel: (event: ReactPointerEvent<HTMLElement>) => {
+      const held = gesture.current
+      if (!held || held.id !== event.pointerId) return
+      gesture.current = null
+      releasePointer(event)
+      if (held.dragging) {
+        suppressClickFor.current = null
+        drag.cancel()
+      }
+    },
+    onLostPointerCapture: (event: ReactPointerEvent<HTMLElement>) => {
+      const held = gesture.current
+      if (!held || held.id !== event.pointerId) return
+      gesture.current = null
+      if (held.dragging) {
+        suppressClickFor.current = null
+        drag.cancel()
+      }
+    },
+  })
 
   const menuItems = (question: Question): MenuItem[] => {
     const items: MenuItem[] = [
@@ -245,10 +354,24 @@ export function QuestionBankPane({
     <section className="question-bank" aria-label="Question Bank">
       <header className="question-bank-header">
         <h2>Question Bank</h2>
-        <button type="button" className="secondary-button" onClick={onCreate}>
-          <Plus />
-          New question
-        </button>
+        <div className="question-bank-header-actions">
+          <button type="button" className="secondary-button" onClick={onCreate}>
+            <Plus />
+            New question
+          </button>
+          {/* Getting the bank out of the way is a view of the workspace, not a
+              change to the exam: it is forgotten on reload like every other
+              browsing choice. */}
+          <button
+            type="button"
+            className="question-bank-action"
+            aria-label="Hide the Question Bank"
+            title="Hide the Question Bank"
+            onClick={onCollapse}
+          >
+            <PanelLeftClose />
+          </button>
+        </div>
       </header>
 
       <div className="question-bank-filters">
@@ -323,9 +446,27 @@ export function QuestionBankPane({
                 key={question.id}
                 data-question-id={question.id}
                 data-in-exam={inExamDraft ? 'true' : undefined}
+                // An unused row is a drag source; a row already on the Exam
+                // Draft is not one, and says so before the gesture starts.
+                data-draggable={inExamDraft ? undefined : 'true'}
+                data-dragging={
+                  drag.source?.pane === 'question-bank'
+                  && drag.source.questionId === question.id
+                    ? 'true'
+                    : undefined
+                }
                 aria-current={selectedQuestionId === question.id ? 'true' : undefined}
                 tabIndex={0}
-                onClick={() => onSelect(question.id)}
+                {...(inExamDraft ? {} : dragHandlers(question))}
+                onClick={() => {
+                  // The press that has just finished dragging is not a click —
+                  // that press, on that row, and no other click anywhere.
+                  if (suppressClickFor.current === question.id) {
+                    suppressClickFor.current = null
+                    return
+                  }
+                  onSelect(question.id)
+                }}
                 // Single-click selects, so opening the whole question needs a
                 // second click, the Enter key, or the Edit action.
                 onDoubleClick={() => onEdit(question.id)}
@@ -338,7 +479,7 @@ export function QuestionBankPane({
                 <div className="question-bank-row-content">
                   <span className="question-bank-row-meta">
                     <span className="question-bank-row-type">
-                      {TYPE_LABELS[question.type]}
+                      {SECTION_LABELS[question.type]}
                     </span>
                     {question.difficulty && (
                       <span className="question-bank-row-difficulty">

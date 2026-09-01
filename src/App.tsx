@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { Milkdown, useEditor } from '@milkdown/react'
 import { Crepe } from '@milkdown/crepe'
 import { keymapRef } from '@milkdown/crepe/feature/toolbar'
@@ -39,13 +39,15 @@ import {
   withTopicAdded,
   withTypeSwitched,
 } from './exam'
-import type { Difficulty, Question, QuestionType } from './exam'
+import type { Difficulty, Question, QuestionPlacement, QuestionType } from './exam'
 import { bankQuestionById } from './question-bank'
 import type { ExamStore } from './exam-store'
 import { ExamPage, PrintDocument } from './exam-page'
 import { QuestionBankPane } from './question-bank-pane'
 import { NO_FILTER, type QuestionBankFilter } from './question-bank-view'
 import { useSelection } from './use-selection'
+import { useWorkspaceDrag } from './use-workspace-drag'
+import { WorkspaceSplit } from './workspace-split'
 import type { LayoutPlan } from './export-plan'
 import {
   DEFAULT_EXPORT_CONFIGURATION,
@@ -434,6 +436,11 @@ export default function App({ store }: { store: ExamStore }) {
   // never dirties the exam and never appears in undo history.
   const [bankFilter, setBankFilter] = useState<QuestionBankFilter>(NO_FILTER)
   const [selectedBankId, setSelectedBankId] = useState<string | null>(null)
+  // A question an authoring action has just put on the Exam Draft, waiting to be
+  // revealed. `ExamPage` clears it once repagination has actually put it on a
+  // page, which — for a change of content — is not the same moment.
+  const [revealQuestionId, setRevealQuestionId] = useState<string | null>(null)
+  const clearReveal = useCallback(() => setRevealQuestionId(null), [])
   // What Insert and Replace act against: the question selected on the Exam
   // Draft, when exactly one is. Two selected questions name no single position,
   // so composition waits until the teacher has said which one they mean — and
@@ -445,6 +452,59 @@ export default function App({ store }: { store: ExamStore }) {
     selectedId && examDraftIds.has(selectedId)
       ? bankQuestionById(state.questionBank, selectedId) ?? null
       : null
+
+  // One composition, however it was asked for.
+  //
+  // A pointer gesture, the row's Add button and the row menu's Insert and
+  // Replace are four ways of saying the same three things, so they say them
+  // here: exactly one call to the authoring boundary, then the incoming
+  // question becomes the selected one and is queued to be revealed. That is
+  // what makes the paths yield the same Question Bank and Exam Draft state
+  // rather than merely similar ones — and what stops a question composed one
+  // way being findable while the same question composed another way is not.
+  const selectAndReveal = (questionId: string) => {
+    selectOnExamDraft(questionId)
+    setRevealQuestionId(questionId)
+  }
+  const addToExamDraft = (questionId: string) => {
+    store.addToExamDraft(questionId)
+    selectAndReveal(questionId)
+  }
+  const insertIntoExamDraft = (
+    questionId: string,
+    targetQuestionId: string,
+    placement: QuestionPlacement,
+  ) => {
+    store.addToExamDraft(questionId, targetQuestionId, placement)
+    selectAndReveal(questionId)
+  }
+  const replaceInExamDraft = (outgoingQuestionId: string, incomingQuestionId: string) => {
+    store.replaceInExamDraft(outgoingQuestionId, incomingQuestionId)
+    // Necessary rather than merely tidy: the outgoing question is off the exam
+    // now, and a selection pointing at it names no position on the Exam Draft.
+    selectAndReveal(incomingQuestionId)
+  }
+
+  // Where a released gesture goes. Each branch is one store call, so one drag
+  // is one dirty flag, one mirrored write and one undo step — and the store
+  // itself refuses a cross-section or duplicating drop, so the geometry above
+  // only ever has to decide *where*, never *whether*.
+  const drag = useWorkspaceDrag((source, intent) => {
+    if (source.pane === 'exam-draft') {
+      // Dragging inside the Exam Draft reorders and nothing else: the pane a
+      // gesture starts in is what gives it its meaning.
+      if (intent.kind !== 'insert') return
+      store.moveInExamDraft(source.questionIds, intent.targetQuestionId, intent.placement)
+      return
+    }
+    if (intent.kind === 'insert') {
+      insertIntoExamDraft(source.questionId, intent.targetQuestionId, intent.placement)
+    } else if (intent.kind === 'replace') {
+      replaceInExamDraft(intent.outgoingQuestionId, source.questionId)
+    } else {
+      addToExamDraft(source.questionId)
+    }
+  })
 
   useEffect(() => {
     if (editing || exportDialog) return
@@ -664,57 +724,54 @@ export default function App({ store }: { store: ExamStore }) {
 
       {/* The split authoring workspace: the Question Bank beside the rendered
           Exam Draft, opening at an even split so neither side is the lesser
-          one. Resizing and collapsing it are still to come. */}
-      <div className="authoring-workspace">
-        <QuestionBankPane
-          bank={state.questionBank}
-          examDraftIds={examDraftIds}
-          filter={bankFilter}
-          onFilterChange={setBankFilter}
-          selectedQuestionId={selectedBankId}
-          examDraftSelection={examDraftSelection}
-          onSelect={setSelectedBankId}
-          onCreate={() =>
-            setEditing({
-              question: createQuestion('multiple-choice'),
-              destination: 'question-bank',
-              after: null,
-            })
-          }
-          onEdit={(questionId) => {
-            const question = bankQuestionById(state.questionBank, questionId)
-            if (question) {
-              setEditing({ question, destination: 'question-bank', after: null })
+          one, resizable, and collapsible when the sheet needs the room. */}
+      <WorkspaceSplit
+        bank={({ collapse }) => (
+          <QuestionBankPane
+            bank={state.questionBank}
+            examDraftIds={examDraftIds}
+            filter={bankFilter}
+            onFilterChange={setBankFilter}
+            selectedQuestionId={selectedBankId}
+            examDraftSelection={examDraftSelection}
+            onSelect={setSelectedBankId}
+            drag={drag}
+            onCollapse={collapse}
+            onCreate={() =>
+              setEditing({
+                question: createQuestion('multiple-choice'),
+                destination: 'question-bank',
+                after: null,
+              })
             }
-          }}
-          onAddToExamDraft={(questionId) => store.addToExamDraft(questionId)}
-          // One store call each, the same ones a pointer gesture will make:
-          // the composition path is a second way to reach the authoring
-          // boundary, never a second implementation of it.
-          onInsertAfterExamDraftSelection={(questionId) => {
-            if (!examDraftSelection) return
-            store.addToExamDraft(questionId, examDraftSelection.id)
-            // The incoming question becomes the one being worked with, so a
-            // second insertion follows the first rather than stacking backwards
-            // behind the same target. Revealing and highlighting it after
-            // repagination is the drag-and-drop slice's business.
-            selectOnExamDraft(questionId)
-          }}
-          onReplaceExamDraftSelection={(questionId) => {
-            if (!examDraftSelection) return
-            store.replaceInExamDraft(examDraftSelection.id, questionId)
-            // Necessary here rather than merely tidy: the outgoing question is
-            // off the exam now, and a selection pointing at it names no
-            // position on the Exam Draft at all.
-            selectOnExamDraft(questionId)
-          }}
-        />
-
-        <div className="editor-output">
+            onEdit={(questionId) => {
+              const question = bankQuestionById(state.questionBank, questionId)
+              if (question) {
+                setEditing({ question, destination: 'question-bank', after: null })
+              }
+            }}
+            onAddToExamDraft={addToExamDraft}
+            // The same two calls a released pointer gesture makes, through the
+            // same seam: the action menu is a second way to reach the authoring
+            // boundary, never a second implementation of it.
+            onInsertAfterExamDraftSelection={(questionId) => {
+              if (!examDraftSelection) return
+              insertIntoExamDraft(questionId, examDraftSelection.id, 'after')
+            }}
+            onReplaceExamDraftSelection={(questionId) => {
+              if (!examDraftSelection) return
+              replaceInExamDraft(examDraftSelection.id, questionId)
+            }}
+          />
+        )}
+        examDraft={
           <ExamPage
             exam={exam}
             version={version}
             selection={selection}
+            drag={drag}
+            revealQuestionId={revealQuestionId}
+            onRevealed={clearReveal}
             onEdit={(questionId) => {
               const question = bankQuestionById(state.questionBank, questionId)
               if (question) {
@@ -736,13 +793,10 @@ export default function App({ store }: { store: ExamStore }) {
             onSetColumns={(questionIds, columns) =>
               store.setQuestionColumns(questionIds, columns)
             }
-            onMoveQuestions={(questionIds, targetId, placement) =>
-              store.moveInExamDraft(questionIds, targetId, placement)
-            }
             unsavedDraft={!store.hasSavedExam()}
           />
-        </div>
-      </div>
+        }
+      />
 
       {handoff?.format === 'print' && <PrintDocument plans={handoff.plans} />}
 

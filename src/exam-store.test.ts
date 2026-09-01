@@ -247,6 +247,68 @@ describe('Insert and Replace', () => {
     expect(renderedIds(store)).toEqual([questions[0]!.id, spare.id, questions[1]!.id])
   })
 
+  test('inserts an unused bank question before a chosen Exam Draft question', async () => {
+    const { store, questions } = await withExamDraft(2)
+    const spare = createQuestion('multiple-choice')
+    store.createInQuestionBank(spare)
+
+    store.addToExamDraft(spare.id, questions[1]!.id, 'before')
+
+    expect(renderedIds(store)).toEqual([questions[0]!.id, spare.id, questions[1]!.id])
+  })
+
+  test('inserts before the first question of a Question Section', async () => {
+    // The only placement that cannot be expressed as "after something": the
+    // top edge of the first rendered question in its section.
+    const { store, questions } = await withExamDraft(2)
+    const spare = createQuestion('multiple-choice')
+    store.createInQuestionBank(spare)
+
+    store.addToExamDraft(spare.id, questions[0]!.id, 'before')
+
+    expect(renderedIds(store)).toEqual([spare.id, questions[0]!.id, questions[1]!.id])
+  })
+
+  test('inserts before a question whose Exam Draft neighbour is in the other section', async () => {
+    // The Exam Draft's stored order interleaves the sections; the rendered
+    // order groups them. An insertion is placed against the *rendered*
+    // neighbour, so the two cannot disagree about where the question landed.
+    const { store, questions } = await withExamDraft(1, 'multiple-choice')
+    const shortAnswer = createQuestion('open')
+    store.createInExamDraft(shortAnswer)
+    const second = createQuestion('multiple-choice')
+    store.createInExamDraft(second)
+    const spare = createQuestion('multiple-choice')
+    store.createInQuestionBank(spare)
+    expect(store.getState().examDraft.questionIds).toEqual([
+      questions[0]!.id,
+      shortAnswer.id,
+      second.id,
+    ])
+
+    store.addToExamDraft(spare.id, second.id, 'before')
+
+    expect(renderedIds(store)).toEqual([
+      questions[0]!.id,
+      spare.id,
+      second.id,
+      shortAnswer.id,
+    ])
+  })
+
+  test('refuses to insert before a question in another Question Section', async () => {
+    const { store } = await withExamDraft(1, 'multiple-choice')
+    const shortAnswer = createQuestion('open')
+    store.createInExamDraft(shortAnswer)
+    const spare = createQuestion('multiple-choice')
+    store.createInQuestionBank(spare)
+    const before = store.getState()
+
+    store.addToExamDraft(spare.id, shortAnswer.id, 'before')
+
+    expect(store.getState()).toBe(before)
+  })
+
   test('refuses to insert into another Question Section', async () => {
     const { store, questions } = await withExamDraft(2, 'multiple-choice')
     const shortAnswer = createQuestion('open')

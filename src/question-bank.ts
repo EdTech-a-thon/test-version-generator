@@ -11,7 +11,7 @@
 // and `selected-exam.ts` is what turns the pair into the `Exam` that rendering
 // and export consume.
 
-import { DEFAULT_EXAM_TITLE, type Question } from './exam'
+import { DEFAULT_EXAM_TITLE, type Question, type QuestionPlacement } from './exam'
 
 /** Canonical Question Content, stored once per question. */
 export type QuestionBank = {
@@ -61,8 +61,12 @@ export function withQuestionBanked(
 }
 
 /**
- * Adds one reference to the Exam Draft, after `afterQuestionId` when that
+ * Adds one reference to the Exam Draft, beside `targetQuestionId` when that
  * question is already on it and at the end otherwise.
+ *
+ * `placement` says which side of the target the reference lands on. `'before'`
+ * exists because it is the only way to name the first position in a Question
+ * Section: there is no question there to sit after.
  *
  * A question already referenced is left exactly where it is: a reference occurs
  * at most once, so adding one twice is not a move.
@@ -70,14 +74,19 @@ export function withQuestionBanked(
 export function withReferenceAdded(
   draft: ExamDraft,
   questionId: string,
-  afterQuestionId?: string | null,
+  targetQuestionId?: string | null,
+  placement: QuestionPlacement = 'after',
 ): ExamDraft {
   if (isInExamDraft(draft, questionId)) return draft
-  const index = afterQuestionId
-    ? draft.questionIds.indexOf(afterQuestionId)
+  const index = targetQuestionId
+    ? draft.questionIds.indexOf(targetQuestionId)
     : -1
   const questionIds = [...draft.questionIds]
-  questionIds.splice(index < 0 ? questionIds.length : index + 1, 0, questionId)
+  questionIds.splice(
+    index < 0 ? questionIds.length : placement === 'before' ? index : index + 1,
+    0,
+    questionId,
+  )
   return { ...draft, questionIds }
 }
 

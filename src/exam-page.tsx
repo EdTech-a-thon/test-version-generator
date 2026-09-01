@@ -41,14 +41,11 @@ import {
   type QuestionItem,
   type PlannedQuestion,
 } from './export-plan'
-import type {
-  ColumnSetting,
-  Exam,
-  QuestionPlacement,
-  QuestionType,
-  Version,
-} from './exam'
+import { SECTION_LABELS } from './exam'
+import type { ColumnSetting, Exam, QuestionType, Version } from './exam'
 import type { Selection } from './use-selection'
+import type { WorkspaceDrag } from './use-workspace-drag'
+import { dropStateOf, type QuestionDropState } from './workspace-drag'
 import { CircleMinus, Copy, EllipsisVertical, ListPlus, Pencil, Plus, Sparkles } from 'lucide-react'
 import {
   ContextMenu,
@@ -268,7 +265,8 @@ function QuestionView({
   onOpenMenu,
   dragging,
   dropped,
-  dropPlacement,
+  revealed,
+  dropState,
   onDragStart,
   onDragMove,
   onDrop,
@@ -283,7 +281,8 @@ function QuestionView({
   onOpenMenu: (questionId: string, point: MenuPoint, side?: MenuSide) => void
   dragging: boolean
   dropped: boolean
-  dropPlacement: QuestionPlacement | null
+  revealed: boolean
+  dropState: QuestionDropState
   onDragStart: (
     question: PlannedQuestion,
     element: HTMLElement,
@@ -312,13 +311,14 @@ function QuestionView({
   if (selected) classes.push('exam-question--selected')
   if (dragging) classes.push('exam-question--dragging')
   if (dropped) classes.push('exam-question--dropped')
+  if (revealed) classes.push('exam-question--revealed')
 
   return (
     <section
       className={classes.join(' ')}
       data-question-id={question.id}
       data-drop-target={item.numbered ? question.type : undefined}
-      data-drop={dropPlacement ?? undefined}
+      data-drop={dropState ?? undefined}
       onPointerDown={(event) => {
         if (event.button !== 0) return
         const target = event.target as HTMLElement
@@ -428,7 +428,8 @@ function PageItemView({
   onOpenMenu,
   draggedQuestionIds,
   droppedQuestionIds,
-  dropTarget,
+  revealedQuestionIds,
+  dropState,
   onDragStart,
   onDragMove,
   onDrop,
@@ -442,7 +443,8 @@ function PageItemView({
   onOpenMenu: (questionId: string, point: MenuPoint, side?: MenuSide) => void
   draggedQuestionIds: ReadonlySet<string>
   droppedQuestionIds: ReadonlySet<string>
-  dropTarget: { questionId: string; placement: QuestionPlacement } | null
+  revealedQuestionIds: ReadonlySet<string>
+  dropState: (questionId: string) => QuestionDropState
   onDragStart: (
     question: PlannedQuestion,
     element: HTMLElement,
@@ -471,9 +473,8 @@ function PageItemView({
           onOpenMenu={onOpenMenu}
           dragging={draggedQuestionIds.has(item.question.id)}
           dropped={droppedQuestionIds.has(item.question.id) && item.numbered}
-          dropPlacement={
-            dropTarget?.questionId === item.question.id ? dropTarget.placement : null
-          }
+          revealed={revealedQuestionIds.has(item.question.id)}
+          dropState={dropState(item.question.id)}
           onDragStart={onDragStart}
           onDragMove={onDragMove}
           onDrop={onDrop}
@@ -523,6 +524,15 @@ function clearOnBackgroundClick(selection: Selection) {
   }
 }
 
+// How long a question stays marked after an authoring action has put it on the
+// Exam Draft. Long enough to find on a repaginated page, short enough that it
+// is plainly feedback rather than a second kind of selection.
+//
+// Published to CSS beside the page geometry, for the same reason: the mark
+// fades on an animation and is taken off by a timer, and if the two disagreed
+// the highlight would either flash back on or linger with nothing behind it.
+const REVEAL_HIGHLIGHT_MS = 1400
+
 // The geometry `export-plan.ts` packed against, handed to CSS. Screen and paper
 // agree only if the sheet is laid out at the size it was packed for, and the
 // only way to be sure of that is for both to read the same numbers.
@@ -535,6 +545,7 @@ const PAGE_GEOMETRY = {
   '--page-header-answer-key': `${HEADER_HEIGHT['answer-key']}px`,
   '--page-header-answer-key-later': `${HEADER_HEIGHT['answer-key-later']}px`,
   '--page-footer': `${FOOTER_HEIGHT}px`,
+  '--reveal-highlight': `${REVEAL_HIGHLIGHT_MS}ms`,
 } as CSSProperties
 
 // How long *editing* settles before the page is measured and packed again.
@@ -699,28 +710,32 @@ export function ExamPage({
   exam,
   version,
   selection,
+  drag,
+  revealQuestionId,
+  onRevealed,
   onEdit,
   onDuplicate,
   onRemove,
   onAdd,
   onSetColumns,
-  onMoveQuestions,
   unsavedDraft = false,
   contentSelection = { test: true, answerKey: true },
 }: {
   exam: Exam
   version: Version
   selection: Selection
+  /** The gesture in flight, coordinated across both panes of the workspace. */
+  drag: WorkspaceDrag
+  /** A question an authoring action has just put on the Exam Draft. It is
+   *  scrolled to and briefly highlighted once repagination has actually put it
+   *  on a page — which, for an insertion, is not the same moment. */
+  revealQuestionId?: string | null
+  onRevealed?: () => void
   onEdit: (questionId: string) => void
   onDuplicate: (questionId: string) => void
   onRemove: (questionIds: readonly string[]) => void
   onAdd: (section: QuestionType, afterQuestionId?: string) => void
   onSetColumns: (questionIds: readonly string[], columns: ColumnSetting) => void
-  onMoveQuestions: (
-    questionIds: readonly string[],
-    targetId: string,
-    placement: QuestionPlacement,
-  ) => void
   unsavedDraft?: boolean
   contentSelection?: ExportContentSelection
 }) {
@@ -731,77 +746,17 @@ export function ExamPage({
   const orderedIds = orderedQuestionIds(pages)
   const columnSettings = columnSettingsOf(exam)
   const clearOnBackground = clearOnBackgroundClick(selection)
-  // Pointer capture keeps this gesture in page control. Native HTML dragging
-  // owns the system cursor after `dragstart`, ignoring even a computed
-  // `cursor: grabbing`; a page-owned preview lets the closed hand remain while
-  // preserving the same source, marker, and drop state.
-  const dragged = useRef<{ ids: string[]; type: QuestionType } | null>(null)
-  const dragPreview = useRef<{
-    element: HTMLElement
-    offsetX: number
-    offsetY: number
-  } | null>(null)
-  const [draggedQuestionIds, setDraggedQuestionIds] = useState<ReadonlySet<string>>(
-    new Set(),
-  )
-  // After a successful drop, feedback belongs to the question that moved, not
-  // whichever question happens to remain under the stationary pointer. It
-  // lasts until the pointer moves again and normal geometric hover resumes.
-  const [droppedQuestionIds, setDroppedQuestionIds] = useState<ReadonlySet<string>>(
-    new Set(),
-  )
-  // Where the question would land if it were let go now — what the drop line
-  // is drawn from. Held next to the drag itself so exactly one line can show.
-  const pendingDrop = useRef<{
-    questionId: string
-    placement: QuestionPlacement
-  } | null>(null)
-  const [dropTarget, setDropTarget] = useState<{
-    questionId: string
-    placement: QuestionPlacement
-  } | null>(null)
-
-  const clearDragArtifacts = useCallback(() => {
-    dragPreview.current?.element.remove()
-    dragPreview.current = null
-    document.documentElement.classList.remove('question-drag-active')
-  }, [])
-  const endDrag = useCallback(() => {
-    dragged.current = null
-    pendingDrop.current = null
-    clearDragArtifacts()
-    setDraggedQuestionIds(new Set())
-    setDropTarget(null)
-  }, [clearDragArtifacts])
-  useEffect(() => clearDragArtifacts, [clearDragArtifacts])
-
-  const markDrop = useCallback(
-    (questionId: string, placement: QuestionPlacement) => {
-      const next = { questionId, placement }
-      pendingDrop.current = next
-      // `dragover` fires continuously; only a change in where the question
-      // would land is worth a re-render.
-      setDropTarget((current) =>
-        current?.questionId === questionId && current.placement === placement
-          ? current
-          : next,
-      )
-    },
-    [],
-  )
-  const clearDrop = useCallback(() => {
-    pendingDrop.current = null
-    setDropTarget(null)
-  }, [])
-
+  // Dragging is coordinated above this pane, because one gesture spans both of
+  // them: a Question Bank question composed onto the Exam Draft starts in the
+  // other pane entirely. What stays here is what only this pane knows — which
+  // questions a gesture picks up, and what their markup is — and the pointer
+  // capture and page-owned preview that gesture has always used.
+  const { draggedQuestionIds, droppedQuestionIds } = drag
   const beginDrag = useCallback((
     question: PlannedQuestion,
     element: HTMLElement,
     point: { x: number; y: number },
   ) => {
-    clearDragArtifacts()
-    const bounds = element.getBoundingClientRect()
-    const computed = getComputedStyle(element)
     const ids = selection.isSelected(question.id)
       ? [...new Set(orderedIds.filter((id) =>
           selection.isSelected(id) &&
@@ -815,85 +770,49 @@ export function ExamPage({
         ctrlKey: false,
       })
     }
-    const preview = document.createElement('div')
-    preview.className = 'question-drag-preview'
-    preview.setAttribute('aria-hidden', 'true')
-    preview.setAttribute('inert', '')
-    preview.dataset.count = String(ids.length)
-    const selectedElements = Array.from(
+    const elements = Array.from(
       workspace.current?.querySelectorAll<HTMLElement>('.exam-question[data-question-id]') ?? [],
     ).filter((candidate) => ids.includes(candidate.dataset.questionId ?? ''))
-    for (const selectedElement of selectedElements) {
-      const clone = selectedElement.cloneNode(true) as HTMLElement
-      clone.classList.remove(
-        'exam-question--selected',
-        'exam-question--dragging',
-        'exam-question--dropped',
-      )
-      clone.removeAttribute('data-question-id')
-      clone.removeAttribute('data-drop-target')
-      clone.removeAttribute('data-drop')
-      clone.querySelectorAll('[id]').forEach((child) => child.removeAttribute('id'))
-      preview.append(clone)
-    }
-    Object.assign(preview.style, {
-      left: `${bounds.left}px`,
-      top: `${bounds.top}px`,
-      width: `${bounds.width}px`,
-      color: computed.color,
-      fontFamily: computed.fontFamily,
-      fontSize: computed.fontSize,
-      lineHeight: computed.lineHeight,
-    })
-    document.body.append(preview)
-    document.documentElement.classList.add('question-drag-active')
-    dragPreview.current = {
-      element: preview,
-      offsetX: point.x - bounds.left,
-      offsetY: point.y - bounds.top,
-    }
-    dragged.current = { ids, type: question.type }
-    setDroppedQuestionIds(new Set())
-    setDraggedQuestionIds(new Set(ids))
-  }, [clearDragArtifacts, exam.questions, orderedIds, selection])
-
-  const moveDrag = useCallback((point: { x: number; y: number }) => {
-    const preview = dragPreview.current
-    if (preview) {
-      preview.element.style.left = `${point.x - preview.offsetX}px`
-      preview.element.style.top = `${point.y - preview.offsetY}px`
-    }
-    const source = dragged.current
-    const target = document
-      .elementFromPoint(point.x, point.y)
-      ?.closest<HTMLElement>('.exam-question[data-drop-target]')
-    const targetId = target?.dataset.questionId
-    if (
-      !source ||
-      !target ||
-      !targetId ||
-      source.ids.includes(targetId) ||
-      target.dataset.dropTarget !== source.type
-    ) {
-      clearDrop()
-      return
-    }
-    const bounds = target.getBoundingClientRect()
-    markDrop(
-      targetId,
-      point.y < bounds.top + bounds.height / 2 ? 'before' : 'after',
+    drag.begin(
+      { pane: 'exam-draft', questionIds: ids, type: question.type },
+      { elements, bounds: element.getBoundingClientRect(), point },
     )
-  }, [clearDrop, markDrop])
+  }, [drag, exam.questions, orderedIds, selection])
 
-  const finishDrag = useCallback(() => {
-    const source = dragged.current
-    const target = pendingDrop.current
-    if (source && target) {
-      onMoveQuestions(source.ids, target.questionId, target.placement)
-    }
-    endDrag()
-    if (source && target) setDroppedQuestionIds(new Set(source.ids))
-  }, [endDrag, onMoveQuestions])
+  const questionDropState = useCallback(
+    (questionId: string) => dropStateOf(drag.intent, questionId),
+    [drag.intent],
+  )
+  // Revealing a question an authoring action has just put on the Exam Draft.
+  //
+  // Insertion and Replace change the exam's *content*, and content changes wait
+  // for a pause before the page is measured and packed again. So the question
+  // is not on the page in the frame the action was taken — it arrives one
+  // repagination later, possibly on a different sheet from the one that was in
+  // view. This runs on every plan until the question is actually there, then
+  // scrolls to it and marks it for a moment.
+  const [revealedQuestionIds, setRevealedQuestionIds] = useState<ReadonlySet<string>>(
+    new Set(),
+  )
+  useEffect(() => {
+    if (!revealQuestionId) return
+    const element = workspace.current?.querySelector<HTMLElement>(
+      `.exam-question[data-question-id="${CSS.escape(revealQuestionId)}"]`,
+    )
+    // Not paginated onto a page yet: this effect runs again on the next plan.
+    if (!element) return
+    element.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+    setRevealedQuestionIds(new Set([revealQuestionId]))
+    onRevealed?.()
+  }, [revealQuestionId, plan, onRevealed])
+  // The highlight's own lifetime, kept off the effect above so that clearing
+  // `revealQuestionId` — which that effect does — cannot cancel it.
+  useEffect(() => {
+    if (revealedQuestionIds.size === 0) return
+    const timer = setTimeout(() => setRevealedQuestionIds(new Set()), REVEAL_HIGHLIGHT_MS)
+    return () => clearTimeout(timer)
+  }, [revealedQuestionIds])
+
   // Keyed on the numbered piece: a split question's handles and menu belong to
   // the piece carrying its number, and that is the one holding its `number`.
   const questionsById = new Map(
@@ -922,6 +841,15 @@ export function ExamPage({
   // to act on, so it simply stops being rendered.
   const menuQuestion = menu ? questionsById.get(menu.questionId) : undefined
 
+  // The Question Section a gesture in flight could start, if it is one the Exam
+  // Draft has no questions in. A gesture from within the Exam Draft is a
+  // reorder and can never reach an empty section, so it is offered nothing.
+  const emptySectionOffer =
+    drag.source?.pane === 'question-bank'
+      && !exam.questions.some((question) => question.type === drag.source?.type)
+      ? drag.source.type
+      : null
+
   const workspaceClasses = ['exam-workspace']
   if (unsavedDraft) workspaceClasses.push('exam-workspace--unsaved')
   if (draggedQuestionIds.size > 0) workspaceClasses.push('exam-workspace--dragging')
@@ -934,7 +862,7 @@ export function ExamPage({
       style={PAGE_GEOMETRY}
       onClick={clearOnBackground}
       onPointerMove={() => {
-        if (!dragged.current && droppedQuestionIds.size > 0) setDroppedQuestionIds(new Set())
+        if (!drag.source && droppedQuestionIds.size > 0) drag.clearDropFeedback()
       }}
     >
       {pages.map((page, index) => (
@@ -974,17 +902,37 @@ export function ExamPage({
                 onOpenMenu={openMenu}
                 draggedQuestionIds={draggedQuestionIds}
                 droppedQuestionIds={droppedQuestionIds}
-                dropTarget={dropTarget}
+                revealedQuestionIds={revealedQuestionIds}
+                dropState={questionDropState}
                 onDragStart={beginDrag}
-                onDragMove={moveDrag}
-                onDrop={finishDrag}
-                onDragEnd={endDrag}
+                onDragMove={drag.move}
+                onDrop={drag.drop}
+                onDragEnd={drag.cancel}
               />
             ))}
           </div>
           <footer className="page-footer">{page.furniture.pageNumber}</footer>
         </article>
       ))}
+
+      {/* The first question of a Question Section that has none.
+
+          A composition gesture needs somewhere to land before there is
+          anything to land beside, and an empty Question Section is not drawn on
+          the sheet at all — a section is derived from the questions in it. So
+          the offer is made as editing chrome pinned to the foot of this pane:
+          it appears only while a compatible gesture is in flight, it is
+          reachable however far the exam has been scrolled, and it never takes a
+          pixel from the paper's own geometry. */}
+      {emptySectionOffer && (
+        <div
+          className="exam-draft-empty-section"
+          data-empty-section={emptySectionOffer}
+          data-active={drag.intent?.kind === 'insert-first' ? 'true' : undefined}
+        >
+          Drop to add the first {SECTION_LABELS[emptySectionOffer]} question
+        </div>
+      )}
 
       {menu && menuQuestion && (
         <ContextMenu

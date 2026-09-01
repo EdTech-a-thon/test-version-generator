@@ -108,14 +108,47 @@ button { cursor: pointer; }
    The split authoring workspace.
 
    The Question Bank sits beside the rendered Exam Draft at an even split, so
-   neither side reads as the lesser one. The sheet keeps its real geometry —
-   it is a piece of paper, and scaling it to fit a pane would show a layout the
-   printer will not produce — so the Exam Draft pane scrolls instead. Resizing
-   the split and collapsing the bank are still to come. */
+   neither side reads as the lesser one, and the divider between them moves.
+   The sheet keeps its real geometry — it is a piece of paper, and scaling it to
+   fit a pane would show a layout the printer will not produce — so the Exam
+   Draft pane scrolls instead, in both directions. When there is no room for two
+   panes the bank collapses to a rail rather than squeezing the sheet.
+
+   `--bank-column` is the width `workspace-split.tsx` is holding: a percentage
+   while the bank is open, the rail's width once it is away. The fixed drop
+   offer at the foot of the Exam Draft pane reads it too, so the two cannot
+   disagree about where the pane begins. */
 .authoring-workspace {
-  display: grid; grid-template-columns: 1fr 1fr; align-items: start;
+  --bank-column: 50%;
+  --bank-divider: 6px;
+  display: grid; grid-template-columns: var(--bank-column) var(--bank-divider) 1fr;
+  align-items: start;
+}
+/* The collapsed bank leaves a rail and no divider, so the Exam Draft pane
+   begins at the rail's own edge. */
+.authoring-workspace[data-bank-collapsed='true'] {
+  --bank-divider: 0px;
+  grid-template-columns: var(--bank-column) 1fr;
 }
 .editor-output { min-width: 0; }
+
+/* The divider. A real control: it takes focus and answers the arrow keys, so
+   the split is resizable without a pointer. */
+.workspace-resizer {
+  position: sticky; top: 58px; align-self: start;
+  height: calc(100vh - 58px); cursor: col-resize;
+  background: #f3ece2; border-right: 1px solid #e8dfd2;
+}
+.workspace-resizer:hover, .workspace-resizer:focus-visible { background: #e3d2bd; }
+.workspace-resizer:focus-visible { outline: 2px solid #8a6a4c; outline-offset: -2px; }
+
+/* What the collapsed bank leaves behind: enough to bring it back, and nothing
+   taken from the sheet. */
+.question-bank-rail {
+  position: sticky; top: 58px; align-self: start;
+  display: flex; justify-content: center; height: calc(100vh - 58px);
+  padding: 12px 6px; border-right: 1px solid #e8dfd2; background: #fffaf3;
+}
 
 .question-bank {
   position: sticky; top: 58px; align-self: start;
@@ -127,6 +160,7 @@ button { cursor: pointer; }
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
 }
 .question-bank-header h2 { margin: 0; font-size: 16px; }
+.question-bank-header-actions { display: flex; align-items: center; gap: 6px; }
 .question-bank-header .secondary-button {
   display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 6px 11px;
 }
@@ -198,6 +232,11 @@ button { cursor: pointer; }
   border-color: #8a6a4c; box-shadow: inset 0 0 0 1px #8a6a4c;
 }
 .question-bank-row:focus-visible { outline: 2px solid #8a6a4c; outline-offset: 2px; }
+/* An unused row is a drag source and says so; a row already on the exam is
+   not one, because a reference occurs at most once. */
+.question-bank-row[data-draggable] { cursor: grab; }
+.question-bank-row[data-draggable]:active { cursor: grabbing; }
+.question-bank-row[data-dragging] { opacity: 0.4; }
 .question-bank-row-content {
   flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 4px;
 }
@@ -313,12 +352,28 @@ button { cursor: pointer; }
 .exam-question:active { cursor: grabbing; }
 
 /* Pointer capture keeps the page, rather than native HTML dragging, in charge
-   of the cursor. The root class also covers the bars outside the workspace. */
+   of the cursor. The root class also covers the bars outside the workspace.
+
+   The cursor is where "this would not land here" is said. A question in another
+   Question Section exposes no drop state of its own — nothing is drawn on it at
+   all — so the only thing left to say so is the pointer. */
 .question-drag-active,
 .question-drag-active *,
 .exam-workspace--dragging,
 .exam-workspace--dragging * { cursor: grabbing !important; }
+.question-drag-active[data-drag-intent='none'],
+.question-drag-active[data-drag-intent='none'] * { cursor: no-drop !important; }
 .question-drag-active { user-select: none; }
+
+/* While a Question Bank question is in flight, every position it could reach
+   says so — before the pointer is over any one of them, which is what makes a
+   compatible target findable rather than discovered by trial. */
+.question-drag-active[data-drag-pane='question-bank'][data-drag-section='multiple-choice']
+  .exam-question[data-drop-target='multiple-choice']:not([data-drop]),
+.question-drag-active[data-drag-pane='question-bank'][data-drag-section='open']
+  .exam-question[data-drop-target='open']:not([data-drop]) {
+  outline: 1px dashed #c9b49b; outline-offset: 5px;
+}
 
 /* A page-owned counterpart to the browser's drag image. It keeps the exact
    question markup and grab offset without surrendering the cursor to native
@@ -337,6 +392,24 @@ button { cursor: pointer; }
   padding: 3px 7px; border-radius: 999px; color: #fffaf3; background: #9f5037;
   font: 600 12px/1.3 Arial, Helvetica, sans-serif;
 }
+/* A Question Bank row in flight is a row, not a sheet: it keeps the compact
+   markup it had rather than pretending to be a rendered question. */
+.question-drag-preview[data-pane='question-bank'] { max-width: 340px; padding: 0; }
+.question-drag-preview[data-pane='question-bank'] .question-bank-row {
+  margin: 0; background: #fffdf8;
+}
+.question-drag-preview[data-pane='question-bank'] .question-bank-row-actions {
+  display: none;
+}
+/* What releasing would do, said on the thing the pointer is carrying: Insert,
+   Replace, or — over an incompatible position — nothing, because the no-drop
+   cursor has already said it. */
+.question-drag-preview[data-intent-label]:not([data-intent-label=''])::before {
+  content: attr(data-intent-label); position: absolute; top: -11px; left: 8px;
+  padding: 2px 8px; border-radius: 999px; color: #fffaf3; background: #6d5a45;
+  font: 600 11px/1.5 Arial, Helvetica, sans-serif; letter-spacing: 0.03em;
+}
+.question-drag-preview[data-intent='replace']::before { background: #9f5037; }
 
 /* Hover and selection are painted with a background plus a matching spread
    `box-shadow`, never padding: the shadow bleeds the colour past the box
@@ -368,6 +441,39 @@ button { cursor: pointer; }
    pointer — so the row you lifted stays findable underneath. */
 .exam-question--dragging { opacity: 0.4; }
 
+/* An authoring action has just put this question on the Exam Draft. It has
+   been scrolled to; this is what makes it findable once it is on screen, and
+   it fades of its own accord because it is feedback, not a second kind of
+   selection. */
+.exam-question--revealed:not(.exam-question--selected),
+.exam-question--revealed.exam-question--selected {
+  animation: question-revealed var(--reveal-highlight, 1400ms) ease-out;
+}
+@keyframes question-revealed {
+  0%, 55% { background: #f7e2d5; box-shadow: 0 0 0 7px #f7e2d5; }
+  100% { background: none; box-shadow: none; }
+}
+
+/* The first question of a Question Section that has none.
+
+   An empty section is not drawn on the sheet — a section is derived from the
+   questions in it — so a composition gesture would have nothing to aim at. This
+   is the offer, pinned to the foot of the Exam Draft pane while a compatible
+   gesture is in flight: reachable however far the exam has been scrolled, and
+   never a pixel taken from the paper's own geometry. */
+.exam-draft-empty-section {
+  position: fixed; z-index: 900;
+  left: calc(var(--bank-column) + var(--bank-divider)); right: 0; bottom: 0;
+  display: flex; align-items: center; justify-content: center;
+  height: 68px; margin: 0 18px 18px; border-radius: 8px;
+  border: 2px dashed #c9b49b; background: #fffaf3f2; color: #6d5a45;
+  font: 600 14px/1.4 Arial, Helvetica, sans-serif;
+  box-shadow: 0 6px 18px rgb(55 42 33 / 12%);
+}
+.exam-draft-empty-section[data-active] {
+  border-color: #9f5037; border-style: solid; color: #9f5037; background: #f7e2d5;
+}
+
 /* The drop line: where the question would land if it were let go now. It sits
    in the 26px gap between questions, so it never covers what it is pointing
    between. */
@@ -377,6 +483,14 @@ button { cursor: pointer; }
 }
 .exam-question[data-drop="before"]::after { top: -14px; }
 .exam-question[data-drop="after"]::after { bottom: -14px; }
+/* Replacement is a different claim from insertion, so it is drawn differently:
+   the whole target is marked, because the whole of it is what would be taken
+   out of the exam. Painted with a spread shadow rather than a border, so the
+   question's measured height is untouched. */
+.exam-question[data-drop="replace"] {
+  background: #f7e2d5; box-shadow: 0 0 0 6px #f7e2d5, 0 0 0 8px #9f5037;
+}
+.exam-question[data-drop="replace"]::after { content: none; }
 .question-number { display: flex; align-items: baseline; gap: 8px; font-weight: 700; }
 /* The line a student writes their letter on. */
 .answer-blank { flex: 1; border-bottom: 1px solid #332a24; transform: translateY(-3px); }
@@ -679,13 +793,23 @@ button { cursor: pointer; }
    shrinking it would mean showing a layout the printer will not produce. The
    workspace scrolls instead. */
 @media (max-width: 880px) {
-  /* Too narrow for two panes: the bank goes above the sheet rather than
-     squeezing it. */
-  .authoring-workspace { grid-template-columns: 1fr; }
+  /* Too narrow for two panes. The bank opens collapsed, so the sheet has the
+     whole width; brought back by hand it goes above the sheet rather than
+     squeezing it, and the divider has nothing left to divide. */
+  .authoring-workspace,
+  .authoring-workspace[data-bank-collapsed='true'] {
+    --bank-divider: 0px; grid-template-columns: 1fr;
+  }
   .question-bank {
     position: static; height: auto; max-height: 44vh;
     border-right: none; border-bottom: 1px solid #e8dfd2;
   }
+  .question-bank-rail {
+    position: static; height: auto; justify-content: flex-start;
+    border-right: none; border-bottom: 1px solid #e8dfd2;
+  }
+  .workspace-resizer { display: none; }
+  .exam-draft-empty-section { left: 0; }
   .exam-workspace { padding: 16px 0; }
   .dialog-backdrop { padding: 0; }
   .question-dialog { width: 100%; height: 100vh; border-radius: 0; }
@@ -718,11 +842,17 @@ button { cursor: pointer; }
     break-after: page;
   }
   .exam-question { break-inside: avoid; }
-  /* Selection, hover and drag feedback are all editing chrome — never printed. */
+  /* Selection, hover and drag feedback are all editing chrome — never printed.
+     The Replace highlight is stated with an attribute, so it needs saying at
+     the same specificity to be taken back. */
   .exam-question,
   .exam-question:hover,
-  .exam-question--selected {
-    background: none; box-shadow: none; opacity: 1;
+  .exam-question--selected,
+  .exam-question[data-drop='replace'],
+  .exam-question--revealed {
+    background: none; box-shadow: none; opacity: 1; animation: none;
   }
   .exam-question[data-drop]::after { display: none; }
+  .exam-draft-empty-section, .question-bank-rail, .workspace-resizer,
+  .question-drag-preview { display: none; }
 }

@@ -212,11 +212,17 @@ export type ExamStore = {
    *  Bank record of its own. */
   duplicateInExamDraft(questionId: string): void
   /** References an unused Question Bank record from the Exam Draft — at the end,
-   *  or immediately after `afterQuestionId`. A question already referenced is
-   *  left where it is: a reference occurs at most once. An insertion after a
-   *  question in another Question Section is refused: composing never moves a
-   *  question across the Multiple Choice / Short Answer boundary. */
-  addToExamDraft(questionId: string, afterQuestionId?: string | null): void
+   *  or immediately before or after `targetQuestionId`. `'before'` is what names
+   *  the first position in a Question Section, which no `'after'` can. A
+   *  question already referenced is left where it is: a reference occurs at most
+   *  once. An insertion beside a question in another Question Section is
+   *  refused: composing never moves a question across the Multiple Choice /
+   *  Short Answer boundary. */
+  addToExamDraft(
+    questionId: string,
+    targetQuestionId?: string | null,
+    placement?: QuestionPlacement,
+  ): void
   /** Replaces one Exam Draft reference with an unused Question Bank record of
    *  the same Question Type, in the outgoing question's exact position. Nothing
    *  is copied and nothing is deleted: the outgoing question keeps its Question
@@ -395,7 +401,7 @@ export function createExamStore(options: {
         }
       }),
 
-    addToExamDraft: (questionId, afterQuestionId = null) =>
+    addToExamDraft: (questionId, targetQuestionId = null, placement = 'after') =>
       change((current) => {
         const question = bankQuestionById(current.questionBank, questionId)
         if (!question) return current
@@ -403,13 +409,18 @@ export function createExamStore(options: {
         // quietly honoured somewhere else. `createInExamDraft` is deliberately
         // more tolerant: there the position is a hint and refusing it would
         // lose a question the teacher has just written.
-        const after = afterQuestionId
-          ? bankQuestionById(current.questionBank, afterQuestionId)
+        const target = targetQuestionId
+          ? bankQuestionById(current.questionBank, targetQuestionId)
           : null
-        if (after && after.type !== question.type) return current
+        if (target && target.type !== question.type) return current
         return withExamDraft(
           current,
-          withReferenceAdded(current.examDraft, questionId, afterQuestionId),
+          withReferenceAdded(
+            current.examDraft,
+            questionId,
+            targetQuestionId,
+            placement,
+          ),
         )
       }),
 
