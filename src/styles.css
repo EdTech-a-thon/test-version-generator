@@ -560,3 +560,69 @@ button { cursor: pointer; }
   }
   .exam-question[data-drop]::after { display: none; }
 }
+
+/* The pages either side of the editor — About and Privacy — plus the footer
+   that links to them. Same paper-and-ink palette as the editor, but laid out
+   as an ordinary reading column rather than a sheet of letter paper. */
+.site-wordmark {
+  display: flex; align-items: center; gap: 10px;
+  color: #332a24; font-size: 20px; font-weight: 700; text-decoration: none;
+}
+.site-wordmark:hover { color: #9f5037; }
+.site-link { color: #6e5b4d; font-size: 14px; text-decoration: none; }
+.site-link:hover { color: #9f5037; text-decoration: underline; text-underline-offset: 4px; }
+
+.site-page { display: flex; flex-direction: column; min-height: 100vh; }
+.site-main { flex: 1; width: 100%; max-width: 760px; margin: 0 auto; padding: 26px 20px 40px; }
+.site-main h1 { margin: 0 0 6px; font-size: 26px; }
+.site-lede { margin: 0 0 22px; color: #6e5b4d; font-size: 14px; }
+.site-main a { color: #9f5037; font-weight: 600; text-underline-offset: 4px; }
+
+.site-card {
+  margin-bottom: 20px; padding: 20px; border: 1px solid #e8dfd2; border-radius: 10px;
+  background: #fffaf3;
+}
+.site-card h2 { margin: 0 0 10px; font-size: 18px; }
+.site-card p { margin: 0 0 14px; font-size: 15px; line-height: 1.6; }
+.site-card p:last-child { margin-bottom: 0; }
+.site-card-heading { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+.site-card-heading h2 { margin: 0; }
+.site-card-heading img { flex: none; }
+.site-promise { margin: 0; padding-left: 20px; font-size: 15px; line-height: 1.8; }
+
+/* The group photo, pinned up like a print someone brought back from the event. */
+.site-photo {
+  width: 100%; max-width: 520px; margin: 24px auto 0; padding: 12px 12px 8px;
+  border: 1px solid #e8dfd2; background: #fffdf8; box-shadow: 0 8px 24px rgb(91 68 47 / 18%);
+  transform: rotate(-1deg);
+}
+.site-photo img { display: block; width: 100%; background: #eee6da; }
+.site-photo figcaption {
+  padding-top: 14px; text-align: center; font-size: 19px; color: #4e3b2f;
+  font-family: 'Segoe Script', 'Bradley Hand', 'Snell Roundhand', 'Comic Sans MS', cursive;
+}
+
+/* Specific enough to beat the `.site-main a` link colour above it. */
+.site-main a.site-button {
+  display: inline-block; padding: 9px 15px; border-radius: 8px;
+  color: #fffaf3; background: #9f5037; font-size: 14px; font-weight: 600; text-decoration: none;
+}
+.site-main a.site-button:hover { background: #87422e; }
+
+.site-footer {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: center;
+  gap: 6px 18px; padding: 18px 20px 24px;
+}
+.site-footer-credit, .site-footer-link {
+  color: #6e5b4d; font-size: 13px; text-decoration: none;
+}
+.site-footer-credit { display: inline-flex; align-items: center; gap: 8px; }
+.site-footer-credit:hover, .site-footer-link:hover {
+  color: #9f5037; text-decoration: underline; text-underline-offset: 4px;
+}
+
+/* The footer is chrome, like the document bar: it belongs to the app, not to
+   the test, so it never reaches the printer. */
+@media print {
+  .site-footer { display: none; }
+}
