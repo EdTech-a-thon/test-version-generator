@@ -57,6 +57,9 @@ import { domMeasure } from './dom-measure'
 import { saveImage } from './local-images'
 import { configurePastedImages } from './pasted-images'
 import { Plus, Redo2, Undo2 } from 'lucide-react'
+import { useRoute } from './use-route'
+import { Footer } from './site-chrome'
+import { AboutPage, PrivacyPage } from './site-pages'
 
 function CrepeQuestion({
   value,
@@ -288,7 +291,7 @@ function QuestionDialog({
   )
 }
 
-export default function App({ store }: { store: ExamStore }) {
+function ExamEditor({ store }: { store: ExamStore }) {
   const draft = useSyncExternalStore(store.subscribe, store.getState)
   // There is exactly one version and it is the one on the page. The store can
   // still hold several — the model is unchanged — but nothing here creates,
@@ -586,6 +589,8 @@ export default function App({ store }: { store: ExamStore }) {
         />
       </div>
 
+      <Footer />
+
       {handoff?.format === 'print' && <PrintDocument plans={handoff.plans} />}
 
       {editing && (
@@ -610,4 +615,15 @@ export default function App({ store }: { store: ExamStore }) {
       )}
     </>
   )
+}
+
+/**
+ * The site's three pages. The editor is the app; About and Privacy are the
+ * ordinary pages a public tool is expected to have, reached from the footer.
+ */
+export default function App({ store }: { store: ExamStore }) {
+  const route = useRoute()
+  if (route === '/about') return <AboutPage />
+  if (route === '/privacy') return <PrivacyPage />
+  return <ExamEditor store={store} />
 }
