@@ -33,6 +33,13 @@ import {
 } from './exam'
 import { unmeasured, type LayoutPlan, type PageItem } from './export-plan'
 import type { ProseMirrorJSON } from './question-doc'
+import {
+  createExamDraft,
+  createQuestionBank,
+  withQuestionBanked,
+  withReferenceAdded,
+} from './question-bank'
+import { selectedExam } from './selected-exam'
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -627,5 +634,99 @@ describe('the artifact', () => {
       'Unit 3- Review - Retake-version-A.docx',
     )
     expect(docxFilename('   ', ['A', 'B'])).toBe('Untitled exam-versions-A-B.docx')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Question Bank compatibility
+//
+// Preparation is unchanged by the Question Bank: it still takes an Exam and an
+// ordering. What is new is where that pair comes from, so these are the cases
+// that prove the derived pair is a pair preparation is happy with — and that
+// Question Content sitting unused in the bank cannot reach a published paper.
+
+describe('an Exam Draft prepared for export', () => {
+  const bankOf = (questions: Question[]) =>
+    questions.reduce(withQuestionBanked, createQuestionBank())
+
+  const draftOf = (questionIds: string[]) =>
+    questionIds.reduce(
+      (draft, id) => withReferenceAdded(draft, id),
+      createExamDraft('Chemistry Unit 3'),
+    )
+
+  const publishedIds = (plan: LayoutPlan) =>
+    itemsOf(plan).flatMap((item) =>
+      item.kind === 'question' ? [item.question.id] : [],
+    )
+
+  test('publishes the referenced questions and nothing else', () => {
+    const questions = mixedExam().questions
+    const { exam, version } = selectedExam(
+      bankOf(questions),
+      draftOf(['m2', 'o2']),
+    )
+
+    const prepared = prepare(exam, version, {
+      selection: { test: true, answerKey: true },
+    })
+
+    for (const document of prepared.documents) {
+      if (document.stream === 'test') {
+        expect(publishedIds(document.plan)).toEqual(['m2', 'o2'])
+      } else {
+        // The key answers exactly the questions the paper asked.
+        expect(answerKeyOf(document.plan).map((entry) => entry.number)).toEqual([1, 2])
+      }
+    }
+  })
+
+  test('leaves unused Question Bank content out of every Randomized Version', () => {
+    const questions = mixedExam().questions
+    const { exam, version } = selectedExam(
+      bankOf(questions),
+      draftOf(['m1', 'm2', 'o1']),
+    )
+
+    const prepared = prepare(exam, version, {
+      versionCount: 3,
+      randomization: BOTH,
+      selection: { test: true, answerKey: true },
+    })
+
+    expect(prepared.labels).toEqual(['A', 'B', 'C'])
+    for (const document of prepared.documents) {
+      if (document.stream === 'test') {
+        expect(publishedIds(document.plan).toSorted()).toEqual(['m1', 'm2', 'o1'])
+      } else {
+        expect(answerKeyOf(document.plan).map((entry) => entry.number)).toEqual([1, 2, 3])
+      }
+    }
+  })
+
+  test('publishes Version A in Exam Draft order, with answers as authored', () => {
+    const questions = mixedExam().questions
+    const { exam, version } = selectedExam(
+      bankOf(questions),
+      draftOf(['m3', 'm1', 'o2']),
+    )
+
+    const prepared = prepare(exam, version)
+
+    expect(arrangementOf(prepared.documents[0]!.plan)).toEqual([
+      '1:m3(A=c1,B=c2,C=c3,D=c4)',
+      '2:m1(A=a1,B=a2,C=a3,D=a4)',
+      '3:o2()',
+    ])
+  })
+
+  test('counts only the referenced questions towards the distinct Versions available', () => {
+    const questions = mixedExam().questions
+    const bank = bankOf(questions)
+    // One multiple-choice question with four answers: 4! = 24 arrangements,
+    // whatever else is sitting unused in the Question Bank.
+    const { exam, version } = selectedExam(bank, draftOf(['m1']))
+
+    expect(maxDistinctVersions(exam, version, ANSWERS_ONLY)).toBe(24)
   })
 })

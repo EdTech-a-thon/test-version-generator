@@ -1,9 +1,9 @@
 import { expect, test } from '@playwright/test'
+import { seedAuthoringState } from './seed-authoring'
 
 test('the rendered exam preserves authored spaces and blank lines', async ({ page }) => {
-  const draft = {
-    exam: {
-      title: 'Whitespace repro',
+  const authoring = {
+    questionBank: {
       questions: [
         {
           id: 'q1',
@@ -27,20 +27,10 @@ test('the rendered exam preserves authored spaces and blank lines', async ({ pag
         },
       ],
     },
-    versions: [
-      {
-        id: 'v1',
-        letter: 'A',
-        questionOrder: ['q1'],
-        choiceOrder: {},
-      },
-    ],
-    currentVersionId: 'v1',
+    examDraft: { title: 'Whitespace repro', questionIds: ['q1'] },
     dirty: false,
   }
-  await page.addInitScript((initialDraft) => {
-    localStorage.setItem('exam-draft-v1', JSON.stringify(initialDraft))
-  }, draft)
+  await seedAuthoringState(page, authoring)
 
   await page.goto('/')
 

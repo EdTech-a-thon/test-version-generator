@@ -1,15 +1,17 @@
 import { describe, expect, test } from 'bun:test'
-import { createQuestion, orderedQuestions } from './exam'
+import { createQuestion, orderedQuestions, withTypeSwitched } from './exam'
 import type { Question } from './exam'
 import {
+  DRAFT_STORAGE_KEY,
+  SAVED_STORAGE_NAME,
+  createAuthoringState,
   createMemoryBackend,
-  createWorkingDraft,
   loadExamStore,
 } from './exam-store'
-import type { ExamStore, SavedState, WorkingDraft } from './exam-store'
+import type { AuthoringState, ExamStore, SavedState } from './exam-store'
 
-function memory(initial: WorkingDraft | null = null) {
-  return createMemoryBackend<WorkingDraft>(initial)
+function memory(initial: AuthoringState | null = null) {
+  return createMemoryBackend<AuthoringState>(initial)
 }
 
 async function freshStore() {
@@ -19,77 +21,373 @@ async function freshStore() {
   return { backend, savedBackend, store }
 }
 
-const ids = (store: ExamStore) =>
-  orderedQuestions(store.getState().exam, store.currentVersion()).map((q) => q.id)
+/** The ids in the Question Bank, in the order it stores them. */
+const bankIds = (store: ExamStore) =>
+  store.getState().questionBank.questions.map((question) => question.id)
 
-async function withQuestions(count: number) {
-  const { backend, store } = await freshStore()
-  const questions: Question[] = []
-  for (let index = 0; index < count; index += 1) {
-    const question = createQuestion('multiple-choice')
-    questions.push(question)
-    store.addQuestion(question)
-  }
-  await store.whenSettled()
-  return { backend, store, questions }
+/** The ids the Exam Draft renders, in the order they appear on the page. */
+const renderedIds = (store: ExamStore) => {
+  const { exam, version } = store.selectedExam()
+  return orderedQuestions(exam, version).map((question) => question.id)
 }
 
-describe('the working draft', () => {
-  test('a first run starts on an empty exam with a single draft version', async () => {
+/** A store holding `count` banked questions, all of them on the Exam Draft. */
+async function withExamDraft(count: number, type: Question['type'] = 'multiple-choice') {
+  const { backend, savedBackend, store } = await freshStore()
+  const questions: Question[] = []
+  for (let index = 0; index < count; index += 1) {
+    const question = createQuestion(type)
+    questions.push(question)
+    store.createInExamDraft(question)
+  }
+  await store.whenSettled()
+  return { backend, savedBackend, store, questions }
+}
+
+describe('a fresh installation', () => {
+  test('starts with an empty Question Bank and an empty Exam Draft', async () => {
     const { store } = await freshStore()
     const state = store.getState()
-    expect(state.exam.questions).toEqual([])
-    expect(state.versions).toHaveLength(1)
-    expect(state.versions[0]!.letter).toBe('A')
-    expect(state.currentVersionId).toBe(state.versions[0]!.id)
+    expect(state.questionBank.questions).toEqual([])
+    expect(state.examDraft.questionIds).toEqual([])
     expect(state.dirty).toBe(false)
+    expect(store.selectedExam().exam.questions).toEqual([])
   })
 
-  test('every kind of change raises the dirty flag', async () => {
-    const cases: Array<(store: ExamStore) => void> = [
+  test('stores under new identifiers, so the earlier generation is never read', () => {
+    // ADR-0004: the Question Bank model is a storage cutover. Data written by
+    // the earlier draft and mutable saved-Version schemas is left where it is
+    // and never looked at.
+    expect(DRAFT_STORAGE_KEY).not.toBe('exam-draft-v1')
+    expect(SAVED_STORAGE_NAME).not.toBe('exam-saved-v1')
+  })
+
+  test('ignores state stored in the earlier shape', async () => {
+    const earlier = {
+      exam: { title: 'Written before the cutover', questions: [createQuestion('open')] },
+      versions: [{ id: 'v1', letter: 'A', questionOrder: [], choiceOrder: {} }],
+      currentVersionId: 'v1',
+      dirty: false,
+    }
+    const store = await loadExamStore(memory(earlier as unknown as AuthoringState))
+    expect(store.getState().questionBank.questions).toEqual([])
+    expect(store.getState().examDraft.questionIds).toEqual([])
+  })
+
+  test('falls back to an empty exam when the stored state is corrupt', async () => {
+    const store = await loadExamStore(memory({ nonsense: true } as unknown as AuthoringState))
+    expect(store.getState().questionBank.questions).toEqual([])
+    expect(store.getState().examDraft.questionIds).toEqual([])
+    expect(store.getState().dirty).toBe(false)
+  })
+})
+
+describe('creating Question Content', () => {
+  test('banks a question without putting it on the Exam Draft', async () => {
+    const { store } = await freshStore()
+    const question = createQuestion('multiple-choice')
+
+    store.createInQuestionBank(question)
+
+    expect(bankIds(store)).toEqual([question.id])
+    expect(store.getState().examDraft.questionIds).toEqual([])
+    expect(renderedIds(store)).toEqual([])
+  })
+
+  test('banks a question and puts it on the Exam Draft in one action', async () => {
+    const { store } = await freshStore()
+    const question = createQuestion('open')
+
+    store.createInExamDraft(question)
+
+    expect(bankIds(store)).toEqual([question.id])
+    expect(renderedIds(store)).toEqual([question.id])
+  })
+
+  test('places a new question immediately after the one it was added below', async () => {
+    const { store, questions } = await withExamDraft(2)
+    const inserted = createQuestion('multiple-choice')
+
+    store.createInExamDraft(inserted, questions[0]!.id)
+
+    expect(renderedIds(store)).toEqual([
+      questions[0]!.id,
+      inserted.id,
+      questions[1]!.id,
+    ])
+  })
+})
+
+describe('the Exam Draft references the Question Bank', () => {
+  test('adds an unused bank question to the Exam Draft', async () => {
+    const { store } = await freshStore()
+    const question = createQuestion('open')
+    store.createInQuestionBank(question)
+
+    store.addToExamDraft(question.id)
+
+    expect(renderedIds(store)).toEqual([question.id])
+    expect(bankIds(store)).toEqual([question.id])
+  })
+
+  test('holds a question at most once, however often it is added', async () => {
+    const { store, questions } = await withExamDraft(2)
+
+    store.addToExamDraft(questions[0]!.id)
+    store.addToExamDraft(questions[0]!.id, questions[1]!.id)
+
+    expect(store.getState().examDraft.questionIds).toEqual([
+      questions[0]!.id,
+      questions[1]!.id,
+    ])
+  })
+
+  test('refuses a reference to Question Content that is not banked', async () => {
+    const { store } = await freshStore()
+    store.addToExamDraft('never-banked')
+    expect(store.getState().examDraft.questionIds).toEqual([])
+    expect(store.canUndo()).toBe(false)
+  })
+
+  test('stores references rather than copies, so an edit reaches the page', async () => {
+    const { store, questions } = await withExamDraft(1, 'open')
+    const edited = {
+      ...questions[0]!,
+      doc: { type: 'doc', content: [{ type: 'paragraph' }] },
+    }
+
+    store.updateQuestionContent(edited)
+
+    expect(store.selectedExam().exam.questions[0]!.doc).toEqual(edited.doc)
+    expect(bankIds(store)).toEqual([questions[0]!.id])
+  })
+
+  test('edits a bank-only question without adding it to the Exam Draft', async () => {
+    const { store } = await freshStore()
+    const question = createQuestion('open')
+    store.createInQuestionBank(question)
+
+    store.updateQuestionContent({
+      ...question,
+      doc: { type: 'doc', content: [{ type: 'paragraph' }] },
+    })
+
+    expect(store.getState().questionBank.questions[0]!.doc).toEqual({
+      type: 'doc',
+      content: [{ type: 'paragraph' }],
+    })
+    expect(store.getState().examDraft.questionIds).toEqual([])
+  })
+
+  test('banks a question it has never seen, so a save is never lost', async () => {
+    const { store } = await freshStore()
+    const question = createQuestion('open')
+
+    store.updateQuestionContent(question)
+
+    expect(bankIds(store)).toEqual([question.id])
+    expect(store.getState().examDraft.questionIds).toEqual([])
+  })
+
+  test('keeps a referenced question included when its type changes', async () => {
+    const { store, questions } = await withExamDraft(2)
+
+    store.updateQuestionContent(withTypeSwitched(questions[0]!, 'open'))
+
+    // The Question Sections are derived, so the question keeps its place on the
+    // Exam Draft and renders under Short Answer instead.
+    expect(renderedIds(store)).toEqual([questions[1]!.id, questions[0]!.id])
+  })
+})
+
+describe('Remove', () => {
+  test('excludes a question from the Exam Draft without deleting it', async () => {
+    const { store, questions } = await withExamDraft(2)
+
+    store.removeFromExamDraft([questions[0]!.id])
+
+    expect(renderedIds(store)).toEqual([questions[1]!.id])
+    expect(bankIds(store)).toEqual(questions.map((question) => question.id))
+    expect(store.getState().questionBank.questions[0]).toEqual(questions[0]!)
+  })
+
+  test('excludes a whole selection as one action', async () => {
+    const { store, questions } = await withExamDraft(3)
+
+    store.removeFromExamDraft([questions[0]!.id, questions[2]!.id])
+
+    expect(renderedIds(store)).toEqual([questions[1]!.id])
+    expect(store.canUndo()).toBe(true)
+    store.undo()
+    expect(renderedIds(store)).toEqual(questions.map((question) => question.id))
+  })
+
+  test('leaves a Removed question available to add again', async () => {
+    const { store, questions } = await withExamDraft(1)
+    store.removeFromExamDraft([questions[0]!.id])
+
+    store.addToExamDraft(questions[0]!.id)
+
+    expect(renderedIds(store)).toEqual([questions[0]!.id])
+  })
+})
+
+describe('moving a reference', () => {
+  test('moves one question to an exact position on the Exam Draft', async () => {
+    const { store, questions } = await withExamDraft(3)
+
+    store.moveInExamDraft([questions[2]!.id], questions[0]!.id, 'before')
+
+    expect(renderedIds(store)).toEqual([
+      questions[2]!.id,
+      questions[0]!.id,
+      questions[1]!.id,
+    ])
+  })
+
+  test('moves a selection as one block, preserving its order', async () => {
+    const { store, questions } = await withExamDraft(4)
+
+    store.moveInExamDraft(
+      [questions[0]!.id, questions[1]!.id],
+      questions[3]!.id,
+      'after',
+    )
+
+    expect(renderedIds(store)).toEqual([
+      questions[2]!.id,
+      questions[3]!.id,
+      questions[0]!.id,
+      questions[1]!.id,
+    ])
+  })
+
+  test('refuses to move a question into another Question Section', async () => {
+    const { store } = await freshStore()
+    const multipleChoice = createQuestion('multiple-choice')
+    const shortAnswer = createQuestion('open')
+    store.createInExamDraft(multipleChoice)
+    store.createInExamDraft(shortAnswer)
+
+    store.moveInExamDraft([shortAnswer.id], multipleChoice.id, 'before')
+
+    expect(renderedIds(store)).toEqual([multipleChoice.id, shortAnswer.id])
+  })
+
+  test('a move that changes nothing is not an authoring action', async () => {
+    const { store, questions } = await withExamDraft(2)
+    const before = store.getState()
+
+    store.moveInExamDraft([questions[0]!.id], questions[1]!.id, 'before')
+
+    expect(store.getState()).toBe(before)
+    // Nothing was recorded, so undo reaches past it to the last real action.
+    store.undo()
+    expect(renderedIds(store)).toEqual([questions[0]!.id])
+  })
+})
+
+describe('duplicating', () => {
+  test('banks a copy and places it after the original', async () => {
+    const { store, questions } = await withExamDraft(2)
+
+    store.duplicateInExamDraft(questions[0]!.id)
+
+    const copyId = renderedIds(store)[1]!
+    expect(copyId).not.toBe(questions[0]!.id)
+    expect(renderedIds(store)).toEqual([questions[0]!.id, copyId, questions[1]!.id])
+    expect(bankIds(store)).toHaveLength(3)
+  })
+})
+
+describe('the dirty flag and persistence', () => {
+  test('every authoring action raises the dirty flag', async () => {
+    const cases: Array<(store: ExamStore, question: Question) => void> = [
       (store) => store.setTitle('Chem Unit 3'),
-      (store) => store.addQuestion(createQuestion('open')),
-      (store) => store.putVersion({ ...store.currentVersion(), questionOrder: [] }),
+      (store) => store.createInQuestionBank(createQuestion('open')),
+      (store) => store.createInExamDraft(createQuestion('open')),
+      (store, question) => store.updateQuestionContent({ ...question, columns: 2 }),
+      (store, question) => store.setQuestionColumns([question.id], 4),
+      (store, question) => store.duplicateInExamDraft(question.id),
+      (store, question) => store.removeFromExamDraft([question.id]),
     ]
-    for (const change of cases) {
-      const { store } = await freshStore()
+    for (const act of cases) {
+      const { store, questions } = await withExamDraft(1)
+      await store.save()
       expect(store.getState().dirty).toBe(false)
-      change(store)
+      act(store, questions[0]!)
       expect(store.getState().dirty).toBe(true)
     }
   })
 
-  test('the draft is mirrored on every change', async () => {
-    const { backend, store } = await freshStore()
-    store.setTitle('Chem Unit 3')
-    await store.whenSettled()
-    expect(backend.value?.exam.title).toBe('Chem Unit 3')
+  test('adding a bank-only question to the Exam Draft raises the dirty flag', async () => {
+    const { store } = await freshStore()
+    const question = createQuestion('open')
+    store.createInQuestionBank(question)
+    await store.save()
+
+    store.addToExamDraft(question.id)
+
+    expect(store.getState().dirty).toBe(true)
   })
 
-  test('the draft round-trips a refresh with the dirty flag intact', async () => {
-    const { backend, store, questions } = await withQuestions(2)
+  test('a refresh restores the Question Bank, the Exam Draft and the dirty flag', async () => {
+    const { backend, store, questions } = await withExamDraft(2)
+    const bankOnly = createQuestion('open')
+    store.createInQuestionBank(bankOnly)
+    store.moveInExamDraft([questions[1]!.id], questions[0]!.id, 'before')
     store.setTitle('Chem Unit 3')
     await store.whenSettled()
 
     const reloaded = await loadExamStore(backend)
-    expect(reloaded.getState().exam.title).toBe('Chem Unit 3')
+
+    expect(reloaded.getState().examDraft.title).toBe('Chem Unit 3')
+    expect(bankIds(reloaded)).toEqual([
+      questions[0]!.id,
+      questions[1]!.id,
+      bankOnly.id,
+    ])
+    expect(renderedIds(reloaded)).toEqual([questions[1]!.id, questions[0]!.id])
     expect(reloaded.getState().dirty).toBe(true)
-    expect(ids(reloaded)).toEqual(questions.map((question) => question.id))
-    expect(reloaded.getState().currentVersionId).toBe(store.getState().currentVersionId)
   })
 
-  test('an unreadable stored draft falls back to a fresh one', async () => {
-    const backend = createMemoryBackend<WorkingDraft>({ nonsense: true } as unknown as WorkingDraft)
-    const store = await loadExamStore(backend)
-    expect(store.getState().exam.questions).toEqual([])
+  test('bank-only work is durable even though it is on no exam', async () => {
+    const { backend, store } = await freshStore()
+    const question = createQuestion('open')
+    store.createInQuestionBank(question)
+    await store.whenSettled()
+
+    const reloaded = await loadExamStore(backend)
+
+    expect(bankIds(reloaded)).toEqual([question.id])
+    expect(reloaded.getState().examDraft.questionIds).toEqual([])
+  })
+
+  test('saving clears the dirty flag and reloads without a working draft', async () => {
+    const { savedBackend, store, questions } = await withExamDraft(1)
+    store.setTitle('Persisted')
+
+    await store.save()
+
     expect(store.getState().dirty).toBe(false)
+    expect(store.hasSavedExam()).toBe(true)
+    const reloaded = await loadExamStore(memory(), savedBackend)
+    expect(reloaded.getState().examDraft.title).toBe('Persisted')
+    expect(renderedIds(reloaded)).toEqual([questions[0]!.id])
+    expect(reloaded.getState().dirty).toBe(false)
   })
 
-  test('a stored draft is used as-is rather than replaced', async () => {
-    const draft = createWorkingDraft()
-    draft.exam.title = 'Saved earlier'
-    const store = await loadExamStore(createMemoryBackend<WorkingDraft>(draft))
-    expect(store.getState().exam.title).toBe('Saved earlier')
+  test('discard restores the last saved Question Bank and Exam Draft', async () => {
+    const { store, questions } = await withExamDraft(2)
+    await store.save()
+    store.removeFromExamDraft([questions[0]!.id])
+    store.setTitle('Changed')
+
+    await store.discard()
+
+    expect(store.getState().examDraft.title).toBe('Untitled exam')
+    expect(renderedIds(store)).toEqual(questions.map((question) => question.id))
+    expect(store.getState().dirty).toBe(false)
   })
 
   test('subscribers are notified of a change', async () => {
@@ -104,280 +402,84 @@ describe('the working draft', () => {
     store.setTitle('Two')
     expect(notified).toBe(1)
   })
-})
 
-describe('editing questions', () => {
-  test('adding a question appends its id to the ordering', async () => {
-    const { store, questions } = await withQuestions(3)
-    expect(store.currentVersion().questionOrder).toEqual(questions.map((q) => q.id))
-    expect(ids(store)).toEqual(questions.map((q) => q.id))
-  })
-
-  test('adding a question appends it to every version, not just the current one', async () => {
-    const { store, questions } = await withQuestions(1)
-    const other = { ...store.currentVersion(), id: 'v2', letter: 'B' }
-    store.putVersion(other)
-    store.addQuestion(createQuestion('open'))
-    const added = store.getState().exam.questions.at(-1)!
-    for (const version of store.getState().versions) {
-      expect(version.questionOrder).toContain(added.id)
-      expect(version.questionOrder).toContain(questions[0]!.id)
-    }
-  })
-
-  test('deleting a question removes it from the exam and from the ordering', async () => {
-    const { store, questions } = await withQuestions(3)
-    store.putVersion({
-      ...store.currentVersion(),
-      choiceOrder: { [questions[1]!.id]: ['c1', 'c2'] },
-    })
-    store.removeQuestion(questions[1]!.id)
-    expect(store.getState().exam.questions.map((q) => q.id)).toEqual([
-      questions[0]!.id,
-      questions[2]!.id,
-    ])
-    expect(store.currentVersion().questionOrder).toEqual([
-      questions[0]!.id,
-      questions[2]!.id,
-    ])
-    expect(store.currentVersion().choiceOrder).toEqual({})
-  })
-
-  test('editing a question replaces its content in place', async () => {
-    const { store, questions } = await withQuestions(2)
-    const edited = { ...questions[0]!, doc: { type: 'doc', content: [] } }
-    store.updateQuestion(edited)
-    expect(store.getState().exam.questions.map((q) => q.id)).toEqual(questions.map((q) => q.id))
-    expect(store.getState().exam.questions[0]!.doc).toEqual({ type: 'doc', content: [] })
-  })
-
-  test('editing an unknown question adds it, so a save is never lost', async () => {
-    const { store } = await freshStore()
-    const question = createQuestion('open')
-    store.updateQuestion(question)
-    expect(store.getState().exam.questions.map((q) => q.id)).toEqual([question.id])
-    expect(store.currentVersion().questionOrder).toEqual([question.id])
-  })
-
-  test('a column override is recorded on the question', async () => {
-    const { store, questions } = await withQuestions(1)
-    store.setQuestionColumns([questions[0]!.id], 2)
-    expect(store.getState().exam.questions[0]!.columns).toBe(2)
-  })
-
-  test('a column override applies to the whole selected set as one edit', async () => {
-    const { store, questions } = await withQuestions(3)
-    store.setQuestionColumns([questions[0]!.id, questions[2]!.id], 2)
-    expect(store.getState().exam.questions.map((question) => question.columns)).toEqual([
-      2,
-      'auto',
-      2,
-    ])
-
-    store.undo()
-    expect(store.getState().exam.questions.map((question) => question.columns)).toEqual([
-      'auto',
-      'auto',
-      'auto',
-    ])
-  })
-
-  test('a column override survives a later content edit', async () => {
-    const { store, questions } = await withQuestions(1)
-    store.setQuestionColumns([questions[0]!.id], 4)
-    // Mirrors what the question dialog's save path does: spread the current
-    // question (columns included) over a new doc, the way `QuestionDialog`'s
-    // `onSave` handler in App.tsx builds `saved`.
-    const current = store.getState().exam.questions[0]!
-    store.updateQuestion({
-      ...current,
-      doc: { type: 'doc', content: [{ type: 'paragraph' }] },
-    })
-    expect(store.getState().exam.questions[0]!.columns).toBe(4)
-  })
-
-  test('the exam title is editable', async () => {
-    const { store } = await freshStore()
-    store.setTitle('Chem Unit 3')
-    expect(store.getState().exam.title).toBe('Chem Unit 3')
+  test('snapshots keep stable identities while nothing changes', async () => {
+    const { store } = await withExamDraft(1)
+    const state = store.getState()
+    const selected = store.selectedExam()
+    expect(store.getState()).toBe(state)
+    expect(store.selectedExam()).toBe(selected)
   })
 })
 
 describe('undo and redo', () => {
-  test('restores edits in both directions and reports button availability', async () => {
+  test('each authoring action is exactly one step in both directions', async () => {
     const { store } = await freshStore()
-    expect(store.canUndo()).toBe(false)
-    expect(store.canRedo()).toBe(false)
+    const first = createQuestion('multiple-choice')
+    const second = createQuestion('multiple-choice')
 
-    store.setTitle('Changed')
-    expect(store.canUndo()).toBe(true)
+    store.createInExamDraft(first)
+    store.createInQuestionBank(second)
+    store.addToExamDraft(second.id)
+    store.moveInExamDraft([second.id], first.id, 'before')
+    store.removeFromExamDraft([first.id])
+    expect(renderedIds(store)).toEqual([second.id])
+
     store.undo()
-    expect(store.getState().exam.title).toBe('Untitled exam')
+    expect(renderedIds(store)).toEqual([second.id, first.id])
+    store.undo()
+    expect(renderedIds(store)).toEqual([first.id, second.id])
+    store.undo()
+    expect(renderedIds(store)).toEqual([first.id])
+    expect(bankIds(store)).toEqual([first.id, second.id])
+    store.undo()
+    expect(bankIds(store)).toEqual([first.id])
+    store.undo()
+    expect(bankIds(store)).toEqual([])
     expect(store.canUndo()).toBe(false)
-    expect(store.canRedo()).toBe(true)
 
     store.redo()
-    expect(store.getState().exam.title).toBe('Changed')
-    expect(store.canUndo()).toBe(true)
+    expect(bankIds(store)).toEqual([first.id])
+    store.redo()
+    store.redo()
+    store.redo()
+    store.redo()
+    expect(renderedIds(store)).toEqual([second.id])
     expect(store.canRedo()).toBe(false)
   })
 
-  test('a new edit after undo clears the redo branch', async () => {
+  test('undoing a Remove puts the reference back where it was', async () => {
+    const { store, questions } = await withExamDraft(3)
+
+    store.removeFromExamDraft([questions[1]!.id])
+    store.undo()
+
+    expect(renderedIds(store)).toEqual(questions.map((question) => question.id))
+  })
+
+  test('a new action after an undo clears the redo branch', async () => {
     const { store } = await freshStore()
     store.setTitle('First')
     store.undo()
     store.setTitle('Second')
 
     expect(store.canRedo()).toBe(false)
-    expect(store.getState().exam.title).toBe('Second')
+    expect(store.getState().examDraft.title).toBe('Second')
   })
 
-  test('restored history is mirrored to the draft backend', async () => {
+  test('restored history is mirrored, so a refresh agrees with the screen', async () => {
     const { backend, store } = await freshStore()
     store.setTitle('Changed')
     store.undo()
     await store.whenSettled()
 
-    expect(backend.value?.exam.title).toBe('Untitled exam')
-  })
-})
-
-describe('versions', () => {
-  test('the first save materializes version A and clears dirty', async () => {
-    const { savedBackend, store } = await freshStore()
-    store.setTitle('Chemistry')
-
-    await store.save()
-
-    expect(store.getState().dirty).toBe(false)
-    expect(store.hasSavedVersions()).toBe(true)
-    expect(savedBackend.value?.exam.title).toBe('Chemistry')
-    expect(savedBackend.value?.versions.map((version) => version.letter)).toEqual(['A'])
+    expect(backend.value?.examDraft.title).toBe('Untitled exam')
   })
 
-  test('discard restores the last saved exam and ordering', async () => {
-    const { store, questions } = await withQuestions(2)
-    await store.save()
-    store.setTitle('Changed')
-    store.updateCurrentVersion((version) => ({
-      ...version,
-      questionOrder: [questions[1]!.id, questions[0]!.id],
-    }))
-
-    await store.discard()
-
-    expect(store.getState().exam.title).toBe('Untitled exam')
-    expect(ids(store)).toEqual(questions.map((question) => question.id))
-    expect(store.getState().dirty).toBe(false)
-  })
-
-  test('save as new version copies the draft ordering under the next letter', async () => {
-    const { store, questions } = await withQuestions(2)
-    await store.save()
-    store.updateCurrentVersion((version) => ({
-      ...version,
-      questionOrder: [questions[1]!.id, questions[0]!.id],
-    }))
-
-    const created = await store.saveAsNewVersion()
-
-    expect(created.letter).toBe('B')
-    expect(store.currentVersion()).toBe(created)
-    expect(ids(store)).toEqual([questions[1]!.id, questions[0]!.id])
-    expect(store.getState().versions.map((version) => version.letter)).toEqual(['A', 'B'])
-    expect(store.getState().dirty).toBe(false)
-  })
-
-  test('rename and delete are draft changes, and deleting current selects a survivor', async () => {
+  test('an untouched store has nothing to undo or redo', async () => {
     const { store } = await freshStore()
-    await store.save()
-    const second = await store.saveAsNewVersion()
-    store.renameVersion(second.id, 'Blue')
-    expect(store.currentVersion().letter).toBe('Blue')
-    expect(store.getState().dirty).toBe(true)
-    store.deleteVersion(second.id)
-    expect(store.currentVersion().letter).toBe('A')
-  })
-
-  test('saved state loads when there is no working draft', async () => {
-    const { savedBackend, store } = await freshStore()
-    store.setTitle('Persisted')
-    await store.save()
-
-    const reloaded = await loadExamStore(memory(), savedBackend)
-
-    expect(reloaded.getState().exam.title).toBe('Persisted')
-    expect(reloaded.hasSavedVersions()).toBe(true)
-    expect(reloaded.getState().dirty).toBe(false)
-  })
-
-  test('snapshots and the current version keep stable identities while unchanged', async () => {
-    const { store } = await freshStore()
-    const state = store.getState()
-    const version = store.currentVersion()
-    expect(store.getState()).toBe(state)
-    expect(store.currentVersion()).toBe(version)
-  })
-  test('the current version is the one being viewed', async () => {
-    const { store } = await freshStore()
-    const first = store.currentVersion()
-    const second = { ...first, id: 'v2', letter: 'B' }
-    store.putVersion(second)
-    expect(store.currentVersion().id).toBe(first.id)
-    store.selectVersion('v2')
-    expect(store.currentVersion().letter).toBe('B')
-  })
-
-  test('replacing a version leaves the others alone', async () => {
-    const { store, questions } = await withQuestions(2)
-    const first = store.currentVersion()
-    store.putVersion({ ...first, id: 'v2', letter: 'B' })
-    store.selectVersion('v2')
-    store.putVersion({
-      ...store.currentVersion(),
-      questionOrder: [questions[1]!.id, questions[0]!.id],
-    })
-    expect(ids(store)).toEqual([questions[1]!.id, questions[0]!.id])
-    store.selectVersion(first.id)
-    expect(ids(store)).toEqual([questions[0]!.id, questions[1]!.id])
-  })
-
-  test('a content edit made in one version is visible from another', async () => {
-    const { store, questions } = await withQuestions(1)
-    store.putVersion({ ...store.currentVersion(), id: 'v2', letter: 'B' })
-    store.selectVersion('v2')
-    store.updateQuestion({ ...questions[0]!, doc: { type: 'doc', content: [{ type: 'paragraph' }] } })
-    store.selectVersion(store.getState().versions[0]!.id)
-    expect(store.getState().exam.questions[0]!.doc).toEqual({
-      type: 'doc',
-      content: [{ type: 'paragraph' }],
-    })
-  })
-
-  test('looking at another version is not an edit', async () => {
-    const { store } = await freshStore()
-    store.putVersion({ ...store.currentVersion(), id: 'v2', letter: 'B' })
-    const saved = { ...store.getState(), dirty: false }
-    const clean = await loadExamStore(createMemoryBackend<WorkingDraft>(saved))
-    clean.selectVersion('v2')
-    expect(clean.getState().dirty).toBe(false)
-    expect(clean.currentVersion().letter).toBe('B')
-  })
-
-  test('an ordering change to the current version raises the dirty flag', async () => {
-    const { store, questions } = await withQuestions(2)
-    store.updateCurrentVersion((version) => ({
-      ...version,
-      questionOrder: [questions[1]!.id, questions[0]!.id],
-    }))
-    expect(store.getState().dirty).toBe(true)
-    expect(ids(store)).toEqual([questions[1]!.id, questions[0]!.id])
-  })
-
-  test('selecting an unknown version leaves the current one alone', async () => {
-    const { store } = await freshStore()
-    const current = store.currentVersion().id
-    store.selectVersion('nope')
-    expect(store.currentVersion().id).toBe(current)
+    expect(store.canUndo()).toBe(false)
+    expect(store.canRedo()).toBe(false)
+    expect(createAuthoringState().dirty).toBe(false)
   })
 })

@@ -7,6 +7,7 @@
 // prepared page, or a real combined Word download.
 
 import { expect, test, type Page } from '@playwright/test'
+import { seedAuthoringState } from './seed-authoring'
 
 // One multiple-choice question with two answers and one short-answer question:
 // small enough to reason about, and its answer order has exactly two
@@ -61,17 +62,9 @@ const EXAM = {
   ],
 }
 
-const DRAFT = {
-  exam: EXAM,
-  versions: [
-    {
-      id: 'v1',
-      letter: 'A',
-      questionOrder: ['m1', 'o1'],
-      choiceOrder: { m1: ['c1', 'c2'] },
-    },
-  ],
-  currentVersionId: 'v1',
+const AUTHORING = {
+  questionBank: { questions: EXAM.questions },
+  examDraft: { title: EXAM.title, questionIds: ['m1', 'o1'] },
   dirty: false,
 }
 
@@ -80,9 +73,7 @@ const DRAFT = {
  *  and the application keeps its print document mounted until `afterprint`,
  *  which a stub deliberately never fires — exactly what an open dialog does. */
 async function open(page: Page, options: { failSaves?: boolean } = {}) {
-  await page.addInitScript((draft) => {
-    localStorage.setItem('exam-draft-v1', JSON.stringify(draft))
-  }, DRAFT)
+  await seedAuthoringState(page, AUTHORING)
   await page.addInitScript(() => {
     const counter = { calls: 0 }
     ;(window as unknown as { printCalls: { calls: number } }).printCalls = counter

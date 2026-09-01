@@ -49,7 +49,7 @@ import type {
   Version,
 } from './exam'
 import type { Selection } from './use-selection'
-import { Copy, EllipsisVertical, ListPlus, Pencil, Plus, Shuffle, Sparkles, Trash2 } from 'lucide-react'
+import { CircleMinus, Copy, EllipsisVertical, ListPlus, Pencil, Plus, Sparkles } from 'lucide-react'
 import {
   ContextMenu,
   type MenuItem,
@@ -126,24 +126,26 @@ function questionMenuItems({
   columns,
   onEdit,
   onDuplicate,
-  onDelete,
+  onRemove,
   onAdd,
   onSetColumns,
-  onShuffleAnswers,
-  onShuffleSelectedQuestions,
   selectedQuestionIds,
 }: {
   question: PlannedQuestion
   columns: ColumnSetting
   onEdit: (questionId: string) => void
   onDuplicate: (questionId: string) => void
-  onDelete: (questionId: string) => void
+  onRemove: (questionIds: readonly string[]) => void
   onAdd: (section: QuestionType, afterQuestionId?: string) => void
   onSetColumns: (questionIds: readonly string[], columns: ColumnSetting) => void
-  onShuffleAnswers: (questionIds: readonly string[]) => void
-  onShuffleSelectedQuestions: (questionIds: readonly string[]) => void
   selectedQuestionIds: readonly string[]
 }): MenuItem[] {
+  // Every action that can sensibly apply to more than one question applies to
+  // the whole selection when the question raising the menu is part of it, and
+  // to that question alone otherwise.
+  const actedOnIds = selectedQuestionIds.includes(question.id)
+    ? selectedQuestionIds
+    : [question.id]
   const items: MenuItem[] = [
     {
       kind: 'action',
@@ -167,17 +169,7 @@ function questionMenuItems({
   // Columns are a multiple-choice question's business. An open question has no
   // answers to lay out, so the group is absent rather than present and inert.
   if (question.type === 'multiple-choice') {
-    const answerQuestionIds = selectedQuestionIds.includes(question.id)
-      ? selectedQuestionIds
-      : [question.id]
     items.push(
-      { kind: 'separator' },
-      {
-        kind: 'action',
-        label: 'Shuffle answer order',
-        icon: <Shuffle />,
-        onSelect: () => onShuffleAnswers(answerQuestionIds),
-      },
       { kind: 'separator' },
       { kind: 'label', label: 'Answer columns' },
     )
@@ -189,29 +181,20 @@ function questionMenuItems({
         icon: option.value === 'auto'
           ? <Sparkles />
           : <ColumnLayoutIcon columns={option.value} />,
-        onSelect: () => onSetColumns(answerQuestionIds, option.value),
+        onSelect: () => onSetColumns(actedOnIds, option.value),
       })
     }
   }
-  if (selectedQuestionIds.length > 1 && selectedQuestionIds.includes(question.id)) {
-    items.push(
-      { kind: 'separator' },
-      {
-        kind: 'action',
-        label: 'Shuffle selected questions',
-        icon: <Shuffle />,
-        onSelect: () => onShuffleSelectedQuestions(selectedQuestionIds),
-      },
-    )
-  }
+  // Remove, never Delete: this takes the question off the Exam Draft and leaves
+  // its Question Bank record alone, so it is neither destructive nor worth a
+  // confirmation. Permanent deletion is not offered in this workspace at all.
   items.push(
     { kind: 'separator' },
     {
       kind: 'action',
-      label: 'Delete',
-      icon: <Trash2 />,
-      destructive: true,
-      onSelect: () => onDelete(question.id),
+      label: 'Remove',
+      icon: <CircleMinus />,
+      onSelect: () => onRemove(actedOnIds),
     },
   )
   return items
@@ -718,11 +701,9 @@ export function ExamPage({
   selection,
   onEdit,
   onDuplicate,
-  onDelete,
+  onRemove,
   onAdd,
   onSetColumns,
-  onShuffleAnswers,
-  onShuffleSelectedQuestions,
   onMoveQuestions,
   unsavedDraft = false,
   contentSelection = { test: true, answerKey: true },
@@ -732,11 +713,9 @@ export function ExamPage({
   selection: Selection
   onEdit: (questionId: string) => void
   onDuplicate: (questionId: string) => void
-  onDelete: (questionId: string) => void
+  onRemove: (questionIds: readonly string[]) => void
   onAdd: (section: QuestionType, afterQuestionId?: string) => void
   onSetColumns: (questionIds: readonly string[], columns: ColumnSetting) => void
-  onShuffleAnswers: (questionIds: readonly string[]) => void
-  onShuffleSelectedQuestions: (questionIds: readonly string[]) => void
   onMoveQuestions: (
     questionIds: readonly string[],
     targetId: string,
@@ -1017,11 +996,9 @@ export function ExamPage({
             columns: columnSettings[menuQuestion.id] ?? 'auto',
             onEdit,
             onDuplicate,
-            onDelete,
+            onRemove,
             onAdd,
             onSetColumns,
-            onShuffleAnswers,
-            onShuffleSelectedQuestions,
             selectedQuestionIds: [...selection.selectedIds],
           })}
           onClose={closeMenu}

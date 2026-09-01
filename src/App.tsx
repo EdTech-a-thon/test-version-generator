@@ -31,18 +31,12 @@ import {
 import { leftArrowInputRule, rightArrowInputRule } from './text-arrows'
 import { cleanDocument } from './question-doc'
 import type { ProseMirrorJSON } from './question-doc'
-import {
-  createQuestion,
-  duplicateQuestion,
-  moveQuestions,
-  questionById,
-  shuffleAnswers,
-  shuffleSelectedQuestions,
-  withTypeSwitched,
-} from './exam'
+import { createQuestion, withTypeSwitched } from './exam'
 import type { Question, QuestionType } from './exam'
+import { bankQuestionById } from './question-bank'
 import type { ExamStore } from './exam-store'
 import { ExamPage, PrintDocument } from './exam-page'
+import { QuestionBankPane } from './question-bank-pane'
 import { useSelection } from './use-selection'
 import type { LayoutPlan } from './export-plan'
 import {
@@ -257,7 +251,7 @@ function QuestionDialog({
           <label>
             Type
             <select value={type} onChange={(event) => changeType(event.target.value as QuestionType)}>
-              <option value="open">Open ended</option>
+              <option value="open">Short answer</option>
               <option value="multiple-choice">Multiple choice</option>
             </select>
           </label>
@@ -289,20 +283,21 @@ function QuestionDialog({
 }
 
 export default function App({ store }: { store: ExamStore }) {
-  const draft = useSyncExternalStore(store.subscribe, store.getState)
-  // There is exactly one version and it is the one on the page. The store can
-  // still hold several — the model is unchanged — but nothing here creates,
-  // names, switches or deletes one: shuffling mutates this version in place,
-  // and Save writes it.
-  const version = store.currentVersion()
-  // A question being written. A new one is a full question that the store has
-  // not been told about yet, so saving is the same call either way.
+  const state = useSyncExternalStore(store.subscribe, store.getState)
+  // What the page renders and what an export publishes: the Question Bank
+  // records the Exam Draft references, in Exam Draft order, and nothing else.
+  // The store derives it once per change, so it is a stable dependency.
+  const { exam, version } = useSyncExternalStore(store.subscribe, store.selectedExam)
+  const examDraftIds = new Set(state.examDraft.questionIds)
+  // A question being written in the popup, and where saving it should put it.
   //
-  // `after` is the question a plus was clicked beside. The store only ever
-  // appends, so where a new question belongs is remembered here and applied as
-  // a move once it exists and has an id to move.
+  // `destination` is what the popup was opened from: the Question Bank on its
+  // own, or a place on the Exam Draft — `after` being the question a plus was
+  // clicked beside. Editing an existing question ignores both: the popup only
+  // ever changes canonical Question Content.
   const [editing, setEditing] = useState<{
     question: Question
+    destination: 'question-bank' | 'exam-draft'
     after: string | null
   } | null>(null)
   // The export dialog, and the configuration it is showing. The configuration
@@ -381,8 +376,7 @@ export default function App({ store }: { store: ExamStore }) {
     }
 
     const prepared = prepareExport({
-      exam: store.getState().exam,
-      version: store.currentVersion(),
+      ...store.selectedExam(),
       configuration,
       // Not seeded: a later export deliberately draws a fresh set rather than
       // reproducing an earlier one.
@@ -471,7 +465,7 @@ export default function App({ store }: { store: ExamStore }) {
           <input
             aria-label="Exam name"
             className="document-title"
-            value={draft.exam.title}
+            value={state.examDraft.title}
             onChange={(event) => store.setTitle(event.target.value)}
           />
         </div>
@@ -499,7 +493,13 @@ export default function App({ store }: { store: ExamStore }) {
           <button
             type="button"
             className="secondary-button insert-question-button"
-            onClick={() => setEditing({ question: createQuestion('multiple-choice'), after: null })}
+            onClick={() =>
+              setEditing({
+                question: createQuestion('multiple-choice'),
+                destination: 'exam-draft',
+                after: null,
+              })
+            }
           >
             <Plus />
             Insert question
@@ -524,7 +524,7 @@ export default function App({ store }: { store: ExamStore }) {
 
       {exportDialog && (
         <ExportDialog
-          exam={draft.exam}
+          exam={exam}
           version={version}
           configuration={exportDialog.configuration}
           onConfigurationChange={(configuration) =>
@@ -539,51 +539,61 @@ export default function App({ store }: { store: ExamStore }) {
         />
       )}
 
-      <div className="editor-output">
-        <ExamPage
-          exam={draft.exam}
-          version={version}
-          selection={selection}
-          onEdit={(questionId) => {
-            const question = questionById(draft.exam, questionId)
-            if (question) setEditing({ question, after: null })
-          }}
-          onDuplicate={(questionId) => {
-            const question = questionById(draft.exam, questionId)
-            if (question) store.addQuestion(duplicateQuestion(question))
-          }}
-          onDelete={(questionId) => {
-            if (window.confirm('Delete this question?')) {
-              store.removeQuestion(questionId)
-              selection.clear()
-            }
-          }}
-          onAdd={(section, afterQuestionId) =>
+      {/* The split authoring workspace: the Question Bank beside the rendered
+          Exam Draft, opening at an even split so neither side is the lesser
+          one. Resizing and collapsing it are still to come. */}
+      <div className="authoring-workspace">
+        <QuestionBankPane
+          bank={state.questionBank}
+          examDraftIds={examDraftIds}
+          onCreate={() =>
             setEditing({
-              question: createQuestion(section),
-              after: afterQuestionId ?? null,
+              question: createQuestion('multiple-choice'),
+              destination: 'question-bank',
+              after: null,
             })
           }
-          onSetColumns={(questionIds, columns) =>
-            store.setQuestionColumns(questionIds, columns)
-          }
-          onShuffleAnswers={(questionIds) =>
-            store.updateCurrentVersion((current) =>
-              shuffleAnswers(draft.exam, current, questionIds, Math.random),
-            )
-          }
-          onShuffleSelectedQuestions={(questionIds) =>
-            store.updateCurrentVersion((current) =>
-              shuffleSelectedQuestions(draft.exam, current, questionIds, Math.random),
-            )
-          }
-          onMoveQuestions={(questionIds, targetId, placement) =>
-            store.updateCurrentVersion((current) =>
-              moveQuestions(draft.exam, current, questionIds, targetId, placement),
-            )
-          }
-          unsavedDraft={!store.hasSavedVersions()}
+          onEdit={(questionId) => {
+            const question = bankQuestionById(state.questionBank, questionId)
+            if (question) {
+              setEditing({ question, destination: 'question-bank', after: null })
+            }
+          }}
+          onAddToExamDraft={(questionId) => store.addToExamDraft(questionId)}
         />
+
+        <div className="editor-output">
+          <ExamPage
+            exam={exam}
+            version={version}
+            selection={selection}
+            onEdit={(questionId) => {
+              const question = bankQuestionById(state.questionBank, questionId)
+              if (question) {
+                setEditing({ question, destination: 'exam-draft', after: null })
+              }
+            }}
+            onDuplicate={(questionId) => store.duplicateInExamDraft(questionId)}
+            onRemove={(questionIds) => {
+              store.removeFromExamDraft(questionIds)
+              selection.clear()
+            }}
+            onAdd={(section, afterQuestionId) =>
+              setEditing({
+                question: createQuestion(section),
+                destination: 'exam-draft',
+                after: afterQuestionId ?? null,
+              })
+            }
+            onSetColumns={(questionIds, columns) =>
+              store.setQuestionColumns(questionIds, columns)
+            }
+            onMoveQuestions={(questionIds, targetId, placement) =>
+              store.moveInExamDraft(questionIds, targetId, placement)
+            }
+            unsavedDraft={!store.hasSavedExam()}
+          />
+        </div>
       </div>
 
       {handoff?.format === 'print' && <PrintDocument plans={handoff.plans} />}
@@ -591,18 +601,17 @@ export default function App({ store }: { store: ExamStore }) {
       {editing && (
         <QuestionDialog
           question={editing.question}
-          isNew={!questionById(draft.exam, editing.question.id)}
+          isNew={!bankQuestionById(state.questionBank, editing.question.id)}
           onCancel={() => setEditing(null)}
           onSave={(saved) => {
-            store.updateQuestion(saved)
-            // Read the exam back rather than closing over `draft`: the move
-            // needs the version that already contains the question it is
-            // moving, and the store has just produced it.
-            if (editing.after) {
-              const after = editing.after
-              store.updateCurrentVersion((version) =>
-                moveQuestions(store.getState().exam, version, [saved.id], after, 'after'),
-              )
+            // One authoring action, whichever way the popup was opened, so a
+            // saved question is one undo step and cancelling is none at all.
+            if (bankQuestionById(state.questionBank, saved.id)) {
+              store.updateQuestionContent(saved)
+            } else if (editing.destination === 'question-bank') {
+              store.createInQuestionBank(saved)
+            } else {
+              store.createInExamDraft(saved, editing.after)
             }
             setEditing(null)
           }}

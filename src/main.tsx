@@ -8,7 +8,7 @@ import {
   loadExamStore,
   DRAFT_STORAGE_KEY,
 } from './exam-store'
-import type { SavedState, WorkingDraft } from './exam-store'
+import type { AuthoringState, SavedState } from './exam-store'
 import './styles.css'
 
 async function start() {
@@ -22,10 +22,10 @@ async function start() {
     }
   }
 
-  // The working draft is restored before the first render, so the teacher never
-  // sees an empty exam flash into their saved one.
+  // The authoring state is restored before the first render, so the teacher
+  // never sees an empty exam flash into their saved one.
   const store = await loadExamStore(
-    createLocalStorageBackend<WorkingDraft>(DRAFT_STORAGE_KEY),
+    createLocalStorageBackend<AuthoringState>(DRAFT_STORAGE_KEY),
     createIndexedDBBackend<SavedState>(),
   )
 

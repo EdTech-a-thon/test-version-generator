@@ -107,9 +107,8 @@ try {
     if (!ready) throw new Error('page is not loaded')
   }, 'the initial page')
 
-  const draft = {
-    exam: {
-      title: 'Drag test',
+  const authoring = {
+    questionBank: {
       questions: ['q1', 'q2'].map((id) => ({
         id,
         type: 'open',
@@ -120,18 +119,14 @@ try {
         columns: 'auto',
       })),
     },
-    versions: [{
-      id: 'v1',
-      letter: 'A',
-      questionOrder: ['q1', 'q2'],
-      choiceOrder: {},
-    }],
-    currentVersionId: 'v1',
+    examDraft: { title: 'Drag test', questionIds: ['q1', 'q2'] },
     dirty: false,
   }
+  // Driven over CDP rather than Playwright, so this is the one place the
+  // storage key is written out rather than imported from `exam-store.ts`.
   await evaluate(
     client,
-    `localStorage.setItem('exam-draft-v1', ${JSON.stringify(JSON.stringify(draft))})`,
+    `localStorage.setItem('exam-authoring-v2', ${JSON.stringify(JSON.stringify(authoring))})`,
   )
   await client.call('Page.reload')
   await retry(async () => {

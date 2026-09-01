@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { seedAuthoringState } from './seed-authoring'
 
 const choice = (id: string) => ({
   type: 'multipleChoiceChoice',
@@ -24,20 +25,11 @@ const question = (id: string) => ({
 
 test('column formatting applies to a large multi-page selection', async ({ page }) => {
   const ids = Array.from({ length: 12 }, (_unused, index) => `q${index + 1}`)
-  const draft = {
-    exam: { title: 'Bulk format repro', questions: ids.map(question) },
-    versions: [{
-      id: 'v1',
-      letter: 'A',
-      questionOrder: ids,
-      choiceOrder: {},
-    }],
-    currentVersionId: 'v1',
+  await seedAuthoringState(page, {
+    questionBank: { questions: ids.map(question) },
+    examDraft: { title: 'Bulk format repro', questionIds: ids },
     dirty: false,
-  }
-  await page.addInitScript((initialDraft) => {
-    localStorage.setItem('exam-draft-v1', JSON.stringify(initialDraft))
-  }, draft)
+  })
 
   await page.goto('/')
   const questions = page.locator('.exam-question')
