@@ -37,6 +37,13 @@ export type Difficulty = 'easy' | 'medium' | 'hard'
  *  value and no controlled Topic list to match it. */
 export const DIFFICULTIES: readonly Difficulty[] = ['easy', 'medium', 'hard']
 
+/** How each Question Section is written wherever a teacher sees it, so the
+ *  bank row, the filter and the Exam Draft's own chrome can never disagree. */
+export const SECTION_LABELS: Record<QuestionType, string> = {
+  'multiple-choice': 'Multiple choice',
+  open: 'Short answer',
+}
+
 /** How each Difficulty is written wherever a teacher sees it, so the popup that
  *  sets one and the bank row that shows it can never disagree. */
 export const DIFFICULTY_LABELS: Record<Difficulty, string> = {
@@ -370,100 +377,7 @@ export function moveQuestions(
   return { ...version, questionOrder }
 }
 
-// ---------------------------------------------------------------------------
-// Shuffling
-//
-// Two pure functions on a version, each taking an injected random source so
-// a fixed sequence of draws produces a fixed ordering in tests. Neither
-// touches question content — only the ordering a version records.
-// Correctness is a boolean on the choice, so it always follows its choice
-// through a shuffle with no bookkeeping.
-
-// The same contract as `Math.random`: a float in [0, 1). The app passes
-// `Math.random` itself; a test passes a fixed sequence so the outcome is
-// reproducible.
+// The same contract as `Math.random`: a float in [0, 1). Export Randomization
+// is the only thing that draws from one, and it injects its own source so a
+// fixture's Versions are reproducible while a real export is not.
 export type RandomSource = () => number
-
-// Fisher-Yates, driven entirely by the injected source.
-function shuffled<T>(items: readonly T[], random: RandomSource): T[] {
-  const result = items.slice()
-  for (let i = result.length - 1; i > 0; i -= 1) {
-    const j = Math.floor(random() * (i + 1))
-    const tmp = result[i]!
-    result[i] = result[j]!
-    result[j] = tmp
-  }
-  return result
-}
-
-// Reorders `questionOrder` within the chosen section, or within every
-// section when `scope` is `'all'` — one section at a time, so a mixed-type
-// ordering never results. Each section's questions are drawn out via
-// `questionsInSection` (which already reconciles the order against what
-// currently exists), shuffled among themselves if targeted, and put back in
-// `SECTION_ORDER`.
-//
-// Deliberately ignores any current selection: the toolbar dropdown names the
-// scope explicitly instead, which is why this takes `scope`, not a set of
-// question ids.
-export function shuffleQuestions(
-  exam: Exam,
-  version: Version,
-  scope: QuestionType | 'all',
-  random: RandomSource,
-): Version {
-  const targets = new Set<QuestionType>(scope === 'all' ? SECTION_ORDER : [scope])
-  const questionOrder = SECTION_ORDER.flatMap((section) => {
-    const ids = questionsInSection(exam, version, section).map(
-      (question) => question.id,
-    )
-    return targets.has(section) ? shuffled(ids, random) : ids
-  })
-  return { ...version, questionOrder }
-}
-
-// Shuffles only the selected slots. Unselected questions keep their exact
-// positions, and a selection spanning both sections is shuffled independently
-// within each section so section membership can never change.
-export function shuffleSelectedQuestions(
-  exam: Exam,
-  version: Version,
-  questionIds: readonly string[],
-  random: RandomSource,
-): Version {
-  const selected = new Set(questionIds)
-  const questionOrder = SECTION_ORDER.flatMap((section) => {
-    const ids = questionsInSection(exam, version, section).map(
-      (question) => question.id,
-    )
-    const shuffledIds = shuffled(ids.filter((id) => selected.has(id)), random)
-    let selectedIndex = 0
-    return ids.map((id) =>
-      selected.has(id) ? shuffledIds[selectedIndex++]! : id,
-    )
-  })
-  return { ...version, questionOrder }
-}
-
-// Reorders `choiceOrder` for each given question id. Only a multiple-choice
-// question with at least two choices actually moves: an open question, or
-// one with fewer than two choices, is left exactly as recorded. That makes
-// it safe to pass a mixed selection straight through — as the toolbar's
-// "Shuffle answers" does — without filtering it first. A question id this
-// exam has no choices for, or does not know at all, is silently skipped.
-export function shuffleAnswers(
-  exam: Exam,
-  version: Version,
-  questionIds: readonly string[],
-  random: RandomSource,
-): Version {
-  const choiceOrder = { ...version.choiceOrder }
-  for (const questionId of questionIds) {
-    const question = questionById(exam, questionId)
-    if (!question) continue
-    const ids = orderedChoices(question, version).map((choice) => choice.id)
-    if (ids.length < 2) continue
-    choiceOrder[questionId] = shuffled(ids, random)
-  }
-  return { ...version, choiceOrder }
-}

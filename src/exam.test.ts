@@ -12,29 +12,14 @@ import {
   orderedQuestions,
   questionById,
   questionsInSection,
-  shuffleAnswers,
-  shuffleQuestions,
-  shuffleSelectedQuestions,
   topicsOf,
   withQuestionAppended,
   withQuestionRemoved,
   withTopicAdded,
   withTypeSwitched,
 } from './exam'
-import type { Exam, Question, RandomSource, Version } from './exam'
+import type { Exam, Question, Version } from './exam'
 import type { ProseMirrorJSON } from './question-doc'
-
-// A fixed sequence of draws in place of `Math.random`, so a shuffle's outcome
-// is reproducible. Wraps around if a shuffle draws more than the sequence
-// supplies.
-function fixedRandom(sequence: number[]): RandomSource {
-  let index = 0
-  return () => {
-    const value = sequence[index % sequence.length]!
-    index += 1
-    return value
-  }
-}
 
 function choice(id: string, correct = false): ProseMirrorJSON {
   return {
@@ -365,166 +350,5 @@ describe('switching a question between multiple choice and open response', () =>
     const openQuestion = open('o1')
     expect(withTypeSwitched(mc, 'multiple-choice')).toBe(mc)
     expect(withTypeSwitched(openQuestion, 'open')).toBe(openQuestion)
-  })
-})
-
-describe('shuffleQuestions', () => {
-  function exam5() {
-    return examOf([
-      multipleChoice('q1', ['a']),
-      multipleChoice('q2', ['a']),
-      multipleChoice('q3', ['a']),
-      open('o1'),
-      open('o2'),
-    ])
-  }
-
-  test('is a permutation of the same ids, with nothing lost or duplicated', () => {
-    const exam = exam5()
-    const version = versionOf(['q1', 'q2', 'q3', 'o1', 'o2'])
-    const result = shuffleQuestions(exam, version, 'all', fixedRandom([0.9, 0.1, 0.6, 0.3]))
-    expect(result.questionOrder).toHaveLength(5)
-    expect(new Set(result.questionOrder)).toEqual(new Set(['q1', 'q2', 'q3', 'o1', 'o2']))
-  })
-
-  test('shuffling one section leaves the other section untouched', () => {
-    const exam = exam5()
-    const version = versionOf(['q1', 'q2', 'q3', 'o1', 'o2'])
-    const result = shuffleQuestions(exam, version, 'multiple-choice', fixedRandom([0.9, 0.1]))
-    expect(ids(questionsInSection(exam, result, 'open'))).toEqual(['o1', 'o2'])
-  })
-
-  test("'all' shuffles every section, but never mixes multiple-choice and short-answer", () => {
-    const exam = exam5()
-    const version = versionOf(['q1', 'q2', 'q3', 'o1', 'o2'])
-    const result = shuffleQuestions(exam, version, 'all', fixedRandom([0.9, 0.1, 0.6, 0.3]))
-    expect(new Set(ids(questionsInSection(exam, result, 'multiple-choice')))).toEqual(
-      new Set(['q1', 'q2', 'q3']),
-    )
-    expect(new Set(ids(questionsInSection(exam, result, 'open')))).toEqual(new Set(['o1', 'o2']))
-  })
-
-  test('question content is never modified by a shuffle', () => {
-    const exam = exam5()
-    const version = versionOf(['q1', 'q2', 'q3', 'o1', 'o2'])
-    shuffleQuestions(exam, version, 'all', fixedRandom([0.9, 0.1, 0.6, 0.3]))
-    // The exam passed in is read, not written: its own question order is
-    // untouched by the call.
-    expect(exam.questions.map((question) => question.id)).toEqual(['q1', 'q2', 'q3', 'o1', 'o2'])
-  })
-
-  test('a fixed random source produces a fixed ordering', () => {
-    const exam = exam5()
-    const version = versionOf(['q1', 'q2', 'q3', 'o1', 'o2'])
-    const a = shuffleQuestions(exam, version, 'multiple-choice', fixedRandom([0.9, 0.1, 0.6]))
-    const b = shuffleQuestions(exam, version, 'multiple-choice', fixedRandom([0.9, 0.1, 0.6]))
-    expect(a.questionOrder).toEqual(b.questionOrder)
-  })
-
-  test('a question missing from the version is still included exactly once, appended to its section', () => {
-    const exam = exam5()
-    const version = versionOf(['q1', 'o1']) // q2, q3, o2 were added since this version was saved
-    const result = shuffleQuestions(exam, version, 'multiple-choice', fixedRandom([0.9]))
-    expect(new Set(ids(questionsInSection(exam, result, 'multiple-choice')))).toEqual(
-      new Set(['q1', 'q2', 'q3']),
-    )
-  })
-})
-
-describe('shuffleSelectedQuestions', () => {
-  test('permutes selected slots while unselected questions keep their positions', () => {
-    const exam = examOf(
-      ['q1', 'q2', 'q3', 'q4', 'q5'].map((id) => multipleChoice(id, ['a'])),
-    )
-    const version = versionOf(['q1', 'q2', 'q3', 'q4', 'q5'])
-    const result = shuffleSelectedQuestions(
-      exam,
-      version,
-      ['q2', 'q4', 'q5'],
-      fixedRandom([0, 0]),
-    )
-
-    expect(result.questionOrder).toEqual(['q1', 'q4', 'q3', 'q5', 'q2'])
-  })
-
-  test('shuffles a mixed selection independently within each section', () => {
-    const exam = examOf([
-      multipleChoice('q1', ['a']),
-      multipleChoice('q2', ['a']),
-      open('o1'),
-      open('o2'),
-    ])
-    const result = shuffleSelectedQuestions(
-      exam,
-      versionOf(['q1', 'q2', 'o1', 'o2']),
-      ['q1', 'q2', 'o1', 'o2'],
-      fixedRandom([0]),
-    )
-
-    expect(result.questionOrder).toEqual(['q2', 'q1', 'o2', 'o1'])
-  })
-})
-
-describe('shuffleAnswers', () => {
-  test('is a permutation of the same choice ids, with nothing lost or duplicated', () => {
-    const exam = examOf([multipleChoice('q1', ['a', 'b', 'c', 'd'], 'c')])
-    const version = versionOf(['q1'])
-    const result = shuffleAnswers(exam, version, ['q1'], fixedRandom([0.9, 0.1, 0.5]))
-    expect(result.choiceOrder.q1).toHaveLength(4)
-    expect(new Set(result.choiceOrder.q1)).toEqual(new Set(['a', 'b', 'c', 'd']))
-  })
-
-  test('unselected questions are untouched', () => {
-    const exam = examOf([
-      multipleChoice('q1', ['a', 'b'], 'a'),
-      multipleChoice('q2', ['a', 'b'], 'b'),
-    ])
-    const version = versionOf(['q1', 'q2'], { q2: ['a', 'b'] })
-    const result = shuffleAnswers(exam, version, ['q1'], fixedRandom([0.9]))
-    expect(result.choiceOrder.q2).toEqual(['a', 'b'])
-  })
-
-  test('the correct answer stays attached to its choice through the permutation', () => {
-    const exam = examOf([multipleChoice('q1', ['a', 'b', 'c'], 'b')])
-    const version = versionOf(['q1'])
-    const result = shuffleAnswers(exam, version, ['q1'], fixedRandom([0.9, 0.4]))
-    const question = questionById(exam, 'q1')!
-    const shuffledChoices = orderedChoices(question, result)
-    expect(shuffledChoices.find((choice) => choice.correct)?.id).toBe('b')
-  })
-
-  test('choice letters follow the new order — the letter shown is the position on this paper', () => {
-    const exam = examOf([multipleChoice('q1', ['a', 'b', 'c'])])
-    const version = versionOf(['q1'])
-    const result = shuffleAnswers(exam, version, ['q1'], fixedRandom([0.9, 0.4]))
-    // orderedChoices returns choices in this version's order; the letter a
-    // student sees is that position, so asserting the order asserts the
-    // letters too.
-    expect(result.choiceOrder.q1).toEqual(
-      orderedChoices(questionById(exam, 'q1')!, result).map((choice) => choice.id),
-    )
-  })
-
-  test('a selected open question is skipped safely and gets no choiceOrder entry', () => {
-    const exam = examOf([open('o1')])
-    const version = versionOf(['o1'])
-    const result = shuffleAnswers(exam, version, ['o1'], fixedRandom([0.9]))
-    expect(result.choiceOrder.o1).toBeUndefined()
-  })
-
-  test('a fixed random source produces a fixed ordering', () => {
-    const exam = examOf([multipleChoice('q1', ['a', 'b', 'c', 'd'])])
-    const version = versionOf(['q1'])
-    const a = shuffleAnswers(exam, version, ['q1'], fixedRandom([0.9, 0.2, 0.6]))
-    const b = shuffleAnswers(exam, version, ['q1'], fixedRandom([0.9, 0.2, 0.6]))
-    expect(a.choiceOrder.q1).toEqual(b.choiceOrder.q1)
-  })
-
-  test('question content is never modified by a shuffle', () => {
-    const exam = examOf([multipleChoice('q1', ['a', 'b', 'c'], 'b')])
-    const version = versionOf(['q1'])
-    const before = structuredClone(exam)
-    shuffleAnswers(exam, version, ['q1'], fixedRandom([0.9]))
-    expect(exam).toEqual(before)
   })
 })
