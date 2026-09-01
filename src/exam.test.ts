@@ -15,8 +15,10 @@ import {
   shuffleAnswers,
   shuffleQuestions,
   shuffleSelectedQuestions,
+  topicsOf,
   withQuestionAppended,
   withQuestionRemoved,
+  withTopicAdded,
   withTypeSwitched,
 } from './exam'
 import type { Exam, Question, RandomSource, Version } from './exam'
@@ -83,6 +85,12 @@ describe('question and version construction', () => {
   test('a new multiple-choice question carries choices, an open one does not', () => {
     expect(orderedChoices(createQuestion('multiple-choice'), createVersion())).not.toHaveLength(0)
     expect(orderedChoices(createQuestion('open'), createVersion())).toHaveLength(0)
+  })
+
+  test('a new question carries no Difficulty and no Topics', () => {
+    const question = createQuestion('open')
+    expect(question.difficulty).toBeUndefined()
+    expect(topicsOf(question)).toEqual([])
   })
 
   test('a new exam is empty and its questions have unique ids', () => {
@@ -253,6 +261,45 @@ describe('duplicating a question', () => {
     const copy = duplicateQuestion(original)
     expect(copy).toMatchObject({ type: 'open', columns: 4 })
     expect(copy.stashedChoices).toEqual(original.stashedChoices!)
+  })
+
+  test('keeps the Difficulty and the Topics, without sharing the Topic list', () => {
+    const original: Question = {
+      ...multipleChoice('q1', ['c1', 'c2']),
+      difficulty: 'hard',
+      topics: ['Algebra', 'Geometry'],
+    }
+    const copy = duplicateQuestion(original)
+    expect(copy.difficulty).toBe('hard')
+    expect(topicsOf(copy)).toEqual(['Algebra', 'Geometry'])
+    expect(copy.topics).not.toBe(original.topics)
+  })
+})
+
+describe('Difficulty and Topics', () => {
+  test('reads a question stored before Topics existed as untagged', () => {
+    const { topics, ...untagged } = { ...createQuestion('open'), topics: ['Algebra'] }
+    expect(topics).toEqual(['Algebra'])
+    expect(topicsOf(untagged)).toEqual([])
+  })
+
+  test('commits a Topic with its surrounding whitespace trimmed', () => {
+    expect(withTopicAdded([], '  Cell division  ')).toEqual(['Cell division'])
+    expect(withTopicAdded(['Algebra'], 'Geometry')).toEqual(['Algebra', 'Geometry'])
+  })
+
+  test('ignores a Topic that is empty once trimmed', () => {
+    expect(withTopicAdded(['Algebra'], '   ')).toEqual(['Algebra'])
+    expect(withTopicAdded(['Algebra'], '')).toEqual(['Algebra'])
+  })
+
+  test('preserves casing and spelling rather than normalising them', () => {
+    // Two spellings of one subject are two Topics: the teacher chose them, and
+    // nothing here folds case, stems or corrects.
+    expect(withTopicAdded(['Algebra'], 'algebra')).toEqual(['Algebra', 'algebra'])
+    expect(withTopicAdded(['Photosynthesis'], 'Photosynthesis ')).toEqual([
+      'Photosynthesis',
+    ])
   })
 })
 

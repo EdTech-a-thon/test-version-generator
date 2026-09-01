@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { createQuestion, orderedQuestions, withTypeSwitched } from './exam'
+import { createQuestion, orderedQuestions, topicsOf, withTypeSwitched } from './exam'
 import type { Question } from './exam'
 import {
   DRAFT_STORAGE_KEY,
@@ -132,6 +132,7 @@ describe('the Exam Draft references the Question Bank', () => {
 
   test('holds a question at most once, however often it is added', async () => {
     const { store, questions } = await withExamDraft(2)
+    const before = store.getState()
 
     store.addToExamDraft(questions[0]!.id)
     store.addToExamDraft(questions[0]!.id, questions[1]!.id)
@@ -140,6 +141,9 @@ describe('the Exam Draft references the Question Bank', () => {
       questions[0]!.id,
       questions[1]!.id,
     ])
+    // Refused, so nothing happened at all: an add that changes nothing is not
+    // an authoring action and must not cost an undo step.
+    expect(store.getState()).toBe(before)
   })
 
   test('refuses a reference to Question Content that is not banked', async () => {
@@ -156,7 +160,7 @@ describe('the Exam Draft references the Question Bank', () => {
       doc: { type: 'doc', content: [{ type: 'paragraph' }] },
     }
 
-    store.updateQuestionContent(edited)
+    store.updateInQuestionBank(edited)
 
     expect(store.selectedExam().exam.questions[0]!.doc).toEqual(edited.doc)
     expect(bankIds(store)).toEqual([questions[0]!.id])
@@ -167,7 +171,7 @@ describe('the Exam Draft references the Question Bank', () => {
     const question = createQuestion('open')
     store.createInQuestionBank(question)
 
-    store.updateQuestionContent({
+    store.updateInQuestionBank({
       ...question,
       doc: { type: 'doc', content: [{ type: 'paragraph' }] },
     })
@@ -183,7 +187,7 @@ describe('the Exam Draft references the Question Bank', () => {
     const { store } = await freshStore()
     const question = createQuestion('open')
 
-    store.updateQuestionContent(question)
+    store.updateInQuestionBank(question)
 
     expect(bankIds(store)).toEqual([question.id])
     expect(store.getState().examDraft.questionIds).toEqual([])
@@ -192,7 +196,7 @@ describe('the Exam Draft references the Question Bank', () => {
   test('keeps a referenced question included when its type changes', async () => {
     const { store, questions } = await withExamDraft(2)
 
-    store.updateQuestionContent(withTypeSwitched(questions[0]!, 'open'))
+    store.updateInQuestionBank(withTypeSwitched(questions[0]!, 'open'))
 
     // The Question Sections are derived, so the question keeps its place on the
     // Exam Draft and renders under Short Answer instead.
@@ -229,6 +233,116 @@ describe('Remove', () => {
     store.addToExamDraft(questions[0]!.id)
 
     expect(renderedIds(store)).toEqual([questions[0]!.id])
+  })
+})
+
+describe('Insert and Replace', () => {
+  test('inserts an unused bank question after a chosen Exam Draft question', async () => {
+    const { store, questions } = await withExamDraft(2)
+    const spare = createQuestion('multiple-choice')
+    store.createInQuestionBank(spare)
+
+    store.addToExamDraft(spare.id, questions[0]!.id)
+
+    expect(renderedIds(store)).toEqual([questions[0]!.id, spare.id, questions[1]!.id])
+  })
+
+  test('refuses to insert into another Question Section', async () => {
+    const { store, questions } = await withExamDraft(2, 'multiple-choice')
+    const shortAnswer = createQuestion('open')
+    store.createInQuestionBank(shortAnswer)
+    const before = store.getState()
+
+    store.addToExamDraft(shortAnswer.id, questions[0]!.id)
+
+    expect(store.getState()).toBe(before)
+  })
+
+  test('replaces one Exam Draft question with an unused bank question in its place', async () => {
+    const { store, questions } = await withExamDraft(3)
+    const spare = createQuestion('multiple-choice')
+    store.createInQuestionBank(spare)
+
+    store.replaceInExamDraft(questions[1]!.id, spare.id)
+
+    expect(renderedIds(store)).toEqual([questions[0]!.id, spare.id, questions[2]!.id])
+  })
+
+  test('leaves the replaced question in the Question Bank, unchanged', async () => {
+    const { store, questions } = await withExamDraft(1)
+    const spare = createQuestion('multiple-choice')
+    store.createInQuestionBank(spare)
+
+    store.replaceInExamDraft(questions[0]!.id, spare.id)
+
+    expect(bankIds(store)).toEqual([questions[0]!.id, spare.id])
+    expect(store.getState().questionBank.questions[0]).toEqual(questions[0]!)
+    // Replaced out, so it is available to compose with again.
+    store.addToExamDraft(questions[0]!.id)
+    expect(renderedIds(store)).toEqual([spare.id, questions[0]!.id])
+  })
+
+  test('refuses a Replace across Question Sections, or one that would duplicate', async () => {
+    const { store, questions } = await withExamDraft(2, 'multiple-choice')
+    const shortAnswer = createQuestion('open')
+    store.createInQuestionBank(shortAnswer)
+    const before = store.getState()
+
+    store.replaceInExamDraft(questions[0]!.id, shortAnswer.id)
+    store.replaceInExamDraft(questions[0]!.id, questions[1]!.id)
+    store.replaceInExamDraft(questions[0]!.id, 'never-banked')
+    store.replaceInExamDraft('not-on-the-exam', shortAnswer.id)
+
+    expect(store.getState()).toBe(before)
+    expect(store.canUndo()).toBe(true)
+  })
+
+  test('each is exactly one undo step', async () => {
+    const { store, questions } = await withExamDraft(2)
+    const spare = createQuestion('multiple-choice')
+    store.createInQuestionBank(spare)
+
+    store.replaceInExamDraft(questions[0]!.id, spare.id)
+    store.undo()
+
+    expect(renderedIds(store)).toEqual([questions[0]!.id, questions[1]!.id])
+    expect(bankIds(store)).toEqual([questions[0]!.id, questions[1]!.id, spare.id])
+
+    store.redo()
+    expect(renderedIds(store)).toEqual([spare.id, questions[1]!.id])
+  })
+})
+
+describe('classifying a question', () => {
+  test('saves Difficulty and Topics as one authoring action', async () => {
+    const { store, questions, backend } = await withExamDraft(1)
+
+    store.updateInQuestionBank({
+      ...questions[0]!,
+      difficulty: 'hard',
+      topics: ['Cell division'],
+    })
+    await store.whenSettled()
+
+    const banked = store.getState().questionBank.questions[0]!
+    expect(banked.difficulty).toBe('hard')
+    expect(topicsOf(banked)).toEqual(['Cell division'])
+    expect(store.getState().dirty).toBe(true)
+    expect(backend.value?.questionBank.questions[0]?.difficulty).toBe('hard')
+
+    store.undo()
+    expect(store.getState().questionBank.questions[0]!.difficulty).toBeUndefined()
+  })
+
+  test('classifies a bank-only question without putting it on the Exam Draft', async () => {
+    const { store } = await freshStore()
+    const question = createQuestion('open')
+    store.createInQuestionBank(question)
+
+    store.updateInQuestionBank({ ...question, difficulty: 'easy', topics: ['Algebra'] })
+
+    expect(store.getState().examDraft.questionIds).toEqual([])
+    expect(topicsOf(store.getState().questionBank.questions[0]!)).toEqual(['Algebra'])
   })
 })
 
@@ -306,7 +420,7 @@ describe('the dirty flag and persistence', () => {
       (store) => store.setTitle('Chem Unit 3'),
       (store) => store.createInQuestionBank(createQuestion('open')),
       (store) => store.createInExamDraft(createQuestion('open')),
-      (store, question) => store.updateQuestionContent({ ...question, columns: 2 }),
+      (store, question) => store.updateInQuestionBank({ ...question, columns: 2 }),
       (store, question) => store.setQuestionColumns([question.id], 4),
       (store, question) => store.duplicateInExamDraft(question.id),
       (store, question) => store.removeFromExamDraft([question.id]),

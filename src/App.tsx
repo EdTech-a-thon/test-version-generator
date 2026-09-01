@@ -31,12 +31,20 @@ import {
 import { leftArrowInputRule, rightArrowInputRule } from './text-arrows'
 import { cleanDocument } from './question-doc'
 import type { ProseMirrorJSON } from './question-doc'
-import { createQuestion, withTypeSwitched } from './exam'
-import type { Question, QuestionType } from './exam'
+import {
+  DIFFICULTIES,
+  DIFFICULTY_LABELS,
+  createQuestion,
+  topicsOf,
+  withTopicAdded,
+  withTypeSwitched,
+} from './exam'
+import type { Difficulty, Question, QuestionType } from './exam'
 import { bankQuestionById } from './question-bank'
 import type { ExamStore } from './exam-store'
 import { ExamPage, PrintDocument } from './exam-page'
 import { QuestionBankPane } from './question-bank-pane'
+import { NO_FILTER, type QuestionBankFilter } from './question-bank-view'
 import { useSelection } from './use-selection'
 import type { LayoutPlan } from './export-plan'
 import {
@@ -50,7 +58,68 @@ import { ExportDialog } from './export-dialog'
 import { domMeasure } from './dom-measure'
 import { saveImage } from './local-images'
 import { configurePastedImages } from './pasted-images'
-import { Plus, Redo2, Undo2 } from 'lucide-react'
+import { Plus, Redo2, Undo2, X } from 'lucide-react'
+
+/**
+ * The Topics of one question, as removable chips.
+ *
+ * Enter or a comma commits what has been typed, trimmed. Nothing else happens
+ * to it: no autocomplete offers a Topic, no controlled vocabulary rejects one,
+ * and two spellings of one subject stay two Topics, because only the teacher
+ * knows whether they mean the same thing.
+ */
+function TopicChips({
+  topics,
+  draft,
+  onDraftChange,
+  onChange,
+}: {
+  topics: readonly string[]
+  draft: string
+  onDraftChange: (draft: string) => void
+  onChange: (topics: string[]) => void
+}) {
+  const commit = () => {
+    onChange(withTopicAdded(topics, draft))
+    onDraftChange('')
+  }
+  return (
+    <div className="topic-field">
+      <span className="topic-field-label">Topics</span>
+      {topics.length > 0 && (
+        <ul className="topic-chips">
+          {topics.map((topic) => (
+            <li className="topic-chip" key={topic}>
+              {topic}
+              <button
+                type="button"
+                aria-label={`Clear Topic ${topic}`}
+                onClick={() => onChange(topics.filter((item) => item !== topic))}
+              >
+                <X />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <input
+        className="topic-input"
+        aria-label="Add a Topic"
+        placeholder="Add a Topic, then press Enter"
+        value={draft}
+        onChange={(event) => onDraftChange(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key !== 'Enter' && event.key !== ',') return
+          // Both keys mean the same thing, and neither is left to do what it
+          // would otherwise do — type a comma, or reach the dialog behind.
+          event.preventDefault()
+          event.stopPropagation()
+          commit()
+        }}
+      />
+    </div>
+  )
+}
 
 function CrepeQuestion({
   value,
@@ -177,6 +246,11 @@ function QuestionDialog({
 }) {
   const [type, setType] = useState<QuestionType>(question.type)
   const [doc, setDoc] = useState<ProseMirrorJSON>(question.doc)
+  const [difficulty, setDifficulty] = useState<Difficulty | ''>(question.difficulty ?? '')
+  const [topics, setTopics] = useState<readonly string[]>(topicsOf(question))
+  // What is in the Topic box but not yet a chip. Saving commits it, so a Topic
+  // typed and then saved is never quietly dropped.
+  const [topicDraft, setTopicDraft] = useState('')
   const latestDoc = useRef(doc)
   const readEditorDocument = useRef<(() => ProseMirrorJSON) | null>(null)
   // The stash the dialog currently knows about, kept alongside the doc so a
@@ -209,6 +283,11 @@ function QuestionDialog({
     }
     if (stash.current) saved.stashedChoices = stash.current
     else delete saved.stashedChoices
+    if (difficulty) saved.difficulty = difficulty
+    else delete saved.difficulty
+    const savedTopics = withTopicAdded(topics, topicDraft)
+    if (savedTopics.length > 0) saved.topics = savedTopics
+    else delete saved.topics
     onSave(saved)
   }
 
@@ -248,13 +327,33 @@ function QuestionDialog({
       >
         <header className="dialog-header">
           <h2>{isNew ? 'Add question' : 'Edit question'}</h2>
-          <label>
-            Type
-            <select value={type} onChange={(event) => changeType(event.target.value as QuestionType)}>
-              <option value="open">Short answer</option>
-              <option value="multiple-choice">Multiple choice</option>
-            </select>
-          </label>
+          {/* Type and Difficulty, side by side: one is structural and one is
+              optional, but both are the question's classification rather than
+              its content. */}
+          <div className="dialog-header-fields">
+            <label>
+              Type
+              <select
+                value={type}
+                onChange={(event) => changeType(event.target.value as QuestionType)}
+              >
+                <option value="open">Short answer</option>
+                <option value="multiple-choice">Multiple choice</option>
+              </select>
+            </label>
+            <label>
+              Difficulty
+              <select
+                value={difficulty}
+                onChange={(event) => setDifficulty(event.target.value as Difficulty | '')}
+              >
+                <option value="">Unspecified</option>
+                {DIFFICULTIES.map((value) => (
+                  <option key={value} value={value}>{DIFFICULTY_LABELS[value]}</option>
+                ))}
+              </select>
+            </label>
+          </div>
         </header>
         <div className="dialog-editor" key={type}>
           <CrepeQuestion
@@ -267,6 +366,12 @@ function QuestionDialog({
             }}
           />
         </div>
+        <TopicChips
+          topics={topics}
+          draft={topicDraft}
+          onDraftChange={setTopicDraft}
+          onChange={setTopics}
+        />
         <footer className="dialog-actions">
           <button type="button" className="secondary-button" onClick={onCancel}>Cancel</button>
           <button
@@ -322,6 +427,24 @@ export default function App({ store }: { store: ExamStore }) {
   // selection-wide context-menu actions share one source of truth.
   const selection = useSelection()
   const clearSelection = selection.clear
+  const selectOnExamDraft = selection.select
+  // How the Question Bank is being browsed, and which of its rows was last
+  // clicked. Both are transient UI state: they live here rather than in the
+  // store, so narrowing the bank or picking a row is never an authoring action,
+  // never dirties the exam and never appears in undo history.
+  const [bankFilter, setBankFilter] = useState<QuestionBankFilter>(NO_FILTER)
+  const [selectedBankId, setSelectedBankId] = useState<string | null>(null)
+  // What Insert and Replace act against: the question selected on the Exam
+  // Draft, when exactly one is. Two selected questions name no single position,
+  // so composition waits until the teacher has said which one they mean — and
+  // so does a selected question that is no longer on the exam, which is what a
+  // selection outlives an undo as. Only a referenced question names a position.
+  const selectedId =
+    selection.selectedIds.size === 1 ? [...selection.selectedIds][0]! : null
+  const examDraftSelection =
+    selectedId && examDraftIds.has(selectedId)
+      ? bankQuestionById(state.questionBank, selectedId) ?? null
+      : null
 
   useEffect(() => {
     if (editing || exportDialog) return
@@ -546,6 +669,11 @@ export default function App({ store }: { store: ExamStore }) {
         <QuestionBankPane
           bank={state.questionBank}
           examDraftIds={examDraftIds}
+          filter={bankFilter}
+          onFilterChange={setBankFilter}
+          selectedQuestionId={selectedBankId}
+          examDraftSelection={examDraftSelection}
+          onSelect={setSelectedBankId}
           onCreate={() =>
             setEditing({
               question: createQuestion('multiple-choice'),
@@ -560,6 +688,26 @@ export default function App({ store }: { store: ExamStore }) {
             }
           }}
           onAddToExamDraft={(questionId) => store.addToExamDraft(questionId)}
+          // One store call each, the same ones a pointer gesture will make:
+          // the composition path is a second way to reach the authoring
+          // boundary, never a second implementation of it.
+          onInsertAfterExamDraftSelection={(questionId) => {
+            if (!examDraftSelection) return
+            store.addToExamDraft(questionId, examDraftSelection.id)
+            // The incoming question becomes the one being worked with, so a
+            // second insertion follows the first rather than stacking backwards
+            // behind the same target. Revealing and highlighting it after
+            // repagination is the drag-and-drop slice's business.
+            selectOnExamDraft(questionId)
+          }}
+          onReplaceExamDraftSelection={(questionId) => {
+            if (!examDraftSelection) return
+            store.replaceInExamDraft(examDraftSelection.id, questionId)
+            // Necessary here rather than merely tidy: the outgoing question is
+            // off the exam now, and a selection pointing at it names no
+            // position on the Exam Draft at all.
+            selectOnExamDraft(questionId)
+          }}
         />
 
         <div className="editor-output">
@@ -607,7 +755,7 @@ export default function App({ store }: { store: ExamStore }) {
             // One authoring action, whichever way the popup was opened, so a
             // saved question is one undo step and cancelling is none at all.
             if (bankQuestionById(state.questionBank, saved.id)) {
-              store.updateQuestionContent(saved)
+              store.updateInQuestionBank(saved)
             } else if (editing.destination === 'question-bank') {
               store.createInQuestionBank(saved)
             } else {

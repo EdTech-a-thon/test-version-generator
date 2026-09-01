@@ -29,6 +29,22 @@ export type QuestionType = 'multiple-choice' | 'open'
 // defers to measurement; an explicit count disables that permanently.
 export type ColumnSetting = 'auto' | 1 | 2 | 4
 
+/** How hard a question is. Optional everywhere: classification is a
+ *  convenience, and an unclassified question is a complete one. */
+export type Difficulty = 'easy' | 'medium' | 'hard'
+
+/** The whole vocabulary, in the order a teacher reads it. There is no fourth
+ *  value and no controlled Topic list to match it. */
+export const DIFFICULTIES: readonly Difficulty[] = ['easy', 'medium', 'hard']
+
+/** How each Difficulty is written wherever a teacher sees it, so the popup that
+ *  sets one and the bank row that shows it can never disagree. */
+export const DIFFICULTY_LABELS: Record<Difficulty, string> = {
+  easy: 'Easy',
+  medium: 'Medium',
+  hard: 'Hard',
+}
+
 export type Question = {
   id: string
   type: QuestionType
@@ -37,6 +53,11 @@ export type Question = {
   // never destructive. Only one stash is kept.
   stashedChoices?: ProseMirrorJSON
   columns: ColumnSetting
+  // Optional classification. Both are absent rather than empty on a question
+  // nobody has classified, so an untagged question costs no storage and a
+  // record written before either existed still reads as a valid question.
+  difficulty?: Difficulty
+  topics?: string[]
 }
 
 export type Exam = {
@@ -71,6 +92,30 @@ function newQuestionDoc(type: QuestionType): ProseMirrorJSON {
     : structuredClone(emptyDoc)
 }
 
+/** A question's Topics, always a list. The single reader, so an absent list and
+ *  an empty one are the same thing everywhere — including for a stored question
+ *  written before Topics existed. */
+export function topicsOf(question: Question): readonly string[] {
+  return Array.isArray(question.topics) ? question.topics : []
+}
+
+/**
+ * The rule a committed Topic follows: surrounding whitespace trimmed, an empty
+ * value ignored, and the exact string kept otherwise.
+ *
+ * Casing and spelling are the teacher's. Nothing here case-folds, stems,
+ * autocompletes or consults a controlled vocabulary, so "Algebra" and "algebra"
+ * are two Topics; only the identical string is already there.
+ */
+export function withTopicAdded(
+  topics: readonly string[],
+  value: string,
+): string[] {
+  const topic = value.trim()
+  if (topic === '' || topics.includes(topic)) return [...topics]
+  return [...topics, topic]
+}
+
 export function createQuestion(type: QuestionType): Question {
   return {
     id: crypto.randomUUID(),
@@ -92,6 +137,9 @@ export function duplicateQuestion(question: Question): Question {
   if (question.stashedChoices) {
     copy.stashedChoices = withFreshChoiceIds(question.stashedChoices)
   }
+  // A list of its own: the copy is a Question Bank record in its own right, and
+  // retagging one must never retag the other.
+  if (question.topics) copy.topics = [...question.topics]
   return copy
 }
 

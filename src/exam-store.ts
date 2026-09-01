@@ -9,9 +9,10 @@
 // The store is also the one authoring boundary. Every semantic action a teacher
 // can take on the Question Bank or the Exam Draft is a single method here:
 // creating canonical Question Content with or without putting it on the exam,
-// adding a reference, editing canonical content, moving a reference, and
-// Removing one. Callers never assemble an action out of smaller ones — that is
-// what makes each of them atomic, one undo step, and one mirrored write.
+// adding a reference, editing a banked question's content and metadata, moving
+// a reference, Replacing one, and Removing one. Callers never assemble an
+// action out of smaller ones — that is what makes each of them atomic, one undo
+// step, and one mirrored write.
 
 import {
   duplicateQuestion,
@@ -27,6 +28,7 @@ import {
   withQuestionBanked,
   withReferenceAdded,
   withReferenceOrder,
+  withReferenceReplaced,
   withReferencesRemoved,
   type ExamDraft,
   type QuestionBank,
@@ -198,17 +200,30 @@ export type ExamStore = {
   /** Banks canonical Question Content and references it from the Exam Draft,
    *  after `afterQuestionId` when given and at the end otherwise. */
   createInExamDraft(question: Question, afterQuestionId?: string | null): void
-  /** Replaces one question's canonical Question Content, wherever it is
-   *  referenced. An unbanked question is banked, so a save is never lost. */
-  updateQuestionContent(question: Question): void
+  /** Replaces one Question Bank record — its Question Content, its Question
+   *  Type, its Difficulty and its Topics — wherever it is referenced. One
+   *  popup save is one call, so a content edit and a metadata edit made
+   *  together are one authoring action. An unbanked question is banked, so a
+   *  save is never lost. */
+  updateInQuestionBank(question: Question): void
   setQuestionColumns(questionIds: readonly string[], columns: ColumnSetting): void
   /** Banks a copy of a banked question and references it immediately after the
    *  original. Nothing is copied out of the Exam Draft: the copy is a Question
    *  Bank record of its own. */
   duplicateInExamDraft(questionId: string): void
-  /** References an unused Question Bank record from the Exam Draft. A question
-   *  already referenced is left where it is: a reference occurs at most once. */
+  /** References an unused Question Bank record from the Exam Draft — at the end,
+   *  or immediately after `afterQuestionId`. A question already referenced is
+   *  left where it is: a reference occurs at most once. An insertion after a
+   *  question in another Question Section is refused: composing never moves a
+   *  question across the Multiple Choice / Short Answer boundary. */
   addToExamDraft(questionId: string, afterQuestionId?: string | null): void
+  /** Replaces one Exam Draft reference with an unused Question Bank record of
+   *  the same Question Type, in the outgoing question's exact position. Nothing
+   *  is copied and nothing is deleted: the outgoing question keeps its Question
+   *  Bank record and is available to compose with again. Refused when either
+   *  question is unbanked, when their Question Sections differ, or when the
+   *  incoming question is already on the Exam Draft. */
+  replaceInExamDraft(outgoingQuestionId: string, incomingQuestionId: string): void
   /** Moves references within their Question Section. A target in another
    *  section is refused: composing never changes a question's type. */
   moveInExamDraft(
@@ -232,6 +247,18 @@ export type ExamStore = {
 
   /** Resolves once every mirrored write has landed. For tests and shutdown. */
   whenSettled(): Promise<void>
+}
+
+// The authoring state carrying a new Exam Draft — or the very same state when
+// the Exam Draft refused the change. Every reference operation is total and
+// returns the draft it was given when it declines, and this is what turns that
+// into "nothing happened": no undo step, no dirty flag and no write, because
+// `apply` stops at an unchanged state.
+function withExamDraft(
+  state: AuthoringState,
+  examDraft: ExamDraft,
+): AuthoringState {
+  return examDraft === state.examDraft ? state : { ...state, examDraft }
 }
 
 export function createExamStore(options: {
@@ -336,7 +363,7 @@ export function createExamStore(options: {
         ),
       })),
 
-    updateQuestionContent: (question) =>
+    updateInQuestionBank: (question) =>
       change((current) => ({
         ...current,
         questionBank: withQuestionBanked(current.questionBank, question),
@@ -369,18 +396,37 @@ export function createExamStore(options: {
       }),
 
     addToExamDraft: (questionId, afterQuestionId = null) =>
-      change((current) =>
-        bankQuestionById(current.questionBank, questionId)
-          ? {
-              ...current,
-              examDraft: withReferenceAdded(
-                current.examDraft,
-                questionId,
-                afterQuestionId,
-              ),
-            }
-          : current,
-      ),
+      change((current) => {
+        const question = bankQuestionById(current.questionBank, questionId)
+        if (!question) return current
+        // An insertion point in another Question Section is refused rather than
+        // quietly honoured somewhere else. `createInExamDraft` is deliberately
+        // more tolerant: there the position is a hint and refusing it would
+        // lose a question the teacher has just written.
+        const after = afterQuestionId
+          ? bankQuestionById(current.questionBank, afterQuestionId)
+          : null
+        if (after && after.type !== question.type) return current
+        return withExamDraft(
+          current,
+          withReferenceAdded(current.examDraft, questionId, afterQuestionId),
+        )
+      }),
+
+    replaceInExamDraft: (outgoingQuestionId, incomingQuestionId) =>
+      change((current) => {
+        const outgoing = bankQuestionById(current.questionBank, outgoingQuestionId)
+        const incoming = bankQuestionById(current.questionBank, incomingQuestionId)
+        if (!outgoing || !incoming || outgoing.type !== incoming.type) return current
+        return withExamDraft(
+          current,
+          withReferenceReplaced(
+            current.examDraft,
+            outgoingQuestionId,
+            incomingQuestionId,
+          ),
+        )
+      }),
 
     moveInExamDraft: (questionIds, targetId, placement) =>
       change((current) => {
@@ -391,17 +437,16 @@ export function createExamStore(options: {
         const { exam, version } = selectedExam(current.questionBank, current.examDraft)
         const moved = moveQuestions(exam, version, questionIds, targetId, placement)
         if (moved === version) return current
-        return {
-          ...current,
-          examDraft: withReferenceOrder(current.examDraft, moved.questionOrder),
-        }
+        return withExamDraft(
+          current,
+          withReferenceOrder(current.examDraft, moved.questionOrder),
+        )
       }),
 
     removeFromExamDraft: (questionIds) =>
-      change((current) => ({
-        ...current,
-        examDraft: withReferencesRemoved(current.examDraft, questionIds),
-      })),
+      change((current) =>
+        withExamDraft(current, withReferencesRemoved(current.examDraft, questionIds)),
+      ),
 
     hasSavedExam: () => saved !== null,
 

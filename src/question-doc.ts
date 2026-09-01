@@ -13,6 +13,12 @@ export type ProseMirrorJSON = Record<string, unknown>
 // back out of print's markup) — and a fixture in `export-fixtures.ts`, which is
 // what `export-parity.test.ts` checks. A newly supported editor node that skips
 // any of those fails its export coverage instead of quietly flattening.
+//
+// One place deliberately stays silent: `stem-preview.ts` carries its own short
+// list of what a one-line Question Bank row can say, and a node absent from it
+// is left out of the row rather than flattened into it. That is a presentation
+// decision, not export coverage, so it is nobody's obligation until somebody
+// decides how the node should read in a single line.
 export const SUPPORTED_NODES = [
   'paragraph',
   'heading',

@@ -112,3 +112,28 @@ export function withReferenceOrder(
   if (ordered.every((id, index) => id === draft.questionIds[index])) return draft
   return { ...draft, questionIds: ordered }
 }
+
+/**
+ * One reference Replaced by another, in place.
+ *
+ * The incoming question takes the outgoing one's exact position, so a Replace
+ * is a change of content at a position rather than a Remove and an add. The
+ * outgoing question keeps its Question Bank record: replacement is not
+ * deletion, and the question it replaced is available again immediately.
+ *
+ * Refused — the Exam Draft comes back unchanged — when the outgoing question is
+ * not referenced or the incoming one already is. Whether the two are of the
+ * same Question Type is the store's business: an Exam Draft holds ids, and only
+ * the Question Bank knows what is behind them.
+ */
+export function withReferenceReplaced(
+  draft: ExamDraft,
+  outgoingQuestionId: string,
+  incomingQuestionId: string,
+): ExamDraft {
+  const index = draft.questionIds.indexOf(outgoingQuestionId)
+  if (index < 0 || isInExamDraft(draft, incomingQuestionId)) return draft
+  const questionIds = [...draft.questionIds]
+  questionIds[index] = incomingQuestionId
+  return { ...draft, questionIds }
+}

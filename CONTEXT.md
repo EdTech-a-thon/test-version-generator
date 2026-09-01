@@ -42,6 +42,10 @@ _Avoid_: Current version, editable version
 **Remove**:
 To exclude Question Content from an Exam Draft while leaving it in the Question Bank.
 
+**Replace**:
+To put one Question Bank record in another's place at a fixed position in an Exam Draft. Neither question's Question Content is copied or deleted, and the replaced question remains in the Question Bank.
+_Avoid_: Swap, substitute
+
 **Delete**:
 To permanently remove Question Content from a Question Bank. Deletion is not available from an Exam Draft.
 

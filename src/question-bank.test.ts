@@ -14,6 +14,7 @@ import {
   withQuestionBanked,
   withReferenceAdded,
   withReferenceOrder,
+  withReferenceReplaced,
   withReferencesRemoved,
 } from './question-bank'
 
@@ -127,5 +128,28 @@ describe('reordering the Exam Draft', () => {
   test('an order that changes nothing is the same Exam Draft', () => {
     const draft = draftOf()
     expect(withReferenceOrder(draft, ids)).toBe(draft)
+  })
+})
+
+describe('replacing a reference', () => {
+  test('puts the incoming question in the outgoing one’s place', () => {
+    expect(withReferenceReplaced(draftOf(), 'q2', 'q9').questionIds).toEqual([
+      'q1',
+      'q9',
+      'q3',
+    ])
+  })
+
+  test('refuses when the outgoing question is not on the Exam Draft', () => {
+    const draft = draftOf()
+    expect(withReferenceReplaced(draft, 'elsewhere', 'q9')).toBe(draft)
+  })
+
+  test('refuses when the incoming question is already on the Exam Draft', () => {
+    // A reference occurs at most once, so this would be a Remove wearing a
+    // replacement's clothes.
+    const draft = draftOf()
+    expect(withReferenceReplaced(draft, 'q2', 'q1')).toBe(draft)
+    expect(withReferenceReplaced(draft, 'q2', 'q2')).toBe(draft)
   })
 })

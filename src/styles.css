@@ -131,7 +131,58 @@ button { cursor: pointer; }
   display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 6px 11px;
 }
 .question-bank-header svg { width: 16px; height: 16px; stroke-width: 2; }
+/* The filter bar: a stem search and one dropdown per filter category. Nothing
+   here is authoring data — it narrows what is shown and is forgotten on
+   reload. */
+.question-bank-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.bank-search { position: relative; flex: 1 1 160px; min-width: 130px; display: flex; }
+.bank-search svg {
+  position: absolute; left: 8px; top: 50%; width: 14px; height: 14px;
+  transform: translateY(-50%); color: #9c8977; stroke-width: 2;
+}
+.bank-search input {
+  width: 100%; padding: 6px 8px 6px 27px; border: 1px solid #ddcdb9; border-radius: 6px;
+  background: #fffdf8; font-size: 13px;
+}
+.bank-filter { position: relative; }
+.bank-filter-button {
+  display: inline-flex; align-items: center; gap: 5px; min-height: 30px; padding: 5px 9px;
+  border: 1px solid #ddcdb9; border-radius: 6px; color: #5b4839; background: #fffdf8;
+  font-size: 13px;
+}
+.bank-filter-button:hover { border-color: #cdb9a6; background: #f7ede0; }
+.bank-filter-button[data-active] { border-color: #b99a78; background: #f3e4d1; }
+.bank-filter-count {
+  min-width: 16px; padding: 0 4px; border-radius: 999px;
+  color: #fffdf8; background: #8a6a4c; font-size: 11px; text-align: center;
+}
+.bank-filter-list {
+  position: absolute; z-index: 20; top: calc(100% + 4px); left: 0;
+  min-width: 170px; max-height: 260px; padding: 5px; overflow-y: auto;
+  border: 1px solid #e0d3c2; border-radius: 8px; background: #fffdf8;
+  box-shadow: 0 8px 24px rgb(91 68 47 / 18%);
+}
+.bank-filter-option {
+  display: flex; align-items: center; gap: 8px; padding: 5px 7px; border-radius: 5px;
+  font-size: 13px; cursor: pointer;
+}
+.bank-filter-option:hover { background: #f5eade; }
+.bank-filter-empty { margin: 0; padding: 6px 7px; color: #8a7868; font-size: 13px; }
+.bank-filter-clear {
+  padding: 5px 8px; border: 0; border-radius: 6px; color: #6b5a4c;
+  background: transparent; font-size: 13px; text-decoration: underline;
+}
+.bank-filter-clear:hover { color: #3c2d22; background: #f3e9dc; }
+
 .question-bank-empty { margin: 0; color: #7a6a5c; font-size: 14px; line-height: 1.5; }
+/* A bank nobody has written into yet reads as prose, because there is nothing
+   to look at. A bank whose questions are all behind the current search is a
+   panel where the rows would have been, so an empty result never looks like a
+   bank that lost its contents. */
+.question-bank-empty[data-empty='no-matches'] {
+  padding: 18px 16px; border: 1px dashed #d8c7b2; border-radius: 8px;
+  background: #fdf6ec; text-align: center;
+}
 .question-bank-list {
   display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none;
 }
@@ -139,20 +190,42 @@ button { cursor: pointer; }
   display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px;
   border: 1px solid #e2d6c5; border-radius: 8px; background: #fffdf8;
 }
+.question-bank-row:hover { border-color: #d8cbbb; }
 .question-bank-row[data-in-exam] { border-color: #d6c3ac; background: #fbf3e8; }
+/* The clicked row. Selection is a place to act from, not a change to the exam:
+   it is never persisted and never undoable. */
+.question-bank-row[aria-current='true'] {
+  border-color: #8a6a4c; box-shadow: inset 0 0 0 1px #8a6a4c;
+}
+.question-bank-row:focus-visible { outline: 2px solid #8a6a4c; outline-offset: 2px; }
 .question-bank-row-content {
   flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 4px;
 }
-.question-bank-row-type {
-  display: flex; align-items: center; gap: 8px;
+.question-bank-row-meta {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 8px;
   color: #7a6a5c; font-size: 11px; letter-spacing: 0.05em; text-transform: uppercase;
+}
+.question-bank-row-difficulty {
+  padding: 1px 7px; border: 1px solid #e0d3c2; border-radius: 999px; letter-spacing: 0;
 }
 .question-bank-row-badge {
   padding: 1px 7px; border-radius: 999px;
   color: #4e3b2f; background: #efe2d1; letter-spacing: 0; text-transform: none;
 }
-.question-bank-row-stem {
-  overflow: hidden; font-size: 14px; text-overflow: ellipsis; white-space: nowrap;
+/* One line, always: the row is a projection of the stem, and a taller row would
+   make the bank harder to scan rather than more informative. */
+.question-bank-row-stem { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.question-bank-row-line {
+  min-width: 0; overflow: hidden; font-size: 14px; text-overflow: ellipsis; white-space: nowrap;
+}
+.question-bank-row-content-badge {
+  flex: none; padding: 1px 6px; border-radius: 4px;
+  color: #6b5a4c; background: #f0e6d8; font-size: 11px;
+}
+.question-bank-row-topics { display: flex; flex-wrap: wrap; gap: 5px; }
+.question-bank-row-topic {
+  padding: 1px 7px; border: 1px solid #e4d8c8; border-radius: 999px;
+  color: #6b5a4c; background: #faf3e9; font-size: 11px;
 }
 .question-bank-row-actions { flex: none; display: flex; gap: 2px; }
 .question-bank-action {
@@ -411,7 +484,7 @@ button { cursor: pointer; }
 }
 .question-dialog {
   width: min(980px, 100%); height: min(820px, 94vh); display: grid;
-  grid-template-rows: auto 1fr auto; overflow: hidden; border-radius: 10px;
+  grid-template-rows: auto 1fr auto auto; overflow: hidden; border-radius: 10px;
   background: #fffaf3; box-shadow: 0 18px 55px rgb(55 42 33 / 30%);
 }
 .dialog-header, .dialog-actions { padding: 14px 18px; border-bottom: 1px solid #e8dfd2; }
@@ -421,7 +494,33 @@ button { cursor: pointer; }
 .dialog-header select, .choice-controls select {
   padding: 7px 30px 7px 9px; border: 1px solid #cdb9a6; border-radius: 6px; background: #fffdf8;
 }
+.dialog-header-fields { display: flex; align-items: center; gap: 20px; }
 .dialog-actions { justify-content: flex-end; border-top: 1px solid #e8dfd2; border-bottom: 0; }
+
+/* Topics: chips a teacher can read at a glance and take off one at a time. The
+   box below them is the only way in, and Enter or a comma is the only way to
+   commit — there is nothing to choose from, because there is no vocabulary. */
+.topic-field {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 8px;
+  padding: 12px 18px; border-top: 1px solid #e8dfd2; background: #fffaf3;
+}
+.topic-field-label { color: #6e5b4d; font-size: 13px; }
+.topic-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.topic-chip {
+  display: inline-flex; align-items: center; gap: 4px; padding: 3px 4px 3px 10px;
+  border: 1px solid #ddcdb9; border-radius: 999px; background: #f7ede0; font-size: 13px;
+}
+.topic-chip button {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; padding: 0; border: 0; border-radius: 50%;
+  color: #6b5a4c; background: transparent;
+}
+.topic-chip button:hover { color: #3c2d22; background: #e6d6c2; }
+.topic-chip svg { width: 12px; height: 12px; stroke-width: 2.5; }
+.topic-input {
+  flex: 1 1 180px; min-width: 140px; padding: 6px 10px;
+  border: 1px solid #cdb9a6; border-radius: 6px; background: #fffdf8; font-size: 13px;
+}
 .dialog-editor { min-height: 0; padding: 0 32px; overflow-y: auto; background: #fffdf8; }
 .dialog-editor .milkdown {
   min-height: 100%;
