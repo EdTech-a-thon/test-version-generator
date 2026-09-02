@@ -61,6 +61,9 @@ import { domMeasure } from './dom-measure'
 import { saveImage } from './local-images'
 import { configurePastedImages } from './pasted-images'
 import { Redo2, Undo2, X } from 'lucide-react'
+import { useRoute } from './use-route'
+import { Footer } from './site-chrome'
+import { AboutPage, PrivacyPage } from './site-pages'
 
 /**
  * The Topics of one question, as removable chips.
@@ -389,7 +392,7 @@ function QuestionDialog({
   )
 }
 
-export default function App({ store }: { store: ExamStore }) {
+function ExamEditor({ store }: { store: ExamStore }) {
   const state = useSyncExternalStore(store.subscribe, store.getState)
   // What the page renders and what an export publishes: the Question Bank
   // records the Exam Draft references, in Exam Draft order, and nothing else.
@@ -783,6 +786,8 @@ export default function App({ store }: { store: ExamStore }) {
         }
       />
 
+      <Footer />
+
       {handoff?.format === 'print' && <PrintDocument plans={handoff.plans} />}
 
       {editing && (
@@ -806,4 +811,15 @@ export default function App({ store }: { store: ExamStore }) {
       )}
     </>
   )
+}
+
+/**
+ * The site's three pages. The editor is the app; About and Privacy are the
+ * ordinary pages a public tool is expected to have, reached from the footer.
+ */
+export default function App({ store }: { store: ExamStore }) {
+  const route = useRoute()
+  if (route === '/about') return <AboutPage />
+  if (route === '/privacy') return <PrivacyPage />
+  return <ExamEditor store={store} />
 }
