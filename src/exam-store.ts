@@ -347,10 +347,11 @@ export function createExamStore(options: {
     },
 
     setTitle: (title) =>
-      change((current) => ({
-        ...current,
-        examDraft: { ...current.examDraft, title },
-      })),
+      change((current) =>
+        title === current.examDraft.title
+          ? current
+          : { ...current, examDraft: { ...current.examDraft, title } },
+      ),
 
     createInQuestionBank: (question) =>
       change((current) => ({
@@ -377,16 +378,17 @@ export function createExamStore(options: {
 
     setQuestionColumns: (questionIds, columns) => {
       const targeted = new Set(questionIds)
-      change((current) => ({
-        ...current,
-        questionBank: {
-          questions: current.questionBank.questions.map((question) =>
-            targeted.has(question.id) && question.columns !== columns
-              ? { ...question, columns }
-              : question,
-          ),
-        },
-      }))
+      change((current) => {
+        let moved = false
+        const questions = current.questionBank.questions.map((question) => {
+          if (!targeted.has(question.id) || question.columns === columns) {
+            return question
+          }
+          moved = true
+          return { ...question, columns }
+        })
+        return moved ? { ...current, questionBank: { questions } } : current
+      })
     },
 
     duplicateInExamDraft: (questionId) =>

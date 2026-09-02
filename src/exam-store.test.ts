@@ -496,6 +496,39 @@ describe('the dirty flag and persistence', () => {
     }
   })
 
+  test('a change that changes nothing costs no undo step, dirty flag, or write', async () => {
+    // The store's one-action invariant cuts both ways: an action that leaves
+    // the state exactly as it found it is not an action. Setting the title it
+    // already has, or the column count already in force, must not hand the
+    // teacher an undo step that appears to do nothing.
+    const cases: Array<(store: ExamStore, question: Question) => void> = [
+      (store) => store.setTitle('Chem Unit 3'),
+      (store, question) => store.setQuestionColumns([question.id], 4),
+    ]
+    for (const act of cases) {
+      const { backend, store, questions } = await withExamDraft(1)
+      await store.save()
+      const before = store.getState()
+
+      act(store, questions[0]!)
+      await store.save()
+      const changed = store.getState()
+      const writes = backend.writes
+
+      // The same action again, with nothing left for it to do.
+      act(store, questions[0]!)
+      await store.whenSettled()
+
+      expect(store.getState()).toBe(changed)
+      expect(store.getState().dirty).toBe(false)
+      expect(backend.writes).toBe(writes)
+
+      // One undo steps past the real change, not a phantom one.
+      store.undo()
+      expect(store.getState()).toBe(before)
+    }
+  })
+
   test('adding a bank-only question to the Exam Draft raises the dirty flag', async () => {
     const { store } = await freshStore()
     const question = createQuestion('open')
