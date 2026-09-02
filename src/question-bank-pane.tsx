@@ -3,8 +3,10 @@
 // A compact, scannable table of the canonical questions a teacher has written,
 // newest first, with everything needed to find one and put it on the exam
 // without ever picking up the mouse: a stem search, Question Type, Difficulty
-// and Topic filters, and an action menu that Inserts or Replaces against the
-// question currently selected on the Exam Draft.
+// and Topic filters, and row actions that Insert or Replace against the
+// question currently selected on the Exam Draft. Insert and Replace appear on
+// a row only while there is a compatible Exam Draft question for them to act
+// against, because that is the only time they can do anything.
 //
 // A row is a projection, not a rendering. It shows one line of the stem, the
 // classification, and whether the question is on the exam; answer choices and
@@ -17,18 +19,14 @@
 // filter values and row selection are transient UI state — they are handed in
 // rather than stored, and they never enter the authoring history.
 
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import {
-  CornerDownRight,
-  EllipsisVertical,
-  ListPlus,
-  PanelLeftClose,
-  Pencil,
-  Plus,
-  Replace,
-  Search,
-} from 'lucide-react'
-import { ContextMenu, type MenuItem, type MenuPoint } from './context-menu'
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+} from 'react'
+import { CornerDownRight, Pencil, Plus, Replace, Search } from 'lucide-react'
 import { stemPreview, type StemPreviewBadge } from './stem-preview'
 import {
   DIFFICULTIES,
@@ -49,6 +47,12 @@ import {
   type DifficultyFilter,
   type QuestionBankFilter,
 } from './question-bank-view'
+
+/** The width the filter list is laid out at, and the gap it keeps from the
+ *  window edge. Both are also in the stylesheet; they are here because the
+ *  list is placed against the viewport rather than by the cascade. */
+const LIST_WIDTH = 190
+const MARGIN = 8
 
 const BADGE_LABELS: Record<StemPreviewBadge, string> = {
   image: 'Image',
@@ -83,15 +87,43 @@ function FilterDropdown<T extends string>({
 }) {
   const [open, setOpen] = useState(false)
   const container = useRef<HTMLDivElement>(null)
+  const button = useRef<HTMLButtonElement>(null)
+  // Where the list sits, in viewport coordinates. The bank scrolls, so a list
+  // positioned within it is clipped by the pane it belongs to; anchoring it to
+  // the viewport is what lets a list longer than the bank is tall still be
+  // read. Measured when it opens, and again if the workspace moves under it.
+  const [anchor, setAnchor] = useState<{ left: number; top: number } | null>(null)
+
+  const placeList = useCallback(() => {
+    const bounds = button.current?.getBoundingClientRect()
+    if (!bounds) return
+    // Right-aligned to the button when a left-aligned list would run off the
+    // window — the bank is the narrow pane, so this is the common case for the
+    // filters at its right-hand end.
+    const left = Math.max(
+      MARGIN,
+      Math.min(bounds.left, window.innerWidth - LIST_WIDTH - MARGIN),
+    )
+    setAnchor({ left, top: bounds.bottom + 4 })
+  }, [])
 
   useEffect(() => {
     if (!open) return
+    placeList()
     const onPointerDown = (event: PointerEvent) => {
       if (!container.current?.contains(event.target as Node)) setOpen(false)
     }
+    // A scroll or a resize moves the button out from under its own list.
+    const reposition = () => placeList()
     document.addEventListener('pointerdown', onPointerDown)
-    return () => document.removeEventListener('pointerdown', onPointerDown)
-  }, [open])
+    window.addEventListener('resize', reposition)
+    window.addEventListener('scroll', reposition, true)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown)
+      window.removeEventListener('resize', reposition)
+      window.removeEventListener('scroll', reposition, true)
+    }
+  }, [open, placeList])
 
   return (
     <div
@@ -106,6 +138,7 @@ function FilterDropdown<T extends string>({
       }}
     >
       <button
+        ref={button}
         type="button"
         className="bank-filter-button"
         aria-label={label}
@@ -117,8 +150,13 @@ function FilterDropdown<T extends string>({
         {label}
         {selected.length > 0 && <span className="bank-filter-count">{selected.length}</span>}
       </button>
-      {open && (
-        <div className="bank-filter-list" role="group" aria-label={label}>
+      {open && anchor && (
+        <div
+          className="bank-filter-list"
+          role="group"
+          aria-label={label}
+          style={{ left: anchor.left, top: anchor.top }}
+        >
           {options.length === 0 ? (
             <p className="bank-filter-empty">{emptyMessage}</p>
           ) : (
@@ -171,7 +209,6 @@ export function QuestionBankPane({
   onInsertAfterExamDraftSelection,
   onReplaceExamDraftSelection,
   drag,
-  onCollapse,
 }: {
   bank: QuestionBank
   /** Which bank records the Exam Draft currently references. */
@@ -195,9 +232,7 @@ export function QuestionBankPane({
    *  reference occurs at most once and refusing a drop after the fact would be
    *  a worse way to say so. */
   drag: WorkspaceDrag
-  onCollapse: () => void
 }) {
-  const [menu, setMenu] = useState<{ questionId: string; point: MenuPoint } | null>(null)
   const questions = browseQuestionBank(bank, filter)
   const filtered = isFilterActive(filter)
   // A gesture that has not yet moved far enough to be a drag. One pointer
@@ -304,52 +339,6 @@ export function QuestionBankPane({
     },
   })
 
-  const menuItems = (question: Question): MenuItem[] => {
-    const items: MenuItem[] = [
-      {
-        kind: 'action',
-        label: 'Edit question',
-        icon: <Pencil />,
-        onSelect: () => onEdit(question.id),
-      },
-    ]
-    // A question already on the Exam Draft offers no way onto it a second time:
-    // a reference occurs at most once, and saying so before the click is
-    // clearer than refusing it afterwards.
-    if (!examDraftIds.has(question.id)) {
-      items.push({
-        kind: 'action',
-        label: 'Add to the exam',
-        icon: <ListPlus />,
-        onSelect: () => onAddToExamDraft(question.id),
-      })
-      // Composition needs somewhere to compose against, and the Question
-      // Sections are fixed: a Multiple Choice question can only reach a
-      // Multiple Choice position. An incompatible target offers nothing rather
-      // than an action that would be refused.
-      if (examDraftSelection && examDraftSelection.type === question.type) {
-        items.push(
-          { kind: 'separator' },
-          {
-            kind: 'action',
-            label: 'Insert after selected question',
-            icon: <CornerDownRight />,
-            onSelect: () => onInsertAfterExamDraftSelection(question.id),
-          },
-          {
-            kind: 'action',
-            label: 'Replace selected question',
-            icon: <Replace />,
-            onSelect: () => onReplaceExamDraftSelection(question.id),
-          },
-        )
-      }
-    }
-    return items
-  }
-
-  const isMenuOpenFor = (question: Question) => menu?.questionId === question.id
-
   return (
     <section className="question-bank" aria-label="Question Bank">
       <header className="question-bank-header">
@@ -358,18 +347,6 @@ export function QuestionBankPane({
           <button type="button" className="secondary-button" onClick={onCreate}>
             <Plus />
             New question
-          </button>
-          {/* Getting the bank out of the way is a view of the workspace, not a
-              change to the exam: it is forgotten on reload like every other
-              browsing choice. */}
-          <button
-            type="button"
-            className="question-bank-action"
-            aria-label="Hide the Question Bank"
-            title="Hide the Question Bank"
-            onClick={onCollapse}
-          >
-            <PanelLeftClose />
           </button>
         </div>
       </header>
@@ -380,7 +357,7 @@ export function QuestionBankPane({
           <input
             type="search"
             aria-label="Search question stems"
-            placeholder="Search stems"
+            placeholder="Search questions"
             value={filter.search}
             onChange={(event) => onFilterChange({ ...filter, search: event.target.value })}
           />
@@ -522,6 +499,10 @@ export function QuestionBankPane({
                   >
                     <Pencil />
                   </button>
+                  {/* A question already on the Exam Draft offers no way onto
+                      it a second time: a reference occurs at most once, and
+                      saying so before the click is clearer than refusing it
+                      afterwards. */}
                   {!inExamDraft && (
                     <button
                       type="button"
@@ -530,40 +511,39 @@ export function QuestionBankPane({
                       title="Add to the exam"
                       onClick={() => onAddToExamDraft(question.id)}
                     >
-                      <ListPlus />
+                      <Plus />
                     </button>
                   )}
-                  <button
-                    type="button"
-                    className="question-bank-action"
-                    aria-haspopup="menu"
-                    aria-label={`Actions for ${name}`}
-                    onClick={(event) => {
-                      // Acting on a row selects it: the menu's Insert and
-                      // Replace name "the selected question", and the row they
-                      // act on should be the one saying so.
-                      onSelect(question.id)
-                      // Beside the button and to its left, so the menu reads as
-                      // belonging to the row rather than covering it.
-                      const bounds = event.currentTarget.getBoundingClientRect()
-                      setMenu({
-                        questionId: question.id,
-                        point: { x: bounds.left - 6, y: bounds.bottom + 4 },
-                      })
-                    }}
-                  >
-                    <EllipsisVertical />
-                  </button>
+                  {/* Composition needs somewhere to compose against, and the
+                      Question Sections are fixed: a Multiple Choice question
+                      can only reach a Multiple Choice position. With no
+                      compatible question selected on the Exam Draft there is
+                      nothing these could do, so they are not offered. */}
+                  {!inExamDraft
+                    && examDraftSelection
+                    && examDraftSelection.type === question.type && (
+                    <>
+                      <button
+                        type="button"
+                        className="question-bank-action"
+                        aria-label={`Insert ${name} after the selected question`}
+                        title="Insert after the selected question"
+                        onClick={() => onInsertAfterExamDraftSelection(question.id)}
+                      >
+                        <CornerDownRight />
+                      </button>
+                      <button
+                        type="button"
+                        className="question-bank-action"
+                        aria-label={`Replace the selected question with ${name}`}
+                        title="Replace the selected question"
+                        onClick={() => onReplaceExamDraftSelection(question.id)}
+                      >
+                        <Replace />
+                      </button>
+                    </>
+                  )}
                 </div>
-                {isMenuOpenFor(question) && menu && (
-                  <ContextMenu
-                    point={menu.point}
-                    side="left"
-                    items={menuItems(question)}
-                    ariaLabel={`Actions for ${name}`}
-                    onClose={() => setMenu(null)}
-                  />
-                )}
               </li>
             )
           })}

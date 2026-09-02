@@ -47,8 +47,6 @@ button { cursor: pointer; }
 .toolbar-icon-button:hover:not(:disabled) { background: #f7eee3; }
 .toolbar-icon-button:disabled { color: #c5b8ac; cursor: not-allowed; }
 .toolbar-icon-button svg { width: 18px; height: 18px; stroke-width: 2; }
-.insert-question-button { display: inline-flex; align-items: center; gap: 6px; }
-.insert-question-button svg { width: 17px; height: 17px; stroke-width: 2; }
 
 /* The export dialog. One modal over the document, rather than a strip that
    pushes the page it is about out of the way. */
@@ -80,16 +78,23 @@ button { cursor: pointer; }
 .export-actions { flex-wrap: wrap; }
 .export-status { flex: 1; min-width: 0; margin: 0; color: #6e5b4d; font-size: 13px; }
 .export-failure { flex-basis: 100%; order: -1; }
-/* The way into an exam that has nothing in it yet: a placeholder where the
-   first question will be, sized like a question rather than like a toolbar
-   control. Editing chrome — the printed document never has one, because an
-   exam with no questions has nothing to print. */
+/* The way into an exam that has nothing in it yet: a placeholder standing in
+   for the whole of the first page, because that is what the first question is
+   about to become. It is also where a bank question is dropped, so the thing
+   the teacher aims at and the thing that says what will happen are one and the
+   same. Editing chrome — the printed document never has one, because an exam
+   with no questions has nothing to print. */
 .empty-exam-button {
   display: flex; align-items: center; justify-content: center; gap: 7px;
-  width: 100%; min-height: 96px; border-style: dashed; border-color: #cdb9a6;
+  width: 100%; height: 100%; border-style: dashed; border-color: #cdb9a6;
   color: #6e5b4d; background: transparent;
 }
 .empty-exam-button:hover { border-color: #9f5037; color: #9f5037; background: #f7eee3; }
+/* The active drop state, in the same colours the rendered questions use to say
+   a release here would land something. */
+.empty-exam-button[data-active] {
+  border-style: solid; border-color: #9f5037; color: #9f5037; background: #f7e2d5;
+}
 .empty-exam-button svg { width: 17px; height: 17px; stroke-width: 2; }
 
 .print-output { display: none; }
@@ -119,16 +124,10 @@ button { cursor: pointer; }
    offer at the foot of the Exam Draft pane reads it too, so the two cannot
    disagree about where the pane begins. */
 .authoring-workspace {
-  --bank-column: 50%;
+  --bank-column: 33%;
   --bank-divider: 6px;
   display: grid; grid-template-columns: var(--bank-column) var(--bank-divider) 1fr;
   align-items: start;
-}
-/* The collapsed bank leaves a rail and no divider, so the Exam Draft pane
-   begins at the rail's own edge. */
-.authoring-workspace[data-bank-collapsed='true'] {
-  --bank-divider: 0px;
-  grid-template-columns: var(--bank-column) 1fr;
 }
 .editor-output { min-width: 0; }
 
@@ -141,14 +140,6 @@ button { cursor: pointer; }
 }
 .workspace-resizer:hover, .workspace-resizer:focus-visible { background: #e3d2bd; }
 .workspace-resizer:focus-visible { outline: 2px solid #8a6a4c; outline-offset: -2px; }
-
-/* What the collapsed bank leaves behind: enough to bring it back, and nothing
-   taken from the sheet. */
-.question-bank-rail {
-  position: sticky; top: 58px; align-self: start;
-  display: flex; justify-content: center; height: calc(100vh - 58px);
-  padding: 12px 6px; border-right: 1px solid #e8dfd2; background: #fffaf3;
-}
 
 .question-bank {
   position: sticky; top: 58px; align-self: start;
@@ -190,9 +181,13 @@ button { cursor: pointer; }
   min-width: 16px; padding: 0 4px; border-radius: 999px;
   color: #fffdf8; background: #8a6a4c; font-size: 11px; text-align: center;
 }
+/* Anchored to the viewport rather than to the button, because the bank
+   scrolls: a list positioned inside it is clipped by the pane it belongs to.
+   `left`/`top` come from the component, which has already kept it inside the
+   window. The width matches LIST_WIDTH in question-bank-pane.tsx. */
 .bank-filter-list {
-  position: absolute; z-index: 20; top: calc(100% + 4px); left: 0;
-  min-width: 170px; max-height: 260px; padding: 5px; overflow-y: auto;
+  position: fixed; z-index: 900;
+  width: 190px; max-height: 260px; padding: 5px; overflow-y: auto;
   border: 1px solid #e0d3c2; border-radius: 8px; background: #fffdf8;
   box-shadow: 0 8px 24px rgb(91 68 47 / 18%);
 }
@@ -793,19 +788,13 @@ button { cursor: pointer; }
    shrinking it would mean showing a layout the printer will not produce. The
    workspace scrolls instead. */
 @media (max-width: 880px) {
-  /* Too narrow for two panes. The bank opens collapsed, so the sheet has the
-     whole width; brought back by hand it goes above the sheet rather than
+  /* Too narrow for two panes: the bank goes above the sheet rather than
      squeezing it, and the divider has nothing left to divide. */
-  .authoring-workspace,
-  .authoring-workspace[data-bank-collapsed='true'] {
+  .authoring-workspace {
     --bank-divider: 0px; grid-template-columns: 1fr;
   }
   .question-bank {
     position: static; height: auto; max-height: 44vh;
-    border-right: none; border-bottom: 1px solid #e8dfd2;
-  }
-  .question-bank-rail {
-    position: static; height: auto; justify-content: flex-start;
     border-right: none; border-bottom: 1px solid #e8dfd2;
   }
   .workspace-resizer { display: none; }
@@ -853,6 +842,6 @@ button { cursor: pointer; }
     background: none; box-shadow: none; opacity: 1; animation: none;
   }
   .exam-question[data-drop]::after { display: none; }
-  .exam-draft-empty-section, .question-bank-rail, .workspace-resizer,
+  .exam-draft-empty-section, .workspace-resizer,
   .question-drag-preview { display: none; }
 }

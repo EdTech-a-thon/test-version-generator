@@ -19,13 +19,16 @@ test('Ctrl/Cmd+Z undo and Ctrl/Cmd+Shift+Z redo workspace edits', async ({ page 
 test('Ctrl/Cmd+Enter saves the question dialog', async ({ page }) => {
   await page.goto('/')
 
-  await page.getByRole('button', { name: 'Insert question' }).click()
+  await page.getByRole('button', { name: 'Insert your first question' }).click()
   await expect(page.getByRole('dialog', { name: 'Question editor' })).toBeVisible()
   await page.keyboard.press('Control+Enter')
   await expect(page.getByRole('dialog', { name: 'Question editor' })).toBeHidden()
   await expect(page.locator('.exam-question')).toHaveCount(1)
 
-  await page.getByRole('button', { name: 'Insert question' }).click()
+  // The sheet's own way to write another one, now that there is a question to
+  // add it below.
+  await page.getByRole('button', { name: 'Actions for question 1' }).click()
+  await page.getByRole('menuitem', { name: 'Add question below' }).click()
   await page.keyboard.press('Meta+Enter')
   await expect(page.getByRole('dialog', { name: 'Question editor' })).toBeHidden()
   await expect(page.locator('.exam-question')).toHaveCount(2)

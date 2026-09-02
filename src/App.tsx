@@ -60,7 +60,7 @@ import { ExportDialog } from './export-dialog'
 import { domMeasure } from './dom-measure'
 import { saveImage } from './local-images'
 import { configurePastedImages } from './pasted-images'
-import { Plus, Redo2, Undo2, X } from 'lucide-react'
+import { Redo2, Undo2, X } from 'lucide-react'
 
 /**
  * The Topics of one question, as removable chips.
@@ -674,20 +674,6 @@ export default function App({ store }: { store: ExamStore }) {
             <Redo2 />
           </button>
           <button
-            type="button"
-            className="secondary-button insert-question-button"
-            onClick={() =>
-              setEditing({
-                question: createQuestion('multiple-choice'),
-                destination: 'exam-draft',
-                after: null,
-              })
-            }
-          >
-            <Plus />
-            Insert question
-          </button>
-          <button
             ref={exportButton}
             type="button"
             className="export-button"
@@ -723,10 +709,10 @@ export default function App({ store }: { store: ExamStore }) {
       )}
 
       {/* The split authoring workspace: the Question Bank beside the rendered
-          Exam Draft, opening at an even split so neither side is the lesser
-          one, resizable, and collapsible when the sheet needs the room. */}
+          Exam Draft. The bank opens as the narrower pane — it is picked from
+          rather than read — and the divider moves. */}
       <WorkspaceSplit
-        bank={({ collapse }) => (
+        bank={
           <QuestionBankPane
             bank={state.questionBank}
             examDraftIds={examDraftIds}
@@ -736,7 +722,6 @@ export default function App({ store }: { store: ExamStore }) {
             examDraftSelection={examDraftSelection}
             onSelect={setSelectedBankId}
             drag={drag}
-            onCollapse={collapse}
             onCreate={() =>
               setEditing({
                 question: createQuestion('multiple-choice'),
@@ -763,7 +748,7 @@ export default function App({ store }: { store: ExamStore }) {
               replaceInExamDraft(examDraftSelection.id, questionId)
             }}
           />
-        )}
+        }
         examDraft={
           <ExamPage
             exam={exam}

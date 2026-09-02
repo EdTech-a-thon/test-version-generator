@@ -41,7 +41,6 @@ import {
   type QuestionItem,
   type PlannedQuestion,
 } from './export-plan'
-import { SECTION_LABELS } from './exam'
 import type { ColumnSetting, Exam, QuestionType, Version } from './exam'
 import type { Selection } from './use-selection'
 import type { WorkspaceDrag } from './use-workspace-drag'
@@ -886,6 +885,12 @@ export function ExamPage({
                 type="button"
                 className="secondary-button empty-exam-button"
                 onClick={() => onAdd('multiple-choice')}
+                // An empty sheet has nothing drawn on it to aim at, so the way
+                // in is also the way to drop: the placeholder is the first
+                // question's position, and it is the whole of the page rather
+                // than a strip at the top of it.
+                data-empty-section={emptySectionOffer ?? undefined}
+                data-active={drag.intent?.kind === 'insert-first' ? 'true' : undefined}
               >
                 <Plus />
                 Insert your first question
@@ -915,22 +920,27 @@ export function ExamPage({
         </article>
       ))}
 
-      {/* The first question of a Question Section that has none.
+      {/* The first question of a Question Section the exam has started but has
+          none of — a Short Answer question dragged at an exam with only
+          Multiple Choice ones, say.
 
-          A composition gesture needs somewhere to land before there is
-          anything to land beside, and an empty Question Section is not drawn on
-          the sheet at all — a section is derived from the questions in it. So
-          the offer is made as editing chrome pinned to the foot of this pane:
-          it appears only while a compatible gesture is in flight, it is
-          reachable however far the exam has been scrolled, and it never takes a
-          pixel from the paper's own geometry. */}
-      {emptySectionOffer && (
+          An empty Question Section is not drawn on the sheet at all, because a
+          section is derived from the questions in it, so a gesture aimed at one
+          would have nothing to land on. The offer is made as editing chrome
+          pinned to the foot of this pane: it appears only while a compatible
+          gesture is in flight, it is reachable however far the exam has been
+          scrolled, and it never takes a pixel from the paper's own geometry.
+
+          An exam with nothing in it at all does not need this: the placeholder
+          on the first page is already the first question's position, and it is
+          the drop target. */}
+      {emptySectionOffer && !blank && (
         <div
           className="exam-draft-empty-section"
           data-empty-section={emptySectionOffer}
           data-active={drag.intent?.kind === 'insert-first' ? 'true' : undefined}
         >
-          Drop to add the first {SECTION_LABELS[emptySectionOffer]} question
+          Drop to add the first question
         </div>
       )}
 

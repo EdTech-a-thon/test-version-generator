@@ -217,7 +217,7 @@ test('an empty Question Section offers a first-question drop target', async ({ p
   await page.mouse.down()
   await page.mouse.move(box.x + 200, box.y + 60, { steps: 6 })
 
-  await expect(emptySectionOffer(page)).toContainText('first Short answer question')
+  await expect(emptySectionOffer(page)).toContainText('Drop to add the first question')
   const offer = (await emptySectionOffer(page).boundingBox())!
   await page.mouse.move(offer.x + offer.width / 2, offer.y + offer.height / 2, { steps: 6 })
   await expect(emptySectionOffer(page)).toHaveAttribute('data-active', 'true')
@@ -228,20 +228,28 @@ test('an empty Question Section offers a first-question drop target', async ({ p
   await expect(emptySectionOffer(page)).toHaveCount(0)
 })
 
-test('an empty Exam Draft offers a first-question drop target', async ({ page }) => {
+test('an empty Exam Draft offers its placeholder as the first-question drop target', async ({ page }) => {
   await openWorkspace(page, [])
+
+  // A blank sheet already draws where the first question goes, so that is what
+  // a gesture aims at — not a second offer pinned somewhere else.
+  const placeholder = page.getByRole('button', { name: 'Insert your first question' })
+  await expect(placeholder).toBeVisible()
+  await expect(emptySectionOffer(page)).toHaveCount(0)
 
   const box = (await bankRow(page, 'Spare choice question').boundingBox())!
   await page.mouse.move(box.x + 30, box.y + box.height / 2)
   await page.mouse.down()
   await page.mouse.move(box.x + 200, box.y + 60, { steps: 6 })
-  await expect(emptySectionOffer(page)).toContainText('first Multiple choice question')
 
-  const offer = (await emptySectionOffer(page).boundingBox())!
+  const offer = (await placeholder.boundingBox())!
   await page.mouse.move(offer.x + offer.width / 2, offer.y + offer.height / 2, { steps: 6 })
+  await expect(placeholder).toHaveAttribute('data-active', 'true')
   await page.mouse.up()
 
   expect(await renderedIds(page)).toEqual(['mcSpare'])
+  // Its job done, the placeholder is gone.
+  await expect(placeholder).toHaveCount(0)
 })
 
 test('a bank-to-draft drop is exactly one undoable action, and redoes', async ({ page }) => {
@@ -308,10 +316,14 @@ async function authoringState(page: Page) {
   )
 }
 
-async function openRowMenu(page: Page, stem: string) {
-  await bankRow(page, stem).getByRole('button', { name: /^Actions for / }).click()
-  await expect(page.getByRole('menu')).toBeVisible()
-}
+/** The row's Insert button, offered only while a compatible Exam Draft
+ *  question is selected. */
+const insertAfter = (page: Page, stem: string) =>
+  bankRow(page, stem).getByRole('button', { name: /after the selected question$/ })
+
+/** The row's Replace button, offered on the same terms. */
+const replaceSelected = (page: Page, stem: string) =>
+  bankRow(page, stem).getByRole('button', { name: /^Replace the selected question/ })
 
 test('the pointer and the action menu compose the same Exam Draft', async ({ page }) => {
   await openWorkspace(page)
@@ -321,8 +333,7 @@ test('the pointer and the action menu compose the same Exam Draft', async ({ pag
 
   await openWorkspace(page)
   await rendered(page, 'mc1').click()
-  await openRowMenu(page, 'Spare choice question')
-  await page.getByRole('menuitem', { name: 'Insert after selected question' }).click()
+  await insertAfter(page, 'Spare choice question').click()
   await expect(examQuestions(page)).toHaveCount(4)
 
   expect(await authoringState(page)).toEqual(byPointer)
@@ -336,8 +347,7 @@ test('the pointer and the action menu Replace identically', async ({ page }) => 
 
   await openWorkspace(page)
   await rendered(page, 'mc2').click()
-  await openRowMenu(page, 'Spare choice question')
-  await page.getByRole('menuitem', { name: 'Replace selected question' }).click()
+  await replaceSelected(page, 'Spare choice question').click()
   await expect(bankRow(page, 'Spare choice question')).toContainText('In exam')
 
   expect(await authoringState(page)).toEqual(byPointer)
@@ -368,8 +378,7 @@ test('a composed question is selected, revealed after repagination and highlight
   await page.evaluate(() => window.scrollTo(0, 0))
   await expect(rendered(page, 'l13')).not.toBeInViewport()
 
-  await openRowMenu(page, 'The spare one')
-  await page.getByRole('menuitem', { name: 'Insert after selected question' }).click()
+  await insertAfter(page, 'The spare one').click()
 
   // Repagination waits for content to settle, so the question is not on a page
   // in the frame the action was taken. It is scrolled to once it is.

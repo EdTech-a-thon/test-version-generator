@@ -195,10 +195,22 @@ export function useWorkspaceDrag(
       // The Question Section the gesture can reach, so compatible positions can
       // announce themselves before the pointer is over one.
       root.dataset.dragSection = nextSource.type
+      // Where the preview sits under the pointer. A reorder keeps the grab
+      // offset, so the question stays exactly where it was picked up and the
+      // gesture reads as moving the thing itself. A bank row is instead
+      // carried centred on the pointer: it is a different width from the
+      // position it is aimed at, so honouring the grab offset would leave the
+      // card hanging off to one side of the cursor and make the teacher aim
+      // with an edge they cannot see.
+      const centred = nextSource.pane === 'question-bank'
       preview.current = {
         element,
-        offsetX: gesture.point.x - gesture.bounds.left,
-        offsetY: gesture.point.y - gesture.bounds.top,
+        offsetX: centred
+          ? gesture.bounds.width / 2
+          : gesture.point.x - gesture.bounds.left,
+        offsetY: centred
+          ? gesture.bounds.height / 2
+          : gesture.point.y - gesture.bounds.top,
       }
       sourceRef.current = nextSource
       setSource(nextSource)

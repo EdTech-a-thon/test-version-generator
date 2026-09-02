@@ -61,7 +61,7 @@ async function pasteContent(
 
 test('authors can apply and persist semantic script formatting', async ({ page }) => {
   await page.goto('/')
-  await page.getByRole('button', { name: 'Insert question' }).click()
+  await page.getByRole('button', { name: 'Insert your first question' }).click()
 
   const dialog = page.getByRole('dialog', { name: 'Question editor' })
   const editor = dialog.locator('.ProseMirror')

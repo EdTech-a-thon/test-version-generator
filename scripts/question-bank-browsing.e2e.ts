@@ -99,11 +99,14 @@ async function openBank(page: Page, questionIds: string[] = ['q1', 'q2']) {
   await expect(rows(page)).toHaveCount(QUESTIONS.length)
 }
 
-/** Opens one row's action menu. */
-async function openRowMenu(page: Page, stem: string) {
-  await row(page, stem).getByRole('button', { name: /^Actions for / }).click()
-  await expect(page.getByRole('menu')).toBeVisible()
-}
+/** The row's Insert button, offered only while a compatible Exam Draft
+ *  question is selected. */
+const insertAfter = (page: Page, stem: string) =>
+  row(page, stem).getByRole('button', { name: /after the selected question$/ })
+
+/** The row's Replace button, offered on the same terms. */
+const replaceSelected = (page: Page, stem: string) =>
+  row(page, stem).getByRole('button', { name: /^Replace the selected question/ })
 
 /** Chooses values in one of the bank's filter dropdowns. */
 async function filterBy(page: Page, category: string, ...values: string[]) {
@@ -242,8 +245,7 @@ test('a selected bank question is inserted after a selected Exam Draft question'
 
   // q1 is the Multiple Choice question on the exam; q3 is an unused one.
   await examQuestions(page).first().click()
-  await openRowMenu(page, 'Photosynthesis at night')
-  await page.getByRole('menuitem', { name: 'Insert after selected question' }).click()
+  await insertAfter(page, 'Photosynthesis at night').click()
 
   await expect(examQuestions(page)).toHaveCount(3)
   await expect(examQuestions(page).nth(0)).toContainText('Photosynthesis in leaves')
@@ -263,8 +265,7 @@ test('a selected bank question replaces a selected Exam Draft question', async (
   await openBank(page)
 
   await examQuestions(page).first().click()
-  await openRowMenu(page, 'Photosynthesis at night')
-  await page.getByRole('menuitem', { name: 'Replace selected question' }).click()
+  await replaceSelected(page, 'Photosynthesis at night').click()
 
   await expect(examQuestions(page)).toHaveCount(2)
   await expect(examQuestions(page).nth(0)).toContainText('Photosynthesis at night')
@@ -284,8 +285,7 @@ test('composition stops being offered once its target leaves the Exam Draft', as
   await openBank(page)
 
   await examQuestions(page).first().click()
-  await openRowMenu(page, 'Photosynthesis at night')
-  await page.getByRole('menuitem', { name: 'Insert after selected question' }).click()
+  await insertAfter(page, 'Photosynthesis at night').click()
   await expect(examQuestions(page)).toHaveCount(3)
 
   await page.keyboard.press('Control+z')
@@ -294,9 +294,8 @@ test('composition stops being offered once its target leaves the Exam Draft', as
   // Undo took the incoming question back off the exam. A selection outlives it,
   // but a question that is not on the Exam Draft names no position on it, so
   // there is nothing to compose against.
-  await openRowMenu(page, 'Photosynthesis at night')
-  await expect(page.getByRole('menuitem', { name: 'Insert after selected question' })).toHaveCount(0)
-  await expect(page.getByRole('menuitem', { name: 'Replace selected question' })).toHaveCount(0)
+  await expect(insertAfter(page, 'Photosynthesis at night')).toHaveCount(0)
+  await expect(replaceSelected(page, 'Photosynthesis at night')).toHaveCount(0)
 })
 
 test('composition is not offered across Question Sections or for a question already on the exam', async ({ page }) => {
@@ -305,13 +304,10 @@ test('composition is not offered across Question Sections or for a question alre
   // A Multiple Choice question is selected on the exam, so a Short Answer bank
   // question offers no way to reach it.
   await examQuestions(page).first().click()
-  await openRowMenu(page, 'Mitosis and meiosis')
-  await expect(page.getByRole('menuitem', { name: 'Insert after selected question' })).toHaveCount(0)
-  await expect(page.getByRole('menuitem', { name: 'Replace selected question' })).toHaveCount(0)
-  await page.keyboard.press('Escape')
+  await expect(insertAfter(page, 'Mitosis and meiosis')).toHaveCount(0)
+  await expect(replaceSelected(page, 'Mitosis and meiosis')).toHaveCount(0)
 
   // Nor does a question already on the Exam Draft: a reference occurs once.
-  await openRowMenu(page, 'Photosynthesis in leaves')
-  await expect(page.getByRole('menuitem', { name: 'Insert after selected question' })).toHaveCount(0)
-  await expect(page.getByRole('menuitem', { name: 'Replace selected question' })).toHaveCount(0)
+  await expect(insertAfter(page, 'Photosynthesis in leaves')).toHaveCount(0)
+  await expect(replaceSelected(page, 'Photosynthesis in leaves')).toHaveCount(0)
 })
