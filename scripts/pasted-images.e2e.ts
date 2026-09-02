@@ -58,6 +58,7 @@ test('pasted image files render and persist with a question', async ({
 }) => {
   await page.goto('/')
   await page.getByRole('button', { name: 'Insert your first question' }).click()
+  await page.getByRole('menuitem', { name: 'Multiple choice' }).click()
 
   const dialog = page.getByRole('dialog', { name: 'Question editor' })
   const editor = dialog.locator('.ProseMirror')
@@ -99,6 +100,7 @@ test('pasted image files render and persist with a question', async ({
 test('images paste through the native browser clipboard', async ({ page }) => {
   await page.goto('/')
   await page.getByRole('button', { name: 'Insert your first question' }).click()
+  await page.getByRole('menuitem', { name: 'Multiple choice' }).click()
 
   const dialog = page.getByRole('dialog', { name: 'Question editor' })
   const editor = dialog.locator('.ProseMirror')
@@ -114,6 +116,7 @@ test('copied web images render and persist with a question', async ({
 }) => {
   await page.goto('/')
   await page.getByRole('button', { name: 'Insert your first question' }).click()
+  await page.getByRole('menuitem', { name: 'Multiple choice' }).click()
 
   const dialog = page.getByRole('dialog', { name: 'Question editor' })
   const editor = dialog.locator('.ProseMirror')
@@ -133,6 +136,7 @@ test('copied web images with a clipboard file use a resizable block', async ({
 }) => {
   await page.goto('/')
   await page.getByRole('button', { name: 'Insert your first question' }).click()
+  await page.getByRole('menuitem', { name: 'Multiple choice' }).click()
 
   const dialog = page.getByRole('dialog', { name: 'Question editor' })
   const editor = dialog.locator('.ProseMirror')
@@ -147,6 +151,7 @@ test('copied web images with a clipboard file use a resizable block', async ({
 test('image files paste into answer choices', async ({ page }) => {
   await page.goto('/')
   await page.getByRole('button', { name: 'Insert your first question' }).click()
+  await page.getByRole('menuitem', { name: 'Multiple choice' }).click()
 
   const dialog = page.getByRole('dialog', { name: 'Question editor' })
   const firstChoice = dialog.locator('.mc-choice-body').first()

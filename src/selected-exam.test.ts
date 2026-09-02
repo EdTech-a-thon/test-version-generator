@@ -3,7 +3,6 @@ import {
   createQuestion,
   orderedQuestions,
   questionsInSection,
-  withTypeSwitched,
   type Question,
 } from './exam'
 import {
@@ -79,7 +78,7 @@ describe('the Exam rendering and export receive', () => {
     const other = createQuestion('open')
     const bank = withQuestionBanked(
       banked(question, other),
-      withTypeSwitched(question, 'open'),
+      { ...question, type: 'open' },
     )
     const { exam, version } = selectedExam(bank, drafted(question.id, other.id))
     expect(questionsInSection(exam, version, 'multiple-choice')).toEqual([])

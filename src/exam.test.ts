@@ -16,7 +16,6 @@ import {
   withQuestionAppended,
   withQuestionRemoved,
   withTopicAdded,
-  withTypeSwitched,
 } from './exam'
 import type { Exam, Question, Version } from './exam'
 import type { ProseMirrorJSON } from './question-doc'
@@ -236,16 +235,14 @@ describe('duplicating a question', () => {
     expect(choicesOf(original).map((choice) => choice.id)).toEqual(['c1', 'c2'])
   })
 
-  test('keeps the type, the column setting and the stashed choices', () => {
+  test('keeps the type and the column setting', () => {
     const original: Question = {
       ...multipleChoice('q1', ['c1', 'c2']),
       type: 'open',
       columns: 4,
-      stashedChoices: { type: 'multipleChoice', content: [] },
     }
     const copy = duplicateQuestion(original)
     expect(copy).toMatchObject({ type: 'open', columns: 4 })
-    expect(copy.stashedChoices).toEqual(original.stashedChoices!)
   })
 
   test('keeps the Difficulty and the Topics, without sharing the Topic list', () => {
@@ -288,67 +285,3 @@ describe('Difficulty and Topics', () => {
   })
 })
 
-describe('switching a question between multiple choice and open response', () => {
-  test('switching to open moves the choices into the stash and out of the document', () => {
-    const question = multipleChoice('q1', ['c1', 'c2'], 'c1')
-    const switched = withTypeSwitched(question, 'open')
-    expect(switched.type).toBe('open')
-    expect(choicesOf(switched)).toEqual([])
-    expect(switched.stashedChoices).toBeDefined()
-    expect(
-      (switched.stashedChoices as { content: { attrs: { id: string } }[] }).content.map(
-        (choice) => choice.attrs.id,
-      ),
-    ).toEqual(['c1', 'c2'])
-  })
-
-  test('switching back restores the stashed choices, including which one was correct', () => {
-    const question = multipleChoice('q1', ['c1', 'c2', 'c3'], 'c2')
-    const open = withTypeSwitched(question, 'open')
-    const restored = withTypeSwitched(open, 'multiple-choice')
-    expect(restored.type).toBe('multiple-choice')
-    expect(choicesOf(restored)).toEqual(choicesOf(question))
-  })
-
-  test('restoring the stash keeps choice ids stable so a version ordering still lines up', () => {
-    const question = multipleChoice('q1', ['c1', 'c2'], 'c1')
-    const version = versionOf(['q1'], { q1: ['c2', 'c1'] })
-    const restored = withTypeSwitched(withTypeSwitched(question, 'open'), 'multiple-choice')
-    expect(orderedChoices(restored, version).map((choice) => choice.id)).toEqual(['c2', 'c1'])
-  })
-
-  test('switching to open twice does not accumulate history — the stash is replaced, not appended', () => {
-    const question = multipleChoice('q1', ['c1', 'c2'], 'c1')
-    const firstOpen = withTypeSwitched(question, 'open')
-    // Restore, then edit the choices before stashing again — as a teacher would
-    // after reconsidering.
-    const restored = withTypeSwitched(firstOpen, 'multiple-choice')
-    const edited = { ...restored, doc: multipleChoice('q1', ['c3', 'c4'], 'c4').doc }
-    const secondOpen = withTypeSwitched(edited, 'open')
-    expect(
-      (secondOpen.stashedChoices as { content: { attrs: { id: string } }[] }).content.map(
-        (choice) => choice.attrs.id,
-      ),
-    ).toEqual(['c3', 'c4'])
-  })
-
-  test('switching to multiple choice with no prior stash starts a fresh set of choices', () => {
-    const question = open('o1')
-    const switched = withTypeSwitched(question, 'multiple-choice')
-    expect(switched.type).toBe('multiple-choice')
-    expect(choicesOf(switched).length).toBeGreaterThan(0)
-  })
-
-  test('the stash is cleared once restored — it exists only while the question is open', () => {
-    const question = multipleChoice('q1', ['c1', 'c2'], 'c1')
-    const restored = withTypeSwitched(withTypeSwitched(question, 'open'), 'multiple-choice')
-    expect(restored.stashedChoices).toBeUndefined()
-  })
-
-  test('switching to the type a question already is returns it unchanged', () => {
-    const mc = multipleChoice('q1', ['c1', 'c2'], 'c1')
-    const openQuestion = open('o1')
-    expect(withTypeSwitched(mc, 'multiple-choice')).toBe(mc)
-    expect(withTypeSwitched(openQuestion, 'open')).toBe(openQuestion)
-  })
-})

@@ -64,3 +64,36 @@ test('Remove takes every selected question off the Exam Draft, not out of the ba
   await expect(bank.getByRole('listitem')).toHaveCount(3)
   await expect(bank.getByText('In exam')).toHaveCount(0)
 })
+
+test('Delete and Backspace Remove the selected questions from the Exam Draft', async ({ page }) => {
+  const questions = await openSelectedQuestions(page)
+  const bankRows = page.getByRole('region', { name: 'Question Bank' }).getByRole('listitem')
+
+  await page.keyboard.press('Delete')
+
+  // Remove, not Delete: off the exam, still in the bank, and no confirmation
+  // stood in the way because nothing was destroyed.
+  await expect(questions).toHaveCount(0)
+  await expect(bankRows).toHaveCount(3)
+
+  // One undo step, so the pair comes back together.
+  await page.keyboard.press('Control+z')
+  await expect(questions).toHaveCount(2)
+
+  await questions.nth(0).click()
+  await page.keyboard.press('Backspace')
+  await expect(questions).toHaveCount(1)
+  await expect(bankRows).toHaveCount(3)
+})
+
+test('Backspace in the search box edits the search rather than the exam', async ({ page }) => {
+  const questions = await openSelectedQuestions(page)
+  const search = page.getByRole('searchbox', { name: 'Search question stems' })
+
+  await search.fill('Question q1')
+  await search.press('Backspace')
+
+  await expect(search).toHaveValue('Question q')
+  // The questions were selected the whole time and none of them moved.
+  await expect(questions).toHaveCount(2)
+})

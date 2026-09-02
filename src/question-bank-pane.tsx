@@ -26,7 +26,8 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent,
 } from 'react'
-import { CornerDownRight, Pencil, Plus, Replace, Search } from 'lucide-react'
+import { Check, CornerDownRight, Pencil, Plus, Replace, Search } from 'lucide-react'
+import type { MenuPoint } from './context-menu'
 import { stemPreview, type StemPreviewBadge } from './stem-preview'
 import {
   DIFFICULTIES,
@@ -222,7 +223,7 @@ export function QuestionBankPane({
    *  Insert and Replace act against. */
   examDraftSelection: Question | null
   onSelect: (questionId: string) => void
-  onCreate: () => void
+  onCreate: (point: MenuPoint) => void
   onEdit: (questionId: string) => void
   onAddToExamDraft: (questionId: string) => void
   onInsertAfterExamDraftSelection: (questionId: string) => void
@@ -344,7 +345,17 @@ export function QuestionBankPane({
       <header className="question-bank-header">
         <h2>Question Bank</h2>
         <div className="question-bank-header-actions">
-          <button type="button" className="secondary-button" onClick={onCreate}>
+          <button
+            type="button"
+            className="secondary-button"
+            aria-haspopup="menu"
+            onClick={(event) => {
+              // Below the button and aligned with it, so the list of types
+              // reads as belonging to the control that asked for it.
+              const bounds = event.currentTarget.getBoundingClientRect()
+              onCreate({ x: bounds.left, y: bounds.bottom + 4 })
+            }}
+          >
             <Plus />
             New question
           </button>
@@ -499,11 +510,19 @@ export function QuestionBankPane({
                   >
                     <Pencil />
                   </button>
-                  {/* A question already on the Exam Draft offers no way onto
-                      it a second time: a reference occurs at most once, and
-                      saying so before the click is clearer than refusing it
-                      afterwards. */}
-                  {!inExamDraft && (
+                  {/* A question already on the Exam Draft offers no way onto it
+                      a second time — a reference occurs at most once — so the
+                      plus becomes a tick: the same slot answers "can I add
+                      this?" and "is it already on?". */}
+                  {inExamDraft ? (
+                    <span
+                      className="question-bank-action question-bank-included"
+                      title="On the exam"
+                      aria-hidden="true"
+                    >
+                      <Check />
+                    </span>
+                  ) : (
                     <button
                       type="button"
                       className="question-bank-action"

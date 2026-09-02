@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { createQuestion, orderedQuestions, topicsOf, withTypeSwitched } from './exam'
+import { createQuestion, orderedQuestions, topicsOf } from './exam'
 import type { Question } from './exam'
 import {
   DRAFT_STORAGE_KEY,
@@ -193,10 +193,10 @@ describe('the Exam Draft references the Question Bank', () => {
     expect(store.getState().examDraft.questionIds).toEqual([])
   })
 
-  test('keeps a referenced question included when its type changes', async () => {
+  test('renders a referenced question under the Question Section for its own type', async () => {
     const { store, questions } = await withExamDraft(2)
 
-    store.updateInQuestionBank(withTypeSwitched(questions[0]!, 'open'))
+    store.updateInQuestionBank({ ...questions[0]!, type: 'open' })
 
     // The Question Sections are derived, so the question keeps its place on the
     // Exam Draft and renders under Short Answer instead.

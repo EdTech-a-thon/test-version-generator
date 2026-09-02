@@ -127,9 +127,17 @@ export function ContextMenu({
     // Any scroll — the window's or the workspace's — leaves the menu stranded
     // away from what it was opened on, so it closes rather than drifting.
     document.addEventListener('pointerdown', onPointerDown, true)
-    window.addEventListener('scroll', onClose, true)
-    window.addEventListener('resize', onClose)
+    // The menu takes focus as it opens, and focusing it can scroll an ancestor
+    // that was not showing the spot it opened at. That scroll is the menu's own
+    // doing rather than the teacher moving the page out from under it, so
+    // closing on scroll starts a frame later — otherwise a menu opened low on a
+    // scrollable page closes itself the instant it appears.
+    const frame = requestAnimationFrame(() => {
+      window.addEventListener('scroll', onClose, true)
+      window.addEventListener('resize', onClose)
+    })
     return () => {
+      cancelAnimationFrame(frame)
       document.removeEventListener('pointerdown', onPointerDown, true)
       window.removeEventListener('scroll', onClose, true)
       window.removeEventListener('resize', onClose)

@@ -29,22 +29,24 @@ import {
   toggleScript,
 } from './script-marks'
 import { leftArrowInputRule, rightArrowInputRule } from './text-arrows'
+import type { ReactNode } from 'react'
 import { cleanDocument } from './question-doc'
 import type { ProseMirrorJSON } from './question-doc'
 import {
   DIFFICULTIES,
   DIFFICULTY_LABELS,
+  SECTION_LABELS,
+  SECTION_ORDER,
   createQuestion,
   topicsOf,
   withTopicAdded,
-  withTypeSwitched,
 } from './exam'
 import type { Difficulty, Question, QuestionPlacement, QuestionType } from './exam'
 import { bankQuestionById } from './question-bank'
 import type { ExamStore } from './exam-store'
 import { ExamPage, PrintDocument } from './exam-page'
 import { QuestionBankPane } from './question-bank-pane'
-import { NO_FILTER, type QuestionBankFilter } from './question-bank-view'
+import { NO_FILTER, topicOptions, type QuestionBankFilter } from './question-bank-view'
 import { useSelection } from './use-selection'
 import { useWorkspaceDrag } from './use-workspace-drag'
 import { WorkspaceSplit } from './workspace-split'
@@ -60,68 +62,198 @@ import { ExportDialog } from './export-dialog'
 import { domMeasure } from './dom-measure'
 import { saveImage } from './local-images'
 import { configurePastedImages } from './pasted-images'
-import { Redo2, Undo2, X } from 'lucide-react'
+import {
+  AlignLeft,
+  Check,
+  Gauge,
+  ListChecks,
+  Plus,
+  Redo2,
+  Tags,
+  Undo2,
+} from 'lucide-react'
+import { ContextMenu, type MenuPoint } from './context-menu'
 import { useRoute } from './use-route'
 import { Footer } from './site-chrome'
 import { AboutPage, PrivacyPage } from './site-pages'
 
+/** The mark each Question Section goes by, so a type reads the same wherever
+ *  it is named — the picker that chooses one, and the dialog that states it. */
+const QUESTION_TYPE_ICONS: Record<QuestionType, ReactNode> = {
+  'multiple-choice': <ListChecks />,
+  open: <AlignLeft />,
+}
+
 /**
- * The Topics of one question, as removable chips.
+ * One line of a question's front matter: an icon and a label on the left, and
+ * what has been chosen on the right — or nothing at all, because Difficulty
+ * and Topics are both optional and a blank field is the normal state rather
+ * than an omission to be nagged about.
  *
- * Enter or a comma commits what has been typed, trimmed. Nothing else happens
- * to it: no autocomplete offers a Topic, no controlled vocabulary rejects one,
- * and two spellings of one subject stay two Topics, because only the teacher
- * knows whether they mean the same thing.
+ * Choosing opens a list under the field with a box to type in. Typing filters
+ * what is on offer; it never rewrites a value, so casing and spelling are the
+ * teacher's. A single-select field replaces what is there and closes; a
+ * multi-select one toggles and stays open, because choosing several is one
+ * thought rather than several visits.
+ *
+ * `onCreate` is what makes the Topic field different from the Difficulty one:
+ * Difficulty is a closed set of three, while a Topic that does not exist yet
+ * is made by typing it.
  */
-function TopicChips({
-  topics,
-  draft,
-  onDraftChange,
+function FrontMatterSelect({
+  icon,
+  label,
+  options,
+  selected,
+  multiple,
   onChange,
+  onCreate,
 }: {
-  topics: readonly string[]
-  draft: string
-  onDraftChange: (draft: string) => void
-  onChange: (topics: string[]) => void
+  icon: ReactNode
+  label: string
+  /** What can be chosen, in the order it should be offered. */
+  options: readonly { value: string; label: string }[]
+  selected: readonly string[]
+  multiple: boolean
+  onChange: (values: string[]) => void
+  /** Given the trimmed text typed, when it names nothing already on offer. */
+  onCreate?: (value: string) => void
 }) {
-  const commit = () => {
-    onChange(withTopicAdded(topics, draft))
-    onDraftChange('')
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const field = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onPointerDown = (event: PointerEvent) => {
+      if (!field.current?.contains(event.target as Node)) setOpen(false)
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    return () => document.removeEventListener('pointerdown', onPointerDown)
+  }, [open])
+
+  const trimmed = query.trim()
+  const needle = trimmed.toLowerCase()
+  const matching = options.filter((option) =>
+    option.label.toLowerCase().includes(needle),
+  )
+  // Offered when what has been typed is not already a value, compared exactly.
+  // Filtering is case-insensitive because that is what searching means, but two
+  // spellings of one subject are two Topics: only the teacher knows whether
+  // they mean the same thing, so a near-miss is offered as a new one.
+  const creatable =
+    onCreate !== undefined
+    && trimmed.length > 0
+    && !options.some((option) => option.label === trimmed)
+
+  const choose = (value: string) => {
+    if (!multiple) {
+      onChange([value])
+      setOpen(false)
+    } else if (selected.includes(value)) {
+      onChange(selected.filter((item) => item !== value))
+    } else {
+      onChange([...selected, value])
+    }
+    setQuery('')
   }
+
+  const create = () => {
+    if (!creatable) return
+    onCreate?.(trimmed)
+    setQuery('')
+    if (!multiple) setOpen(false)
+  }
+
+  const labelOf = (value: string) =>
+    options.find((option) => option.value === value)?.label ?? value
+
   return (
-    <div className="topic-field">
-      <span className="topic-field-label">Topics</span>
-      {topics.length > 0 && (
-        <ul className="topic-chips">
-          {topics.map((topic) => (
-            <li className="topic-chip" key={topic}>
-              {topic}
+    <div
+      className="front-matter-field"
+      ref={field}
+      onKeyDown={(event) => {
+        if (event.key !== 'Escape' || !open) return
+        // The dialog behind listens for the same key to close itself.
+        event.stopPropagation()
+        setOpen(false)
+      }}
+    >
+      <span className="front-matter-label">
+        {icon}
+        {label}
+      </span>
+      <button
+        type="button"
+        className="front-matter-value"
+        aria-label={label}
+        aria-expanded={open}
+        aria-haspopup="true"
+        onClick={() => setOpen((current) => !current)}
+      >
+        {selected.length === 0 ? (
+          <span className="front-matter-blank">Empty</span>
+        ) : (
+          selected.map((value) => (
+            <span className="front-matter-pill" key={value}>
+              {labelOf(value)}
+            </span>
+          ))
+        )}
+      </button>
+      {open && (
+        <div className="front-matter-list" role="group" aria-label={label}>
+          <input
+            className="front-matter-search"
+            autoFocus
+            aria-label={`Filter ${label}`}
+            placeholder={onCreate ? `Search or add a ${label.replace(/s$/, '')}` : 'Search'}
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key !== 'Enter') return
+              event.preventDefault()
+              if (creatable) create()
+              else if (matching[0]) choose(matching[0].value)
+            }}
+          />
+          <div className="front-matter-options">
+            {matching.map((option) => (
               <button
                 type="button"
-                aria-label={`Clear Topic ${topic}`}
-                onClick={() => onChange(topics.filter((item) => item !== topic))}
+                className="front-matter-option"
+                key={option.value}
+                data-chosen={selected.includes(option.value) ? 'true' : undefined}
+                onClick={() => choose(option.value)}
               >
-                <X />
+                <span className="front-matter-pill">{option.label}</span>
+                {selected.includes(option.value) && <Check />}
               </button>
-            </li>
-          ))}
-        </ul>
+            ))}
+            {creatable && (
+              <button type="button" className="front-matter-option" onClick={create}>
+                <Plus />
+                Add <span className="front-matter-pill">{trimmed}</span>
+              </button>
+            )}
+            {matching.length === 0 && !creatable && (
+              <p className="front-matter-empty">Nothing to choose</p>
+            )}
+          </div>
+          {selected.length > 0 && (
+            <button
+              type="button"
+              className="front-matter-clear"
+              onClick={() => {
+                onChange([])
+                if (!multiple) setOpen(false)
+              }}
+            >
+              Clear
+            </button>
+          )}
+        </div>
       )}
-      <input
-        className="topic-input"
-        aria-label="Add a Topic"
-        placeholder="Add a Topic, then press Enter"
-        value={draft}
-        onChange={(event) => onDraftChange(event.target.value)}
-        onKeyDown={(event) => {
-          if (event.key !== 'Enter' && event.key !== ',') return
-          // Both keys mean the same thing, and neither is left to do what it
-          // would otherwise do — type a comma, or reach the dialog behind.
-          event.preventDefault()
-          event.stopPropagation()
-          commit()
-        }}
-      />
     </div>
   )
 }
@@ -241,44 +373,27 @@ function CrepeQuestion({
 function QuestionDialog({
   question,
   isNew,
+  topicSuggestions,
   onCancel,
   onSave,
 }: {
   question: Question
   isNew: boolean
+  /** Every Topic already used in the Question Bank, offered so a teacher picks
+   *  the spelling they used last time rather than inventing a near-duplicate. */
+  topicSuggestions: readonly string[]
   onCancel: () => void
   onSave: (question: Question) => void
 }) {
-  const [type, setType] = useState<QuestionType>(question.type)
-  const [doc, setDoc] = useState<ProseMirrorJSON>(question.doc)
+  // A question's type is settled when it is created, so the dialog reads it
+  // and never changes it: there is no switch to make, and nothing to preserve
+  // across one.
+  const { type } = question
+  const [doc] = useState<ProseMirrorJSON>(question.doc)
   const [difficulty, setDifficulty] = useState<Difficulty | ''>(question.difficulty ?? '')
   const [topics, setTopics] = useState<readonly string[]>(topicsOf(question))
-  // What is in the Topic box but not yet a chip. Saving commits it, so a Topic
-  // typed and then saved is never quietly dropped.
-  const [topicDraft, setTopicDraft] = useState('')
   const latestDoc = useRef(doc)
   const readEditorDocument = useRef<(() => ProseMirrorJSON) | null>(null)
-  // The stash the dialog currently knows about, kept alongside the doc so a
-  // save mid-edit carries a lift/restore that happened before the editor's
-  // own onChange has fired again. Starts from the question's persisted stash,
-  // so an existing stash survives opening the dialog without touching type.
-  const stash = useRef(question.stashedChoices)
-
-  const changeType = (next: QuestionType) => {
-    const switched = withTypeSwitched(
-      {
-        ...question,
-        type,
-        doc: cleanDocument(latestDoc.current),
-        stashedChoices: stash.current,
-      },
-      next,
-    )
-    stash.current = switched.stashedChoices
-    latestDoc.current = switched.doc
-    setType(switched.type)
-    setDoc(switched.doc)
-  }
 
   const saveQuestion = () => {
     const saved: Question = {
@@ -286,12 +401,9 @@ function QuestionDialog({
       type,
       doc: cleanDocument(readEditorDocument.current?.() ?? latestDoc.current),
     }
-    if (stash.current) saved.stashedChoices = stash.current
-    else delete saved.stashedChoices
     if (difficulty) saved.difficulty = difficulty
     else delete saved.difficulty
-    const savedTopics = withTopicAdded(topics, topicDraft)
-    if (savedTopics.length > 0) saved.topics = savedTopics
+    if (topics.length > 0) saved.topics = [...topics]
     else delete saved.topics
     onSave(saved)
   }
@@ -332,35 +444,40 @@ function QuestionDialog({
       >
         <header className="dialog-header">
           <h2>{isNew ? 'Add question' : 'Edit question'}</h2>
-          {/* Type and Difficulty, side by side: one is structural and one is
-              optional, but both are the question's classification rather than
-              its content. */}
-          <div className="dialog-header-fields">
-            <label>
-              Type
-              <select
-                value={type}
-                onChange={(event) => changeType(event.target.value as QuestionType)}
-              >
-                <option value="open">Short answer</option>
-                <option value="multiple-choice">Multiple choice</option>
-              </select>
-            </label>
-            <label>
-              Difficulty
-              <select
-                value={difficulty}
-                onChange={(event) => setDifficulty(event.target.value as Difficulty | '')}
-              >
-                <option value="">Unspecified</option>
-                {DIFFICULTIES.map((value) => (
-                  <option key={value} value={value}>{DIFFICULTY_LABELS[value]}</option>
-                ))}
-              </select>
-            </label>
-          </div>
+          {/* What the question is, said rather than asked: the type was chosen
+              when it was created and the answer choices below depend on it. */}
+          <span className="dialog-question-type">
+            {QUESTION_TYPE_ICONS[type]}
+            {SECTION_LABELS[type]}
+          </span>
         </header>
-        <div className="dialog-editor" key={type}>
+        {/* The question's front matter, above the content it classifies. Both
+            fields are optional and both open blank. */}
+        <div className="front-matter">
+          <FrontMatterSelect
+            icon={<Gauge />}
+            label="Difficulty"
+            options={DIFFICULTIES.map((value) => ({
+              value,
+              label: DIFFICULTY_LABELS[value],
+            }))}
+            selected={difficulty ? [difficulty] : []}
+            multiple={false}
+            onChange={(values) => setDifficulty((values[0] as Difficulty) ?? '')}
+          />
+          <FrontMatterSelect
+            icon={<Tags />}
+            label="Topics"
+            options={Array.from(new Set([...topics, ...topicSuggestions])).map(
+              (topic) => ({ value: topic, label: topic }),
+            )}
+            selected={topics}
+            multiple
+            onChange={setTopics}
+            onCreate={(value) => setTopics(withTopicAdded(topics, value))}
+          />
+        </div>
+        <div className="dialog-editor">
           <CrepeQuestion
             value={doc}
             onReady={(readDocument) => {
@@ -371,12 +488,6 @@ function QuestionDialog({
             }}
           />
         </div>
-        <TopicChips
-          topics={topics}
-          draft={topicDraft}
-          onDraftChange={setTopicDraft}
-          onChange={setTopics}
-        />
         <footer className="dialog-actions">
           <button type="button" className="secondary-button" onClick={onCancel}>Cancel</button>
           <button
@@ -405,6 +516,15 @@ function ExamEditor({ store }: { store: ExamStore }) {
   // own, or a place on the Exam Draft — `after` being the question a plus was
   // clicked beside. Editing an existing question ignores both: the popup only
   // ever changes canonical Question Content.
+  // Which Question Section a question about to be written belongs to. Asked
+  // only where the position does not already answer it: a question added below
+  // another one takes that one's section, but a bank-only question and the
+  // first question on an empty sheet could be either.
+  const [choosingType, setChoosingType] = useState<{
+    point: MenuPoint
+    destination: 'question-bank' | 'exam-draft'
+    after: string | null
+  } | null>(null)
   const [editing, setEditing] = useState<{
     question: Question
     destination: 'question-bank' | 'exam-draft'
@@ -522,12 +642,28 @@ function ExamEditor({ store }: { store: ExamStore }) {
         else store.undo()
         return
       }
+      if (event.key === 'Delete' || event.key === 'Backspace') {
+        // Not while something is being typed into: the bank's search box and
+        // the filter lists are on the same page, and Backspace there means
+        // what it always means.
+        const target = event.target as HTMLElement | null
+        const typing =
+          target?.isContentEditable === true
+          || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target?.tagName ?? '')
+        if (typing || selection.selectedIds.size === 0) return
+        event.preventDefault()
+        // Remove, not Delete: the questions come off the Exam Draft and stay in
+        // the Question Bank, which is why this needs no confirmation.
+        store.removeFromExamDraft([...selection.selectedIds])
+        clearSelection()
+        return
+      }
       if (event.key !== 'Escape') return
       clearSelection()
     }
     document.addEventListener('keydown', onKeyDown)
     return () => document.removeEventListener('keydown', onKeyDown)
-  }, [clearSelection, editing, exportDialog, store])
+  }, [clearSelection, editing, exportDialog, selection.selectedIds, store])
 
   const closeExportDialog = () => {
     setExportDialog(null)
@@ -725,12 +861,8 @@ function ExamEditor({ store }: { store: ExamStore }) {
             examDraftSelection={examDraftSelection}
             onSelect={setSelectedBankId}
             drag={drag}
-            onCreate={() =>
-              setEditing({
-                question: createQuestion('multiple-choice'),
-                destination: 'question-bank',
-                after: null,
-              })
+            onCreate={(point) =>
+              setChoosingType({ point, destination: 'question-bank', after: null })
             }
             onEdit={(questionId) => {
               const question = bankQuestionById(state.questionBank, questionId)
@@ -778,6 +910,9 @@ function ExamEditor({ store }: { store: ExamStore }) {
                 after: afterQuestionId ?? null,
               })
             }
+            onAddFirst={(point) =>
+              setChoosingType({ point, destination: 'exam-draft', after: null })
+            }
             onSetColumns={(questionIds, columns) =>
               store.setQuestionColumns(questionIds, columns)
             }
@@ -790,10 +925,31 @@ function ExamEditor({ store }: { store: ExamStore }) {
 
       {handoff?.format === 'print' && <PrintDocument plans={handoff.plans} />}
 
+      {choosingType && (
+        <ContextMenu
+          point={choosingType.point}
+          ariaLabel="Question type"
+          items={SECTION_ORDER.map((type) => ({
+            kind: 'action' as const,
+            label: SECTION_LABELS[type],
+            icon: QUESTION_TYPE_ICONS[type],
+            onSelect: () => {
+              setEditing({
+                question: createQuestion(type),
+                destination: choosingType.destination,
+                after: choosingType.after,
+              })
+            },
+          }))}
+          onClose={() => setChoosingType(null)}
+        />
+      )}
+
       {editing && (
         <QuestionDialog
           question={editing.question}
           isNew={!bankQuestionById(state.questionBank, editing.question.id)}
+          topicSuggestions={topicOptions(state.questionBank)}
           onCancel={() => setEditing(null)}
           onSave={(saved) => {
             // One authoring action, whichever way the popup was opened, so a

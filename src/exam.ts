@@ -15,10 +15,7 @@ import {
   choiceIsCorrect,
   choiceNodesOf,
   emptyDoc,
-  multipleChoiceNodeOf,
   withFreshChoiceIds,
-  withMultipleChoice,
-  withoutMultipleChoice,
   type ProseMirrorJSON,
 } from './question-doc'
 import { newMultipleChoiceNode } from './multiple-choice'
@@ -56,9 +53,6 @@ export type Question = {
   id: string
   type: QuestionType
   doc: ProseMirrorJSON
-  // Choices preserved while the question's type is 'open', so switching type is
-  // never destructive. Only one stash is kept.
-  stashedChoices?: ProseMirrorJSON
   columns: ColumnSetting
   // Optional classification. Both are absent rather than empty on a question
   // nobody has classified, so an untagged question costs no storage and a
@@ -141,44 +135,10 @@ export function duplicateQuestion(question: Question): Question {
     id: crypto.randomUUID(),
     doc: withFreshChoiceIds(question.doc),
   }
-  if (question.stashedChoices) {
-    copy.stashedChoices = withFreshChoiceIds(question.stashedChoices)
-  }
   // A list of its own: the copy is a Question Bank record in its own right, and
   // retagging one must never retag the other.
   if (question.topics) copy.topics = [...question.topics]
   return copy
-}
-
-// Switches a question's type.
-//
-// Multiple Choice -> Open Response lifts the multiple-choice node out of the
-// document into `stashedChoices`, replacing whatever was stashed there
-// before — converting to Open Response twice never accumulates history, it
-// just re-snapshots the current choices.
-//
-// Open Response -> Multiple Choice re-inserts the stash if there is one
-// (choice ids and correctness intact, so a version's `choiceOrder` still
-// lines up) or starts a fresh set of choices otherwise, and clears the
-// stash: it exists only while the question is Open Response.
-//
-// Switching to the type a question already is returns it unchanged.
-export function withTypeSwitched(question: Question, type: QuestionType): Question {
-  if (type === question.type) return question
-  if (type === 'open') {
-    return {
-      ...question,
-      type,
-      doc: withoutMultipleChoice(question.doc),
-      stashedChoices: multipleChoiceNodeOf(question.doc),
-    }
-  }
-  const { stashedChoices, ...rest } = question
-  return {
-    ...rest,
-    type,
-    doc: withMultipleChoice(question.doc, stashedChoices ?? newMultipleChoiceNode()),
-  }
 }
 
 export function createExam(title: string = DEFAULT_EXAM_TITLE): Exam {

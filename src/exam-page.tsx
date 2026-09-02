@@ -716,6 +716,7 @@ export function ExamPage({
   onDuplicate,
   onRemove,
   onAdd,
+  onAddFirst,
   onSetColumns,
   unsavedDraft = false,
   contentSelection = { test: true, answerKey: true },
@@ -734,6 +735,9 @@ export function ExamPage({
   onDuplicate: (questionId: string) => void
   onRemove: (questionIds: readonly string[]) => void
   onAdd: (section: QuestionType, afterQuestionId?: string) => void
+  /** The first question on an empty sheet. Its position names no Question
+   *  Section, so unlike `onAdd` this one has a type still to be chosen. */
+  onAddFirst?: (point: MenuPoint) => void
   onSetColumns: (questionIds: readonly string[], columns: ColumnSetting) => void
   unsavedDraft?: boolean
   contentSelection?: ExportContentSelection
@@ -884,7 +888,10 @@ export function ExamPage({
               <button
                 type="button"
                 className="secondary-button empty-exam-button"
-                onClick={() => onAdd('multiple-choice')}
+                onClick={(event) => {
+                  const bounds = event.currentTarget.getBoundingClientRect()
+                  onAddFirst?.({ x: bounds.left + 12, y: bounds.top + 12 })
+                }}
                 // An empty sheet has nothing drawn on it to aim at, so the way
                 // in is also the way to drop: the placeholder is the first
                 // question's position, and it is the whole of the page rather

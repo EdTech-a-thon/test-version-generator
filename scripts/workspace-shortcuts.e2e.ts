@@ -20,6 +20,7 @@ test('Ctrl/Cmd+Enter saves the question dialog', async ({ page }) => {
   await page.goto('/')
 
   await page.getByRole('button', { name: 'Insert your first question' }).click()
+  await page.getByRole('menuitem', { name: 'Multiple choice' }).click()
   await expect(page.getByRole('dialog', { name: 'Question editor' })).toBeVisible()
   await page.keyboard.press('Control+Enter')
   await expect(page.getByRole('dialog', { name: 'Question editor' })).toBeHidden()

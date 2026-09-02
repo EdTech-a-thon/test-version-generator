@@ -18,6 +18,13 @@ const inExamMarkers = (page: Page) => bank(page).getByText('In exam')
 const examQuestions = (page: Page) => page.locator('.exam-question')
 
 /** Writes one question through the popup, from whichever button opened it. */
+/** The bank's New question, and the Question Section it asks for. A question's
+ *  type is settled when it is created, so this is where it is said. */
+async function newBankQuestion(page: Page, type = 'Multiple choice') {
+  await page.getByRole('button', { name: 'New question' }).click()
+  await page.getByRole('menuitem', { name: type }).click()
+}
+
 async function writeQuestion(page: Page, stem: string) {
   await expect(page.getByRole('dialog', { name: 'Question editor' })).toBeVisible()
   await page.keyboard.type(stem)
@@ -40,7 +47,7 @@ test('the Question Bank opens beside the Exam Draft as the narrower pane', async
 test('a question written in the bank stays off the exam until it is added', async ({ page }) => {
   await page.goto('/')
 
-  await page.getByRole('button', { name: 'New question' }).click()
+  await newBankQuestion(page)
   await writeQuestion(page, 'Which is a mammal?')
 
   await expect(bankRows(page)).toHaveCount(1)
@@ -61,7 +68,7 @@ test('a question written in the bank stays off the exam until it is added', asyn
 test('cancelling the popup leaves the Question Bank and the Exam Draft alone', async ({ page }) => {
   await page.goto('/')
 
-  await page.getByRole('button', { name: 'New question' }).click()
+  await newBankQuestion(page)
   await expect(page.getByRole('dialog', { name: 'Question editor' })).toBeVisible()
   await page.keyboard.type('Abandoned question')
   await page.getByRole('button', { name: 'Cancel' }).click()
@@ -75,8 +82,9 @@ test('a refresh restores the Question Bank, the Exam Draft and its order', async
   await page.goto('/')
 
   await page.getByRole('button', { name: 'Insert your first question' }).click()
+  await page.getByRole('menuitem', { name: 'Multiple choice' }).click()
   await writeQuestion(page, 'On the exam')
-  await page.getByRole('button', { name: 'New question' }).click()
+  await newBankQuestion(page)
   await writeQuestion(page, 'Kept in the bank')
 
   await expect(bankRows(page)).toHaveCount(2)
@@ -96,6 +104,7 @@ test('editing canonical Question Content updates the rendered Exam Draft', async
   await page.goto('/')
 
   await page.getByRole('button', { name: 'Insert your first question' }).click()
+  await page.getByRole('menuitem', { name: 'Multiple choice' }).click()
   await writeQuestion(page, 'Original wording')
   await expect(examQuestions(page).first()).toContainText('Original wording')
 
