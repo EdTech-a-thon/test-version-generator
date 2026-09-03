@@ -2,13 +2,17 @@ import { describe, expect, test } from 'bun:test'
 import { createQuestion, orderedQuestions, topicsOf } from './exam'
 import type { Question } from './exam'
 import {
-  DRAFT_STORAGE_KEY,
-  SAVED_STORAGE_NAME,
   createAuthoringState,
   createMemoryBackend,
   loadExamStore,
 } from './exam-store'
-import type { AuthoringState, ExamStore, SavedState } from './exam-store'
+import type {
+  AuthoringState,
+  DurableAuthoringBackend,
+  ExamStore,
+  SavedState,
+} from './exam-store'
+import { VERSIONED_STORAGE_NAME } from './indexeddb-authoring'
 
 function memory(initial: AuthoringState | null = null) {
   return createMemoryBackend<AuthoringState>(initial)
@@ -55,11 +59,10 @@ describe('a fresh installation', () => {
   })
 
   test('stores under new identifiers, so the earlier generation is never read', () => {
-    // ADR-0004: the Question Bank model is a storage cutover. Data written by
-    // the earlier draft and mutable saved-Version schemas is left where it is
-    // and never looked at.
-    expect(DRAFT_STORAGE_KEY).not.toBe('exam-draft-v1')
-    expect(SAVED_STORAGE_NAME).not.toBe('exam-saved-v1')
+    // ADR-0009: Version History is another storage cutover. Data written by
+    // both earlier authoring generations is left where it is and never read.
+    expect(VERSIONED_STORAGE_NAME).not.toBe('exam-authoring-v2')
+    expect(VERSIONED_STORAGE_NAME).not.toBe('exam-saved-v2')
   })
 
   test('ignores state stored in the earlier shape', async () => {
@@ -477,6 +480,53 @@ describe('duplicating', () => {
 })
 
 describe('the dirty flag and persistence', () => {
+  test('Save does not overwrite authoring work made while an earlier write settles', async () => {
+    let working: AuthoringState | null = null
+    let saved: SavedState | null = null
+    let releaseFirstWrite = () => undefined
+    let firstWrite = true
+    let queued = Promise.resolve()
+    const schedule = (operation: () => Promise<void> | void) => {
+      const result = queued.then(operation)
+      queued = result.catch(() => undefined)
+      return result
+    }
+    const backend: DurableAuthoringBackend = {
+      read: async () => working,
+      readSaved: async () => saved,
+      write: (value) =>
+        schedule(async () => {
+          if (firstWrite) {
+            firstWrite = false
+            await new Promise<void>((resolve) => {
+              releaseFirstWrite = resolve
+            })
+          }
+          working = structuredClone(value)
+        }),
+      commitSaved: (value) =>
+        schedule(() => {
+          saved = structuredClone(value)
+          working = { ...structuredClone(value), dirty: false }
+        }),
+    }
+    const store = await loadExamStore(backend)
+    const first = createQuestion('multiple-choice')
+    const addedWhileSaving = createQuestion('open')
+    store.createInExamDraft(first)
+    await Promise.resolve()
+
+    const saving = store.save()
+    store.createInQuestionBank(addedWhileSaving)
+    releaseFirstWrite()
+    await saving
+    await store.whenSettled()
+
+    const reloaded = await loadExamStore(backend)
+    expect(bankIds(reloaded)).toEqual([first.id, addedWhileSaving.id])
+    expect(renderedIds(reloaded)).toEqual([first.id])
+  })
+
   test('every authoring action raises the dirty flag', async () => {
     const cases: Array<(store: ExamStore, question: Question) => void> = [
       (store) => store.setTitle('Chem Unit 3'),

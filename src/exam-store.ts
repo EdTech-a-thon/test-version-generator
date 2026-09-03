@@ -2,9 +2,8 @@
 //
 // The authoring state — the Question Bank, the Exam Draft, and the dirty
 // flag — is mirrored to a backend on every change, so a refresh loses nothing.
-// The backend is a narrow injectable interface: the app hands the store a
-// localStorage-backed one, tests hand it an in-memory one, and the saved-state
-// store (IndexedDB) implements the same two methods.
+// The backend is a narrow injectable interface: the app hands the store the
+// normalized IndexedDB generation, while unit tests use an in-memory backend.
 //
 // The store is also the one authoring boundary. Every semantic action a teacher
 // can take on the Question Bank or the Exam Draft is a single method here:
@@ -53,6 +52,13 @@ export interface Backend<T> {
   write(value: T): Promise<void>
 }
 
+/** An authoring backend that keeps the explicit saved state in the same
+ *  durability boundary as the working Question Bank and Exam Draft. */
+export interface DurableAuthoringBackend extends Backend<AuthoringState> {
+  readSaved(): Promise<SavedState | null>
+  commitSaved(value: SavedState): Promise<void>
+}
+
 export type MemoryBackend<T> = Backend<T> & {
   /** The last value written, for assertions. */
   value: T | null
@@ -75,65 +81,6 @@ export function createMemoryBackend<T>(
     },
   }
   return backend
-}
-
-export function createLocalStorageBackend<T>(key: string): Backend<T> {
-  return {
-    read: async () => {
-      const stored = localStorage.getItem(key)
-      if (stored == null) return null
-      try {
-        return JSON.parse(stored) as T
-      } catch {
-        return null
-      }
-    },
-    write: async (value: T) => {
-      localStorage.setItem(key, JSON.stringify(value))
-    },
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Storage identifiers
-//
-// The Question Bank model is a new storage generation (ADR-0004). Nothing reads
-// the previous generation's `exam-draft-v1` or `exam-saved-v1`: no migration is
-// performed and no old data is deleted, so a teacher upgrading starts with an
-// empty Question Bank and an empty Exam Draft while whatever they had before
-// stays untouched in the browser.
-
-export const DRAFT_STORAGE_KEY = 'exam-authoring-v2'
-export const SAVED_STORAGE_NAME = 'exam-saved-v2'
-
-export function createIndexedDBBackend<T>(databaseName = SAVED_STORAGE_NAME): Backend<T> {
-  const open = () => new Promise<IDBDatabase>((resolve, reject) => {
-    const request = indexedDB.open(databaseName, 1)
-    request.onupgradeneeded = () => request.result.createObjectStore('state')
-    request.onsuccess = () => resolve(request.result)
-    request.onerror = () => reject(request.error)
-  })
-  return {
-    read: async () => {
-      const database = await open()
-      return await new Promise<T | null>((resolve, reject) => {
-        const transaction = database.transaction('state')
-        const request = transaction.objectStore('state').get('saved')
-        request.onsuccess = () => resolve((request.result as T | undefined) ?? null)
-        request.onerror = () => reject(request.error)
-        transaction.oncomplete = () => database.close()
-      })
-    },
-    write: async (value) => {
-      const database = await open()
-      await new Promise<void>((resolve, reject) => {
-        const transaction = database.transaction('state', 'readwrite')
-        transaction.objectStore('state').put(value, 'saved')
-        transaction.oncomplete = () => { database.close(); resolve() }
-        transaction.onerror = () => reject(transaction.error)
-      })
-    },
-  }
 }
 
 export function createAuthoringState(): AuthoringState {
@@ -274,6 +221,9 @@ export function createExamStore(options: {
   initial?: AuthoringState
 }): ExamStore {
   const { backend, savedBackend } = options
+  const durableBackend = 'commitSaved' in backend
+    ? (backend as DurableAuthoringBackend)
+    : null
   let state: AuthoringState = options.initial ?? createAuthoringState()
   let saved: SavedState | null = options.saved ?? null
   // The derived Exam, kept beside the state it was derived from. Deriving it
@@ -286,15 +236,22 @@ export function createExamStore(options: {
   const redoStack: AuthoringState[] = []
   const HISTORY_LIMIT = 100
 
-  // Writes are chained rather than fired in parallel, so the last change is the
-  // last thing written no matter how fast the teacher types.
+  // Generic backends are chained so their writes cannot overtake one another.
+  // The durable IndexedDB backend starts each transaction immediately; the
+  // database queues overlapping read/write transactions in creation order.
+  // Starting them here matters at navigation time: a second authored question
+  // must already be inside IndexedDB's durability boundary when Reload begins,
+  // not waiting behind a promise for the first transaction.
   const mirror = () => {
     const snapshot = state
-    pending = pending.then(() =>
-      backend.write(snapshot).catch((error: unknown) => {
+    const write = durableBackend
+      ? backend.write(snapshot)
+      : pending.then(() => backend.write(snapshot))
+    pending = Promise.all([pending, write])
+      .then(() => undefined)
+      .catch((error: unknown) => {
         console.error('Could not mirror the authoring state', error)
-      }),
-    )
+      })
   }
 
   const settle = (next: AuthoringState) => {
@@ -469,14 +426,28 @@ export function createExamStore(options: {
     redo: () => restoreHistory(redoStack, undoStack),
 
     save: async () => {
-      const nextSaved: SavedState = {
-        questionBank: state.questionBank,
-        examDraft: state.examDraft,
-      }
-      await savedBackend?.write(nextSaved)
-      saved = nextSaved
-      apply((current) => ({ ...current, dirty: false }), false)
       await pending
+      const savingState = state
+      const nextSaved: SavedState = {
+        questionBank: savingState.questionBank,
+        examDraft: savingState.examDraft,
+      }
+      await (durableBackend
+        ? durableBackend.commitSaved(nextSaved)
+        : savedBackend?.write(nextSaved))
+      saved = nextSaved
+      // A new authoring action may have happened while durable Save was in
+      // flight. It is ordered after the saved transaction and remains dirty;
+      // only the exact state that was saved can be marked clean.
+      if (state !== savingState) return
+      if (durableBackend) {
+        state = { ...savingState, dirty: false }
+        selected = selectedExam(state.questionBank, state.examDraft, selected)
+        for (const listener of listeners) listener()
+      } else {
+        apply((current) => ({ ...current, dirty: false }), false)
+        await pending
+      }
     },
 
     discard: async () => {
@@ -508,7 +479,9 @@ export async function loadExamStore(
     console.error('Could not read the authoring state', error)
   }
   try {
-    const storedSaved = (await savedBackend?.read()) ?? null
+    const storedSaved = 'readSaved' in backend
+      ? await (backend as DurableAuthoringBackend).readSaved()
+      : (await savedBackend?.read()) ?? null
     saved = isSavedState(storedSaved) ? storedSaved : null
   } catch (error) {
     console.error('Could not read the saved exam', error)

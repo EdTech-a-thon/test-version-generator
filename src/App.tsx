@@ -383,7 +383,7 @@ function QuestionDialog({
    *  the spelling they used last time rather than inventing a near-duplicate. */
   topicSuggestions: readonly string[]
   onCancel: () => void
-  onSave: (question: Question) => void
+  onSave: (question: Question) => Promise<void>
 }) {
   // A question's type is settled when it is created, so the dialog reads it
   // and never changes it: there is no switch to make, and nothing to preserve
@@ -395,7 +395,7 @@ function QuestionDialog({
   const latestDoc = useRef(doc)
   const readEditorDocument = useRef<(() => ProseMirrorJSON) | null>(null)
 
-  const saveQuestion = () => {
+  const saveQuestion = async () => {
     const saved: Question = {
       ...question,
       type,
@@ -405,7 +405,7 @@ function QuestionDialog({
     else delete saved.difficulty
     if (topics.length > 0) saved.topics = [...topics]
     else delete saved.topics
-    onSave(saved)
+    await onSave(saved)
   }
 
   return (
@@ -432,7 +432,7 @@ function QuestionDialog({
         ) {
           event.preventDefault()
           event.stopPropagation()
-          saveQuestion()
+          void saveQuestion()
         }
       }}
     >
@@ -493,7 +493,7 @@ function QuestionDialog({
           <button
             type="button"
             className="primary-button"
-            onClick={saveQuestion}
+            onClick={() => void saveQuestion()}
           >
             Save question
           </button>
@@ -951,7 +951,7 @@ function ExamEditor({ store }: { store: ExamStore }) {
           isNew={!bankQuestionById(state.questionBank, editing.question.id)}
           topicSuggestions={topicOptions(state.questionBank)}
           onCancel={() => setEditing(null)}
-          onSave={(saved) => {
+          onSave={async (saved) => {
             // One authoring action, whichever way the popup was opened, so a
             // saved question is one undo step and cancelling is none at all.
             if (bankQuestionById(state.questionBank, saved.id)) {
@@ -961,6 +961,7 @@ function ExamEditor({ store }: { store: ExamStore }) {
             } else {
               store.createInExamDraft(saved, editing.after)
             }
+            await store.whenSettled()
             setEditing(null)
           }}
         />
