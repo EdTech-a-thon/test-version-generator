@@ -283,6 +283,7 @@ export function ContextMenu({
                 setActive(index)
                 setOpenSubmenu(index)
               }}
+              onMouseLeave={() => setOpenSubmenu(null)}
             >
               <button
                 ref={(element) => {
@@ -356,7 +357,10 @@ export function ContextMenu({
             tabIndex={index === active ? 0 : -1}
             // Hovering moves the keyboard's place too, so the mouse and the
             // arrow keys never disagree about which row is next.
-            onMouseEnter={() => setActive(index)}
+            onMouseEnter={() => {
+              setActive(index)
+              setOpenSubmenu(null)
+            }}
             onClick={() => {
               item.onSelect()
               onClose()

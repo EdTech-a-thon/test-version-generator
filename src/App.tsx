@@ -567,6 +567,11 @@ function ExamEditor({ store }: { store: ExamStore }) {
   // The outcome of the latest Vary command stays visible and is announced to
   // assistive technology. It is transient UI feedback, not authoring state.
   const [varySummary, setVarySummary] = useState<string | null>(null)
+  useEffect(() => {
+    if (!varySummary) return
+    const timer = window.setTimeout(() => setVarySummary(null), 4_000)
+    return () => window.clearTimeout(timer)
+  }, [varySummary])
   // What Insert and Replace act against: the question selected on the Exam
   // Draft, when exactly one is. Two selected questions name no single position,
   // so composition waits until the teacher has said which one they mean — and

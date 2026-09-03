@@ -57,16 +57,17 @@ test('keyboard Replace with equivalents acts on the selection, reports it, and u
   const actions = page.getByRole('button', { name: 'Actions for question 1' })
   await actions.focus()
   await actions.press('Enter')
-  const vary = page.getByRole('menuitem', { name: 'Vary' })
-  await expect(vary).toBeFocused()
-  await vary.press('ArrowRight')
+  await page.keyboard.press('End')
+  await page.keyboard.press('ArrowUp')
   const replace = page.getByRole('menuitem', { name: 'Replace with equivalents' })
   await expect(replace).toBeFocused()
   await replace.press('Enter')
 
   await expect(questions.nth(0)).toContainText('Replacement cells')
   await expect(questions.nth(1)).toContainText('Replacement angles')
-  await expect(page.getByRole('status')).toHaveText('Replaced 2 questions; 0 unmatched.')
+  const summary = page.getByRole('status')
+  await expect(summary).toHaveText('Replaced 2 questions; 0 unmatched.')
+  await expect(summary).toBeHidden({ timeout: 5_000 })
   await expect(page.locator('.exam-question--selected')).toHaveCount(2)
 
   await page.getByRole('button', { name: 'Undo' }).click()
@@ -84,7 +85,6 @@ test('opening the menu from an unselected question acts on that question alone',
   await expect(page.locator('.exam-question--selected')).toHaveCount(1)
 
   await page.getByRole('button', { name: 'Actions for question 2' }).click()
-  await page.getByRole('menuitem', { name: 'Vary' }).click()
   await page.getByRole('menuitem', { name: 'Replace with equivalents' }).click()
 
   await expect(questions.nth(0)).toContainText('Original cells')

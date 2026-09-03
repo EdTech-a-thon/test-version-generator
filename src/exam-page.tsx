@@ -146,18 +146,6 @@ function questionMenuItems({
     : [question.id]
   const items: MenuItem[] = [
     {
-      kind: 'submenu',
-      label: 'Vary',
-      icon: <RefreshCw />,
-      items: [
-        {
-          kind: 'action',
-          label: 'Replace with equivalents',
-          onSelect: () => onReplaceWithEquivalents(actedOnIds),
-        },
-      ],
-    },
-    {
       kind: 'action',
       label: 'Edit question',
       icon: <Pencil />,
@@ -181,20 +169,30 @@ function questionMenuItems({
   if (question.type === 'multiple-choice') {
     items.push(
       { kind: 'separator' },
-      { kind: 'label', label: 'Answer columns' },
+      {
+        kind: 'submenu',
+        label: 'Answer columns',
+        icon: <ColumnLayoutIcon columns={columns} />,
+        items: COLUMN_MENU_OPTIONS.map((option) => ({
+          kind: 'radio',
+          label: option.label,
+          checked: option.value === columns,
+          icon: <ColumnLayoutIcon columns={option.value} />,
+          onSelect: () => onSetColumns(actedOnIds, option.value),
+        })),
+      },
     )
-    for (const option of COLUMN_MENU_OPTIONS) {
-      items.push({
-        kind: 'radio',
-        label: option.label,
-        checked: option.value === columns,
-        icon: option.value === 'auto'
-          ? <Sparkles />
-          : <ColumnLayoutIcon columns={option.value} />,
-        onSelect: () => onSetColumns(actedOnIds, option.value),
-      })
-    }
   }
+  items.push(
+    { kind: 'separator' },
+    { kind: 'label', label: 'Vary' },
+    {
+      kind: 'action',
+      label: 'Replace with equivalents',
+      icon: <RefreshCw />,
+      onSelect: () => onReplaceWithEquivalents(actedOnIds),
+    },
+  )
   // Remove, never Delete: this takes the question off the Exam Draft and leaves
   // its Question Bank record alone, so it is neither destructive nor worth a
   // confirmation. Permanent deletion is not offered in this workspace at all.
