@@ -564,6 +564,9 @@ function ExamEditor({ store }: { store: ExamStore }) {
   // page, which — for a change of content — is not the same moment.
   const [revealQuestionId, setRevealQuestionId] = useState<string | null>(null)
   const clearReveal = useCallback(() => setRevealQuestionId(null), [])
+  // The outcome of the latest Vary command stays visible and is announced to
+  // assistive technology. It is transient UI feedback, not authoring state.
+  const [varySummary, setVarySummary] = useState<string | null>(null)
   // What Insert and Replace act against: the question selected on the Exam
   // Draft, when exactly one is. Two selected questions name no single position,
   // so composition waits until the teacher has said which one they mean — and
@@ -606,6 +609,24 @@ function ExamEditor({ store }: { store: ExamStore }) {
     // Necessary rather than merely tidy: the outgoing question is off the exam
     // now, and a selection pointing at it names no position on the Exam Draft.
     selectAndReveal(incomingQuestionId)
+  }
+  const replaceWithEquivalentQuestions = (questionIds: readonly string[]) => {
+    const before = store.getState().examDraft.questionIds
+    const positions = questionIds
+      .map((questionId) => before.indexOf(questionId))
+      .filter((index) => index !== -1)
+    const result = store.replaceWithEquivalentQuestions(questionIds)
+    const after = store.getState().examDraft.questionIds
+
+    // Selection follows the occupied positions: replaced questions stay acted
+    // on under their incoming identities, while unmatched questions remain
+    // selected under the identities they already had.
+    selection.clear()
+    for (const index of positions) selection.toggle(after[index]!)
+    const questionNoun = result.replaced === 1 ? 'question' : 'questions'
+    setVarySummary(
+      `Replaced ${result.replaced} ${questionNoun}; ${result.unmatched} unmatched.`,
+    )
   }
 
   // Where a released gesture goes. Each branch is one store call, so one drag
@@ -899,6 +920,7 @@ function ExamEditor({ store }: { store: ExamStore }) {
               }
             }}
             onDuplicate={(questionId) => store.duplicateInExamDraft(questionId)}
+            onReplaceWithEquivalents={replaceWithEquivalentQuestions}
             onRemove={(questionIds) => {
               store.removeFromExamDraft(questionIds)
               selection.clear()
@@ -920,6 +942,12 @@ function ExamEditor({ store }: { store: ExamStore }) {
           />
         }
       />
+
+      {varySummary && (
+        <p className="vary-summary" role="status" aria-live="polite">
+          {varySummary}
+        </p>
+      )}
 
       <Footer />
 

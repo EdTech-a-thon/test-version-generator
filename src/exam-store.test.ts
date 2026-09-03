@@ -378,6 +378,115 @@ describe('Insert and Replace', () => {
   })
 })
 
+describe('replacing selected questions with Equivalent Questions', () => {
+  test('replaces exact matches at their occupied positions and reports the batch', async () => {
+    const { store } = await freshStore()
+    const selected = [
+      { ...createQuestion('multiple-choice'), difficulty: 'hard' as const, topics: ['Cells'] },
+      { ...createQuestion('multiple-choice'), difficulty: 'easy' as const, topics: ['Plants'] },
+    ]
+    const equivalent = {
+      ...createQuestion('multiple-choice'),
+      difficulty: 'hard' as const,
+      topics: ['Cells'],
+    }
+    for (const question of selected) store.createInExamDraft(question)
+    store.createInQuestionBank(equivalent)
+
+    const result = store.replaceWithEquivalentQuestions(selected.map(({ id }) => id))
+
+    expect(result).toEqual({ replaced: 1, unmatched: 1 })
+    expect(renderedIds(store)).toEqual([equivalent.id, selected[1]!.id])
+    store.undo()
+    expect(renderedIds(store)).toEqual(selected.map(({ id }) => id))
+  })
+
+  test('uses restrictive exact metadata pools and consumes each candidate once', async () => {
+    const { store } = await freshStore()
+    const algebra = [
+      { ...createQuestion('multiple-choice'), difficulty: 'hard' as const, topics: ['Algebra'] },
+      { ...createQuestion('multiple-choice'), difficulty: 'hard' as const, topics: ['Algebra'] },
+    ]
+    const cells = {
+      ...createQuestion('multiple-choice'),
+      topics: ['Cells', 'Mitosis'],
+    }
+    const untagged = { ...createQuestion('multiple-choice'), difficulty: 'hard' as const }
+    const alreadyInDraft = {
+      ...createQuestion('multiple-choice'),
+      difficulty: 'hard' as const,
+      topics: ['Algebra'],
+    }
+    for (const question of [...algebra, cells, untagged, alreadyInDraft]) {
+      store.createInExamDraft(question)
+    }
+
+    const algebraCandidate = {
+      ...createQuestion('multiple-choice'),
+      difficulty: 'hard' as const,
+      topics: ['Algebra'],
+    }
+    const cellsCandidate = {
+      ...createQuestion('multiple-choice'),
+      topics: ['Mitosis', 'Cells'],
+    }
+    const nearMisses: Question[] = [
+      { ...createQuestion('multiple-choice'), difficulty: 'hard', topics: ['algebra'] },
+      { ...createQuestion('multiple-choice'), difficulty: 'easy', topics: ['Algebra'] },
+      { ...createQuestion('open'), difficulty: 'hard', topics: ['Algebra'] },
+      { ...createQuestion('multiple-choice'), difficulty: 'hard' },
+    ]
+    for (const question of [algebraCandidate, cellsCandidate, ...nearMisses]) {
+      store.createInQuestionBank(question)
+    }
+
+    const result = store.replaceWithEquivalentQuestions([
+      algebra[0]!.id,
+      algebra[1]!.id,
+      cells.id,
+      untagged.id,
+    ])
+
+    expect(result).toEqual({ replaced: 2, unmatched: 2 })
+    expect(renderedIds(store)).toEqual([
+      algebraCandidate.id,
+      algebra[1]!.id,
+      cellsCandidate.id,
+      untagged.id,
+      alreadyInDraft.id,
+    ])
+    expect(new Set(renderedIds(store)).size).toBe(5)
+  })
+
+  test('matches against the latest Question Bank state and leaves outgoing records banked', async () => {
+    const { store } = await freshStore()
+    const outgoing = {
+      ...createQuestion('multiple-choice'),
+      difficulty: 'medium' as const,
+      topics: ['Geometry'],
+    }
+    const candidate = {
+      ...createQuestion('multiple-choice'),
+      difficulty: 'easy' as const,
+      topics: ['Arithmetic'],
+    }
+    store.createInExamDraft(outgoing)
+    store.createInQuestionBank(candidate)
+    store.updateInQuestionBank({
+      ...candidate,
+      difficulty: 'medium',
+      topics: ['Geometry'],
+    })
+
+    expect(store.replaceWithEquivalentQuestions([outgoing.id])).toEqual({
+      replaced: 1,
+      unmatched: 0,
+    })
+    expect(bankIds(store)).toEqual([outgoing.id, candidate.id])
+    expect(store.selectedExam().version.choiceOrder[candidate.id]).toBeUndefined()
+  })
+})
+
 describe('classifying a question', () => {
   test('saves Difficulty and Topics as one authoring action', async () => {
     const { store, questions, backend } = await withExamDraft(1)

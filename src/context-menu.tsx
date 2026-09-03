@@ -49,12 +49,20 @@ export type MenuItem =
       onSelect: () => void
       icon?: ReactNode
     }
+  | {
+      kind: 'submenu'
+      label: string
+      items: readonly SubmenuItem[]
+      icon?: ReactNode
+    }
   | { kind: 'label'; label: string }
   | { kind: 'separator' }
 
+type SubmenuItem = Extract<MenuItem, { kind: 'action' | 'radio' }>
+
 /** The rows a keyboard can land on. Labels and separators are skipped over. */
 function isFocusable(item: MenuItem): boolean {
-  return item.kind === 'action' || item.kind === 'radio'
+  return item.kind === 'action' || item.kind === 'radio' || item.kind === 'submenu'
 }
 
 /** The last row End should land on. Written out rather than `findLastIndex`,
@@ -84,8 +92,11 @@ export function ContextMenu({
 }) {
   const menu = useRef<HTMLDivElement | null>(null)
   const itemElements = useRef<(HTMLButtonElement | null)[]>([])
+  const submenuElements = useRef<(HTMLButtonElement | null)[]>([])
   const [position, setPosition] = useState<MenuPoint>(point)
   const [active, setActive] = useState(() => items.findIndex(isFocusable))
+  const [openSubmenu, setOpenSubmenu] = useState<number | null>(null)
+  const [submenuActive, setSubmenuActive] = useState(0)
 
   // Placed before the browser paints, so the menu is never seen in the wrong
   // spot. It hangs the way `side` asks, flips to the other side rather than
@@ -116,6 +127,12 @@ export function ContextMenu({
   useEffect(() => {
     itemElements.current[active]?.focus()
   }, [active])
+
+  useEffect(() => {
+    if (openSubmenu === null) return
+    setSubmenuActive(0)
+    submenuElements.current[0]?.focus()
+  }, [openSubmenu])
 
   useEffect(() => {
     // Capture, so the menu is dismissed before the click reaches whatever is
@@ -179,6 +196,11 @@ export function ContextMenu({
         event.stopPropagation()
         onClose()
         break
+      case 'ArrowRight':
+        if (items[active]?.kind !== 'submenu') break
+        event.preventDefault()
+        setOpenSubmenu(active)
+        break
       case 'Tab':
         event.preventDefault()
         onClose()
@@ -186,12 +208,54 @@ export function ContextMenu({
     }
   }
 
+  const onSubmenuKeyDown = (
+    event: ReactKeyboardEvent<HTMLDivElement>,
+    items: readonly SubmenuItem[],
+  ) => {
+    event.stopPropagation()
+    const last = items.length - 1
+    switch (event.key) {
+      case 'ArrowDown':
+        event.preventDefault()
+        setSubmenuActive((index) => (index + 1) % items.length)
+        break
+      case 'ArrowUp':
+        event.preventDefault()
+        setSubmenuActive((index) => (index - 1 + items.length) % items.length)
+        break
+      case 'Home':
+        event.preventDefault()
+        setSubmenuActive(0)
+        break
+      case 'End':
+        event.preventDefault()
+        setSubmenuActive(last)
+        break
+      case 'ArrowLeft':
+      case 'Escape':
+        event.preventDefault()
+        setOpenSubmenu(null)
+        itemElements.current[active]?.focus()
+        break
+      case 'Tab':
+        event.preventDefault()
+        onClose()
+        break
+    }
+  }
+
+  useEffect(() => {
+    if (openSubmenu === null) return
+    submenuElements.current[submenuActive]?.focus()
+  }, [openSubmenu, submenuActive])
+
   return createPortal(
     <div
       ref={menu}
       className="context-menu"
       role="menu"
       aria-label={ariaLabel}
+      data-side={side}
       style={{ left: position.x, top: position.y }}
       onKeyDown={onKeyDown}
       // A right-click inside the menu is a miss, not a request for a second
@@ -206,6 +270,71 @@ export function ContextMenu({
           return (
             <div key={index} className="context-menu-label">
               {item.label}
+            </div>
+          )
+        }
+        if (item.kind === 'submenu') {
+          const open = openSubmenu === index
+          return (
+            <div
+              key={index}
+              className="context-menu-submenu"
+              onMouseEnter={() => {
+                setActive(index)
+                setOpenSubmenu(index)
+              }}
+            >
+              <button
+                ref={(element) => {
+                  itemElements.current[index] = element
+                }}
+                type="button"
+                role="menuitem"
+                aria-haspopup="menu"
+                aria-expanded={open}
+                className="context-menu-item"
+                tabIndex={index === active ? 0 : -1}
+                onFocus={() => setActive(index)}
+                onClick={() => setOpenSubmenu(open ? null : index)}
+              >
+                <span className="context-menu-icon" aria-hidden="true">
+                  {item.icon}
+                </span>
+                <span className="context-menu-item-label">{item.label}</span>
+                <span className="context-menu-submenu-arrow" aria-hidden="true">›</span>
+              </button>
+              {open && (
+                <div
+                  className="context-submenu"
+                  role="menu"
+                  aria-label={item.label}
+                  onKeyDown={(event) => onSubmenuKeyDown(event, item.items)}
+                >
+                  {item.items.map((child, childIndex) => (
+                    <button
+                      key={childIndex}
+                      ref={(element) => {
+                        submenuElements.current[childIndex] = element
+                      }}
+                      type="button"
+                      role={child.kind === 'radio' ? 'menuitemradio' : 'menuitem'}
+                      aria-checked={child.kind === 'radio' ? child.checked : undefined}
+                      className="context-menu-item"
+                      tabIndex={childIndex === submenuActive ? 0 : -1}
+                      onMouseEnter={() => setSubmenuActive(childIndex)}
+                      onClick={() => {
+                        child.onSelect()
+                        onClose()
+                      }}
+                    >
+                      <span className="context-menu-icon" aria-hidden="true">
+                        {child.icon}
+                      </span>
+                      <span className="context-menu-item-label">{child.label}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           )
         }

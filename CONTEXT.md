@@ -27,6 +27,14 @@ _Avoid_: Image ratio, image height
 An immutable, view-only exam artifact created during export, containing the Question Content, question order, and answer order produced at that time. A Version records what was printed or exported, cannot become editable, and may only be re-exported without modification.
 _Avoid_: Editable version, saved draft, revision source
 
+**Equivalent Question**:
+A Question Bank record in the same Question Section with the same Difficulty and the same non-empty set of Topics. A missing Difficulty matches only another missing Difficulty; a question without a Topic has no Equivalent Questions.
+_Avoid_: Similar question, interchangeable question
+
+**Vary**:
+A family of Exam Draft actions that shuffle question order, Replace questions with equivalents, or shuffle answer order before a Version is exported.
+_Avoid_: Randomization, version generation
+
 **Export Preview**:
 A temporary, mutable view of one prospective Version in the Export Stage. An Export Preview is discarded unless export makes it an immutable Version.
 _Avoid_: Draft version, saved version
@@ -43,7 +51,7 @@ _Avoid_: Current version, editable version
 To exclude Question Content from an Exam Draft while leaving it in the Question Bank.
 
 **Replace**:
-To put one Question Bank record in another's place at a fixed position in an Exam Draft. Neither question's Question Content is copied or deleted, and the replaced question remains in the Question Bank.
+To put one Question Bank record in another's place at a fixed position in an Exam Draft, initially using the incoming question's authored answer order. Neither question's Question Content is copied or deleted, and the replaced question remains in the Question Bank.
 _Avoid_: Swap, substitute
 
 **Delete**:

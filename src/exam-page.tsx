@@ -45,7 +45,7 @@ import type { ColumnSetting, Exam, QuestionType, Version } from './exam'
 import type { Selection } from './use-selection'
 import type { WorkspaceDrag } from './use-workspace-drag'
 import { dropStateOf, type QuestionDropState } from './workspace-drag'
-import { CircleMinus, Copy, EllipsisVertical, ListPlus, Pencil, Plus, Sparkles } from 'lucide-react'
+import { CircleMinus, Copy, EllipsisVertical, ListPlus, Pencil, Plus, RefreshCw, Sparkles } from 'lucide-react'
 import {
   ContextMenu,
   type MenuItem,
@@ -122,6 +122,7 @@ function questionMenuItems({
   columns,
   onEdit,
   onDuplicate,
+  onReplaceWithEquivalents,
   onRemove,
   onAdd,
   onSetColumns,
@@ -131,6 +132,7 @@ function questionMenuItems({
   columns: ColumnSetting
   onEdit: (questionId: string) => void
   onDuplicate: (questionId: string) => void
+  onReplaceWithEquivalents: (questionIds: readonly string[]) => void
   onRemove: (questionIds: readonly string[]) => void
   onAdd: (section: QuestionType, afterQuestionId?: string) => void
   onSetColumns: (questionIds: readonly string[], columns: ColumnSetting) => void
@@ -143,6 +145,18 @@ function questionMenuItems({
     ? selectedQuestionIds
     : [question.id]
   const items: MenuItem[] = [
+    {
+      kind: 'submenu',
+      label: 'Vary',
+      icon: <RefreshCw />,
+      items: [
+        {
+          kind: 'action',
+          label: 'Replace with equivalents',
+          onSelect: () => onReplaceWithEquivalents(actedOnIds),
+        },
+      ],
+    },
     {
       kind: 'action',
       label: 'Edit question',
@@ -714,6 +728,7 @@ export function ExamPage({
   onRevealed,
   onEdit,
   onDuplicate,
+  onReplaceWithEquivalents,
   onRemove,
   onAdd,
   onAddFirst,
@@ -733,6 +748,7 @@ export function ExamPage({
   onRevealed?: () => void
   onEdit: (questionId: string) => void
   onDuplicate: (questionId: string) => void
+  onReplaceWithEquivalents: (questionIds: readonly string[]) => void
   onRemove: (questionIds: readonly string[]) => void
   onAdd: (section: QuestionType, afterQuestionId?: string) => void
   /** The first question on an empty sheet. Its position names no Question
@@ -961,6 +977,7 @@ export function ExamPage({
             columns: columnSettings[menuQuestion.id] ?? 'auto',
             onEdit,
             onDuplicate,
+            onReplaceWithEquivalents,
             onRemove,
             onAdd,
             onSetColumns,

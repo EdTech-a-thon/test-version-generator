@@ -16,6 +16,7 @@
 import {
   duplicateQuestion,
   moveQuestions,
+  topicsOf,
   type ColumnSetting,
   type Question,
   type QuestionPlacement,
@@ -43,6 +44,11 @@ export type AuthoringState = {
 }
 
 export type SavedState = Omit<AuthoringState, 'dirty'>
+
+export type EquivalentReplacementSummary = {
+  replaced: number
+  unmatched: number
+}
 
 // The whole persistence surface: read the last value written, write a new one.
 // Both are asynchronous so that an IndexedDB implementation fits behind the
@@ -177,6 +183,12 @@ export type ExamStore = {
    *  question is unbanked, when their Question Sections differ, or when the
    *  incoming question is already on the Exam Draft. */
   replaceInExamDraft(outgoingQuestionId: string, incomingQuestionId: string): void
+  /** Replaces as many selected Exam Draft questions as have exact, unused
+   *  Equivalent Questions in the latest Question Bank state. All replacements
+   *  are one authoring action and candidates never come from the initial draft. */
+  replaceWithEquivalentQuestions(
+    questionIds: readonly string[],
+  ): EquivalentReplacementSummary
   /** Moves references within their Question Section. A target in another
    *  section is refused: composing never changes a question's type. */
   moveInExamDraft(
@@ -212,6 +224,17 @@ function withExamDraft(
   examDraft: ExamDraft,
 ): AuthoringState {
   return examDraft === state.examDraft ? state : { ...state, examDraft }
+}
+
+function areEquivalentQuestions(left: Question, right: Question): boolean {
+  const leftTopics = new Set(topicsOf(left))
+  const rightTopics = new Set(topicsOf(right))
+  if (leftTopics.size === 0 || leftTopics.size !== rightTopics.size) return false
+  return (
+    left.type === right.type
+    && left.difficulty === right.difficulty
+    && [...leftTopics].every((topic) => rightTopics.has(topic))
+  )
 }
 
 export function createExamStore(options: {
@@ -397,6 +420,40 @@ export function createExamStore(options: {
           ),
         )
       }),
+
+    replaceWithEquivalentQuestions: (questionIds) => {
+      const summary: EquivalentReplacementSummary = { replaced: 0, unmatched: 0 }
+      change((current) => {
+        const initialDraftIds = new Set(current.examDraft.questionIds)
+        const selectedIds = [...new Set(questionIds)].filter((id) => initialDraftIds.has(id))
+        const available = current.questionBank.questions.filter(
+          (question) => !initialDraftIds.has(question.id),
+        )
+        const consumed = new Set<string>()
+        let examDraft = current.examDraft
+
+        for (const outgoingId of selectedIds) {
+          const outgoing = bankQuestionById(current.questionBank, outgoingId)
+          const incoming = outgoing
+            ? available.find(
+                (candidate) =>
+                  !consumed.has(candidate.id)
+                  && areEquivalentQuestions(outgoing, candidate),
+              )
+            : undefined
+          if (!incoming) {
+            summary.unmatched += 1
+            continue
+          }
+          consumed.add(incoming.id)
+          examDraft = withReferenceReplaced(examDraft, outgoingId, incoming.id)
+          summary.replaced += 1
+        }
+
+        return withExamDraft(current, examDraft)
+      })
+      return summary
+    },
 
     moveInExamDraft: (questionIds, targetId, placement) =>
       change((current) => {
