@@ -65,6 +65,25 @@ test('a question written in the bank stays off the exam until it is added', asyn
   await expect(addToExam(page)).toHaveCount(0)
 })
 
+test('the slot that says a question is on the exam is also how it comes off', async ({ page }) => {
+  await page.goto('/')
+
+  await newBankQuestion(page)
+  await writeQuestion(page, 'Which is a mammal?')
+  await addToExam(page).click()
+  await expect(examQuestions(page)).toHaveCount(1)
+
+  // The tick a row wears while it is on the exam is the control that takes it
+  // off again — the bank record itself is untouched, so the row stays and
+  // offers the plus back.
+  await page.getByRole('button', { name: /^Remove .* from the exam$/ }).click()
+
+  await expect(examQuestions(page)).toHaveCount(0)
+  await expect(bankRows(page)).toHaveCount(1)
+  await expect(inExamMarkers(page)).toHaveCount(0)
+  await expect(addToExam(page)).toHaveCount(1)
+})
+
 test('cancelling the popup leaves the Question Bank and the Exam Draft alone', async ({ page }) => {
   await page.goto('/')
 

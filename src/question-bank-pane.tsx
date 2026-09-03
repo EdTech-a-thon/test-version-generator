@@ -1,12 +1,11 @@
 // The Question Bank, beside the Exam Draft.
 //
 // A compact, scannable table of the canonical questions a teacher has written,
-// newest first, with everything needed to find one and put it on the exam
-// without ever picking up the mouse: a stem search, Question Type, Difficulty
-// and Topic filters, and row actions that Insert or Replace against the
-// question currently selected on the Exam Draft. Insert and Replace appear on
-// a row only while there is a compatible Exam Draft question for them to act
-// against, because that is the only time they can do anything.
+// newest first, with everything needed to find one and put it on the exam: a
+// stem search, Question Type, Difficulty and Topic filters, and a row that
+// opens, adds and removes its own question. Where on the exam a question lands
+// is said by dragging it there, rather than by a row action reaching for
+// whatever happens to be selected on the sheet.
 //
 // A row is a projection, not a rendering. It shows one line of the stem, the
 // classification, and whether the question is on the exam; answer choices and
@@ -26,7 +25,9 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent,
 } from 'react'
-import { Check, CornerDownRight, Pencil, Plus, Replace, Search } from 'lucide-react'
+import { createPortal } from 'react-dom'
+import { Check, CircleMinus, Pencil, Plus, Search } from 'lucide-react'
+import { DifficultyBadge, TopicBadge } from './badges'
 import type { MenuPoint } from './context-menu'
 import { stemPreview, type StemPreviewBadge } from './stem-preview'
 import {
@@ -89,6 +90,7 @@ function FilterDropdown<T extends string>({
   const [open, setOpen] = useState(false)
   const container = useRef<HTMLDivElement>(null)
   const button = useRef<HTMLButtonElement>(null)
+  const list = useRef<HTMLDivElement>(null)
   // Where the list sits, in viewport coordinates. The bank scrolls, so a list
   // positioned within it is clipped by the pane it belongs to; anchoring it to
   // the viewport is what lets a list longer than the bank is tall still be
@@ -98,21 +100,29 @@ function FilterDropdown<T extends string>({
   const placeList = useCallback(() => {
     const bounds = button.current?.getBoundingClientRect()
     if (!bounds) return
-    // Right-aligned to the button when a left-aligned list would run off the
-    // window — the bank is the narrow pane, so this is the common case for the
-    // filters at its right-hand end.
-    const left = Math.max(
-      MARGIN,
-      Math.min(bounds.left, window.innerWidth - LIST_WIDTH - MARGIN),
-    )
-    setAnchor({ left, top: bounds.bottom + 4 })
+    // The list stays over the bank it belongs to. Past the pane's right edge
+    // are the divider and the rendered sheet — a different surface, and a list
+    // spilling onto the paper reads as something printed on it.
+    const pane = container.current?.closest('.question-bank')?.getBoundingClientRect()
+    const limit = (pane?.right ?? window.innerWidth) - MARGIN
+    // Right-aligned to the button when a left-aligned list would run past that
+    // edge, which is the ordinary case for the filters at the pane's own end.
+    const wanted = bounds.left + LIST_WIDTH > limit ? bounds.right - LIST_WIDTH : bounds.left
+    setAnchor({
+      left: Math.max(MARGIN, Math.min(wanted, limit - LIST_WIDTH)),
+      top: bounds.bottom + 4,
+    })
   }, [])
 
   useEffect(() => {
     if (!open) return
     placeList()
     const onPointerDown = (event: PointerEvent) => {
-      if (!container.current?.contains(event.target as Node)) setOpen(false)
+      const target = event.target as Node
+      // The list is portalled out of this element, so "outside" means outside
+      // both halves of the control.
+      if (container.current?.contains(target) || list.current?.contains(target)) return
+      setOpen(false)
     }
     // A scroll or a resize moves the button out from under its own list.
     const reposition = () => placeList()
@@ -151,12 +161,22 @@ function FilterDropdown<T extends string>({
         {label}
         {selected.length > 0 && <span className="bank-filter-count">{selected.length}</span>}
       </button>
-      {open && anchor && (
+      {/* Portalled to the body: the bank pane is `position: sticky`, which
+          makes it a stacking context, and a list left inside it is painted
+          under the divider and the sheet however high its `z-index` is. */}
+      {open && anchor && createPortal(
         <div
           className="bank-filter-list"
+          ref={list}
           role="group"
           aria-label={label}
           style={{ left: anchor.left, top: anchor.top }}
+          onKeyDown={(event) => {
+            if (event.key !== 'Escape') return
+            event.stopPropagation()
+            setOpen(false)
+            button.current?.focus()
+          }}
         >
           {options.length === 0 ? (
             <p className="bank-filter-empty">{emptyMessage}</p>
@@ -178,7 +198,8 @@ function FilterDropdown<T extends string>({
               </label>
             ))
           )}
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   )
@@ -202,13 +223,11 @@ export function QuestionBankPane({
   filter,
   onFilterChange,
   selectedQuestionId,
-  examDraftSelection,
   onSelect,
   onCreate,
   onEdit,
   onAddToExamDraft,
-  onInsertAfterExamDraftSelection,
-  onReplaceExamDraftSelection,
+  onRemoveFromExamDraft,
   drag,
 }: {
   bank: QuestionBank
@@ -219,15 +238,12 @@ export function QuestionBankPane({
   /** The row a teacher has clicked, if any. Transient: selecting is not an
    *  authoring action. */
   selectedQuestionId: string | null
-  /** The one question selected on the Exam Draft, when exactly one is — what
-   *  Insert and Replace act against. */
-  examDraftSelection: Question | null
   onSelect: (questionId: string) => void
   onCreate: (point: MenuPoint) => void
   onEdit: (questionId: string) => void
   onAddToExamDraft: (questionId: string) => void
-  onInsertAfterExamDraftSelection: (questionId: string) => void
-  onReplaceExamDraftSelection: (questionId: string) => void
+  /** Takes the question back off the Exam Draft, leaving its bank record be. */
+  onRemoveFromExamDraft: (questionId: string) => void
   /** The gesture in flight. A row that is not already on the Exam Draft is a
    *  drag source for it; a row that is offers no gesture at all, because a
    *  reference occurs at most once and refusing a drop after the fact would be
@@ -470,9 +486,7 @@ export function QuestionBankPane({
                       {SECTION_LABELS[question.type]}
                     </span>
                     {question.difficulty && (
-                      <span className="question-bank-row-difficulty">
-                        {DIFFICULTY_LABELS[question.difficulty]}
-                      </span>
+                      <DifficultyBadge difficulty={question.difficulty} />
                     )}
                     {inExamDraft && (
                       <span className="question-bank-row-badge">In exam</span>
@@ -489,9 +503,7 @@ export function QuestionBankPane({
                   {topics.length > 0 && (
                     <span className="question-bank-row-topics">
                       {topics.map((topic) => (
-                        <span className="question-bank-row-topic" key={topic}>
-                          {topic}
-                        </span>
+                        <TopicBadge topic={topic} key={topic} />
                       ))}
                     </span>
                   )}
@@ -513,15 +525,21 @@ export function QuestionBankPane({
                   {/* A question already on the Exam Draft offers no way onto it
                       a second time — a reference occurs at most once — so the
                       plus becomes a tick: the same slot answers "can I add
-                      this?" and "is it already on?". */}
+                      this?" and "is it already on?". Reaching for it is the
+                      one thing a teacher could still want from that slot, so
+                      under the cursor the tick becomes the minus that takes
+                      the question back off the exam. */}
                   {inExamDraft ? (
-                    <span
+                    <button
+                      type="button"
                       className="question-bank-action question-bank-included"
-                      title="On the exam"
-                      aria-hidden="true"
+                      aria-label={`Remove ${name} from the exam`}
+                      title="Remove from the exam"
+                      onClick={() => onRemoveFromExamDraft(question.id)}
                     >
-                      <Check />
-                    </span>
+                      <Check className="question-bank-included-resting" />
+                      <CircleMinus className="question-bank-included-hover" />
+                    </button>
                   ) : (
                     <button
                       type="button"
@@ -532,35 +550,6 @@ export function QuestionBankPane({
                     >
                       <Plus />
                     </button>
-                  )}
-                  {/* Composition needs somewhere to compose against, and the
-                      Question Sections are fixed: a Multiple Choice question
-                      can only reach a Multiple Choice position. With no
-                      compatible question selected on the Exam Draft there is
-                      nothing these could do, so they are not offered. */}
-                  {!inExamDraft
-                    && examDraftSelection
-                    && examDraftSelection.type === question.type && (
-                    <>
-                      <button
-                        type="button"
-                        className="question-bank-action"
-                        aria-label={`Insert ${name} after the selected question`}
-                        title="Insert after the selected question"
-                        onClick={() => onInsertAfterExamDraftSelection(question.id)}
-                      >
-                        <CornerDownRight />
-                      </button>
-                      <button
-                        type="button"
-                        className="question-bank-action"
-                        aria-label={`Replace the selected question with ${name}`}
-                        title="Replace the selected question"
-                        onClick={() => onReplaceExamDraftSelection(question.id)}
-                      >
-                        <Replace />
-                      </button>
-                    </>
                   )}
                 </div>
               </li>

@@ -27,9 +27,9 @@
 
 import {
   SECTION_ORDER,
+  columnsOf,
   orderedChoices,
   questionsInSection,
-  type Choice,
   type Exam,
   type Question,
   type QuestionType,
@@ -51,28 +51,22 @@ export const SECTION_INSTRUCTIONS: Record<QuestionType, string> = {
   open: 'Answer the following questions in the space provided. Show all work.',
 }
 
-// How many columns a choice grid is actually drawn in, once `'auto'` has been
-// resolved.
+// How many columns a choice grid is drawn in — the same set a question's
+// `columns` setting comes from, named here because the plan is what the
+// renderers read.
 export type ColumnCount = 1 | 2 | 4
 
 // Everything the render needs to know about how big things come out. The app
 // supplies a DOM-backed implementation; tests supply stubs.
 export type Measure = {
-  /**
-   * Width in px the choice needs to sit on one unwrapped line. Consulted only
-   * when a question's `columns` is `'auto'`.
-   */
-  choiceWidth(choice: Choice): number
   /** Height in px of one page item, laid out at the content box's width. */
   itemHeight(item: PageItem): number
 }
 
-// A stub that reports nothing: every item is zero-height and every choice
-// zero-width, so an exam packs onto one page and `'auto'` resolves to the
-// widest column count. Tests that are not about geometry inject this; the app
-// injects `domMeasure`.
+// A stub that reports nothing: every item is zero-height, so an exam packs onto
+// one page. Tests that are not about geometry inject this; the app injects
+// `domMeasure`.
 export const unmeasured: Measure = {
-  choiceWidth: () => 0,
   itemHeight: () => 0,
 }
 
@@ -292,10 +286,6 @@ export function pageContentHeight(header: PageHeader): number {
   return PAGE_BOX_HEIGHT - HEADER_HEIGHT[header] - FOOTER_HEIGHT
 }
 
-// Auto tries these, widest first, and settles on the first whose column a
-// choice fits without wrapping.
-const AUTO_CANDIDATES: readonly ColumnCount[] = [4, 2, 1]
-
 // The choice grid does not span the page's full content width: it renders
 // inside `.question-body`, the second column of `.exam-question`'s grid in
 // styles.css (`grid-template-columns: 92px 1fr; gap: 6px;`) — the number
@@ -310,21 +300,6 @@ const QUESTION_NUMBER_COLUMN_GAP = 6
 export const CHOICE_AREA_WIDTH =
   PAGE_CONTENT_WIDTH - QUESTION_NUMBER_COLUMN_WIDTH - QUESTION_NUMBER_COLUMN_GAP
 
-function columnWidth(columns: ColumnCount): number {
-  return CHOICE_AREA_WIDTH / columns
-}
-
-// True when `node` or anything nested inside it is an image, inline or
-// block. A question with an image in any choice measures as unboundedly
-// wide — this is an explicit rule, not a width the injected `Measure` has to
-// know to inflate, so it holds even for a stub that reports 0 everywhere.
-function hasImage(node: ProseMirrorJSON): boolean {
-  if (node.type === 'image' || node.type === 'image-block') return true
-  return Array.isArray(node.content)
-    ? (node.content as ProseMirrorJSON[]).some(hasImage)
-    : false
-}
-
 const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
 
 /** The letter of the choice at `index` — 'A', 'B', … then 'AA', 'AB', …. */
@@ -336,26 +311,6 @@ function letterAt(index: number): string {
     remaining = Math.floor(remaining / 26) - 1
   } while (remaining >= 0)
   return letter
-}
-
-// The single place a question's column count is decided. An explicit setting
-// wins permanently — including surviving a later content edit, since this
-// reads the stored setting and nothing else when it isn't `'auto'`. Under
-// `'auto'`, an image in any choice forces 1 column outright; otherwise the
-// widest of 4, 2, 1 whose longest choice fits its column without wrapping is
-// chosen, using the injected `Measure`.
-function resolveColumns(
-  question: Question,
-  choices: readonly Choice[],
-  measure: Measure,
-): ColumnCount {
-  if (question.columns !== 'auto') return question.columns
-  if (choices.some((choice) => hasImage(choice.node))) return 1
-  const widest = choices.reduce(
-    (max, choice) => Math.max(max, measure.choiceWidth(choice)),
-    0,
-  )
-  return AUTO_CANDIDATES.find((columns) => widest <= columnWidth(columns)) ?? 1
 }
 
 // Column-major: `rows = ceil(n / columns)`, and the choices fill down the first
@@ -379,7 +334,6 @@ function deriveQuestion(
   question: Question,
   version: Version,
   number: number,
-  measure: Measure,
 ): PlannedQuestion {
   const ordered = orderedChoices(question, version)
   const choices: PlannedChoice[] = ordered.map((choice, index) => ({
@@ -395,14 +349,14 @@ function deriveQuestion(
     answerBlank: question.type === 'multiple-choice',
     stem: stemNodesOf(question.doc),
     choices,
-    grid: layOutGrid(choices, resolveColumns(question, ordered, measure)),
+    grid: layOutGrid(choices, columnsOf(question)),
   }
 }
 
 // Sections in fixed order, each omitted entirely when it holds no questions —
 // Empty sections omit their printed heading and instructions. Questions are
 // inserted from the application toolbar, outside the printable document.
-function deriveItems(exam: Exam, version: Version, measure: Measure): PageItem[] {
+function deriveItems(exam: Exam, version: Version): PageItem[] {
   const items: PageItem[] = []
   let number = 1
   for (const section of SECTION_ORDER) {
@@ -417,7 +371,7 @@ function deriveItems(exam: Exam, version: Version, measure: Measure): PageItem[]
       })
     }
     for (const question of questions) {
-      items.push(wholeQuestion(deriveQuestion(question, version, number, measure)))
+      items.push(wholeQuestion(deriveQuestion(question, version, number)))
       number += 1
     }
   }
@@ -645,14 +599,13 @@ export type ExportDocument = {
 }
 
 /** Semantic derivation, on its own. Exposed so tests and fingerprints can read
- *  the semantic stage without a `Measure` that has an opinion about pages. */
+ *  the semantic stage: it is page-free, and takes no `Measure` at all. */
 export function buildExportDocument(
   exam: Exam,
   version: Version,
   selection: ExportContentSelection,
-  measure: Measure,
 ): ExportDocument {
-  const test = deriveItems(exam, version, measure)
+  const test = deriveItems(exam, version)
   return {
     title: exam.title,
     version: { id: version.id, letter: version.letter },
@@ -746,5 +699,5 @@ export function planExport({
   selection,
   measure,
 }: PlanRequest): LayoutPlan {
-  return resolveLayout(buildExportDocument(exam, version, selection, measure), measure)
+  return resolveLayout(buildExportDocument(exam, version, selection), measure)
 }

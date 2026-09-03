@@ -22,9 +22,15 @@ import { newMultipleChoiceNode } from './multiple-choice'
 
 export type QuestionType = 'multiple-choice' | 'open'
 
-// How many columns a multiple-choice question's answers lay out in. `'auto'`
-// defers to measurement; an explicit count disables that permanently.
-export type ColumnSetting = 'auto' | 1 | 2 | 4
+// How many columns a multiple-choice question's answers lay out in. A plain
+// count, chosen by the teacher and never inferred: a layout that changed itself
+// when an answer was edited was a layout nobody could rely on.
+export type ColumnSetting = 1 | 2 | 4
+
+/** What a question lays its answers out in when nothing else says otherwise.
+ *  Two columns is what a printed test usually wants, and it is the count a
+ *  question falls back to rather than a special value meaning "decide later". */
+export const DEFAULT_COLUMNS: ColumnSetting = 2
 
 /** How hard a question is. Optional everywhere: classification is a
  *  convenience, and an unclassified question is a complete one. */
@@ -117,12 +123,27 @@ export function withTopicAdded(
   return [...topics, topic]
 }
 
-export function createQuestion(type: QuestionType): Question {
+/** A question's answer columns, as a count the layout can use directly. The one
+ *  reader of the stored setting, so a record written when the setting could
+ *  also be `'auto'` — measured, rather than chosen — reads as the default
+ *  instead of needing a migration pass. */
+export function columnsOf(question: Question): ColumnSetting {
+  const { columns } = question
+  return columns === 1 || columns === 2 || columns === 4 ? columns : DEFAULT_COLUMNS
+}
+
+/** A blank question of `type`. `columns` is the layout it starts with, which
+ *  the caller takes from the question it is being written beside, so a teacher
+ *  sets an answer layout once rather than once per question. */
+export function createQuestion(
+  type: QuestionType,
+  columns: ColumnSetting = DEFAULT_COLUMNS,
+): Question {
   return {
     id: crypto.randomUUID(),
     type,
     doc: newQuestionDoc(type),
-    columns: 'auto',
+    columns,
   }
 }
 

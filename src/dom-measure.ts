@@ -3,10 +3,6 @@
 // `Measure`s in `export-plan.test.ts`). Both halves work the same way: ask the
 // browser what the real thing comes out as, off-screen, and hand back a number.
 //
-// `choiceWidth` (#11) asks a detached `<canvas>` for the width a choice's text
-// would take on one line, using the same font the choice grid prints in. A
-// canvas measurement needs no element in the live DOM at all.
-//
 // `itemHeight` (#7) needs layout, not text metrics: a page item's height is the
 // height of its rich text, its images and its choice grid once they are laid out
 // at the page's content width. So it renders the item — through
@@ -27,50 +23,8 @@
 
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import type { Choice } from './exam'
 import { PAGE_CONTENT_WIDTH, type Measure, type PageItem } from './export-plan'
 import { PageItemMeasureView } from './page-item-view'
-import type { ProseMirrorJSON } from './question-doc'
-
-// Matches `.choice-body` in styles.css (inherited from `.exam-page`'s
-// `font-family` and `font-size`).
-const CHOICE_FONT = '15px Georgia, "Times New Roman", serif'
-
-// Rough allowance, in px, for what sits alongside a choice's text on its
-// line: the letter prefix (`.choice-letter`, e.g. "A.") plus its margin, and
-// the cell's own right padding (`.choice-cell`). Not exact — real DOM
-// measurement is deliberately untested — just enough that a choice isn't
-// judged to fit a column it would actually wrap in.
-const CHOICE_PREFIX_ALLOWANCE = 30
-
-let context: CanvasRenderingContext2D | null | undefined
-
-// Lazy and cached: one detached canvas for the process, not one per call.
-// `undefined` means "not looked up yet"; `null` means "looked up and there is
-// no canvas" (a non-browser environment), so the lookup isn't retried.
-function measureContext(): CanvasRenderingContext2D | null {
-  if (context === undefined) {
-    context =
-      typeof document === 'undefined'
-        ? null
-        : document.createElement('canvas').getContext('2d')
-  }
-  return context
-}
-
-/** Every text node's contents, concatenated, depth-first. */
-function textOf(node: ProseMirrorJSON): string {
-  if (typeof node.text === 'string') return node.text
-  if (!Array.isArray(node.content)) return ''
-  return (node.content as ProseMirrorJSON[]).map(textOf).join('')
-}
-
-function choiceWidth(choice: Choice): number {
-  const ctx = measureContext()
-  if (!ctx) return 0
-  ctx.font = CHOICE_FONT
-  return ctx.measureText(textOf(choice.node)).width + CHOICE_PREFIX_ALLOWANCE
-}
 
 let host: HTMLElement | null | undefined
 
@@ -139,7 +93,6 @@ function invalidate(): void {
 }
 
 export const domMeasure: Measure & { invalidate(): void } = {
-  choiceWidth,
   itemHeight,
   invalidate,
 }

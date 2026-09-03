@@ -116,7 +116,7 @@ try {
           type: 'doc',
           content: [{ type: 'paragraph', content: [{ type: 'text', text: id }] }],
         },
-        columns: 'auto',
+        columns: 2,
       })),
     },
     examDraft: { title: 'Drag test', questionIds: ['q1', 'q2'] },

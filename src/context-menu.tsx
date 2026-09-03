@@ -283,6 +283,10 @@ export function ContextMenu({
                 setActive(index)
                 setOpenSubmenu(index)
               }}
+              // The wrapper contains both the parent row and its flyout, so
+              // crossing into the submenu does not close it. Leaving that
+              // combined hit area does: a hover-open submenu must not linger
+              // over the next menu action.
               onMouseLeave={() => setOpenSubmenu(null)}
             >
               <button
@@ -356,7 +360,9 @@ export function ContextMenu({
             }
             tabIndex={index === active ? 0 : -1}
             // Hovering moves the keyboard's place too, so the mouse and the
-            // arrow keys never disagree about which row is next.
+            // arrow keys never disagree about which row is next. A sibling row
+            // also ends a hover-open submenu; otherwise its flyout outlives
+            // the row that opened it.
             onMouseEnter={() => {
               setActive(index)
               setOpenSubmenu(null)

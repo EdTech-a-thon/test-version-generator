@@ -117,7 +117,6 @@ function createPreview(gesture: DragGesture, source: DragSource): HTMLElement {
       'exam-question--selected',
       'exam-question--dragging',
       'exam-question--dropped',
-      'exam-question--revealed',
     )
     clone.removeAttribute('data-question-id')
     clone.removeAttribute('data-drop-target')

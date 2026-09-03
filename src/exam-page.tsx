@@ -41,11 +41,11 @@ import {
   type QuestionItem,
   type PlannedQuestion,
 } from './export-plan'
-import type { ColumnSetting, Exam, QuestionType, Version } from './exam'
+import { DEFAULT_COLUMNS, columnsOf, type ColumnSetting, type Exam, type QuestionType, type Version } from './exam'
 import type { Selection } from './use-selection'
 import type { WorkspaceDrag } from './use-workspace-drag'
 import { dropStateOf, type QuestionDropState } from './workspace-drag'
-import { CircleMinus, Copy, EllipsisVertical, ListPlus, Pencil, Plus, RefreshCw, Sparkles } from 'lucide-react'
+import { CircleMinus, Copy, EllipsisVertical, ListPlus, Pencil, Plus, RefreshCw } from 'lucide-react'
 import {
   ContextMenu,
   type MenuItem,
@@ -61,24 +61,24 @@ function orderedQuestionIds(pages: readonly PlannedPage[]): string[] {
   )
 }
 
-/** Every question's raw column setting, keyed by id — what its context menu
- * highlights, as opposed to `PlannedQuestion`'s resolved `grid.columns`. */
+/** Every question's column setting, keyed by id — what its context menu
+ * highlights, read through `columnsOf` so a record stored before the setting
+ * was a plain count highlights the default rather than nothing. */
 function columnSettingsOf(exam: Exam): Record<string, ColumnSetting> {
   const byId: Record<string, ColumnSetting> = {}
-  for (const question of exam.questions) byId[question.id] = question.columns
+  for (const question of exam.questions) byId[question.id] = columnsOf(question)
   return byId
 }
 
-// The four answer-column settings, spelled out because a bare number in a menu
+// The answer-column settings, spelled out because a bare number in a menu
 // would not explain itself.
 const COLUMN_MENU_OPTIONS: readonly { label: string; value: ColumnSetting }[] = [
-  { label: 'Auto', value: 'auto' },
   { label: '1 column', value: 1 },
   { label: '2 columns', value: 2 },
   { label: '4 columns', value: 4 },
 ]
 
-function ColumnLayoutIcon({ columns }: { columns: 1 | 2 | 4 }) {
+function ColumnLayoutIcon({ columns }: { columns: ColumnSetting }) {
   const strokes = columns === 1
     ? [
         'M1.5 2h15',
@@ -146,6 +146,18 @@ function questionMenuItems({
     : [question.id]
   const items: MenuItem[] = [
     {
+      kind: 'submenu',
+      label: 'Vary',
+      icon: <RefreshCw />,
+      items: [
+        {
+          kind: 'action',
+          label: 'Replace with equivalents',
+          onSelect: () => onReplaceWithEquivalents(actedOnIds),
+        },
+      ],
+    },
+    {
       kind: 'action',
       label: 'Edit question',
       icon: <Pencil />,
@@ -172,6 +184,8 @@ function questionMenuItems({
       {
         kind: 'submenu',
         label: 'Answer columns',
+        // The parent row shows the current layout before its submenu asks the
+        // teacher to choose another one.
         icon: <ColumnLayoutIcon columns={columns} />,
         items: COLUMN_MENU_OPTIONS.map((option) => ({
           kind: 'radio',
@@ -202,6 +216,10 @@ function questionMenuItems({
       kind: 'action',
       label: 'Remove',
       icon: <CircleMinus />,
+      // Taking a question off the sheet is the one thing in this menu that
+      // undoes work, so the row says so on hover rather than sitting there in
+      // warning colours all the time.
+      destructive: true,
       onSelect: () => onRemove(actedOnIds),
     },
   )
@@ -276,7 +294,6 @@ function QuestionView({
   onOpenMenu,
   dragging,
   dropped,
-  revealed,
   dropState,
   onDragStart,
   onDragMove,
@@ -292,7 +309,6 @@ function QuestionView({
   onOpenMenu: (questionId: string, point: MenuPoint, side?: MenuSide) => void
   dragging: boolean
   dropped: boolean
-  revealed: boolean
   dropState: QuestionDropState
   onDragStart: (
     question: PlannedQuestion,
@@ -322,7 +338,6 @@ function QuestionView({
   if (selected) classes.push('exam-question--selected')
   if (dragging) classes.push('exam-question--dragging')
   if (dropped) classes.push('exam-question--dropped')
-  if (revealed) classes.push('exam-question--revealed')
 
   return (
     <section
@@ -439,7 +454,6 @@ function PageItemView({
   onOpenMenu,
   draggedQuestionIds,
   droppedQuestionIds,
-  revealedQuestionIds,
   dropState,
   onDragStart,
   onDragMove,
@@ -454,7 +468,6 @@ function PageItemView({
   onOpenMenu: (questionId: string, point: MenuPoint, side?: MenuSide) => void
   draggedQuestionIds: ReadonlySet<string>
   droppedQuestionIds: ReadonlySet<string>
-  revealedQuestionIds: ReadonlySet<string>
   dropState: (questionId: string) => QuestionDropState
   onDragStart: (
     question: PlannedQuestion,
@@ -484,7 +497,6 @@ function PageItemView({
           onOpenMenu={onOpenMenu}
           dragging={draggedQuestionIds.has(item.question.id)}
           dropped={droppedQuestionIds.has(item.question.id) && item.numbered}
-          revealed={revealedQuestionIds.has(item.question.id)}
           dropState={dropState(item.question.id)}
           onDragStart={onDragStart}
           onDragMove={onDragMove}
@@ -535,15 +547,6 @@ function clearOnBackgroundClick(selection: Selection) {
   }
 }
 
-// How long a question stays marked after an authoring action has put it on the
-// Exam Draft. Long enough to find on a repaginated page, short enough that it
-// is plainly feedback rather than a second kind of selection.
-//
-// Published to CSS beside the page geometry, for the same reason: the mark
-// fades on an animation and is taken off by a timer, and if the two disagreed
-// the highlight would either flash back on or linger with nothing behind it.
-const REVEAL_HIGHLIGHT_MS = 1400
-
 // The geometry `export-plan.ts` packed against, handed to CSS. Screen and paper
 // agree only if the sheet is laid out at the size it was packed for, and the
 // only way to be sure of that is for both to read the same numbers.
@@ -556,7 +559,6 @@ const PAGE_GEOMETRY = {
   '--page-header-answer-key': `${HEADER_HEIGHT['answer-key']}px`,
   '--page-header-answer-key-later': `${HEADER_HEIGHT['answer-key-later']}px`,
   '--page-footer': `${FOOTER_HEIGHT}px`,
-  '--reveal-highlight': `${REVEAL_HIGHLIGHT_MS}ms`,
 } as CSSProperties
 
 // How long *editing* settles before the page is measured and packed again.
@@ -807,10 +809,9 @@ export function ExamPage({
   // is not on the page in the frame the action was taken — it arrives one
   // repagination later, possibly on a different sheet from the one that was in
   // view. This runs on every plan until the question is actually there, then
-  // scrolls to it and marks it for a moment.
-  const [revealedQuestionIds, setRevealedQuestionIds] = useState<ReadonlySet<string>>(
-    new Set(),
-  )
+  // scrolls to it. Being scrolled to is the whole of the reveal: the question
+  // is selected, which is a mark that stays put, and a second mark that faded
+  // out over it only made the selection look like it was arriving late.
   useEffect(() => {
     if (!revealQuestionId) return
     const element = workspace.current?.querySelector<HTMLElement>(
@@ -819,16 +820,8 @@ export function ExamPage({
     // Not paginated onto a page yet: this effect runs again on the next plan.
     if (!element) return
     element.scrollIntoView({ block: 'nearest', inline: 'nearest' })
-    setRevealedQuestionIds(new Set([revealQuestionId]))
     onRevealed?.()
   }, [revealQuestionId, plan, onRevealed])
-  // The highlight's own lifetime, kept off the effect above so that clearing
-  // `revealQuestionId` — which that effect does — cannot cancel it.
-  useEffect(() => {
-    if (revealedQuestionIds.size === 0) return
-    const timer = setTimeout(() => setRevealedQuestionIds(new Set()), REVEAL_HIGHLIGHT_MS)
-    return () => clearTimeout(timer)
-  }, [revealedQuestionIds])
 
   // Keyed on the numbered piece: a split question's handles and menu belong to
   // the piece carrying its number, and that is the one holding its `number`.
@@ -928,7 +921,6 @@ export function ExamPage({
                 onOpenMenu={openMenu}
                 draggedQuestionIds={draggedQuestionIds}
                 droppedQuestionIds={droppedQuestionIds}
-                revealedQuestionIds={revealedQuestionIds}
                 dropState={questionDropState}
                 onDragStart={beginDrag}
                 onDragMove={drag.move}
@@ -972,7 +964,7 @@ export function ExamPage({
           ariaLabel={`Question ${menuQuestion.number} actions`}
           items={questionMenuItems({
             question: menuQuestion,
-            columns: columnSettings[menuQuestion.id] ?? 'auto',
+            columns: columnSettings[menuQuestion.id] ?? DEFAULT_COLUMNS,
             onEdit,
             onDuplicate,
             onReplaceWithEquivalents,

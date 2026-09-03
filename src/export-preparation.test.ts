@@ -66,7 +66,7 @@ function multipleChoice(id: string, choiceIds: string[], correctId = ''): Questi
         },
       ],
     },
-    columns: 'auto',
+    columns: 2,
   }
 }
 
@@ -75,7 +75,7 @@ function open(id: string): Question {
     id,
     type: 'open',
     doc: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: id }] }] },
-    columns: 'auto',
+    columns: 2,
   }
 }
 

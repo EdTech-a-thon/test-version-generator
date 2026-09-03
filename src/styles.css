@@ -9,7 +9,70 @@
   --paper-ink-soft: #4e3b2f;
   --paper-accent: #9f5037;
   --paper-accent-wash: #f4e0cf;
+  /* Taking something away — off the exam, out of the bank's reach — is the one
+     thing the workspace says in red, and it says it the same way everywhere. */
+  --paper-danger: #a3321f;
+  --paper-danger-wash: #f8e0da;
+  --paper-danger-line: #eec8be;
+
+  /* Badge tints. Muted enough to sit inside a page of prose without shouting,
+     separated enough that two of them side by side are two colours. Difficulty
+     is the one ordered scale, so it gets the traffic lights; a Topic gets one
+     of the six neutral tints, picked from its name (see `badges.tsx`). */
+  --badge-ink: #5b4839;
+  --badge-wash: #f4ece1;
+  --badge-line: #e2d6c5;
+  --easy-ink: #3f6b46; --easy-wash: #e6f0e3; --easy-line: #cadfc6;
+  --medium-ink: #8a6320; --medium-wash: #f8ecd2; --medium-line: #ecd9ab;
+  --hard-ink: #a3321f; --hard-wash: #f8e0da; --hard-line: #eec8be;
+  --tint-0-ink: #9f5037; --tint-0-wash: #f4e0cf; --tint-0-line: #ecd0bb;
+  --tint-1-ink: #4b6b52; --tint-1-wash: #e6efe4; --tint-1-line: #cfe0cd;
+  --tint-2-ink: #4a627f; --tint-2-wash: #e4ecf5; --tint-2-line: #cbdaea;
+  --tint-3-ink: #7a4a6b; --tint-3-wash: #f2e4ee; --tint-3-line: #e3cdda;
+  --tint-4-ink: #866321; --tint-4-wash: #f6ecd4; --tint-4-line: #e9d9af;
+  --tint-5-ink: #3d6a68; --tint-5-wash: #e0efed; --tint-5-line: #c6e0dd;
 }
+
+/* A classification badge: a Difficulty, a Topic, or the question's own type.
+   The colour is the whole of what distinguishes them, so the shape is stated
+   once here and never again. */
+.badge {
+  display: inline-flex; align-items: center; gap: 5px; max-width: 100%;
+  padding: 1px 9px; border: 1px solid var(--badge-line); border-radius: 999px;
+  color: var(--badge-ink); background: var(--badge-wash);
+  font-size: 13px; line-height: 1.55; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis;
+}
+.badge svg { flex: none; width: 13px; height: 13px; stroke-width: 2.2; }
+.badge-difficulty[data-difficulty='easy'] {
+  color: var(--easy-ink); background: var(--easy-wash); border-color: var(--easy-line);
+}
+.badge-difficulty[data-difficulty='medium'] {
+  color: var(--medium-ink); background: var(--medium-wash); border-color: var(--medium-line);
+}
+.badge-difficulty[data-difficulty='hard'] {
+  color: var(--hard-ink); background: var(--hard-wash); border-color: var(--hard-line);
+}
+.badge-topic[data-tint='0'] {
+  color: var(--tint-0-ink); background: var(--tint-0-wash); border-color: var(--tint-0-line);
+}
+.badge-topic[data-tint='1'] {
+  color: var(--tint-1-ink); background: var(--tint-1-wash); border-color: var(--tint-1-line);
+}
+.badge-topic[data-tint='2'] {
+  color: var(--tint-2-ink); background: var(--tint-2-wash); border-color: var(--tint-2-line);
+}
+.badge-topic[data-tint='3'] {
+  color: var(--tint-3-ink); background: var(--tint-3-wash); border-color: var(--tint-3-line);
+}
+.badge-topic[data-tint='4'] {
+  color: var(--tint-4-ink); background: var(--tint-4-wash); border-color: var(--tint-4-line);
+}
+.badge-topic[data-tint='5'] {
+  color: var(--tint-5-ink); background: var(--tint-5-wash); border-color: var(--tint-5-line);
+}
+.badge-type svg { color: var(--paper-accent); }
+
 * { box-sizing: border-box; }
 html, body, #root { margin: 0; min-width: 320px; min-height: 100%; }
 button, input, select { font: inherit; }
@@ -234,7 +297,19 @@ button { cursor: pointer; }
 .question-bank-row[data-in-exam] {
   border-color: var(--paper-outline); background: var(--paper-surface-low);
 }
-.question-bank-included { color: var(--paper-accent); cursor: default; }
+/* On the exam: a tick at rest, and the minus that takes it off under the
+   cursor. Both icons are always in the slot, so the swap costs no layout and
+   the button never changes size. */
+.question-bank-included { color: var(--paper-accent); }
+.question-bank-included-hover { display: none; }
+.question-bank-included:hover, .question-bank-included:focus-visible {
+  border-color: var(--paper-danger-line); color: var(--paper-danger);
+  background: var(--paper-danger-wash);
+}
+.question-bank-included:hover .question-bank-included-resting,
+.question-bank-included:focus-visible .question-bank-included-resting { display: none; }
+.question-bank-included:hover .question-bank-included-hover,
+.question-bank-included:focus-visible .question-bank-included-hover { display: block; }
 /* The clicked row. Selection is a place to act from, not a change to the exam:
    it is never persisted and never undoable. */
 .question-bank-row[aria-current='true'] {
@@ -254,9 +329,6 @@ button { cursor: pointer; }
   display: flex; align-items: center; flex-wrap: wrap; gap: 8px;
   color: #7a6a5c; font-size: 11px; letter-spacing: 0.05em; text-transform: uppercase;
 }
-.question-bank-row-difficulty {
-  padding: 1px 7px; border: 1px solid #e0d3c2; border-radius: 999px; letter-spacing: 0;
-}
 .question-bank-row-badge {
   padding: 1px 7px; border-radius: 999px;
   color: #4e3b2f; background: #efe2d1; letter-spacing: 0; text-transform: none;
@@ -272,9 +344,13 @@ button { cursor: pointer; }
   color: #6b5a4c; background: #f0e6d8; font-size: 11px;
 }
 .question-bank-row-topics { display: flex; flex-wrap: wrap; gap: 5px; }
-.question-bank-row-topic {
-  padding: 1px 7px; border: 1px solid #e4d8c8; border-radius: 999px;
-  color: #6b5a4c; background: #faf3e9; font-size: 11px;
+/* The bank is a scanning surface: the same badges as the popup's front matter,
+   at the size the rest of a row is written in. */
+.question-bank-row-meta .badge, .question-bank-row-topics .badge {
+  padding: 0 7px; font-size: 11px; letter-spacing: 0; text-transform: none;
+}
+.question-bank-row-meta .badge svg, .question-bank-row-topics .badge svg {
+  width: 11px; height: 11px;
 }
 .question-bank-row-actions { flex: none; display: flex; gap: 2px; }
 .question-bank-action {
@@ -451,19 +527,6 @@ button { cursor: pointer; }
    pointer — so the row you lifted stays findable underneath. */
 .exam-question--dragging { opacity: 0.4; }
 
-/* An authoring action has just put this question on the Exam Draft. It has
-   been scrolled to; this is what makes it findable once it is on screen, and
-   it fades of its own accord because it is feedback, not a second kind of
-   selection. */
-.exam-question--revealed:not(.exam-question--selected),
-.exam-question--revealed.exam-question--selected {
-  animation: question-revealed var(--reveal-highlight, 1400ms) ease-out;
-}
-@keyframes question-revealed {
-  0%, 55% { background: #f7e2d5; box-shadow: 0 0 0 7px #f7e2d5; }
-  100% { background: none; box-shadow: none; }
-}
-
 /* The first question of a Question Section that has none.
 
    An empty section is not drawn on the sheet — a section is derived from the
@@ -563,9 +626,14 @@ button { cursor: pointer; }
   color: #4e3b2f; background: transparent; font: inherit; text-align: left;
 }
 .context-menu-item:hover, .context-menu-item:focus { background: #f2e6d8; outline: none; }
-.context-menu-item--destructive { color: #a3321f; }
-.context-menu-item--destructive:hover,
-.context-menu-item--destructive:focus { background: #f8e0da; }
+/* Destructive rows read like every other row until the cursor is on them:
+   colouring the whole menu's odd one out at rest makes the menu look alarming
+   rather than the action. */
+.context-menu-item--destructive:hover, .context-menu-item--destructive:focus {
+  color: var(--paper-danger); background: var(--paper-danger-wash);
+}
+.context-menu-item--destructive:hover .context-menu-icon,
+.context-menu-item--destructive:focus .context-menu-icon { color: var(--paper-danger); }
 /* One leading slot for every row, whether it holds an action's icon or a radio
    row's dot, so the labels line up down the whole menu. */
 .context-menu-icon {
@@ -583,7 +651,6 @@ button { cursor: pointer; }
   flex: none; display: flex; align-items: center; justify-content: center;
   width: 12px; height: 16px;
 }
-.context-menu-item--destructive .context-menu-icon { color: #b8503c; }
 .context-menu-dot {
   width: 6px; height: 6px; border-radius: 50%; background: #9f5037;
 }
@@ -625,58 +692,59 @@ button { cursor: pointer; }
 }
 .question-dialog {
   width: min(980px, 100%); height: min(820px, 94vh); display: grid;
-  grid-template-rows: auto 1fr auto auto; overflow: hidden; border-radius: 10px;
+  /* Header, front matter and actions take the room they need; the editor is
+     the one row that grows, because the writing is what the dialog is for. */
+  grid-template-rows: auto auto 1fr auto; overflow: hidden; border-radius: 10px;
   background: #fffaf3; box-shadow: 0 18px 55px rgb(55 42 33 / 30%);
 }
 .dialog-header, .dialog-actions { padding: 14px 18px; border-bottom: 1px solid #e8dfd2; }
 .dialog-header { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
 .dialog-header h2 { margin: 0; font-size: 18px; }
-.dialog-header .dialog-question-type {
-  display: inline-flex; align-items: center; gap: 7px; padding: 5px 11px;
-  border: 1px solid var(--paper-outline); border-radius: 999px;
-  color: var(--paper-ink-soft); background: var(--paper-surface-low); font-size: 13px;
-}
-.dialog-header .dialog-question-type svg {
-  width: 15px; height: 15px; stroke-width: 2; color: var(--paper-accent);
-}
 .choice-controls select {
   padding: 7px 30px 7px 9px; border: 1px solid #cdb9a6; border-radius: 6px; background: #fffdf8;
 }
 .dialog-actions { justify-content: flex-end; border-top: 1px solid #e8dfd2; border-bottom: 0; }
 
 /* A question's front matter: one row per property, the label on the left and
-   what has been chosen on the right. Both properties are optional, so the
-   ordinary state of a row is blank and it has to look deliberate rather than
-   unfinished. */
+   what has been chosen on the right. It is indented to the document's own text
+   margin — the same expression `.dialog-editor .milkdown > .ProseMirror` uses,
+   folded into one — so the classification and the question it classifies hang
+   off the same left edge, and a thin rule is all that separates them. Both
+   optional properties are ordinarily blank, so a blank row has to look
+   deliberate rather than unfinished. */
 .front-matter {
-  display: flex; flex-direction: column; gap: 2px;
-  padding: 12px 18px; border-top: 1px solid var(--paper-outline);
-  background: var(--paper-surface);
+  display: flex; flex-direction: column; gap: 1px;
+  padding: 12px max(68px, calc((100% - 720px) / 2));
+  border-bottom: 1px solid var(--paper-outline); background: #fffdf8;
 }
-.front-matter-field { position: relative; display: flex; align-items: flex-start; gap: 10px; }
+.front-matter-field { position: relative; display: flex; align-items: center; gap: 10px; }
 .front-matter-label {
   display: inline-flex; align-items: center; gap: 7px;
-  flex: 0 0 116px; padding: 7px 0; color: var(--paper-ink-soft); font-size: 13px;
+  flex: 0 0 104px; color: var(--paper-ink-soft); font-size: 13px;
 }
-.front-matter-label svg { width: 15px; height: 15px; stroke-width: 2; }
+.front-matter-label svg { width: 14px; height: 14px; stroke-width: 2; }
+/* Wide enough for what has been chosen and no wider — only many Topics make a
+   row grow. The floor is there because the ordinary state of these fields is
+   blank, and "Empty" is a smaller word than the target a teacher is aiming a
+   pointer at: an unset field stays as wide as a filled one looks. */
 .front-matter-value {
-  flex: 1 1 auto; display: flex; align-items: center; flex-wrap: wrap; gap: 6px;
-  min-height: 32px; padding: 5px 8px; border: 1px solid transparent; border-radius: 6px;
+  flex: 0 1 auto; display: flex; align-items: center; flex-wrap: wrap; gap: 6px;
+  min-width: 160px; min-height: 28px; padding: 3px 8px;
+  border: 1px solid transparent; border-radius: 6px;
   background: transparent; text-align: left;
 }
 .front-matter-value:hover { background: var(--paper-surface-low); }
 .front-matter-value:focus-visible { outline: 2px solid var(--paper-accent); outline-offset: -2px; }
+/* Type is stated rather than chosen, so its row is not a control. */
+.front-matter-stated { cursor: default; }
+.front-matter-stated:hover { background: transparent; }
 .front-matter-blank { color: #9c8b7c; font-size: 13px; }
-.front-matter-pill {
-  display: inline-flex; align-items: center; padding: 2px 9px;
-  border: 1px solid var(--paper-outline); border-radius: 999px;
-  background: var(--paper-surface-low); font-size: 13px;
-}
 
-/* The list of what can be chosen, with a box to narrow it. Typing filters; it
-   never rewrites a value, because the spelling is the teacher's. */
+/* The list of what can be chosen, with a box to narrow it. Typing filters and
+   moves the highlight; it never rewrites a value, because the spelling is the
+   teacher's. */
 .front-matter-list {
-  position: absolute; z-index: 40; top: calc(100% - 2px); left: 116px; right: 0;
+  position: absolute; z-index: 40; top: calc(100% - 2px); left: 104px; width: min(320px, 100%);
   padding: 6px; border: 1px solid var(--paper-outline); border-radius: 8px;
   background: var(--paper-surface); box-shadow: 0 10px 28px rgb(91 68 47 / 20%);
 }
@@ -684,22 +752,18 @@ button { cursor: pointer; }
   width: 100%; padding: 6px 9px; border: 1px solid #cdb9a6; border-radius: 6px;
   background: #fffdf8; font-size: 13px;
 }
-.front-matter-options { max-height: 208px; margin-top: 6px; overflow-y: auto; }
+.front-matter-options { max-height: 188px; margin-top: 6px; overflow-y: auto; }
 .front-matter-option {
   display: flex; align-items: center; gap: 7px; width: 100%; padding: 5px 7px;
   border: 0; border-radius: 5px; color: var(--paper-ink-soft);
   background: transparent; font-size: 13px; text-align: left;
 }
-.front-matter-option:hover { background: var(--paper-surface-low); }
+/* One highlight, wherever it was last moved by the pointer or the arrow keys,
+   because Enter takes the row it is on. */
+.front-matter-option[data-active] { background: var(--paper-surface-low); }
 .front-matter-option svg { width: 14px; height: 14px; stroke-width: 2.5; }
-.front-matter-option[data-chosen] { color: var(--paper-accent); }
-.front-matter-option[data-chosen] svg { margin-left: auto; }
+.front-matter-option[data-chosen] svg:last-child { margin-left: auto; color: var(--paper-accent); }
 .front-matter-empty { margin: 0; padding: 7px; color: #8a7868; font-size: 13px; }
-.front-matter-clear {
-  width: 100%; margin-top: 4px; padding: 5px; border: 0; border-top: 1px solid var(--paper-outline);
-  border-radius: 0; color: #6b5a4c; background: transparent; font-size: 13px;
-}
-.front-matter-clear:hover { color: #3c2d22; }
 
 .dialog-editor { min-height: 0; padding: 0 32px; overflow-y: auto; background: #fffdf8; }
 .dialog-editor .milkdown {
@@ -722,11 +786,11 @@ button { cursor: pointer; }
   --crepe-color-inline-area: #f2e6d8;
 }
 .dialog-editor .milkdown > .ProseMirror { min-height: 100%; padding: 46px max(36px, calc((100% - 720px) / 2)); }
+/* The caret is the browser's own, in the ink the page is written in. Crepe's
+   painted stand-in is switched off where the editor is configured, so this is
+   the only caret there is. */
 .dialog-editor .milkdown :is(input, textarea, [contenteditable="true"]) {
   caret-color: #4e3b2f;
-}
-.dialog-editor .milkdown .ProseMirror-focused {
-  --prosemirror-virtual-cursor-color: #4e3b2f;
 }
 .dialog-editor .milkdown .cm-cursor { border-left-color: #4e3b2f; }
 .dialog-editor .milkdown .milkdown-toolbar .toolbar-item svg {

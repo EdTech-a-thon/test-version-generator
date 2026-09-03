@@ -23,7 +23,7 @@ import {
   type QuestionItem,
   type PlannedQuestion,
 } from './export-plan'
-import type { Exam, Question, Version } from './exam'
+import { DEFAULT_COLUMNS, type Exam, type Question, type Version } from './exam'
 import type { ProseMirrorJSON } from './question-doc'
 
 function choice(id: string, correct = false): ProseMirrorJSON {
@@ -52,7 +52,7 @@ function multipleChoice(
         },
       ],
     },
-    columns: 'auto',
+    columns: DEFAULT_COLUMNS,
   }
 }
 
@@ -64,7 +64,7 @@ function open(id: string): Question {
       type: 'doc',
       content: [{ type: 'paragraph', content: [{ type: 'text', text: id }] }],
     },
-    columns: 'auto',
+    columns: DEFAULT_COLUMNS,
   }
 }
 
@@ -379,82 +379,31 @@ describe('the choice grid', () => {
   })
 })
 
-describe('auto column resolution', () => {
-  function widthMeasure(width: number): Measure {
-    return { choiceWidth: () => width, itemHeight: () => 0 }
-  }
-
-  function resolvedColumns(choiceCount: number, width: number): ColumnCount {
-    const ids = Array.from({ length: choiceCount }, (_unused, index) => `c${index}`)
-    const exam = examOf([multipleChoice('m1', ids)])
-    const pages = planPages(exam, versionOf(), widthMeasure(width))
+describe('answer columns', () => {
+  function columnsOfPlan(question: Question): ColumnCount {
+    const pages = planPages(examOf([question]), versionOf(), unmeasured)
     return plannedQuestions(pages)[0]!.grid!.columns
   }
 
-  for (const choiceCount of [2, 3, 4, 5]) {
-    test(`with ${choiceCount} choices, a narrow choice resolves to 4 columns`, () => {
-      expect(resolvedColumns(choiceCount, 100)).toBe(4)
-    })
-
-    test(`with ${choiceCount} choices, a medium choice resolves to 2 columns`, () => {
-      expect(resolvedColumns(choiceCount, 200)).toBe(2)
-    })
-
-    test(`with ${choiceCount} choices, a wide choice resolves to 1 column`, () => {
-      expect(resolvedColumns(choiceCount, 400)).toBe(1)
+  for (const columns of [1, 2, 4] as const) {
+    test(`a question set to ${columns} is drawn in ${columns}`, () => {
+      expect(columnsOfPlan({ ...multipleChoice('m1', ['a', 'b', 'c', 'd']), columns }))
+        .toBe(columns)
     })
   }
 
-  test('a choice wider than the whole content box still resolves to 1 column, not 0', () => {
-    expect(resolvedColumns(3, 5000)).toBe(1)
-  })
-
-  test('the widest choice decides the column count, not the first or the average', () => {
-    const exam = examOf([multipleChoice('m1', ['a', 'b', 'c', 'd'])])
-    const measure: Measure = {
-      choiceWidth: (choice) => (choice.id === 'c' ? 400 : 10),
-      itemHeight: () => 0,
+  test('a stored question whose setting predates the plain count reads as the default', () => {
+    // `'auto'` was a fourth setting once: the count was measured rather than
+    // chosen. Records written then are still in browsers.
+    const legacy = {
+      ...multipleChoice('m1', ['a', 'b', 'c', 'd']),
+      columns: 'auto' as unknown as Question['columns'],
     }
-    const [question] = plannedQuestions(planPages(exam, versionOf(), measure))
-    expect(question!.grid!.columns).toBe(1)
+    expect(columnsOfPlan(legacy)).toBe(DEFAULT_COLUMNS)
   })
 
-  test('an image in any choice resolves to a single column under auto, regardless of measured width', () => {
-    const imageChoice: ProseMirrorJSON = {
-      type: 'multipleChoiceChoice',
-      attrs: { correct: false, id: 'c' },
-      content: [{ type: 'image-block', attrs: { src: 'diagram.png' } }],
-    }
-    const exam: Exam = examOf([
-      {
-        id: 'm1',
-        type: 'multiple-choice',
-        doc: {
-          type: 'doc',
-          content: [
-            { type: 'paragraph', content: [{ type: 'text', text: 'stem' }] },
-            { type: 'multipleChoice', content: [choice('a'), choice('b'), imageChoice] },
-          ],
-        },
-        columns: 'auto',
-      },
-    ])
-    // width 1 would resolve to 4 columns if the image weren't there.
-    const [question] = plannedQuestions(planPages(exam, versionOf(), widthMeasure(1)))
-    expect(question!.grid!.columns).toBe(1)
-  })
-
-  test('an explicit override ignores measurement entirely', () => {
-    const exam = examOf([
-      { ...multipleChoice('m1', ['a', 'b', 'c', 'd']), columns: 4 as const },
-    ])
-    // width 5000 would force 1 column under auto.
-    const [question] = plannedQuestions(planPages(exam, versionOf(), widthMeasure(5000)))
-    expect(question!.grid!.columns).toBe(4)
-  })
-
-  test('an explicit override survives a content edit that would otherwise resolve differently under auto', () => {
-    const original: Question = { ...multipleChoice('m1', ['a', 'b']), columns: 2 as const }
+  test('the setting survives a content edit', () => {
+    const original: Question = { ...multipleChoice('m1', ['a', 'b']), columns: 1 as const }
     const edited: Question = {
       ...original,
       doc: {
@@ -468,13 +417,8 @@ describe('auto column resolution', () => {
         ],
       },
     }
-    // Narrow enough that all four post-edit choices would resolve to 4
-    // columns under auto — the override must still win.
-    const narrow = widthMeasure(100)
-    const before = plannedQuestions(planPages(examOf([original]), versionOf(), narrow))
-    const after = plannedQuestions(planPages(examOf([edited]), versionOf(), narrow))
-    expect(before[0]!.grid!.columns).toBe(2)
-    expect(after[0]!.grid!.columns).toBe(2)
+    expect(columnsOfPlan(original)).toBe(1)
+    expect(columnsOfPlan(edited)).toBe(1)
   })
 })
 
@@ -527,7 +471,6 @@ describe('answer key', () => {
       examOf([open('o1'), open('o2')]),
       versionOf(),
       {
-        choiceWidth: () => 0,
         itemHeight: (item) => item.kind === 'question' ? 500 : 0,
       },
     )
@@ -566,7 +509,6 @@ describe('answer key', () => {
       examOf([open('o1'), open('o2'), open('o3')]),
       versionOf(),
       {
-        choiceWidth: () => 0,
         // Just over half a page each, taken from the geometry rather than
         // written out, so one entry per page stays one entry per page if the
         // margins or the furniture are ever resized.
@@ -601,7 +543,6 @@ describe('answer key', () => {
       examOf([question]),
       versionOf(),
       {
-        choiceWidth: () => 0,
         itemHeight: (item) => item.kind === 'question' ? item.stem.length * 500 : 0,
       },
     )
@@ -666,7 +607,7 @@ describe('page packing', () => {
           content: [{ type: 'text', text: `${id} block ${index}` }],
         })),
       },
-      columns: 'auto',
+      columns: 2,
     }
   }
 
@@ -700,7 +641,6 @@ describe('page packing', () => {
     chrome = 0,
   ): Measure {
     return {
-      choiceWidth: () => 0,
       itemHeight: (item) => {
         if (item.kind !== 'question') return chrome
         const perBlock = blockHeight[item.question.id] ?? 0
@@ -935,7 +875,6 @@ describe('the Layout Plan', () => {
 
   test('drops the title on a continuation page but never the version', () => {
     const tall: Measure = {
-      choiceWidth: () => 0,
       itemHeight: (item) => (item.kind === 'question' ? 600 : 0),
     }
     const pages = planExport({
@@ -971,14 +910,14 @@ describe('the Export Document', () => {
   const version = versionOf(['m1', 'o1'])
 
   test('derives both documents whatever the selection', () => {
-    const document = buildExportDocument(exam, version, STUDENT_TEST, unmeasured)
+    const document = buildExportDocument(exam, version, STUDENT_TEST)
     expect(document.test.length).toBeGreaterThan(0)
     expect(document.answerKey.length).toBeGreaterThan(0)
     expect(document.selection).toEqual(STUDENT_TEST)
   })
 
   test('derives the key from the numbered, lettered questions the test shows', () => {
-    const document = buildExportDocument(exam, version, STUDENT_TEST, unmeasured)
+    const document = buildExportDocument(exam, version, STUDENT_TEST)
     expect(document.answerKey).toEqual([
       { kind: 'answer-key-heading' },
       {
@@ -990,12 +929,5 @@ describe('the Export Document', () => {
       { kind: 'answer-key-section', section: 'open', title: SECTION_TITLE.open },
       { kind: 'answer-key-entry', number: 2, letter: null },
     ])
-  })
-
-  test('is page-free: the same content however it is measured', () => {
-    const tall: Measure = { choiceWidth: () => 0, itemHeight: () => 900 }
-    expect(buildExportDocument(exam, version, STUDENT_TEST, tall).test).toEqual(
-      buildExportDocument(exam, version, STUDENT_TEST, unmeasured).test,
-    )
   })
 })

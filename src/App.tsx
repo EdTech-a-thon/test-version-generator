@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { Fragment, useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { Milkdown, useEditor } from '@milkdown/react'
 import { Crepe } from '@milkdown/crepe'
 import { keymapRef } from '@milkdown/crepe/feature/toolbar'
@@ -35,13 +35,16 @@ import type { ProseMirrorJSON } from './question-doc'
 import {
   DIFFICULTIES,
   DIFFICULTY_LABELS,
+  DEFAULT_COLUMNS,
   SECTION_LABELS,
   SECTION_ORDER,
+  columnsOf,
   createQuestion,
   topicsOf,
   withTopicAdded,
 } from './exam'
-import type { Difficulty, Question, QuestionPlacement, QuestionType } from './exam'
+import type { ColumnSetting, Difficulty, Question, QuestionPlacement, QuestionType } from './exam'
+import { DifficultyBadge, TopicBadge } from './badges'
 import { bankQuestionById } from './question-bank'
 import type { ExamStore } from './exam-store'
 import { ExamPage, PrintDocument } from './exam-page'
@@ -65,6 +68,7 @@ import { configurePastedImages } from './pasted-images'
 import {
   AlignLeft,
   Check,
+  FileType2,
   Gauge,
   ListChecks,
   Plus,
@@ -91,14 +95,20 @@ const QUESTION_TYPE_ICONS: Record<QuestionType, ReactNode> = {
  * than an omission to be nagged about.
  *
  * Choosing opens a list under the field with a box to type in. Typing filters
- * what is on offer; it never rewrites a value, so casing and spelling are the
- * teacher's. A single-select field replaces what is there and closes; a
- * multi-select one toggles and stays open, because choosing several is one
+ * what is on offer and moves the highlight to the best match, so a Topic is
+ * reached by typing enough of it and pressing Enter. Filtering never rewrites a
+ * value: casing and spelling are the teacher's.
+ *
+ * A single-select field replaces what is there and closes, and choosing what is
+ * already chosen clears it — which is the whole of what a Clear button was for.
+ * A multi-select one toggles and stays open, because choosing several is one
  * thought rather than several visits.
  *
  * `onCreate` is what makes the Topic field different from the Difficulty one:
  * Difficulty is a closed set of three, while a Topic that does not exist yet
- * is made by typing it.
+ * is made by typing it. Writing one is the last row of the list rather than
+ * something Enter does behind the highlight's back, so typing "mol" and
+ * pressing Enter reaches the "Mole Ratio" that is already there.
  */
 function FrontMatterSelect({
   icon,
@@ -108,6 +118,7 @@ function FrontMatterSelect({
   multiple,
   onChange,
   onCreate,
+  renderValue,
 }: {
   icon: ReactNode
   label: string
@@ -118,10 +129,25 @@ function FrontMatterSelect({
   onChange: (values: string[]) => void
   /** Given the trimmed text typed, when it names nothing already on offer. */
   onCreate?: (value: string) => void
+  /** How one chosen value is drawn, on the field and in the list. */
+  renderValue: (value: string) => ReactNode
 }) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
+  // Which row Enter would take. Reset to the top whenever the list changes
+  // underneath it, so the highlight is always on a row that is still there.
+  const [active, setActive] = useState(0)
   const field = useRef<HTMLDivElement>(null)
+  const trigger = useRef<HTMLButtonElement>(null)
+  const search = useRef<HTMLInputElement>(null)
+
+  // Closing takes the focus back to the field, because the box that had it is
+  // about to be unmounted: left where it fell, focus lands on the document
+  // body and the dialog behind stops hearing Escape at all.
+  const close = () => {
+    setOpen(false)
+    trigger.current?.focus()
+  }
 
   useEffect(() => {
     if (!open) return
@@ -146,14 +172,33 @@ function FrontMatterSelect({
     && trimmed.length > 0
     && !options.some((option) => option.label === trimmed)
 
+  // Every row Enter or an arrow key can land on, in the order they are drawn.
+  // Writing a new Topic is the last of them rather than a separate gesture.
+  const rows: (
+    | { kind: 'choose'; value: string }
+    | { kind: 'create' }
+  )[] = [
+    ...matching.map((option) => ({ kind: 'choose' as const, value: option.value })),
+    ...(creatable ? [{ kind: 'create' as const }] : []),
+  ]
+  const activeRow = Math.min(active, Math.max(rows.length - 1, 0))
+
   const choose = (value: string) => {
     if (!multiple) {
-      onChange([value])
-      setOpen(false)
-    } else if (selected.includes(value)) {
-      onChange(selected.filter((item) => item !== value))
+      // Choosing what is already chosen clears the field: one value, and the
+      // way to have none of it is to take back the one you picked.
+      onChange(selected.includes(value) ? [] : [value])
+      close()
     } else {
-      onChange([...selected, value])
+      onChange(
+        selected.includes(value)
+          ? selected.filter((item) => item !== value)
+          : [...selected, value],
+      )
+      // The row that was clicked is about to be re-rendered under a cleared
+      // query; keeping the typing where the typing happens is what lets a
+      // teacher name three Topics without reaching for the mouse in between.
+      search.current?.focus()
     }
     setQuery('')
   }
@@ -162,11 +207,15 @@ function FrontMatterSelect({
     if (!creatable) return
     onCreate?.(trimmed)
     setQuery('')
-    if (!multiple) setOpen(false)
+    if (multiple) search.current?.focus()
+    else close()
   }
 
-  const labelOf = (value: string) =>
-    options.find((option) => option.value === value)?.label ?? value
+  const commit = (row: (typeof rows)[number] | undefined) => {
+    if (!row) return
+    if (row.kind === 'create') create()
+    else choose(row.value)
+  }
 
   return (
     <div
@@ -176,7 +225,7 @@ function FrontMatterSelect({
         if (event.key !== 'Escape' || !open) return
         // The dialog behind listens for the same key to close itself.
         event.stopPropagation()
-        setOpen(false)
+        close()
       }}
     >
       <span className="front-matter-label">
@@ -186,6 +235,7 @@ function FrontMatterSelect({
       <button
         type="button"
         className="front-matter-value"
+        ref={trigger}
         aria-label={label}
         aria-expanded={open}
         aria-haspopup="true"
@@ -195,9 +245,7 @@ function FrontMatterSelect({
           <span className="front-matter-blank">Empty</span>
         ) : (
           selected.map((value) => (
-            <span className="front-matter-pill" key={value}>
-              {labelOf(value)}
-            </span>
+            <Fragment key={value}>{renderValue(value)}</Fragment>
           ))
         )}
       </button>
@@ -205,53 +253,64 @@ function FrontMatterSelect({
         <div className="front-matter-list" role="group" aria-label={label}>
           <input
             className="front-matter-search"
+            ref={search}
             autoFocus
             aria-label={`Filter ${label}`}
             placeholder={onCreate ? `Search or add a ${label.replace(/s$/, '')}` : 'Search'}
             value={query}
-            onChange={(event) => setQuery(event.target.value)}
+            onChange={(event) => {
+              setQuery(event.target.value)
+              setActive(0)
+            }}
             onKeyDown={(event) => {
+              if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                event.preventDefault()
+                if (rows.length === 0) return
+                const step = event.key === 'ArrowDown' ? 1 : -1
+                setActive((current) => {
+                  const from = Math.min(current, rows.length - 1)
+                  return (from + step + rows.length) % rows.length
+                })
+                return
+              }
               if (event.key !== 'Enter') return
               event.preventDefault()
-              if (creatable) create()
-              else if (matching[0]) choose(matching[0].value)
+              commit(rows[activeRow])
             }}
           />
           <div className="front-matter-options">
-            {matching.map((option) => (
-              <button
-                type="button"
-                className="front-matter-option"
-                key={option.value}
-                data-chosen={selected.includes(option.value) ? 'true' : undefined}
-                onClick={() => choose(option.value)}
-              >
-                <span className="front-matter-pill">{option.label}</span>
-                {selected.includes(option.value) && <Check />}
-              </button>
-            ))}
-            {creatable && (
-              <button type="button" className="front-matter-option" onClick={create}>
-                <Plus />
-                Add <span className="front-matter-pill">{trimmed}</span>
-              </button>
+            {rows.map((row, index) =>
+              row.kind === 'choose' ? (
+                <button
+                  type="button"
+                  className="front-matter-option"
+                  key={row.value}
+                  data-active={index === activeRow ? 'true' : undefined}
+                  data-chosen={selected.includes(row.value) ? 'true' : undefined}
+                  onMouseEnter={() => setActive(index)}
+                  onClick={() => choose(row.value)}
+                >
+                  {renderValue(row.value)}
+                  {selected.includes(row.value) && <Check />}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="front-matter-option"
+                  key="create"
+                  data-active={index === activeRow ? 'true' : undefined}
+                  onMouseEnter={() => setActive(index)}
+                  onClick={create}
+                >
+                  <Plus />
+                  Add {renderValue(trimmed)}
+                </button>
+              ),
             )}
-            {matching.length === 0 && !creatable && (
+            {rows.length === 0 && (
               <p className="front-matter-empty">Nothing to choose</p>
             )}
           </div>
-          {selected.length > 0 && (
-            <button
-              type="button"
-              className="front-matter-clear"
-              onClick={() => {
-                onChange([])
-                if (!multiple) setOpen(false)
-              }}
-            >
-              Clear
-            </button>
-          )}
         </div>
       )}
     </div>
@@ -278,6 +337,11 @@ function CrepeQuestion({
       },
       featureConfigs: {
         [Crepe.Feature.BlockEdit]: { advancedGroup: { codeBlock: null } },
+        // The browser's own caret is the caret (see `caret-color` in
+        // styles.css). Crepe's painted stand-in would be a second one: it
+        // stays where the selection last was after the editor loses focus,
+        // stops blinking there, and reads as a stray mark left in the text.
+        [Crepe.Feature.Cursor]: { virtual: false },
         [Crepe.Feature.ImageBlock]: { onUpload: saveImage },
         [Crepe.Feature.Placeholder]: { text: 'Write the question…' },
         [Crepe.Feature.Toolbar]: {
@@ -394,6 +458,22 @@ function QuestionDialog({
   const [topics, setTopics] = useState<readonly string[]>(topicsOf(question))
   const latestDoc = useRef(doc)
   const readEditorDocument = useRef<(() => ProseMirrorJSON) | null>(null)
+  const dialog = useRef<HTMLElement>(null)
+
+  // Escape that lands on nothing: a click on a bare patch of the dialog, or a
+  // popup closing under the focus it held, leaves focus on the document body,
+  // and a key pressed there never reaches the dialog's own handler. Anything
+  // inside the dialog is left to that handler, so a Crepe menu still gets to
+  // consume the key first.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      if (dialog.current?.contains(event.target as Node)) return
+      onCancel()
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [onCancel])
 
   const saveQuestion = async () => {
     const saved: Question = {
@@ -438,22 +518,32 @@ function QuestionDialog({
     >
       <section
         className="question-dialog"
+        ref={dialog}
         role="dialog"
         aria-modal="true"
         aria-label="Question editor"
       >
         <header className="dialog-header">
           <h2>{isNew ? 'Add question' : 'Edit question'}</h2>
-          {/* What the question is, said rather than asked: the type was chosen
-              when it was created and the answer choices below depend on it. */}
-          <span className="dialog-question-type">
-            {QUESTION_TYPE_ICONS[type]}
-            {SECTION_LABELS[type]}
-          </span>
         </header>
-        {/* The question's front matter, above the content it classifies. Both
-            fields are optional and both open blank. */}
+        {/* The question's front matter, indented to the document's own margin
+            because it is the head of the question rather than a strip bolted
+            above it. Type is stated: it was settled when the question was
+            created and the answer choices below depend on it. Difficulty and
+            Topics are optional and both open blank. */}
         <div className="front-matter">
+          <div className="front-matter-field">
+            <span className="front-matter-label">
+              <FileType2 />
+              Type
+            </span>
+            <span className="front-matter-value front-matter-stated">
+              <span className="badge badge-type">
+                {QUESTION_TYPE_ICONS[type]}
+                {SECTION_LABELS[type]}
+              </span>
+            </span>
+          </div>
           <FrontMatterSelect
             icon={<Gauge />}
             label="Difficulty"
@@ -464,6 +554,7 @@ function QuestionDialog({
             selected={difficulty ? [difficulty] : []}
             multiple={false}
             onChange={(values) => setDifficulty((values[0] as Difficulty) ?? '')}
+            renderValue={(value) => <DifficultyBadge difficulty={value as Difficulty} />}
           />
           <FrontMatterSelect
             icon={<Tags />}
@@ -475,6 +566,7 @@ function QuestionDialog({
             multiple
             onChange={setTopics}
             onCreate={(value) => setTopics(withTopicAdded(topics, value))}
+            renderValue={(value) => <TopicBadge topic={value} />}
           />
         </div>
         <div className="dialog-editor">
@@ -572,17 +664,20 @@ function ExamEditor({ store }: { store: ExamStore }) {
     const timer = window.setTimeout(() => setVarySummary(null), 4_000)
     return () => window.clearTimeout(timer)
   }, [varySummary])
-  // What Insert and Replace act against: the question selected on the Exam
-  // Draft, when exactly one is. Two selected questions name no single position,
-  // so composition waits until the teacher has said which one they mean — and
-  // so does a selected question that is no longer on the exam, which is what a
-  // selection outlives an undo as. Only a referenced question names a position.
-  const selectedId =
-    selection.selectedIds.size === 1 ? [...selection.selectedIds][0]! : null
-  const examDraftSelection =
-    selectedId && examDraftIds.has(selectedId)
-      ? bankQuestionById(state.questionBank, selectedId) ?? null
-      : null
+  // A highlighted bank row is a place to read from, not a thing being acted
+  // against, so it lasts exactly as long as the teacher is looking at it: the
+  // next press anywhere but on a row takes it back, and so does Escape (with
+  // the workspace's other selections, in the keyboard handler below).
+  useEffect(() => {
+    if (!selectedBankId) return
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target as HTMLElement | null
+      if (target?.closest('.question-bank-row')) return
+      setSelectedBankId(null)
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    return () => document.removeEventListener('pointerdown', onPointerDown)
+  }, [selectedBankId])
 
   // One composition, however it was asked for.
   //
@@ -597,6 +692,24 @@ function ExamEditor({ store }: { store: ExamStore }) {
     selectOnExamDraft(questionId)
     setRevealQuestionId(questionId)
   }
+  // The answer layout a question about to be written starts with: the one the
+  // question it is being added below uses, else the one the last multiple-choice
+  // question written uses, else two columns. A teacher who lays their answers
+  // out in one column lays the next question out that way too, and saying so
+  // once is the whole of the setting they should have to touch.
+  const columnsForNewQuestion = (afterQuestionId: string | null): ColumnSetting => {
+    const above = afterQuestionId
+      ? bankQuestionById(state.questionBank, afterQuestionId)
+      : undefined
+    if (above?.type === 'multiple-choice') return columnsOf(above)
+    const questions = state.questionBank.questions
+    for (let index = questions.length - 1; index >= 0; index -= 1) {
+      const question = questions[index]!
+      if (question.type === 'multiple-choice') return columnsOf(question)
+    }
+    return DEFAULT_COLUMNS
+  }
+
   const addToExamDraft = (questionId: string) => {
     store.addToExamDraft(questionId)
     selectAndReveal(questionId)
@@ -686,6 +799,7 @@ function ExamEditor({ store }: { store: ExamStore }) {
       }
       if (event.key !== 'Escape') return
       clearSelection()
+      setSelectedBankId(null)
     }
     document.addEventListener('keydown', onKeyDown)
     return () => document.removeEventListener('keydown', onKeyDown)
@@ -884,7 +998,6 @@ function ExamEditor({ store }: { store: ExamStore }) {
             filter={bankFilter}
             onFilterChange={setBankFilter}
             selectedQuestionId={selectedBankId}
-            examDraftSelection={examDraftSelection}
             onSelect={setSelectedBankId}
             drag={drag}
             onCreate={(point) =>
@@ -897,16 +1010,11 @@ function ExamEditor({ store }: { store: ExamStore }) {
               }
             }}
             onAddToExamDraft={addToExamDraft}
-            // The same two calls a released pointer gesture makes, through the
-            // same seam: the action menu is a second way to reach the authoring
-            // boundary, never a second implementation of it.
-            onInsertAfterExamDraftSelection={(questionId) => {
-              if (!examDraftSelection) return
-              insertIntoExamDraft(questionId, examDraftSelection.id, 'after')
-            }}
-            onReplaceExamDraftSelection={(questionId) => {
-              if (!examDraftSelection) return
-              replaceInExamDraft(examDraftSelection.id, questionId)
+            onRemoveFromExamDraft={(questionId) => {
+              store.removeFromExamDraft([questionId])
+              // A selection pointing at a question that is no longer on the
+              // sheet names no position, and only this one has left it.
+              if (selection.isSelected(questionId)) selection.toggle(questionId)
             }}
           />
         }
@@ -932,7 +1040,10 @@ function ExamEditor({ store }: { store: ExamStore }) {
             }}
             onAdd={(section, afterQuestionId) =>
               setEditing({
-                question: createQuestion(section),
+                question: createQuestion(
+                  section,
+                  columnsForNewQuestion(afterQuestionId ?? null),
+                ),
                 destination: 'exam-draft',
                 after: afterQuestionId ?? null,
               })
@@ -968,7 +1079,10 @@ function ExamEditor({ store }: { store: ExamStore }) {
             icon: QUESTION_TYPE_ICONS[type],
             onSelect: () => {
               setEditing({
-                question: createQuestion(type),
+                question: createQuestion(
+                  type,
+                  columnsForNewQuestion(choosingType.after),
+                ),
                 destination: choosingType.destination,
                 after: choosingType.after,
               })

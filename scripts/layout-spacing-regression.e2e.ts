@@ -31,7 +31,7 @@ test('default and authored exam spacing remain distinct', async ({ page }) => {
     {
       id: 'open',
       type: 'open',
-      columns: 'auto',
+      columns: 2,
       doc: {
         type: 'doc',
         content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Explain.' }] }],

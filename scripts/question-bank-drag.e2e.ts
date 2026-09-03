@@ -10,7 +10,6 @@
 
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { seedAuthoringState } from './seed-authoring'
-import { DRAFT_STORAGE_KEY } from '../src/exam-store'
 import type { Question, QuestionType } from '../src/exam'
 
 const choice = (id: string, label: string) => ({
@@ -32,7 +31,7 @@ function question(id: string, stem: string, type: QuestionType): Question {
       },
     )
   }
-  return { id, type, columns: 'auto', doc: { type: 'doc', content } }
+  return { id, type, columns: 2, doc: { type: 'doc', content } }
 }
 
 const QUESTIONS: Question[] = [
@@ -306,54 +305,7 @@ test('a reordering drag stays inside its own Question Section', async ({ page })
   expect(await renderedIds(page)).toEqual(['mc1', 'mc2', 'sa1'])
 })
 
-/** The whole authoring state, as the application persisted it: the Question
- *  Bank, the Exam Draft's membership and order, and nothing about the pointer.
- *  Two paths that yield this yield the same exam. */
-async function authoringState(page: Page) {
-  return await page.evaluate(
-    (key: string) => JSON.parse(localStorage.getItem(key) ?? 'null') as unknown,
-    DRAFT_STORAGE_KEY,
-  )
-}
-
-/** The row's Insert button, offered only while a compatible Exam Draft
- *  question is selected. */
-const insertAfter = (page: Page, stem: string) =>
-  bankRow(page, stem).getByRole('button', { name: /after the selected question$/ })
-
-/** The row's Replace button, offered on the same terms. */
-const replaceSelected = (page: Page, stem: string) =>
-  bankRow(page, stem).getByRole('button', { name: /^Replace the selected question/ })
-
-test('the pointer and the action menu compose the same Exam Draft', async ({ page }) => {
-  await openWorkspace(page)
-  await dragBankRowOnto(page, 'Spare choice question', rendered(page, 'mc1'), 'bottom')
-  expect(await renderedIds(page)).toEqual(['mc1', 'mcSpare', 'mc2', 'sa1'])
-  const byPointer = await authoringState(page)
-
-  await openWorkspace(page)
-  await rendered(page, 'mc1').click()
-  await insertAfter(page, 'Spare choice question').click()
-  await expect(examQuestions(page)).toHaveCount(4)
-
-  expect(await authoringState(page)).toEqual(byPointer)
-})
-
-test('the pointer and the action menu Replace identically', async ({ page }) => {
-  await openWorkspace(page)
-  await dragBankRowOnto(page, 'Spare choice question', rendered(page, 'mc2'), 'centre')
-  expect(await renderedIds(page)).toEqual(['mc1', 'mcSpare', 'sa1'])
-  const byPointer = await authoringState(page)
-
-  await openWorkspace(page)
-  await rendered(page, 'mc2').click()
-  await replaceSelected(page, 'Spare choice question').click()
-  await expect(bankRow(page, 'Spare choice question')).toContainText('In exam')
-
-  expect(await authoringState(page)).toEqual(byPointer)
-})
-
-test('a composed question is selected, revealed after repagination and highlighted', async ({ page }) => {
+test('a composed question is selected and revealed after repagination', async ({ page }) => {
   // Enough questions for the exam to run past one screen, so the incoming one
   // genuinely has to be brought into view rather than happening to be there.
   const many: Question[] = [
@@ -373,19 +325,19 @@ test('a composed question is selected, revealed after repagination and highlight
   await page.goto('/')
   await expect(examQuestions(page)).toHaveCount(14)
 
-  // Compose against the last question, then look away from it entirely.
-  await rendered(page, 'l13').click()
+  // Add the spare question — it lands at the end of its Question Section, past
+  // the bottom of the exam — then look away from where it will land.
   await page.evaluate(() => window.scrollTo(0, 0))
   await expect(rendered(page, 'l13')).not.toBeInViewport()
 
-  await insertAfter(page, 'The spare one').click()
+  await bankRow(page, 'The spare one')
+    .getByRole('button', { name: /to the exam$/ })
+    .click()
 
   // Repagination waits for content to settle, so the question is not on a page
   // in the frame the action was taken. It is scrolled to once it is.
   await expect(rendered(page, 'lSpare')).toBeInViewport()
   await expect(rendered(page, 'lSpare')).toHaveClass(/exam-question--selected/)
-  // And marked, briefly, so it can be found on a page that has just reflowed.
-  await expect(rendered(page, 'lSpare')).toHaveClass(/exam-question--revealed/)
 })
 
 test('a row still selects on click after another row has been dragged', async ({ page }) => {

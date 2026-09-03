@@ -82,14 +82,19 @@ test('typing filters the Topics on offer, and writes one that is not there', asy
   await expect(dialog(page).getByRole('button', { name: 'Cell division' })).toBeVisible()
   await search(page, 'Topics').fill('mito')
   await expect(dialog(page).getByRole('button', { name: 'Cell division' })).toHaveCount(0)
-  await dialog(page).getByRole('button', { name: 'Mitosis', exact: true }).click()
+  // Enter takes the Topic the typing found, rather than writing a second one
+  // spelled the way it was typed: part of a name is how a name is reached.
+  await search(page, 'Topics').press('Enter')
+  await expect(field(page, 'Topics')).toContainText('Mitosis')
 
-  // Multi-select stays open, so choosing several is one visit.
-  await expect(search(page, 'Topics')).toBeVisible()
+  // Multi-select stays open and keeps the typing where the typing happens, so
+  // naming several Topics is one visit.
+  await expect(search(page, 'Topics')).toBeFocused()
 
-  // Casing and spelling are the teacher's: a near-miss is a new Topic, not a
-  // correction of the one already there.
+  // Casing and spelling are the teacher's: a near-miss is offered as a new
+  // Topic, on the row below the one it nearly matched.
   await search(page, 'Topics').fill('  mitosis  ')
+  await search(page, 'Topics').press('ArrowDown')
   await search(page, 'Topics').press('Enter')
   await expect(field(page, 'Topics')).toContainText('Mitosismitosis')
 })
@@ -117,4 +122,65 @@ test('a question is created as a Short Answer question, and stays one', async ({
   await page.getByRole('button', { name: 'Save question' }).click()
 
   await expect(bankRows(page).first()).toContainText('Short answer')
+})
+
+test('Escape closes the front matter first, and then the popup', async ({ page }) => {
+  await page.goto('/')
+  await newQuestion(page)
+
+  // Escape belongs to the open row while there is one, and to the popup after.
+  await field(page, 'Difficulty').click()
+  await expect(search(page, 'Difficulty')).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(search(page, 'Difficulty')).toHaveCount(0)
+  await expect(dialog(page)).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(dialog(page)).toBeHidden()
+
+  // The same after a value has been chosen, which closes the row on its own.
+  await newQuestion(page)
+  await field(page, 'Difficulty').click()
+  await page.getByRole('button', { name: 'Hard', exact: true }).click()
+  await page.keyboard.press('Escape')
+  await expect(dialog(page)).toBeHidden()
+})
+
+test('the type is stated in the front matter, above the question it classifies', async ({ page }) => {
+  await page.goto('/')
+  await newQuestion(page, 'Short answer')
+
+  // Front matter, not header chrome: the type is the first thing the question
+  // says about itself, and it is said rather than offered.
+  const frontMatter = dialog(page).locator('.front-matter')
+  await expect(frontMatter).toContainText('Short answer')
+  await expect(frontMatter.getByRole('button', { name: 'Type' })).toHaveCount(0)
+})
+
+test('choosing a Difficulty again clears it, which is what a Clear button was for', async ({ page }) => {
+  await page.goto('/')
+  await newQuestion(page)
+
+  await field(page, 'Difficulty').click()
+  await page.getByRole('button', { name: 'Medium', exact: true }).click()
+  await expect(field(page, 'Difficulty')).toContainText('Medium')
+
+  await field(page, 'Difficulty').click()
+  await page.getByRole('button', { name: 'Medium', exact: true }).click()
+  await expect(field(page, 'Difficulty')).toContainText('Empty')
+})
+
+test('Escape leaves the Topics list without leaving the popup', async ({ page }) => {
+  await page.goto('/')
+  await newQuestion(page)
+
+  await field(page, 'Topics').click()
+  await search(page, 'Topics').fill('Genetics')
+  await search(page, 'Topics').press('Enter')
+  // Multi-select stays open with the typing still in hand, so the first Escape
+  // has a list to close and only the second reaches the popup.
+  await page.keyboard.press('Escape')
+  await expect(search(page, 'Topics')).toHaveCount(0)
+  await expect(dialog(page)).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(dialog(page)).toBeHidden()
 })

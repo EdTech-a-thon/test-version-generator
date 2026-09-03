@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'bun:test'
 import {
+  DEFAULT_COLUMNS,
   choicesOf,
+  columnsOf,
   createExam,
   createQuestion,
   createVersion,
@@ -42,12 +44,12 @@ function multipleChoice(id: string, choiceIds: string[], correctId = ''): Questi
         },
       ],
     },
-    columns: 'auto',
+    columns: 2,
   }
 }
 
 function open(id: string): Question {
-  return { id, type: 'open', doc: { type: 'doc', content: [] }, columns: 'auto' }
+  return { id, type: 'open', doc: { type: 'doc', content: [] }, columns: 2 }
 }
 
 function examOf(questions: Question[]): Exam {
@@ -61,9 +63,24 @@ function versionOf(questionOrder: string[], choiceOrder: Record<string, string[]
 const ids = (questions: Question[]) => questions.map((question) => question.id)
 
 describe('question and version construction', () => {
-  test('a new question defaults to automatic columns', () => {
-    expect(createQuestion('multiple-choice').columns).toBe('auto')
-    expect(createQuestion('open').columns).toBe('auto')
+  test('a new question falls back to the default answer columns', () => {
+    expect(createQuestion('multiple-choice').columns).toBe(DEFAULT_COLUMNS)
+    expect(createQuestion('open').columns).toBe(DEFAULT_COLUMNS)
+  })
+
+  test('a new question can be given the layout of the one it is written beside', () => {
+    expect(createQuestion('multiple-choice', 4).columns).toBe(4)
+  })
+
+  test('a question stored before the setting was a plain count reads as the default', () => {
+    // `'auto'` was a fourth setting once: the count was measured rather than
+    // chosen. Records written then are still in browsers.
+    const legacy = {
+      ...createQuestion('multiple-choice'),
+      columns: 'auto' as unknown as Question['columns'],
+    }
+    expect(columnsOf(legacy)).toBe(DEFAULT_COLUMNS)
+    expect(columnsOf({ ...legacy, columns: 4 })).toBe(4)
   })
 
   test('a new multiple-choice question carries choices, an open one does not', () => {

@@ -199,7 +199,7 @@ describe('the supported document vocabulary', () => {
         fixture.exam.questions.map((question) => question.columns),
       ),
     )
-    expect([...columns].map(String).sort()).toEqual(['1', '2', '4', 'auto'])
+    expect([...columns].map(String).sort()).toEqual(['1', '2', '4'])
     const types = new Set(
       FIXTURES.flatMap((fixture) =>
         fixture.exam.questions.map((question) => question.type),

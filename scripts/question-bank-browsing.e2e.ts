@@ -40,7 +40,7 @@ function question(
   return {
     id,
     type: (choices ? 'multiple-choice' : 'open') as QuestionType,
-    columns: 'auto',
+    columns: 2,
     doc: { type: 'doc', content },
     ...rest,
   }
@@ -86,7 +86,6 @@ const row = (page: Page, stem: string) =>
   bank(page).getByRole('listitem').filter({ hasText: stem })
 const search = (page: Page) =>
   page.getByRole('searchbox', { name: 'Search question stems' })
-const examQuestions = (page: Page) => page.locator('.exam-question')
 const dialog = (page: Page) => page.getByRole('dialog', { name: 'Question editor' })
 
 async function openBank(page: Page, questionIds: string[] = ['q1', 'q2']) {
@@ -98,15 +97,6 @@ async function openBank(page: Page, questionIds: string[] = ['q1', 'q2']) {
   await page.goto('/')
   await expect(rows(page)).toHaveCount(QUESTIONS.length)
 }
-
-/** The row's Insert button, offered only while a compatible Exam Draft
- *  question is selected. */
-const insertAfter = (page: Page, stem: string) =>
-  row(page, stem).getByRole('button', { name: /after the selected question$/ })
-
-/** The row's Replace button, offered on the same terms. */
-const replaceSelected = (page: Page, stem: string) =>
-  row(page, stem).getByRole('button', { name: /^Replace the selected question/ })
 
 /** Chooses values in one of the bank's filter dropdowns. */
 async function filterBy(page: Page, category: string, ...values: string[]) {
@@ -239,75 +229,38 @@ test('an empty Question Bank reads differently from one nothing matches', async 
   await expect(bank(page)).not.toContainText('No questions yet')
 })
 
-test('a selected bank question is inserted after a selected Exam Draft question', async ({ page }) => {
+test('a highlighted row is let go of by pressing Escape or by pressing elsewhere', async ({ page }) => {
   await openBank(page)
-  await expect(examQuestions(page)).toHaveCount(2)
 
-  // q1 is the Multiple Choice question on the exam; q3 is an unused one.
-  await examQuestions(page).first().click()
-  await insertAfter(page, 'Photosynthesis at night').click()
+  // Highlighting a row is a place to read from, not a state to get stuck in.
+  await row(page, 'Photosynthesis at night').click()
+  await expect(row(page, 'Photosynthesis at night')).toHaveAttribute('aria-current', 'true')
+  await page.keyboard.press('Escape')
+  await expect(row(page, 'Photosynthesis at night')).not.toHaveAttribute('aria-current', 'true')
 
-  await expect(examQuestions(page)).toHaveCount(3)
-  await expect(examQuestions(page).nth(0)).toContainText('Photosynthesis in leaves')
-  await expect(examQuestions(page).nth(1)).toContainText('Photosynthesis at night')
-  // Referenced, not copied: still four bank records, and no second way to add.
-  await expect(rows(page)).toHaveCount(QUESTIONS.length)
-  await expect(row(page, 'Photosynthesis at night')).toContainText('In exam')
-  await expect(
-    row(page, 'Photosynthesis at night').getByRole('button', { name: /to the exam$/ }),
-  ).toHaveCount(0)
-
-  await page.keyboard.press('Control+z')
-  await expect(examQuestions(page)).toHaveCount(2)
+  await row(page, 'Photosynthesis at night').click()
+  await expect(row(page, 'Photosynthesis at night')).toHaveAttribute('aria-current', 'true')
+  await bank(page).getByRole('heading', { name: 'Question Bank' }).click()
+  await expect(row(page, 'Photosynthesis at night')).not.toHaveAttribute('aria-current', 'true')
 })
 
-test('a selected bank question replaces a selected Exam Draft question', async ({ page }) => {
+test('a filter list stays over the bank rather than the sheet beside it', async ({ page }) => {
   await openBank(page)
 
-  await examQuestions(page).first().click()
-  await replaceSelected(page, 'Photosynthesis at night').click()
+  // The filters sit at the bank's right-hand end, so a list dropped from the
+  // last of them is the one that would hang over the divider and the rendered
+  // page — which paint over it, because the bank pane is its own stacking
+  // context. Geometry is the claim, so it is measured.
+  await bank(page).getByRole('button', { name: 'Difficulty', exact: true }).click()
+  const list = page.getByRole('group', { name: 'Difficulty' })
+  await expect(list).toBeVisible()
 
-  await expect(examQuestions(page)).toHaveCount(2)
-  await expect(examQuestions(page).nth(0)).toContainText('Photosynthesis at night')
-  // Replaced out, not deleted: the question is back in the bank, unchanged and
-  // available to compose with again.
-  await expect(rows(page)).toHaveCount(QUESTIONS.length)
-  await expect(row(page, 'Photosynthesis in leaves')).not.toContainText('In exam')
-  await expect(
-    row(page, 'Photosynthesis in leaves').getByRole('button', { name: /to the exam$/ }),
-  ).toBeVisible()
+  const bankBox = (await bank(page).boundingBox())!
+  const listBox = (await list.boundingBox())!
+  expect(listBox.x).toBeGreaterThanOrEqual(bankBox.x)
+  expect(listBox.x + listBox.width).toBeLessThanOrEqual(bankBox.x + bankBox.width)
 
-  await page.keyboard.press('Control+z')
-  await expect(examQuestions(page).nth(0)).toContainText('Photosynthesis in leaves')
-})
-
-test('composition stops being offered once its target leaves the Exam Draft', async ({ page }) => {
-  await openBank(page)
-
-  await examQuestions(page).first().click()
-  await insertAfter(page, 'Photosynthesis at night').click()
-  await expect(examQuestions(page)).toHaveCount(3)
-
-  await page.keyboard.press('Control+z')
-  await expect(examQuestions(page)).toHaveCount(2)
-
-  // Undo took the incoming question back off the exam. A selection outlives it,
-  // but a question that is not on the Exam Draft names no position on it, so
-  // there is nothing to compose against.
-  await expect(insertAfter(page, 'Photosynthesis at night')).toHaveCount(0)
-  await expect(replaceSelected(page, 'Photosynthesis at night')).toHaveCount(0)
-})
-
-test('composition is not offered across Question Sections or for a question already on the exam', async ({ page }) => {
-  await openBank(page)
-
-  // A Multiple Choice question is selected on the exam, so a Short Answer bank
-  // question offers no way to reach it.
-  await examQuestions(page).first().click()
-  await expect(insertAfter(page, 'Mitosis and meiosis')).toHaveCount(0)
-  await expect(replaceSelected(page, 'Mitosis and meiosis')).toHaveCount(0)
-
-  // Nor does a question already on the Exam Draft: a reference occurs once.
-  await expect(insertAfter(page, 'Photosynthesis in leaves')).toHaveCount(0)
-  await expect(replaceSelected(page, 'Photosynthesis in leaves')).toHaveCount(0)
+  // Over the bank, not under it: every option is hittable.
+  await page.getByRole('checkbox', { name: 'Unspecified', exact: true }).check()
+  await expect(page.getByRole('checkbox', { name: 'Unspecified', exact: true })).toBeChecked()
 })

@@ -51,7 +51,7 @@ const EXAM = {
     {
       id: 'o1',
       type: 'open',
-      columns: 'auto',
+      columns: 2,
       doc: {
         type: 'doc',
         content: [

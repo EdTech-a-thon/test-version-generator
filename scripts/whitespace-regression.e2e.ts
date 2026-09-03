@@ -8,7 +8,7 @@ test('the rendered exam preserves authored spaces and blank lines', async ({ pag
         {
           id: 'q1',
           type: 'open',
-          columns: 'auto',
+          columns: 2,
           doc: {
             type: 'doc',
             content: [
