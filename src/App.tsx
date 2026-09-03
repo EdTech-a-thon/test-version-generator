@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { Fragment, useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { Milkdown, useEditor } from '@milkdown/react'
 import { Crepe } from '@milkdown/crepe'
 import { keymapRef } from '@milkdown/crepe/feature/toolbar'
@@ -29,21 +29,30 @@ import {
   toggleScript,
 } from './script-marks'
 import { leftArrowInputRule, rightArrowInputRule } from './text-arrows'
+import type { ReactNode } from 'react'
 import { cleanDocument } from './question-doc'
 import type { ProseMirrorJSON } from './question-doc'
 import {
+  DIFFICULTIES,
+  DIFFICULTY_LABELS,
+  DEFAULT_COLUMNS,
+  SECTION_LABELS,
+  SECTION_ORDER,
+  columnsOf,
   createQuestion,
-  duplicateQuestion,
-  moveQuestions,
-  questionById,
-  shuffleAnswers,
-  shuffleSelectedQuestions,
-  withTypeSwitched,
+  topicsOf,
+  withTopicAdded,
 } from './exam'
-import type { Question, QuestionType } from './exam'
+import type { ColumnSetting, Difficulty, Question, QuestionPlacement, QuestionType } from './exam'
+import { DifficultyBadge, TopicBadge } from './badges'
+import { bankQuestionById } from './question-bank'
 import type { ExamStore } from './exam-store'
 import { ExamPage, PrintDocument } from './exam-page'
+import { QuestionBankPane } from './question-bank-pane'
+import { NO_FILTER, topicOptions, type QuestionBankFilter } from './question-bank-view'
 import { useSelection } from './use-selection'
+import { useWorkspaceDrag } from './use-workspace-drag'
+import { WorkspaceSplit } from './workspace-split'
 import type { LayoutPlan } from './export-plan'
 import {
   DEFAULT_EXPORT_CONFIGURATION,
@@ -56,10 +65,257 @@ import { ExportDialog } from './export-dialog'
 import { domMeasure } from './dom-measure'
 import { saveImage } from './local-images'
 import { configurePastedImages } from './pasted-images'
-import { Plus, Redo2, Undo2 } from 'lucide-react'
+import {
+  AlignLeft,
+  Check,
+  FileType2,
+  Gauge,
+  ListChecks,
+  Plus,
+  Redo2,
+  Tags,
+  Undo2,
+} from 'lucide-react'
+import { ContextMenu, type MenuPoint } from './context-menu'
 import { useRoute } from './use-route'
 import { Footer } from './site-chrome'
 import { AboutPage, PrivacyPage } from './site-pages'
+
+/** The mark each Question Section goes by, so a type reads the same wherever
+ *  it is named — the picker that chooses one, and the dialog that states it. */
+const QUESTION_TYPE_ICONS: Record<QuestionType, ReactNode> = {
+  'multiple-choice': <ListChecks />,
+  open: <AlignLeft />,
+}
+
+/**
+ * One line of a question's front matter: an icon and a label on the left, and
+ * what has been chosen on the right — or nothing at all, because Difficulty
+ * and Topics are both optional and a blank field is the normal state rather
+ * than an omission to be nagged about.
+ *
+ * Choosing opens a list under the field with a box to type in. Typing filters
+ * what is on offer and moves the highlight to the best match, so a Topic is
+ * reached by typing enough of it and pressing Enter. Filtering never rewrites a
+ * value: casing and spelling are the teacher's.
+ *
+ * A single-select field replaces what is there and closes, and choosing what is
+ * already chosen clears it — which is the whole of what a Clear button was for.
+ * A multi-select one toggles and stays open, because choosing several is one
+ * thought rather than several visits.
+ *
+ * `onCreate` is what makes the Topic field different from the Difficulty one:
+ * Difficulty is a closed set of three, while a Topic that does not exist yet
+ * is made by typing it. Writing one is the last row of the list rather than
+ * something Enter does behind the highlight's back, so typing "mol" and
+ * pressing Enter reaches the "Mole Ratio" that is already there.
+ */
+function FrontMatterSelect({
+  icon,
+  label,
+  options,
+  selected,
+  multiple,
+  onChange,
+  onCreate,
+  renderValue,
+}: {
+  icon: ReactNode
+  label: string
+  /** What can be chosen, in the order it should be offered. */
+  options: readonly { value: string; label: string }[]
+  selected: readonly string[]
+  multiple: boolean
+  onChange: (values: string[]) => void
+  /** Given the trimmed text typed, when it names nothing already on offer. */
+  onCreate?: (value: string) => void
+  /** How one chosen value is drawn, on the field and in the list. */
+  renderValue: (value: string) => ReactNode
+}) {
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  // Which row Enter would take. Reset to the top whenever the list changes
+  // underneath it, so the highlight is always on a row that is still there.
+  const [active, setActive] = useState(0)
+  const field = useRef<HTMLDivElement>(null)
+  const trigger = useRef<HTMLButtonElement>(null)
+  const search = useRef<HTMLInputElement>(null)
+
+  // Closing takes the focus back to the field, because the box that had it is
+  // about to be unmounted: left where it fell, focus lands on the document
+  // body and the dialog behind stops hearing Escape at all.
+  const close = () => {
+    setOpen(false)
+    trigger.current?.focus()
+  }
+
+  useEffect(() => {
+    if (!open) return
+    const onPointerDown = (event: PointerEvent) => {
+      if (!field.current?.contains(event.target as Node)) setOpen(false)
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    return () => document.removeEventListener('pointerdown', onPointerDown)
+  }, [open])
+
+  const trimmed = query.trim()
+  const needle = trimmed.toLowerCase()
+  const matching = options.filter((option) =>
+    option.label.toLowerCase().includes(needle),
+  )
+  // Offered when what has been typed is not already a value, compared exactly.
+  // Filtering is case-insensitive because that is what searching means, but two
+  // spellings of one subject are two Topics: only the teacher knows whether
+  // they mean the same thing, so a near-miss is offered as a new one.
+  const creatable =
+    onCreate !== undefined
+    && trimmed.length > 0
+    && !options.some((option) => option.label === trimmed)
+
+  // Every row Enter or an arrow key can land on, in the order they are drawn.
+  // Writing a new Topic is the last of them rather than a separate gesture.
+  const rows: (
+    | { kind: 'choose'; value: string }
+    | { kind: 'create' }
+  )[] = [
+    ...matching.map((option) => ({ kind: 'choose' as const, value: option.value })),
+    ...(creatable ? [{ kind: 'create' as const }] : []),
+  ]
+  const activeRow = Math.min(active, Math.max(rows.length - 1, 0))
+
+  const choose = (value: string) => {
+    if (!multiple) {
+      // Choosing what is already chosen clears the field: one value, and the
+      // way to have none of it is to take back the one you picked.
+      onChange(selected.includes(value) ? [] : [value])
+      close()
+    } else {
+      onChange(
+        selected.includes(value)
+          ? selected.filter((item) => item !== value)
+          : [...selected, value],
+      )
+      // The row that was clicked is about to be re-rendered under a cleared
+      // query; keeping the typing where the typing happens is what lets a
+      // teacher name three Topics without reaching for the mouse in between.
+      search.current?.focus()
+    }
+    setQuery('')
+  }
+
+  const create = () => {
+    if (!creatable) return
+    onCreate?.(trimmed)
+    setQuery('')
+    if (multiple) search.current?.focus()
+    else close()
+  }
+
+  const commit = (row: (typeof rows)[number] | undefined) => {
+    if (!row) return
+    if (row.kind === 'create') create()
+    else choose(row.value)
+  }
+
+  return (
+    <div
+      className="front-matter-field"
+      ref={field}
+      onKeyDown={(event) => {
+        if (event.key !== 'Escape' || !open) return
+        // The dialog behind listens for the same key to close itself.
+        event.stopPropagation()
+        close()
+      }}
+    >
+      <span className="front-matter-label">
+        {icon}
+        {label}
+      </span>
+      <button
+        type="button"
+        className="front-matter-value"
+        ref={trigger}
+        aria-label={label}
+        aria-expanded={open}
+        aria-haspopup="true"
+        onClick={() => setOpen((current) => !current)}
+      >
+        {selected.length === 0 ? (
+          <span className="front-matter-blank">Empty</span>
+        ) : (
+          selected.map((value) => (
+            <Fragment key={value}>{renderValue(value)}</Fragment>
+          ))
+        )}
+      </button>
+      {open && (
+        <div className="front-matter-list" role="group" aria-label={label}>
+          <input
+            className="front-matter-search"
+            ref={search}
+            autoFocus
+            aria-label={`Filter ${label}`}
+            placeholder={onCreate ? `Search or add a ${label.replace(/s$/, '')}` : 'Search'}
+            value={query}
+            onChange={(event) => {
+              setQuery(event.target.value)
+              setActive(0)
+            }}
+            onKeyDown={(event) => {
+              if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                event.preventDefault()
+                if (rows.length === 0) return
+                const step = event.key === 'ArrowDown' ? 1 : -1
+                setActive((current) => {
+                  const from = Math.min(current, rows.length - 1)
+                  return (from + step + rows.length) % rows.length
+                })
+                return
+              }
+              if (event.key !== 'Enter') return
+              event.preventDefault()
+              commit(rows[activeRow])
+            }}
+          />
+          <div className="front-matter-options">
+            {rows.map((row, index) =>
+              row.kind === 'choose' ? (
+                <button
+                  type="button"
+                  className="front-matter-option"
+                  key={row.value}
+                  data-active={index === activeRow ? 'true' : undefined}
+                  data-chosen={selected.includes(row.value) ? 'true' : undefined}
+                  onMouseEnter={() => setActive(index)}
+                  onClick={() => choose(row.value)}
+                >
+                  {renderValue(row.value)}
+                  {selected.includes(row.value) && <Check />}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="front-matter-option"
+                  key="create"
+                  data-active={index === activeRow ? 'true' : undefined}
+                  onMouseEnter={() => setActive(index)}
+                  onClick={create}
+                >
+                  <Plus />
+                  Add {renderValue(trimmed)}
+                </button>
+              ),
+            )}
+            {rows.length === 0 && (
+              <p className="front-matter-empty">Nothing to choose</p>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
 
 function CrepeQuestion({
   value,
@@ -81,6 +337,11 @@ function CrepeQuestion({
       },
       featureConfigs: {
         [Crepe.Feature.BlockEdit]: { advancedGroup: { codeBlock: null } },
+        // The browser's own caret is the caret (see `caret-color` in
+        // styles.css). Crepe's painted stand-in would be a second one: it
+        // stays where the selection last was after the editor loses focus,
+        // stops blinking there, and reads as a stray mark left in the text.
+        [Crepe.Feature.Cursor]: { virtual: false },
         [Crepe.Feature.ImageBlock]: { onUpload: saveImage },
         [Crepe.Feature.Placeholder]: { text: 'Write the question…' },
         [Crepe.Feature.Toolbar]: {
@@ -176,49 +437,55 @@ function CrepeQuestion({
 function QuestionDialog({
   question,
   isNew,
+  topicSuggestions,
   onCancel,
   onSave,
 }: {
   question: Question
   isNew: boolean
+  /** Every Topic already used in the Question Bank, offered so a teacher picks
+   *  the spelling they used last time rather than inventing a near-duplicate. */
+  topicSuggestions: readonly string[]
   onCancel: () => void
-  onSave: (question: Question) => void
+  onSave: (question: Question) => Promise<void>
 }) {
-  const [type, setType] = useState<QuestionType>(question.type)
-  const [doc, setDoc] = useState<ProseMirrorJSON>(question.doc)
+  // A question's type is settled when it is created, so the dialog reads it
+  // and never changes it: there is no switch to make, and nothing to preserve
+  // across one.
+  const { type } = question
+  const [doc] = useState<ProseMirrorJSON>(question.doc)
+  const [difficulty, setDifficulty] = useState<Difficulty | ''>(question.difficulty ?? '')
+  const [topics, setTopics] = useState<readonly string[]>(topicsOf(question))
   const latestDoc = useRef(doc)
   const readEditorDocument = useRef<(() => ProseMirrorJSON) | null>(null)
-  // The stash the dialog currently knows about, kept alongside the doc so a
-  // save mid-edit carries a lift/restore that happened before the editor's
-  // own onChange has fired again. Starts from the question's persisted stash,
-  // so an existing stash survives opening the dialog without touching type.
-  const stash = useRef(question.stashedChoices)
+  const dialog = useRef<HTMLElement>(null)
 
-  const changeType = (next: QuestionType) => {
-    const switched = withTypeSwitched(
-      {
-        ...question,
-        type,
-        doc: cleanDocument(latestDoc.current),
-        stashedChoices: stash.current,
-      },
-      next,
-    )
-    stash.current = switched.stashedChoices
-    latestDoc.current = switched.doc
-    setType(switched.type)
-    setDoc(switched.doc)
-  }
+  // Escape that lands on nothing: a click on a bare patch of the dialog, or a
+  // popup closing under the focus it held, leaves focus on the document body,
+  // and a key pressed there never reaches the dialog's own handler. Anything
+  // inside the dialog is left to that handler, so a Crepe menu still gets to
+  // consume the key first.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      if (dialog.current?.contains(event.target as Node)) return
+      onCancel()
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [onCancel])
 
-  const saveQuestion = () => {
+  const saveQuestion = async () => {
     const saved: Question = {
       ...question,
       type,
       doc: cleanDocument(readEditorDocument.current?.() ?? latestDoc.current),
     }
-    if (stash.current) saved.stashedChoices = stash.current
-    else delete saved.stashedChoices
-    onSave(saved)
+    if (difficulty) saved.difficulty = difficulty
+    else delete saved.difficulty
+    if (topics.length > 0) saved.topics = [...topics]
+    else delete saved.topics
+    await onSave(saved)
   }
 
   return (
@@ -245,27 +512,64 @@ function QuestionDialog({
         ) {
           event.preventDefault()
           event.stopPropagation()
-          saveQuestion()
+          void saveQuestion()
         }
       }}
     >
       <section
         className="question-dialog"
+        ref={dialog}
         role="dialog"
         aria-modal="true"
         aria-label="Question editor"
       >
         <header className="dialog-header">
           <h2>{isNew ? 'Add question' : 'Edit question'}</h2>
-          <label>
-            Type
-            <select value={type} onChange={(event) => changeType(event.target.value as QuestionType)}>
-              <option value="open">Open ended</option>
-              <option value="multiple-choice">Multiple choice</option>
-            </select>
-          </label>
         </header>
-        <div className="dialog-editor" key={type}>
+        {/* The question's front matter, indented to the document's own margin
+            because it is the head of the question rather than a strip bolted
+            above it. Type is stated: it was settled when the question was
+            created and the answer choices below depend on it. Difficulty and
+            Topics are optional and both open blank. */}
+        <div className="front-matter">
+          <div className="front-matter-field">
+            <span className="front-matter-label">
+              <FileType2 />
+              Type
+            </span>
+            <span className="front-matter-value front-matter-stated">
+              <span className="badge badge-type">
+                {QUESTION_TYPE_ICONS[type]}
+                {SECTION_LABELS[type]}
+              </span>
+            </span>
+          </div>
+          <FrontMatterSelect
+            icon={<Gauge />}
+            label="Difficulty"
+            options={DIFFICULTIES.map((value) => ({
+              value,
+              label: DIFFICULTY_LABELS[value],
+            }))}
+            selected={difficulty ? [difficulty] : []}
+            multiple={false}
+            onChange={(values) => setDifficulty((values[0] as Difficulty) ?? '')}
+            renderValue={(value) => <DifficultyBadge difficulty={value as Difficulty} />}
+          />
+          <FrontMatterSelect
+            icon={<Tags />}
+            label="Topics"
+            options={Array.from(new Set([...topics, ...topicSuggestions])).map(
+              (topic) => ({ value: topic, label: topic }),
+            )}
+            selected={topics}
+            multiple
+            onChange={setTopics}
+            onCreate={(value) => setTopics(withTopicAdded(topics, value))}
+            renderValue={(value) => <TopicBadge topic={value} />}
+          />
+        </div>
+        <div className="dialog-editor">
           <CrepeQuestion
             value={doc}
             onReady={(readDocument) => {
@@ -281,7 +585,7 @@ function QuestionDialog({
           <button
             type="button"
             className="primary-button"
-            onClick={saveQuestion}
+            onClick={() => void saveQuestion()}
           >
             Save question
           </button>
@@ -292,20 +596,30 @@ function QuestionDialog({
 }
 
 function ExamEditor({ store }: { store: ExamStore }) {
-  const draft = useSyncExternalStore(store.subscribe, store.getState)
-  // There is exactly one version and it is the one on the page. The store can
-  // still hold several — the model is unchanged — but nothing here creates,
-  // names, switches or deletes one: shuffling mutates this version in place,
-  // and Save writes it.
-  const version = store.currentVersion()
-  // A question being written. A new one is a full question that the store has
-  // not been told about yet, so saving is the same call either way.
+  const state = useSyncExternalStore(store.subscribe, store.getState)
+  // What the page renders and what an export publishes: the Question Bank
+  // records the Exam Draft references, in Exam Draft order, and nothing else.
+  // The store derives it once per change, so it is a stable dependency.
+  const { exam, version } = useSyncExternalStore(store.subscribe, store.selectedExam)
+  const examDraftIds = new Set(state.examDraft.questionIds)
+  // A question being written in the popup, and where saving it should put it.
   //
-  // `after` is the question a plus was clicked beside. The store only ever
-  // appends, so where a new question belongs is remembered here and applied as
-  // a move once it exists and has an id to move.
+  // `destination` is what the popup was opened from: the Question Bank on its
+  // own, or a place on the Exam Draft — `after` being the question a plus was
+  // clicked beside. Editing an existing question ignores both: the popup only
+  // ever changes canonical Question Content.
+  // Which Question Section a question about to be written belongs to. Asked
+  // only where the position does not already answer it: a question added below
+  // another one takes that one's section, but a bank-only question and the
+  // first question on an empty sheet could be either.
+  const [choosingType, setChoosingType] = useState<{
+    point: MenuPoint
+    destination: 'question-bank' | 'exam-draft'
+    after: string | null
+  } | null>(null)
   const [editing, setEditing] = useState<{
     question: Question
+    destination: 'question-bank' | 'exam-draft'
     after: string | null
   } | null>(null)
   // The export dialog, and the configuration it is showing. The configuration
@@ -330,6 +644,129 @@ function ExamEditor({ store }: { store: ExamStore }) {
   // selection-wide context-menu actions share one source of truth.
   const selection = useSelection()
   const clearSelection = selection.clear
+  const selectOnExamDraft = selection.select
+  // How the Question Bank is being browsed, and which of its rows was last
+  // clicked. Both are transient UI state: they live here rather than in the
+  // store, so narrowing the bank or picking a row is never an authoring action,
+  // never dirties the exam and never appears in undo history.
+  const [bankFilter, setBankFilter] = useState<QuestionBankFilter>(NO_FILTER)
+  const [selectedBankId, setSelectedBankId] = useState<string | null>(null)
+  // A question an authoring action has just put on the Exam Draft, waiting to be
+  // revealed. `ExamPage` clears it once repagination has actually put it on a
+  // page, which — for a change of content — is not the same moment.
+  const [revealQuestionId, setRevealQuestionId] = useState<string | null>(null)
+  const clearReveal = useCallback(() => setRevealQuestionId(null), [])
+  // The outcome of the latest Vary command stays visible and is announced to
+  // assistive technology. It is transient UI feedback, not authoring state.
+  const [varySummary, setVarySummary] = useState<string | null>(null)
+  useEffect(() => {
+    if (!varySummary) return
+    const timer = window.setTimeout(() => setVarySummary(null), 4_000)
+    return () => window.clearTimeout(timer)
+  }, [varySummary])
+  // A highlighted bank row is a place to read from, not a thing being acted
+  // against, so it lasts exactly as long as the teacher is looking at it: the
+  // next press anywhere but on a row takes it back, and so does Escape (with
+  // the workspace's other selections, in the keyboard handler below).
+  useEffect(() => {
+    if (!selectedBankId) return
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target as HTMLElement | null
+      if (target?.closest('.question-bank-row')) return
+      setSelectedBankId(null)
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    return () => document.removeEventListener('pointerdown', onPointerDown)
+  }, [selectedBankId])
+
+  // One composition, however it was asked for.
+  //
+  // A pointer gesture, the row's Add button and the row menu's Insert and
+  // Replace are four ways of saying the same three things, so they say them
+  // here: exactly one call to the authoring boundary, then the incoming
+  // question becomes the selected one and is queued to be revealed. That is
+  // what makes the paths yield the same Question Bank and Exam Draft state
+  // rather than merely similar ones — and what stops a question composed one
+  // way being findable while the same question composed another way is not.
+  const selectAndReveal = (questionId: string) => {
+    selectOnExamDraft(questionId)
+    setRevealQuestionId(questionId)
+  }
+  // The answer layout a question about to be written starts with: the one the
+  // question it is being added below uses, else the one the last multiple-choice
+  // question written uses, else two columns. A teacher who lays their answers
+  // out in one column lays the next question out that way too, and saying so
+  // once is the whole of the setting they should have to touch.
+  const columnsForNewQuestion = (afterQuestionId: string | null): ColumnSetting => {
+    const above = afterQuestionId
+      ? bankQuestionById(state.questionBank, afterQuestionId)
+      : undefined
+    if (above?.type === 'multiple-choice') return columnsOf(above)
+    const questions = state.questionBank.questions
+    for (let index = questions.length - 1; index >= 0; index -= 1) {
+      const question = questions[index]!
+      if (question.type === 'multiple-choice') return columnsOf(question)
+    }
+    return DEFAULT_COLUMNS
+  }
+
+  const addToExamDraft = (questionId: string) => {
+    store.addToExamDraft(questionId)
+    selectAndReveal(questionId)
+  }
+  const insertIntoExamDraft = (
+    questionId: string,
+    targetQuestionId: string,
+    placement: QuestionPlacement,
+  ) => {
+    store.addToExamDraft(questionId, targetQuestionId, placement)
+    selectAndReveal(questionId)
+  }
+  const replaceInExamDraft = (outgoingQuestionId: string, incomingQuestionId: string) => {
+    store.replaceInExamDraft(outgoingQuestionId, incomingQuestionId)
+    // Necessary rather than merely tidy: the outgoing question is off the exam
+    // now, and a selection pointing at it names no position on the Exam Draft.
+    selectAndReveal(incomingQuestionId)
+  }
+  const replaceWithEquivalentQuestions = (questionIds: readonly string[]) => {
+    const before = store.getState().examDraft.questionIds
+    const positions = questionIds
+      .map((questionId) => before.indexOf(questionId))
+      .filter((index) => index !== -1)
+    const result = store.replaceWithEquivalentQuestions(questionIds)
+    const after = store.getState().examDraft.questionIds
+
+    // Selection follows the occupied positions: replaced questions stay acted
+    // on under their incoming identities, while unmatched questions remain
+    // selected under the identities they already had.
+    selection.clear()
+    for (const index of positions) selection.toggle(after[index]!)
+    const questionNoun = result.replaced === 1 ? 'question' : 'questions'
+    setVarySummary(
+      `Replaced ${result.replaced} ${questionNoun}; ${result.unmatched} unmatched.`,
+    )
+  }
+
+  // Where a released gesture goes. Each branch is one store call, so one drag
+  // is one dirty flag, one mirrored write and one undo step — and the store
+  // itself refuses a cross-section or duplicating drop, so the geometry above
+  // only ever has to decide *where*, never *whether*.
+  const drag = useWorkspaceDrag((source, intent) => {
+    if (source.pane === 'exam-draft') {
+      // Dragging inside the Exam Draft reorders and nothing else: the pane a
+      // gesture starts in is what gives it its meaning.
+      if (intent.kind !== 'insert') return
+      store.moveInExamDraft(source.questionIds, intent.targetQuestionId, intent.placement)
+      return
+    }
+    if (intent.kind === 'insert') {
+      insertIntoExamDraft(source.questionId, intent.targetQuestionId, intent.placement)
+    } else if (intent.kind === 'replace') {
+      replaceInExamDraft(intent.outgoingQuestionId, source.questionId)
+    } else {
+      addToExamDraft(source.questionId)
+    }
+  })
 
   useEffect(() => {
     if (editing || exportDialog) return
@@ -344,12 +781,29 @@ function ExamEditor({ store }: { store: ExamStore }) {
         else store.undo()
         return
       }
+      if (event.key === 'Delete' || event.key === 'Backspace') {
+        // Not while something is being typed into: the bank's search box and
+        // the filter lists are on the same page, and Backspace there means
+        // what it always means.
+        const target = event.target as HTMLElement | null
+        const typing =
+          target?.isContentEditable === true
+          || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target?.tagName ?? '')
+        if (typing || selection.selectedIds.size === 0) return
+        event.preventDefault()
+        // Remove, not Delete: the questions come off the Exam Draft and stay in
+        // the Question Bank, which is why this needs no confirmation.
+        store.removeFromExamDraft([...selection.selectedIds])
+        clearSelection()
+        return
+      }
       if (event.key !== 'Escape') return
       clearSelection()
+      setSelectedBankId(null)
     }
     document.addEventListener('keydown', onKeyDown)
     return () => document.removeEventListener('keydown', onKeyDown)
-  }, [clearSelection, editing, exportDialog, store])
+  }, [clearSelection, editing, exportDialog, selection.selectedIds, store])
 
   const closeExportDialog = () => {
     setExportDialog(null)
@@ -384,8 +838,7 @@ function ExamEditor({ store }: { store: ExamStore }) {
     }
 
     const prepared = prepareExport({
-      exam: store.getState().exam,
-      version: store.currentVersion(),
+      ...store.selectedExam(),
       configuration,
       // Not seeded: a later export deliberately draws a fresh set rather than
       // reproducing an earlier one.
@@ -474,7 +927,7 @@ function ExamEditor({ store }: { store: ExamStore }) {
           <input
             aria-label="Exam name"
             className="document-title"
-            value={draft.exam.title}
+            value={state.examDraft.title}
             onChange={(event) => store.setTitle(event.target.value)}
           />
         </div>
@@ -500,14 +953,6 @@ function ExamEditor({ store }: { store: ExamStore }) {
             <Redo2 />
           </button>
           <button
-            type="button"
-            className="secondary-button insert-question-button"
-            onClick={() => setEditing({ question: createQuestion('multiple-choice'), after: null })}
-          >
-            <Plus />
-            Insert question
-          </button>
-          <button
             ref={exportButton}
             type="button"
             className="export-button"
@@ -527,7 +972,7 @@ function ExamEditor({ store }: { store: ExamStore }) {
 
       {exportDialog && (
         <ExportDialog
-          exam={draft.exam}
+          exam={exam}
           version={version}
           configuration={exportDialog.configuration}
           onConfigurationChange={(configuration) =>
@@ -542,73 +987,128 @@ function ExamEditor({ store }: { store: ExamStore }) {
         />
       )}
 
-      <div className="editor-output">
-        <ExamPage
-          exam={draft.exam}
-          version={version}
-          selection={selection}
-          onEdit={(questionId) => {
-            const question = questionById(draft.exam, questionId)
-            if (question) setEditing({ question, after: null })
-          }}
-          onDuplicate={(questionId) => {
-            const question = questionById(draft.exam, questionId)
-            if (question) store.addQuestion(duplicateQuestion(question))
-          }}
-          onDelete={(questionId) => {
-            if (window.confirm('Delete this question?')) {
-              store.removeQuestion(questionId)
-              selection.clear()
+      {/* The split authoring workspace: the Question Bank beside the rendered
+          Exam Draft. The bank opens as the narrower pane — it is picked from
+          rather than read — and the divider moves. */}
+      <WorkspaceSplit
+        bank={
+          <QuestionBankPane
+            bank={state.questionBank}
+            examDraftIds={examDraftIds}
+            filter={bankFilter}
+            onFilterChange={setBankFilter}
+            selectedQuestionId={selectedBankId}
+            onSelect={setSelectedBankId}
+            drag={drag}
+            onCreate={(point) =>
+              setChoosingType({ point, destination: 'question-bank', after: null })
             }
-          }}
-          onAdd={(section, afterQuestionId) =>
-            setEditing({
-              question: createQuestion(section),
-              after: afterQuestionId ?? null,
-            })
-          }
-          onSetColumns={(questionIds, columns) =>
-            store.setQuestionColumns(questionIds, columns)
-          }
-          onShuffleAnswers={(questionIds) =>
-            store.updateCurrentVersion((current) =>
-              shuffleAnswers(draft.exam, current, questionIds, Math.random),
-            )
-          }
-          onShuffleSelectedQuestions={(questionIds) =>
-            store.updateCurrentVersion((current) =>
-              shuffleSelectedQuestions(draft.exam, current, questionIds, Math.random),
-            )
-          }
-          onMoveQuestions={(questionIds, targetId, placement) =>
-            store.updateCurrentVersion((current) =>
-              moveQuestions(draft.exam, current, questionIds, targetId, placement),
-            )
-          }
-          unsavedDraft={!store.hasSavedVersions()}
-        />
-      </div>
+            onEdit={(questionId) => {
+              const question = bankQuestionById(state.questionBank, questionId)
+              if (question) {
+                setEditing({ question, destination: 'question-bank', after: null })
+              }
+            }}
+            onAddToExamDraft={addToExamDraft}
+            onRemoveFromExamDraft={(questionId) => {
+              store.removeFromExamDraft([questionId])
+              // A selection pointing at a question that is no longer on the
+              // sheet names no position, and only this one has left it.
+              if (selection.isSelected(questionId)) selection.toggle(questionId)
+            }}
+          />
+        }
+        examDraft={
+          <ExamPage
+            exam={exam}
+            version={version}
+            selection={selection}
+            drag={drag}
+            revealQuestionId={revealQuestionId}
+            onRevealed={clearReveal}
+            onEdit={(questionId) => {
+              const question = bankQuestionById(state.questionBank, questionId)
+              if (question) {
+                setEditing({ question, destination: 'exam-draft', after: null })
+              }
+            }}
+            onDuplicate={(questionId) => store.duplicateInExamDraft(questionId)}
+            onReplaceWithEquivalents={replaceWithEquivalentQuestions}
+            onRemove={(questionIds) => {
+              store.removeFromExamDraft(questionIds)
+              selection.clear()
+            }}
+            onAdd={(section, afterQuestionId) =>
+              setEditing({
+                question: createQuestion(
+                  section,
+                  columnsForNewQuestion(afterQuestionId ?? null),
+                ),
+                destination: 'exam-draft',
+                after: afterQuestionId ?? null,
+              })
+            }
+            onAddFirst={(point) =>
+              setChoosingType({ point, destination: 'exam-draft', after: null })
+            }
+            onSetColumns={(questionIds, columns) =>
+              store.setQuestionColumns(questionIds, columns)
+            }
+            unsavedDraft={!store.hasSavedExam()}
+          />
+        }
+      />
+
+      {varySummary && (
+        <p className="vary-summary" role="status" aria-live="polite">
+          {varySummary}
+        </p>
+      )}
 
       <Footer />
 
       {handoff?.format === 'print' && <PrintDocument plans={handoff.plans} />}
 
+      {choosingType && (
+        <ContextMenu
+          point={choosingType.point}
+          ariaLabel="Question type"
+          items={SECTION_ORDER.map((type) => ({
+            kind: 'action' as const,
+            label: SECTION_LABELS[type],
+            icon: QUESTION_TYPE_ICONS[type],
+            onSelect: () => {
+              setEditing({
+                question: createQuestion(
+                  type,
+                  columnsForNewQuestion(choosingType.after),
+                ),
+                destination: choosingType.destination,
+                after: choosingType.after,
+              })
+            },
+          }))}
+          onClose={() => setChoosingType(null)}
+        />
+      )}
+
       {editing && (
         <QuestionDialog
           question={editing.question}
-          isNew={!questionById(draft.exam, editing.question.id)}
+          isNew={!bankQuestionById(state.questionBank, editing.question.id)}
+          topicSuggestions={topicOptions(state.questionBank)}
           onCancel={() => setEditing(null)}
-          onSave={(saved) => {
-            store.updateQuestion(saved)
-            // Read the exam back rather than closing over `draft`: the move
-            // needs the version that already contains the question it is
-            // moving, and the store has just produced it.
-            if (editing.after) {
-              const after = editing.after
-              store.updateCurrentVersion((version) =>
-                moveQuestions(store.getState().exam, version, [saved.id], after, 'after'),
-              )
+          onSave={async (saved) => {
+            // One authoring action, whichever way the popup was opened, so a
+            // saved question is one undo step and cancelling is none at all.
+            if (bankQuestionById(state.questionBank, saved.id)) {
+              store.updateInQuestionBank(saved)
+            } else if (editing.destination === 'question-bank') {
+              store.createInQuestionBank(saved)
+            } else {
+              store.createInExamDraft(saved, editing.after)
             }
+            await store.whenSettled()
             setEditing(null)
           }}
         />

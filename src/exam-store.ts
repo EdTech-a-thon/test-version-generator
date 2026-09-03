@@ -1,31 +1,54 @@
-// The working draft and the store that owns it.
+// The authoring state and the store that owns it.
 //
-// The draft — the exam, every version, which version is being viewed, and the
-// dirty flag — is mirrored to a backend on every change, so a refresh loses
-// nothing. The backend is a narrow injectable interface: the app hands the
-// store a localStorage-backed one, tests hand it an in-memory one, and the
-// saved-state store (IndexedDB) implements the same two methods.
+// The authoring state — the Question Bank, the Exam Draft, and the dirty
+// flag — is mirrored to a backend on every change, so a refresh loses nothing.
+// The backend is a narrow injectable interface: the app hands the store the
+// normalized IndexedDB generation, while unit tests use an in-memory backend.
+//
+// The store is also the one authoring boundary. Every semantic action a teacher
+// can take on the Question Bank or the Exam Draft is a single method here:
+// creating canonical Question Content with or without putting it on the exam,
+// adding a reference, editing a banked question's content and metadata, moving
+// a reference, Replacing one, and Removing one. Callers never assemble an
+// action out of smaller ones — that is what makes each of them atomic, one undo
+// step, and one mirrored write.
 
 import {
-  createExam,
-  createVersion,
-  nextVersionLetter,
-  withQuestionAppended,
-  withQuestionRemoved,
+  duplicateQuestion,
+  moveQuestions,
+  topicsOf,
   type ColumnSetting,
-  type Exam,
   type Question,
-  type Version,
+  type QuestionPlacement,
 } from './exam'
+import {
+  bankQuestionById,
+  createExamDraft,
+  createQuestionBank,
+  withQuestionBanked,
+  withReferenceAdded,
+  withReferenceOrder,
+  withReferenceReplaced,
+  withReferencesRemoved,
+  type ExamDraft,
+  type QuestionBank,
+} from './question-bank'
+import { selectedExam, type SelectedExam } from './selected-exam'
 
-export type WorkingDraft = {
-  exam: Exam
-  versions: Version[]
-  currentVersionId: string
+/** Everything authoring owns: canonical content, the selection made from it,
+ *  and whether that has reached the saved state yet. */
+export type AuthoringState = {
+  questionBank: QuestionBank
+  examDraft: ExamDraft
   dirty: boolean
 }
 
-export type SavedState = Omit<WorkingDraft, 'dirty'>
+export type SavedState = Omit<AuthoringState, 'dirty'>
+
+export type EquivalentReplacementSummary = {
+  replaced: number
+  unmatched: number
+}
 
 // The whole persistence surface: read the last value written, write a new one.
 // Both are asynchronous so that an IndexedDB implementation fits behind the
@@ -33,6 +56,13 @@ export type SavedState = Omit<WorkingDraft, 'dirty'>
 export interface Backend<T> {
   read(): Promise<T | null>
   write(value: T): Promise<void>
+}
+
+/** An authoring backend that keeps the explicit saved state in the same
+ *  durability boundary as the working Question Bank and Exam Draft. */
+export interface DurableAuthoringBackend extends Backend<AuthoringState> {
+  readSaved(): Promise<SavedState | null>
+  commitSaved(value: SavedState): Promise<void>
 }
 
 export type MemoryBackend<T> = Backend<T> & {
@@ -59,172 +89,205 @@ export function createMemoryBackend<T>(
   return backend
 }
 
-export function createLocalStorageBackend<T>(key: string): Backend<T> {
+export function createAuthoringState(): AuthoringState {
   return {
-    read: async () => {
-      const stored = localStorage.getItem(key)
-      if (stored == null) return null
-      try {
-        return JSON.parse(stored) as T
-      } catch {
-        return null
-      }
-    },
-    write: async (value: T) => {
-      localStorage.setItem(key, JSON.stringify(value))
-    },
-  }
-}
-
-export const SAVED_STORAGE_NAME = 'exam-saved-v1'
-
-export function createIndexedDBBackend<T>(databaseName = SAVED_STORAGE_NAME): Backend<T> {
-  const open = () => new Promise<IDBDatabase>((resolve, reject) => {
-    const request = indexedDB.open(databaseName, 1)
-    request.onupgradeneeded = () => request.result.createObjectStore('state')
-    request.onsuccess = () => resolve(request.result)
-    request.onerror = () => reject(request.error)
-  })
-  return {
-    read: async () => {
-      const database = await open()
-      return await new Promise<T | null>((resolve, reject) => {
-        const transaction = database.transaction('state')
-        const request = transaction.objectStore('state').get('saved')
-        request.onsuccess = () => resolve((request.result as T | undefined) ?? null)
-        request.onerror = () => reject(request.error)
-        transaction.oncomplete = () => database.close()
-      })
-    },
-    write: async (value) => {
-      const database = await open()
-      await new Promise<void>((resolve, reject) => {
-        const transaction = database.transaction('state', 'readwrite')
-        transaction.objectStore('state').put(value, 'saved')
-        transaction.oncomplete = () => { database.close(); resolve() }
-        transaction.onerror = () => reject(transaction.error)
-      })
-    },
-  }
-}
-
-// Nothing reads the previous app's `exam-questions-v1`: no migration is
-// performed, the app starts clean.
-export const DRAFT_STORAGE_KEY = 'exam-draft-v1'
-
-export function createWorkingDraft(): WorkingDraft {
-  const version = createVersion('A')
-  return {
-    exam: createExam(),
-    versions: [version],
-    currentVersionId: version.id,
+    questionBank: createQuestionBank(),
+    examDraft: createExamDraft(),
     dirty: false,
   }
 }
 
-function isVersion(value: unknown): value is Version {
-  const version = value as Version | null
-  return (
-    typeof version === 'object' &&
-    version !== null &&
-    typeof version.id === 'string' &&
-    typeof version.letter === 'string' &&
-    Array.isArray(version.questionOrder) &&
-    typeof version.choiceOrder === 'object' &&
-    version.choiceOrder !== null
-  )
+function isQuestionBank(value: unknown): value is QuestionBank {
+  const bank = value as QuestionBank | null
+  return typeof bank === 'object' && bank !== null && Array.isArray(bank.questions)
 }
 
-// A stored draft is trusted only as far as its shape; anything else is treated
-// as absent, so a corrupt entry costs the teacher their draft rather than the
-// whole app.
-function isWorkingDraft(value: unknown): value is WorkingDraft {
-  const draft = value as WorkingDraft | null
+function isExamDraft(value: unknown): value is ExamDraft {
+  const draft = value as ExamDraft | null
   return (
     typeof draft === 'object' &&
     draft !== null &&
-    typeof draft.exam === 'object' &&
-    draft.exam !== null &&
-    typeof draft.exam.title === 'string' &&
-    Array.isArray(draft.exam.questions) &&
-    Array.isArray(draft.versions) &&
-    draft.versions.length > 0 &&
-    draft.versions.every(isVersion) &&
-    typeof draft.dirty === 'boolean' &&
-    draft.versions.some((version) => version.id === draft.currentVersionId)
+    typeof draft.title === 'string' &&
+    Array.isArray(draft.questionIds) &&
+    draft.questionIds.every((id) => typeof id === 'string')
+  )
+}
+
+// Stored authoring state is trusted only as far as its shape; anything else is
+// treated as absent, so a corrupt entry costs the teacher their draft rather
+// than the whole app.
+function isAuthoringState(value: unknown): value is AuthoringState {
+  const state = value as AuthoringState | null
+  return (
+    typeof state === 'object' &&
+    state !== null &&
+    typeof state.dirty === 'boolean' &&
+    isQuestionBank(state.questionBank) &&
+    isExamDraft(state.examDraft)
   )
 }
 
 function isSavedState(value: unknown): value is SavedState {
-  return isWorkingDraft({ ...(value as object), dirty: false })
+  return isAuthoringState({ ...(value as object), dirty: false })
 }
 
+/**
+ * The authoring boundary.
+ *
+ * Reads are snapshots: `getState` and `selectedExam` return objects that are
+ * new only when something they describe changed, so a React consumer can hold
+ * either as a dependency.
+ */
 export type ExamStore = {
-  /** The current draft. A new object on every change, safe as a snapshot. */
-  getState(): WorkingDraft
-  /** The version being viewed. */
-  currentVersion(): Version
+  /** The current authoring state. A new object on every change. */
+  getState(): AuthoringState
+  /** The Exam and ordering rendering and export consume — the referenced
+   *  Question Bank records, in Exam Draft order, and nothing else. */
+  selectedExam(): SelectedExam
   subscribe(listener: () => void): () => void
 
   setTitle(title: string): void
-  /** Appends the question to the exam and to every version's ordering. */
-  addQuestion(question: Question): void
-  /** Replaces the question's content in place, adding it if it is unknown. */
-  updateQuestion(question: Question): void
-  removeQuestion(questionId: string): void
+
+  /** Banks canonical Question Content without putting it on the Exam Draft. */
+  createInQuestionBank(question: Question): void
+  /** Banks canonical Question Content and references it from the Exam Draft,
+   *  after `afterQuestionId` when given and at the end otherwise. */
+  createInExamDraft(question: Question, afterQuestionId?: string | null): void
+  /** Replaces one Question Bank record — its Question Content, its Question
+   *  Type, its Difficulty and its Topics — wherever it is referenced. One
+   *  popup save is one call, so a content edit and a metadata edit made
+   *  together are one authoring action. An unbanked question is banked, so a
+   *  save is never lost. */
+  updateInQuestionBank(question: Question): void
   setQuestionColumns(questionIds: readonly string[], columns: ColumnSetting): void
+  /** Banks a copy of a banked question and references it immediately after the
+   *  original. Nothing is copied out of the Exam Draft: the copy is a Question
+   *  Bank record of its own. */
+  duplicateInExamDraft(questionId: string): void
+  /** References an unused Question Bank record from the Exam Draft — at the end,
+   *  or immediately before or after `targetQuestionId`. `'before'` is what names
+   *  the first position in a Question Section, which no `'after'` can. A
+   *  question already referenced is left where it is: a reference occurs at most
+   *  once. An insertion beside a question in another Question Section is
+   *  refused: composing never moves a question across the Multiple Choice /
+   *  Short Answer boundary. */
+  addToExamDraft(
+    questionId: string,
+    targetQuestionId?: string | null,
+    placement?: QuestionPlacement,
+  ): void
+  /** Replaces one Exam Draft reference with an unused Question Bank record of
+   *  the same Question Type, in the outgoing question's exact position. Nothing
+   *  is copied and nothing is deleted: the outgoing question keeps its Question
+   *  Bank record and is available to compose with again. Refused when either
+   *  question is unbanked, when their Question Sections differ, or when the
+   *  incoming question is already on the Exam Draft. */
+  replaceInExamDraft(outgoingQuestionId: string, incomingQuestionId: string): void
+  /** Replaces as many selected Exam Draft questions as have exact, unused
+   *  Equivalent Questions in the latest Question Bank state. All replacements
+   *  are one authoring action and candidates never come from the initial draft. */
+  replaceWithEquivalentQuestions(
+    questionIds: readonly string[],
+  ): EquivalentReplacementSummary
+  /** Moves references within their Question Section. A target in another
+   *  section is refused: composing never changes a question's type. */
+  moveInExamDraft(
+    questionIds: readonly string[],
+    targetId: string,
+    placement: QuestionPlacement,
+  ): void
+  /** Removes references from the Exam Draft, leaving their Question Bank
+   *  records exactly as they were. Remove excludes; it never deletes. */
+  removeFromExamDraft(questionIds: readonly string[]): void
 
-  /** Replaces the version with this id, or adds it if there is none. */
-  putVersion(version: Version): void
-  /** Rewrites the version being viewed — how shuffles record an ordering. */
-  updateCurrentVersion(update: (version: Version) => Version): void
-  selectVersion(versionId: string): void
-  renameVersion(versionId: string, letter: string): void
-  deleteVersion(versionId: string): void
-
-  hasSavedVersions(): boolean
+  /** Whether anything has ever been saved — what tells an untouched draft from
+   *  an exam with unsaved changes. */
+  hasSavedExam(): boolean
   canUndo(): boolean
   canRedo(): boolean
   undo(): void
   redo(): void
   save(): Promise<void>
   discard(): Promise<void>
-  saveAsNewVersion(): Promise<Version>
 
   /** Resolves once every mirrored write has landed. For tests and shutdown. */
   whenSettled(): Promise<void>
 }
 
+// The authoring state carrying a new Exam Draft — or the very same state when
+// the Exam Draft refused the change. Every reference operation is total and
+// returns the draft it was given when it declines, and this is what turns that
+// into "nothing happened": no undo step, no dirty flag and no write, because
+// `apply` stops at an unchanged state.
+function withExamDraft(
+  state: AuthoringState,
+  examDraft: ExamDraft,
+): AuthoringState {
+  return examDraft === state.examDraft ? state : { ...state, examDraft }
+}
+
+function areEquivalentQuestions(left: Question, right: Question): boolean {
+  const leftTopics = new Set(topicsOf(left))
+  const rightTopics = new Set(topicsOf(right))
+  if (leftTopics.size === 0 || leftTopics.size !== rightTopics.size) return false
+  return (
+    left.type === right.type
+    && left.difficulty === right.difficulty
+    && [...leftTopics].every((topic) => rightTopics.has(topic))
+  )
+}
+
 export function createExamStore(options: {
-  backend: Backend<WorkingDraft>
+  backend: Backend<AuthoringState>
   savedBackend?: Backend<SavedState>
   saved?: SavedState | null
-  initial?: WorkingDraft
+  initial?: AuthoringState
 }): ExamStore {
   const { backend, savedBackend } = options
-  let state: WorkingDraft = options.initial ?? createWorkingDraft()
+  const durableBackend = 'commitSaved' in backend
+    ? (backend as DurableAuthoringBackend)
+    : null
+  let state: AuthoringState = options.initial ?? createAuthoringState()
   let saved: SavedState | null = options.saved ?? null
+  // The derived Exam, kept beside the state it was derived from. Deriving it
+  // once per change rather than once per read is what lets a consumer treat it
+  // as a stable dependency; `selectedExam` reuses the halves that did not move.
+  let selected: SelectedExam = selectedExam(state.questionBank, state.examDraft)
   const listeners = new Set<() => void>()
   let pending: Promise<void> = Promise.resolve()
-  const undoStack: WorkingDraft[] = []
-  const redoStack: WorkingDraft[] = []
+  const undoStack: AuthoringState[] = []
+  const redoStack: AuthoringState[] = []
   const HISTORY_LIMIT = 100
 
-  // Writes are chained rather than fired in parallel, so the last change is the
-  // last thing written no matter how fast the teacher types.
+  // Generic backends are chained so their writes cannot overtake one another.
+  // The durable IndexedDB backend starts each transaction immediately; the
+  // database queues overlapping read/write transactions in creation order.
+  // Starting them here matters at navigation time: a second authored question
+  // must already be inside IndexedDB's durability boundary when Reload begins,
+  // not waiting behind a promise for the first transaction.
   const mirror = () => {
     const snapshot = state
-    pending = pending.then(() =>
-      backend.write(snapshot).catch((error: unknown) => {
-        console.error('Could not mirror the working draft', error)
-      }),
-    )
+    const write = durableBackend
+      ? backend.write(snapshot)
+      : pending.then(() => backend.write(snapshot))
+    pending = Promise.all([pending, write])
+      .then(() => undefined)
+      .catch((error: unknown) => {
+        console.error('Could not mirror the authoring state', error)
+      })
   }
 
-  // Every write goes through here: it is the single place the draft is
-  // mirrored and subscribers are told.
+  const settle = (next: AuthoringState) => {
+    state = next
+    selected = selectedExam(state.questionBank, state.examDraft, selected)
+    mirror()
+    for (const listener of listeners) listener()
+  }
+
+  // Every write goes through here: it is the single place the authoring state
+  // is mirrored and subscribers are told.
   const apply = (
-    next: (draft: WorkingDraft) => WorkingDraft,
+    next: (state: AuthoringState) => AuthoringState,
     dirty: boolean,
     recordHistory = false,
   ) => {
@@ -235,151 +298,184 @@ export function createExamStore(options: {
       if (undoStack.length > HISTORY_LIMIT) undoStack.shift()
       redoStack.length = 0
     }
-    state = dirty ? { ...updated, dirty: true } : updated
-    mirror()
-    for (const listener of listeners) listener()
+    settle(dirty ? { ...updated, dirty: true } : updated)
   }
 
-  // An edit: the single place the dirty flag is raised. Which version is being
-  // viewed is not an edit, so it does not come through here.
-  const change = (next: (draft: WorkingDraft) => WorkingDraft) =>
+  // One semantic authoring action: the single place the dirty flag is raised,
+  // and the single place a step is pushed onto the undo stack. Every boundary
+  // method below is exactly one call to this, which is what makes one teacher
+  // action one undo step.
+  const change = (next: (state: AuthoringState) => AuthoringState) =>
     apply(next, true, true)
 
   const restoreHistory = (
-    source: WorkingDraft[],
-    destination: WorkingDraft[],
+    source: AuthoringState[],
+    destination: AuthoringState[],
   ) => {
     const restored = source.pop()
     if (!restored) return
     destination.push(state)
-    state = restored
-    mirror()
-    for (const listener of listeners) listener()
+    settle(restored)
   }
-
-  const mapVersions = (
-    draft: WorkingDraft,
-    update: (version: Version) => Version,
-  ): WorkingDraft => ({ ...draft, versions: draft.versions.map(update) })
 
   const store: ExamStore = {
     getState: () => state,
-    currentVersion: () =>
-      state.versions.find((version) => version.id === state.currentVersionId) ??
-      state.versions[0]!,
+    selectedExam: () => selected,
     subscribe: (listener) => {
       listeners.add(listener)
       return () => listeners.delete(listener)
     },
 
     setTitle: (title) =>
-      change((draft) => ({ ...draft, exam: { ...draft.exam, title } })),
-
-    addQuestion: (question) =>
-      change((draft) =>
-        mapVersions(
-          {
-            ...draft,
-            exam: {
-              ...draft.exam,
-              questions: [...draft.exam.questions, question],
-            },
-          },
-          (version) => withQuestionAppended(version, question.id),
-        ),
+      change((current) =>
+        title === current.examDraft.title
+          ? current
+          : { ...current, examDraft: { ...current.examDraft, title } },
       ),
 
-    updateQuestion: (question) =>
-      change((draft) => {
-        const known = draft.exam.questions.some((item) => item.id === question.id)
-        const questions = known
-          ? draft.exam.questions.map((item) =>
-              item.id === question.id ? question : item,
-            )
-          : [...draft.exam.questions, question]
-        return mapVersions(
-          { ...draft, exam: { ...draft.exam, questions } },
-          (version) => withQuestionAppended(version, question.id),
-        )
-      }),
+    createInQuestionBank: (question) =>
+      change((current) => ({
+        ...current,
+        questionBank: withQuestionBanked(current.questionBank, question),
+      })),
 
-    removeQuestion: (questionId) =>
-      change((draft) =>
-        mapVersions(
-          {
-            ...draft,
-            exam: {
-              ...draft.exam,
-              questions: draft.exam.questions.filter(
-                (question) => question.id !== questionId,
-              ),
-            },
-          },
-          (version) => withQuestionRemoved(version, questionId),
+    createInExamDraft: (question, afterQuestionId = null) =>
+      change((current) => ({
+        ...current,
+        questionBank: withQuestionBanked(current.questionBank, question),
+        examDraft: withReferenceAdded(
+          current.examDraft,
+          question.id,
+          afterQuestionId,
         ),
-      ),
+      })),
+
+    updateInQuestionBank: (question) =>
+      change((current) => ({
+        ...current,
+        questionBank: withQuestionBanked(current.questionBank, question),
+      })),
 
     setQuestionColumns: (questionIds, columns) => {
-      const selected = new Set(questionIds)
-      change((draft) => ({
-        ...draft,
-        exam: {
-          ...draft.exam,
-          questions: draft.exam.questions.map((question) =>
-            selected.has(question.id) ? { ...question, columns } : question,
-          ),
-        },
-      }))
+      const targeted = new Set(questionIds)
+      change((current) => {
+        let moved = false
+        const questions = current.questionBank.questions.map((question) => {
+          if (!targeted.has(question.id) || question.columns === columns) {
+            return question
+          }
+          moved = true
+          return { ...question, columns }
+        })
+        return moved ? { ...current, questionBank: { questions } } : current
+      })
     },
 
-    putVersion: (version) =>
-      change((draft) => ({
-        ...draft,
-        versions: draft.versions.some((item) => item.id === version.id)
-          ? draft.versions.map((item) => (item.id === version.id ? version : item))
-          : [...draft.versions, version],
-      })),
-
-    updateCurrentVersion: (update) =>
-      change((draft) =>
-        mapVersions(draft, (version) =>
-          version.id === draft.currentVersionId ? update(version) : version,
-        ),
-      ),
-
-    selectVersion: (versionId) =>
-      apply(
-        (draft) =>
-          draft.versions.some((version) => version.id === versionId)
-            ? { ...draft, currentVersionId: versionId }
-            : draft,
-        false,
-      ),
-
-    renameVersion: (versionId, letter) =>
-      change((draft) => ({
-        ...draft,
-        versions: draft.versions.map((version) =>
-          version.id === versionId ? { ...version, letter } : version,
-        ),
-      })),
-
-    deleteVersion: (versionId) =>
-      change((draft) => {
-        if (draft.versions.length === 1) return draft
-        const versions = draft.versions.filter((version) => version.id !== versionId)
-        if (versions.length === draft.versions.length) return draft
+    duplicateInExamDraft: (questionId) =>
+      change((current) => {
+        const original = bankQuestionById(current.questionBank, questionId)
+        if (!original) return current
+        const copy = duplicateQuestion(original)
         return {
-          ...draft,
-          versions,
-          currentVersionId:
-            draft.currentVersionId === versionId
-              ? versions[0]!.id
-              : draft.currentVersionId,
+          ...current,
+          questionBank: withQuestionBanked(current.questionBank, copy),
+          examDraft: withReferenceAdded(current.examDraft, copy.id, questionId),
         }
       }),
 
-    hasSavedVersions: () => saved !== null && saved.versions.length > 0,
+    addToExamDraft: (questionId, targetQuestionId = null, placement = 'after') =>
+      change((current) => {
+        const question = bankQuestionById(current.questionBank, questionId)
+        if (!question) return current
+        // An insertion point in another Question Section is refused rather than
+        // quietly honoured somewhere else. `createInExamDraft` is deliberately
+        // more tolerant: there the position is a hint and refusing it would
+        // lose a question the teacher has just written.
+        const target = targetQuestionId
+          ? bankQuestionById(current.questionBank, targetQuestionId)
+          : null
+        if (target && target.type !== question.type) return current
+        return withExamDraft(
+          current,
+          withReferenceAdded(
+            current.examDraft,
+            questionId,
+            targetQuestionId,
+            placement,
+          ),
+        )
+      }),
+
+    replaceInExamDraft: (outgoingQuestionId, incomingQuestionId) =>
+      change((current) => {
+        const outgoing = bankQuestionById(current.questionBank, outgoingQuestionId)
+        const incoming = bankQuestionById(current.questionBank, incomingQuestionId)
+        if (!outgoing || !incoming || outgoing.type !== incoming.type) return current
+        return withExamDraft(
+          current,
+          withReferenceReplaced(
+            current.examDraft,
+            outgoingQuestionId,
+            incomingQuestionId,
+          ),
+        )
+      }),
+
+    replaceWithEquivalentQuestions: (questionIds) => {
+      const summary: EquivalentReplacementSummary = { replaced: 0, unmatched: 0 }
+      change((current) => {
+        const initialDraftIds = new Set(current.examDraft.questionIds)
+        const selectedIds = [...new Set(questionIds)].filter((id) => initialDraftIds.has(id))
+        const available = current.questionBank.questions.filter(
+          (question) => !initialDraftIds.has(question.id),
+        )
+        const consumed = new Set<string>()
+        let examDraft = current.examDraft
+
+        for (const outgoingId of selectedIds) {
+          const outgoing = bankQuestionById(current.questionBank, outgoingId)
+          const incoming = outgoing
+            ? available.find(
+                (candidate) =>
+                  !consumed.has(candidate.id)
+                  && areEquivalentQuestions(outgoing, candidate),
+              )
+            : undefined
+          if (!incoming) {
+            summary.unmatched += 1
+            continue
+          }
+          consumed.add(incoming.id)
+          examDraft = withReferenceReplaced(examDraft, outgoingId, incoming.id)
+          summary.replaced += 1
+        }
+
+        return withExamDraft(current, examDraft)
+      })
+      return summary
+    },
+
+    moveInExamDraft: (questionIds, targetId, placement) =>
+      change((current) => {
+        // Reordering is the derived Exam's own rule — a question only ever
+        // moves within its Question Section — so the move is resolved against
+        // the derived arrangement and its result recorded as the Exam Draft's
+        // new order.
+        const { exam, version } = selectedExam(current.questionBank, current.examDraft)
+        const moved = moveQuestions(exam, version, questionIds, targetId, placement)
+        if (moved === version) return current
+        return withExamDraft(
+          current,
+          withReferenceOrder(current.examDraft, moved.questionOrder),
+        )
+      }),
+
+    removeFromExamDraft: (questionIds) =>
+      change((current) =>
+        withExamDraft(current, withReferencesRemoved(current.examDraft, questionIds)),
+      ),
+
+    hasSavedExam: () => saved !== null,
 
     canUndo: () => undoStack.length > 0,
     canRedo: () => redoStack.length > 0,
@@ -387,51 +483,38 @@ export function createExamStore(options: {
     redo: () => restoreHistory(redoStack, undoStack),
 
     save: async () => {
-      const current = store.currentVersion()
-      const versions = saved ? state.versions : [current]
-      const nextSaved = { exam: state.exam, versions, currentVersionId: current.id }
-      await savedBackend?.write(nextSaved)
-      saved = nextSaved
-      apply(() => ({ ...state, versions, dirty: false }), false)
       await pending
+      const savingState = state
+      const nextSaved: SavedState = {
+        questionBank: savingState.questionBank,
+        examDraft: savingState.examDraft,
+      }
+      await (durableBackend
+        ? durableBackend.commitSaved(nextSaved)
+        : savedBackend?.write(nextSaved))
+      saved = nextSaved
+      // A new authoring action may have happened while durable Save was in
+      // flight. It is ordered after the saved transaction and remains dirty;
+      // only the exact state that was saved can be marked clean.
+      if (state !== savingState) return
+      if (durableBackend) {
+        state = { ...savingState, dirty: false }
+        selected = selectedExam(state.questionBank, state.examDraft, selected)
+        for (const listener of listeners) listener()
+      } else {
+        apply((current) => ({ ...current, dirty: false }), false)
+        await pending
+      }
     },
 
     discard: async () => {
-      const restored: WorkingDraft = saved
-        ? {
-            ...saved,
-            currentVersionId: saved.versions.some(
-              (version) => version.id === state.currentVersionId,
-            )
-              ? state.currentVersionId
-              : saved.currentVersionId,
-            dirty: false,
-          }
-        : createWorkingDraft()
+      const restored: AuthoringState = saved
+        ? { ...saved, dirty: false }
+        : createAuthoringState()
       undoStack.length = 0
       redoStack.length = 0
       apply(() => restored, false)
       await pending
-    },
-
-    saveAsNewVersion: async () => {
-      const source = store.currentVersion()
-      const existing = saved?.versions ?? []
-      const version: Version = {
-        ...structuredClone(source),
-        id: crypto.randomUUID(),
-        letter: nextVersionLetter(existing),
-      }
-      const versions = [...existing, version]
-      const nextSaved = { exam: state.exam, versions, currentVersionId: version.id }
-      await savedBackend?.write(nextSaved)
-      saved = nextSaved
-      apply(
-        () => ({ ...state, versions, currentVersionId: version.id, dirty: false }),
-        false,
-      )
-      await pending
-      return version
     },
 
     whenSettled: () => pending,
@@ -440,33 +523,30 @@ export function createExamStore(options: {
   return store
 }
 
-// Restore the draft the teacher left behind, or start a clean one.
+// Restore the authoring state the teacher left behind, or start a clean one.
 export async function loadExamStore(
-  backend: Backend<WorkingDraft>,
+  backend: Backend<AuthoringState>,
   savedBackend?: Backend<SavedState>,
 ): Promise<ExamStore> {
-  let stored: WorkingDraft | null = null
+  let stored: AuthoringState | null = null
   let saved: SavedState | null = null
   try {
     stored = await backend.read()
   } catch (error) {
-    console.error('Could not read the working draft', error)
+    console.error('Could not read the authoring state', error)
   }
   try {
-    const storedSaved = (await savedBackend?.read()) ?? null
+    const storedSaved = 'readSaved' in backend
+      ? await (backend as DurableAuthoringBackend).readSaved()
+      : (await savedBackend?.read()) ?? null
     saved = isSavedState(storedSaved) ? storedSaved : null
   } catch (error) {
-    console.error('Could not read saved exams', error)
+    console.error('Could not read the saved exam', error)
   }
-  const initial = isWorkingDraft(stored)
+  const initial = isAuthoringState(stored)
     ? stored
-    : saved && saved.versions.length > 0
+    : saved
       ? { ...saved, dirty: false }
-      : createWorkingDraft()
-  return createExamStore({
-    backend,
-    savedBackend,
-    saved,
-    initial,
-  })
+      : createAuthoringState()
+  return createExamStore({ backend, savedBackend, saved, initial })
 }

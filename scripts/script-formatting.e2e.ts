@@ -61,7 +61,8 @@ async function pasteContent(
 
 test('authors can apply and persist semantic script formatting', async ({ page }) => {
   await page.goto('/')
-  await page.getByRole('button', { name: 'Insert question' }).click()
+  await page.getByRole('button', { name: 'Insert your first question' }).click()
+  await page.getByRole('menuitem', { name: 'Multiple choice' }).click()
 
   const dialog = page.getByRole('dialog', { name: 'Question editor' })
   const editor = dialog.locator('.ProseMirror')
@@ -201,14 +202,8 @@ test('authors can apply and persist semantic script formatting', async ({ page }
     question.locator('.choice-body').filter({ hasText: 'code plus x' }).locator('code'),
   ).toHaveText('code')
 
+  // Reopened, the formatting is still in the document it was written into.
   await question.dblclick()
-  await dialog.getByLabel('Type').selectOption('open')
-  await expect(editor.locator('.mc-choice')).toHaveCount(0)
-  await expect(editor.locator('sup')).toHaveText('2')
-  await page.getByRole('button', { name: 'Save question' }).click()
-
-  await question.dblclick()
-  await dialog.getByLabel('Type').selectOption('multiple-choice')
   await expect(editor.locator('.mc-choice-body').first().locator('sub')).toHaveText('2')
   await page.getByRole('button', { name: 'Save question' }).click()
 

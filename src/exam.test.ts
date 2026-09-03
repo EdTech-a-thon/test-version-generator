@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'bun:test'
 import {
+  DEFAULT_COLUMNS,
   choicesOf,
+  columnsOf,
   createExam,
   createQuestion,
   createVersion,
@@ -12,27 +14,13 @@ import {
   orderedQuestions,
   questionById,
   questionsInSection,
-  shuffleAnswers,
-  shuffleQuestions,
-  shuffleSelectedQuestions,
+  topicsOf,
   withQuestionAppended,
   withQuestionRemoved,
-  withTypeSwitched,
+  withTopicAdded,
 } from './exam'
-import type { Exam, Question, RandomSource, Version } from './exam'
+import type { Exam, Question, Version } from './exam'
 import type { ProseMirrorJSON } from './question-doc'
-
-// A fixed sequence of draws in place of `Math.random`, so a shuffle's outcome
-// is reproducible. Wraps around if a shuffle draws more than the sequence
-// supplies.
-function fixedRandom(sequence: number[]): RandomSource {
-  let index = 0
-  return () => {
-    const value = sequence[index % sequence.length]!
-    index += 1
-    return value
-  }
-}
 
 function choice(id: string, correct = false): ProseMirrorJSON {
   return {
@@ -56,12 +44,12 @@ function multipleChoice(id: string, choiceIds: string[], correctId = ''): Questi
         },
       ],
     },
-    columns: 'auto',
+    columns: 2,
   }
 }
 
 function open(id: string): Question {
-  return { id, type: 'open', doc: { type: 'doc', content: [] }, columns: 'auto' }
+  return { id, type: 'open', doc: { type: 'doc', content: [] }, columns: 2 }
 }
 
 function examOf(questions: Question[]): Exam {
@@ -75,14 +63,35 @@ function versionOf(questionOrder: string[], choiceOrder: Record<string, string[]
 const ids = (questions: Question[]) => questions.map((question) => question.id)
 
 describe('question and version construction', () => {
-  test('a new question defaults to automatic columns', () => {
-    expect(createQuestion('multiple-choice').columns).toBe('auto')
-    expect(createQuestion('open').columns).toBe('auto')
+  test('a new question falls back to the default answer columns', () => {
+    expect(createQuestion('multiple-choice').columns).toBe(DEFAULT_COLUMNS)
+    expect(createQuestion('open').columns).toBe(DEFAULT_COLUMNS)
+  })
+
+  test('a new question can be given the layout of the one it is written beside', () => {
+    expect(createQuestion('multiple-choice', 4).columns).toBe(4)
+  })
+
+  test('a question stored before the setting was a plain count reads as the default', () => {
+    // `'auto'` was a fourth setting once: the count was measured rather than
+    // chosen. Records written then are still in browsers.
+    const legacy = {
+      ...createQuestion('multiple-choice'),
+      columns: 'auto' as unknown as Question['columns'],
+    }
+    expect(columnsOf(legacy)).toBe(DEFAULT_COLUMNS)
+    expect(columnsOf({ ...legacy, columns: 4 })).toBe(4)
   })
 
   test('a new multiple-choice question carries choices, an open one does not', () => {
     expect(orderedChoices(createQuestion('multiple-choice'), createVersion())).not.toHaveLength(0)
     expect(orderedChoices(createQuestion('open'), createVersion())).toHaveLength(0)
+  })
+
+  test('a new question carries no Difficulty and no Topics', () => {
+    const question = createQuestion('open')
+    expect(question.difficulty).toBeUndefined()
+    expect(topicsOf(question)).toEqual([])
   })
 
   test('a new exam is empty and its questions have unique ids', () => {
@@ -243,241 +252,53 @@ describe('duplicating a question', () => {
     expect(choicesOf(original).map((choice) => choice.id)).toEqual(['c1', 'c2'])
   })
 
-  test('keeps the type, the column setting and the stashed choices', () => {
+  test('keeps the type and the column setting', () => {
     const original: Question = {
       ...multipleChoice('q1', ['c1', 'c2']),
       type: 'open',
       columns: 4,
-      stashedChoices: { type: 'multipleChoice', content: [] },
     }
     const copy = duplicateQuestion(original)
     expect(copy).toMatchObject({ type: 'open', columns: 4 })
-    expect(copy.stashedChoices).toEqual(original.stashedChoices!)
+  })
+
+  test('keeps the Difficulty and the Topics, without sharing the Topic list', () => {
+    const original: Question = {
+      ...multipleChoice('q1', ['c1', 'c2']),
+      difficulty: 'hard',
+      topics: ['Algebra', 'Geometry'],
+    }
+    const copy = duplicateQuestion(original)
+    expect(copy.difficulty).toBe('hard')
+    expect(topicsOf(copy)).toEqual(['Algebra', 'Geometry'])
+    expect(copy.topics).not.toBe(original.topics)
   })
 })
 
-describe('switching a question between multiple choice and open response', () => {
-  test('switching to open moves the choices into the stash and out of the document', () => {
-    const question = multipleChoice('q1', ['c1', 'c2'], 'c1')
-    const switched = withTypeSwitched(question, 'open')
-    expect(switched.type).toBe('open')
-    expect(choicesOf(switched)).toEqual([])
-    expect(switched.stashedChoices).toBeDefined()
-    expect(
-      (switched.stashedChoices as { content: { attrs: { id: string } }[] }).content.map(
-        (choice) => choice.attrs.id,
-      ),
-    ).toEqual(['c1', 'c2'])
+describe('Difficulty and Topics', () => {
+  test('reads a question stored before Topics existed as untagged', () => {
+    const { topics, ...untagged } = { ...createQuestion('open'), topics: ['Algebra'] }
+    expect(topics).toEqual(['Algebra'])
+    expect(topicsOf(untagged)).toEqual([])
   })
 
-  test('switching back restores the stashed choices, including which one was correct', () => {
-    const question = multipleChoice('q1', ['c1', 'c2', 'c3'], 'c2')
-    const open = withTypeSwitched(question, 'open')
-    const restored = withTypeSwitched(open, 'multiple-choice')
-    expect(restored.type).toBe('multiple-choice')
-    expect(choicesOf(restored)).toEqual(choicesOf(question))
+  test('commits a Topic with its surrounding whitespace trimmed', () => {
+    expect(withTopicAdded([], '  Cell division  ')).toEqual(['Cell division'])
+    expect(withTopicAdded(['Algebra'], 'Geometry')).toEqual(['Algebra', 'Geometry'])
   })
 
-  test('restoring the stash keeps choice ids stable so a version ordering still lines up', () => {
-    const question = multipleChoice('q1', ['c1', 'c2'], 'c1')
-    const version = versionOf(['q1'], { q1: ['c2', 'c1'] })
-    const restored = withTypeSwitched(withTypeSwitched(question, 'open'), 'multiple-choice')
-    expect(orderedChoices(restored, version).map((choice) => choice.id)).toEqual(['c2', 'c1'])
+  test('ignores a Topic that is empty once trimmed', () => {
+    expect(withTopicAdded(['Algebra'], '   ')).toEqual(['Algebra'])
+    expect(withTopicAdded(['Algebra'], '')).toEqual(['Algebra'])
   })
 
-  test('switching to open twice does not accumulate history — the stash is replaced, not appended', () => {
-    const question = multipleChoice('q1', ['c1', 'c2'], 'c1')
-    const firstOpen = withTypeSwitched(question, 'open')
-    // Restore, then edit the choices before stashing again — as a teacher would
-    // after reconsidering.
-    const restored = withTypeSwitched(firstOpen, 'multiple-choice')
-    const edited = { ...restored, doc: multipleChoice('q1', ['c3', 'c4'], 'c4').doc }
-    const secondOpen = withTypeSwitched(edited, 'open')
-    expect(
-      (secondOpen.stashedChoices as { content: { attrs: { id: string } }[] }).content.map(
-        (choice) => choice.attrs.id,
-      ),
-    ).toEqual(['c3', 'c4'])
-  })
-
-  test('switching to multiple choice with no prior stash starts a fresh set of choices', () => {
-    const question = open('o1')
-    const switched = withTypeSwitched(question, 'multiple-choice')
-    expect(switched.type).toBe('multiple-choice')
-    expect(choicesOf(switched).length).toBeGreaterThan(0)
-  })
-
-  test('the stash is cleared once restored — it exists only while the question is open', () => {
-    const question = multipleChoice('q1', ['c1', 'c2'], 'c1')
-    const restored = withTypeSwitched(withTypeSwitched(question, 'open'), 'multiple-choice')
-    expect(restored.stashedChoices).toBeUndefined()
-  })
-
-  test('switching to the type a question already is returns it unchanged', () => {
-    const mc = multipleChoice('q1', ['c1', 'c2'], 'c1')
-    const openQuestion = open('o1')
-    expect(withTypeSwitched(mc, 'multiple-choice')).toBe(mc)
-    expect(withTypeSwitched(openQuestion, 'open')).toBe(openQuestion)
-  })
-})
-
-describe('shuffleQuestions', () => {
-  function exam5() {
-    return examOf([
-      multipleChoice('q1', ['a']),
-      multipleChoice('q2', ['a']),
-      multipleChoice('q3', ['a']),
-      open('o1'),
-      open('o2'),
+  test('preserves casing and spelling rather than normalising them', () => {
+    // Two spellings of one subject are two Topics: the teacher chose them, and
+    // nothing here folds case, stems or corrects.
+    expect(withTopicAdded(['Algebra'], 'algebra')).toEqual(['Algebra', 'algebra'])
+    expect(withTopicAdded(['Photosynthesis'], 'Photosynthesis ')).toEqual([
+      'Photosynthesis',
     ])
-  }
-
-  test('is a permutation of the same ids, with nothing lost or duplicated', () => {
-    const exam = exam5()
-    const version = versionOf(['q1', 'q2', 'q3', 'o1', 'o2'])
-    const result = shuffleQuestions(exam, version, 'all', fixedRandom([0.9, 0.1, 0.6, 0.3]))
-    expect(result.questionOrder).toHaveLength(5)
-    expect(new Set(result.questionOrder)).toEqual(new Set(['q1', 'q2', 'q3', 'o1', 'o2']))
-  })
-
-  test('shuffling one section leaves the other section untouched', () => {
-    const exam = exam5()
-    const version = versionOf(['q1', 'q2', 'q3', 'o1', 'o2'])
-    const result = shuffleQuestions(exam, version, 'multiple-choice', fixedRandom([0.9, 0.1]))
-    expect(ids(questionsInSection(exam, result, 'open'))).toEqual(['o1', 'o2'])
-  })
-
-  test("'all' shuffles every section, but never mixes multiple-choice and short-answer", () => {
-    const exam = exam5()
-    const version = versionOf(['q1', 'q2', 'q3', 'o1', 'o2'])
-    const result = shuffleQuestions(exam, version, 'all', fixedRandom([0.9, 0.1, 0.6, 0.3]))
-    expect(new Set(ids(questionsInSection(exam, result, 'multiple-choice')))).toEqual(
-      new Set(['q1', 'q2', 'q3']),
-    )
-    expect(new Set(ids(questionsInSection(exam, result, 'open')))).toEqual(new Set(['o1', 'o2']))
-  })
-
-  test('question content is never modified by a shuffle', () => {
-    const exam = exam5()
-    const version = versionOf(['q1', 'q2', 'q3', 'o1', 'o2'])
-    shuffleQuestions(exam, version, 'all', fixedRandom([0.9, 0.1, 0.6, 0.3]))
-    // The exam passed in is read, not written: its own question order is
-    // untouched by the call.
-    expect(exam.questions.map((question) => question.id)).toEqual(['q1', 'q2', 'q3', 'o1', 'o2'])
-  })
-
-  test('a fixed random source produces a fixed ordering', () => {
-    const exam = exam5()
-    const version = versionOf(['q1', 'q2', 'q3', 'o1', 'o2'])
-    const a = shuffleQuestions(exam, version, 'multiple-choice', fixedRandom([0.9, 0.1, 0.6]))
-    const b = shuffleQuestions(exam, version, 'multiple-choice', fixedRandom([0.9, 0.1, 0.6]))
-    expect(a.questionOrder).toEqual(b.questionOrder)
-  })
-
-  test('a question missing from the version is still included exactly once, appended to its section', () => {
-    const exam = exam5()
-    const version = versionOf(['q1', 'o1']) // q2, q3, o2 were added since this version was saved
-    const result = shuffleQuestions(exam, version, 'multiple-choice', fixedRandom([0.9]))
-    expect(new Set(ids(questionsInSection(exam, result, 'multiple-choice')))).toEqual(
-      new Set(['q1', 'q2', 'q3']),
-    )
   })
 })
 
-describe('shuffleSelectedQuestions', () => {
-  test('permutes selected slots while unselected questions keep their positions', () => {
-    const exam = examOf(
-      ['q1', 'q2', 'q3', 'q4', 'q5'].map((id) => multipleChoice(id, ['a'])),
-    )
-    const version = versionOf(['q1', 'q2', 'q3', 'q4', 'q5'])
-    const result = shuffleSelectedQuestions(
-      exam,
-      version,
-      ['q2', 'q4', 'q5'],
-      fixedRandom([0, 0]),
-    )
-
-    expect(result.questionOrder).toEqual(['q1', 'q4', 'q3', 'q5', 'q2'])
-  })
-
-  test('shuffles a mixed selection independently within each section', () => {
-    const exam = examOf([
-      multipleChoice('q1', ['a']),
-      multipleChoice('q2', ['a']),
-      open('o1'),
-      open('o2'),
-    ])
-    const result = shuffleSelectedQuestions(
-      exam,
-      versionOf(['q1', 'q2', 'o1', 'o2']),
-      ['q1', 'q2', 'o1', 'o2'],
-      fixedRandom([0]),
-    )
-
-    expect(result.questionOrder).toEqual(['q2', 'q1', 'o2', 'o1'])
-  })
-})
-
-describe('shuffleAnswers', () => {
-  test('is a permutation of the same choice ids, with nothing lost or duplicated', () => {
-    const exam = examOf([multipleChoice('q1', ['a', 'b', 'c', 'd'], 'c')])
-    const version = versionOf(['q1'])
-    const result = shuffleAnswers(exam, version, ['q1'], fixedRandom([0.9, 0.1, 0.5]))
-    expect(result.choiceOrder.q1).toHaveLength(4)
-    expect(new Set(result.choiceOrder.q1)).toEqual(new Set(['a', 'b', 'c', 'd']))
-  })
-
-  test('unselected questions are untouched', () => {
-    const exam = examOf([
-      multipleChoice('q1', ['a', 'b'], 'a'),
-      multipleChoice('q2', ['a', 'b'], 'b'),
-    ])
-    const version = versionOf(['q1', 'q2'], { q2: ['a', 'b'] })
-    const result = shuffleAnswers(exam, version, ['q1'], fixedRandom([0.9]))
-    expect(result.choiceOrder.q2).toEqual(['a', 'b'])
-  })
-
-  test('the correct answer stays attached to its choice through the permutation', () => {
-    const exam = examOf([multipleChoice('q1', ['a', 'b', 'c'], 'b')])
-    const version = versionOf(['q1'])
-    const result = shuffleAnswers(exam, version, ['q1'], fixedRandom([0.9, 0.4]))
-    const question = questionById(exam, 'q1')!
-    const shuffledChoices = orderedChoices(question, result)
-    expect(shuffledChoices.find((choice) => choice.correct)?.id).toBe('b')
-  })
-
-  test('choice letters follow the new order — the letter shown is the position on this paper', () => {
-    const exam = examOf([multipleChoice('q1', ['a', 'b', 'c'])])
-    const version = versionOf(['q1'])
-    const result = shuffleAnswers(exam, version, ['q1'], fixedRandom([0.9, 0.4]))
-    // orderedChoices returns choices in this version's order; the letter a
-    // student sees is that position, so asserting the order asserts the
-    // letters too.
-    expect(result.choiceOrder.q1).toEqual(
-      orderedChoices(questionById(exam, 'q1')!, result).map((choice) => choice.id),
-    )
-  })
-
-  test('a selected open question is skipped safely and gets no choiceOrder entry', () => {
-    const exam = examOf([open('o1')])
-    const version = versionOf(['o1'])
-    const result = shuffleAnswers(exam, version, ['o1'], fixedRandom([0.9]))
-    expect(result.choiceOrder.o1).toBeUndefined()
-  })
-
-  test('a fixed random source produces a fixed ordering', () => {
-    const exam = examOf([multipleChoice('q1', ['a', 'b', 'c', 'd'])])
-    const version = versionOf(['q1'])
-    const a = shuffleAnswers(exam, version, ['q1'], fixedRandom([0.9, 0.2, 0.6]))
-    const b = shuffleAnswers(exam, version, ['q1'], fixedRandom([0.9, 0.2, 0.6]))
-    expect(a.choiceOrder.q1).toEqual(b.choiceOrder.q1)
-  })
-
-  test('question content is never modified by a shuffle', () => {
-    const exam = examOf([multipleChoice('q1', ['a', 'b', 'c'], 'b')])
-    const version = versionOf(['q1'])
-    const before = structuredClone(exam)
-    shuffleAnswers(exam, version, ['q1'], fixedRandom([0.9]))
-    expect(exam).toEqual(before)
-  })
-})

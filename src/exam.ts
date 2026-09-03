@@ -15,28 +15,56 @@ import {
   choiceIsCorrect,
   choiceNodesOf,
   emptyDoc,
-  multipleChoiceNodeOf,
   withFreshChoiceIds,
-  withMultipleChoice,
-  withoutMultipleChoice,
   type ProseMirrorJSON,
 } from './question-doc'
 import { newMultipleChoiceNode } from './multiple-choice'
 
 export type QuestionType = 'multiple-choice' | 'open'
 
-// How many columns a multiple-choice question's answers lay out in. `'auto'`
-// defers to measurement; an explicit count disables that permanently.
-export type ColumnSetting = 'auto' | 1 | 2 | 4
+// How many columns a multiple-choice question's answers lay out in. A plain
+// count, chosen by the teacher and never inferred: a layout that changed itself
+// when an answer was edited was a layout nobody could rely on.
+export type ColumnSetting = 1 | 2 | 4
+
+/** What a question lays its answers out in when nothing else says otherwise.
+ *  Two columns is what a printed test usually wants, and it is the count a
+ *  question falls back to rather than a special value meaning "decide later". */
+export const DEFAULT_COLUMNS: ColumnSetting = 2
+
+/** How hard a question is. Optional everywhere: classification is a
+ *  convenience, and an unclassified question is a complete one. */
+export type Difficulty = 'easy' | 'medium' | 'hard'
+
+/** The whole vocabulary, in the order a teacher reads it. There is no fourth
+ *  value and no controlled Topic list to match it. */
+export const DIFFICULTIES: readonly Difficulty[] = ['easy', 'medium', 'hard']
+
+/** How each Question Section is written wherever a teacher sees it, so the
+ *  bank row, the filter and the Exam Draft's own chrome can never disagree. */
+export const SECTION_LABELS: Record<QuestionType, string> = {
+  'multiple-choice': 'Multiple choice',
+  open: 'Short answer',
+}
+
+/** How each Difficulty is written wherever a teacher sees it, so the popup that
+ *  sets one and the bank row that shows it can never disagree. */
+export const DIFFICULTY_LABELS: Record<Difficulty, string> = {
+  easy: 'Easy',
+  medium: 'Medium',
+  hard: 'Hard',
+}
 
 export type Question = {
   id: string
   type: QuestionType
   doc: ProseMirrorJSON
-  // Choices preserved while the question's type is 'open', so switching type is
-  // never destructive. Only one stash is kept.
-  stashedChoices?: ProseMirrorJSON
   columns: ColumnSetting
+  // Optional classification. Both are absent rather than empty on a question
+  // nobody has classified, so an untagged question costs no storage and a
+  // record written before either existed still reads as a valid question.
+  difficulty?: Difficulty
+  topics?: string[]
 }
 
 export type Exam = {
@@ -71,12 +99,51 @@ function newQuestionDoc(type: QuestionType): ProseMirrorJSON {
     : structuredClone(emptyDoc)
 }
 
-export function createQuestion(type: QuestionType): Question {
+/** A question's Topics, always a list. The single reader, so an absent list and
+ *  an empty one are the same thing everywhere — including for a stored question
+ *  written before Topics existed. */
+export function topicsOf(question: Question): readonly string[] {
+  return Array.isArray(question.topics) ? question.topics : []
+}
+
+/**
+ * The rule a committed Topic follows: surrounding whitespace trimmed, an empty
+ * value ignored, and the exact string kept otherwise.
+ *
+ * Casing and spelling are the teacher's. Nothing here case-folds, stems,
+ * autocompletes or consults a controlled vocabulary, so "Algebra" and "algebra"
+ * are two Topics; only the identical string is already there.
+ */
+export function withTopicAdded(
+  topics: readonly string[],
+  value: string,
+): string[] {
+  const topic = value.trim()
+  if (topic === '' || topics.includes(topic)) return [...topics]
+  return [...topics, topic]
+}
+
+/** A question's answer columns, as a count the layout can use directly. The one
+ *  reader of the stored setting, so a record written when the setting could
+ *  also be `'auto'` — measured, rather than chosen — reads as the default
+ *  instead of needing a migration pass. */
+export function columnsOf(question: Question): ColumnSetting {
+  const { columns } = question
+  return columns === 1 || columns === 2 || columns === 4 ? columns : DEFAULT_COLUMNS
+}
+
+/** A blank question of `type`. `columns` is the layout it starts with, which
+ *  the caller takes from the question it is being written beside, so a teacher
+ *  sets an answer layout once rather than once per question. */
+export function createQuestion(
+  type: QuestionType,
+  columns: ColumnSetting = DEFAULT_COLUMNS,
+): Question {
   return {
     id: crypto.randomUUID(),
     type,
     doc: newQuestionDoc(type),
-    columns: 'auto',
+    columns,
   }
 }
 
@@ -89,41 +156,10 @@ export function duplicateQuestion(question: Question): Question {
     id: crypto.randomUUID(),
     doc: withFreshChoiceIds(question.doc),
   }
-  if (question.stashedChoices) {
-    copy.stashedChoices = withFreshChoiceIds(question.stashedChoices)
-  }
+  // A list of its own: the copy is a Question Bank record in its own right, and
+  // retagging one must never retag the other.
+  if (question.topics) copy.topics = [...question.topics]
   return copy
-}
-
-// Switches a question's type.
-//
-// Multiple Choice -> Open Response lifts the multiple-choice node out of the
-// document into `stashedChoices`, replacing whatever was stashed there
-// before — converting to Open Response twice never accumulates history, it
-// just re-snapshots the current choices.
-//
-// Open Response -> Multiple Choice re-inserts the stash if there is one
-// (choice ids and correctness intact, so a version's `choiceOrder` still
-// lines up) or starts a fresh set of choices otherwise, and clears the
-// stash: it exists only while the question is Open Response.
-//
-// Switching to the type a question already is returns it unchanged.
-export function withTypeSwitched(question: Question, type: QuestionType): Question {
-  if (type === question.type) return question
-  if (type === 'open') {
-    return {
-      ...question,
-      type,
-      doc: withoutMultipleChoice(question.doc),
-      stashedChoices: multipleChoiceNodeOf(question.doc),
-    }
-  }
-  const { stashedChoices, ...rest } = question
-  return {
-    ...rest,
-    type,
-    doc: withMultipleChoice(question.doc, stashedChoices ?? newMultipleChoiceNode()),
-  }
 }
 
 export function createExam(title: string = DEFAULT_EXAM_TITLE): Exam {
@@ -322,100 +358,7 @@ export function moveQuestions(
   return { ...version, questionOrder }
 }
 
-// ---------------------------------------------------------------------------
-// Shuffling
-//
-// Two pure functions on a version, each taking an injected random source so
-// a fixed sequence of draws produces a fixed ordering in tests. Neither
-// touches question content — only the ordering a version records.
-// Correctness is a boolean on the choice, so it always follows its choice
-// through a shuffle with no bookkeeping.
-
-// The same contract as `Math.random`: a float in [0, 1). The app passes
-// `Math.random` itself; a test passes a fixed sequence so the outcome is
-// reproducible.
+// The same contract as `Math.random`: a float in [0, 1). Export Randomization
+// is the only thing that draws from one, and it injects its own source so a
+// fixture's Versions are reproducible while a real export is not.
 export type RandomSource = () => number
-
-// Fisher-Yates, driven entirely by the injected source.
-function shuffled<T>(items: readonly T[], random: RandomSource): T[] {
-  const result = items.slice()
-  for (let i = result.length - 1; i > 0; i -= 1) {
-    const j = Math.floor(random() * (i + 1))
-    const tmp = result[i]!
-    result[i] = result[j]!
-    result[j] = tmp
-  }
-  return result
-}
-
-// Reorders `questionOrder` within the chosen section, or within every
-// section when `scope` is `'all'` — one section at a time, so a mixed-type
-// ordering never results. Each section's questions are drawn out via
-// `questionsInSection` (which already reconciles the order against what
-// currently exists), shuffled among themselves if targeted, and put back in
-// `SECTION_ORDER`.
-//
-// Deliberately ignores any current selection: the toolbar dropdown names the
-// scope explicitly instead, which is why this takes `scope`, not a set of
-// question ids.
-export function shuffleQuestions(
-  exam: Exam,
-  version: Version,
-  scope: QuestionType | 'all',
-  random: RandomSource,
-): Version {
-  const targets = new Set<QuestionType>(scope === 'all' ? SECTION_ORDER : [scope])
-  const questionOrder = SECTION_ORDER.flatMap((section) => {
-    const ids = questionsInSection(exam, version, section).map(
-      (question) => question.id,
-    )
-    return targets.has(section) ? shuffled(ids, random) : ids
-  })
-  return { ...version, questionOrder }
-}
-
-// Shuffles only the selected slots. Unselected questions keep their exact
-// positions, and a selection spanning both sections is shuffled independently
-// within each section so section membership can never change.
-export function shuffleSelectedQuestions(
-  exam: Exam,
-  version: Version,
-  questionIds: readonly string[],
-  random: RandomSource,
-): Version {
-  const selected = new Set(questionIds)
-  const questionOrder = SECTION_ORDER.flatMap((section) => {
-    const ids = questionsInSection(exam, version, section).map(
-      (question) => question.id,
-    )
-    const shuffledIds = shuffled(ids.filter((id) => selected.has(id)), random)
-    let selectedIndex = 0
-    return ids.map((id) =>
-      selected.has(id) ? shuffledIds[selectedIndex++]! : id,
-    )
-  })
-  return { ...version, questionOrder }
-}
-
-// Reorders `choiceOrder` for each given question id. Only a multiple-choice
-// question with at least two choices actually moves: an open question, or
-// one with fewer than two choices, is left exactly as recorded. That makes
-// it safe to pass a mixed selection straight through — as the toolbar's
-// "Shuffle answers" does — without filtering it first. A question id this
-// exam has no choices for, or does not know at all, is silently skipped.
-export function shuffleAnswers(
-  exam: Exam,
-  version: Version,
-  questionIds: readonly string[],
-  random: RandomSource,
-): Version {
-  const choiceOrder = { ...version.choiceOrder }
-  for (const questionId of questionIds) {
-    const question = questionById(exam, questionId)
-    if (!question) continue
-    const ids = orderedChoices(question, version).map((choice) => choice.id)
-    if (ids.length < 2) continue
-    choiceOrder[questionId] = shuffled(ids, random)
-  }
-  return { ...version, choiceOrder }
-}

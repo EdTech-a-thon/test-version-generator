@@ -41,15 +41,11 @@ import {
   type QuestionItem,
   type PlannedQuestion,
 } from './export-plan'
-import type {
-  ColumnSetting,
-  Exam,
-  QuestionPlacement,
-  QuestionType,
-  Version,
-} from './exam'
+import { DEFAULT_COLUMNS, columnsOf, type ColumnSetting, type Exam, type QuestionType, type Version } from './exam'
 import type { Selection } from './use-selection'
-import { Copy, EllipsisVertical, ListPlus, Pencil, Plus, Shuffle, Sparkles, Trash2 } from 'lucide-react'
+import type { WorkspaceDrag } from './use-workspace-drag'
+import { dropStateOf, type QuestionDropState } from './workspace-drag'
+import { CircleMinus, Copy, EllipsisVertical, ListPlus, Pencil, Plus, RefreshCw } from 'lucide-react'
 import {
   ContextMenu,
   type MenuItem,
@@ -65,24 +61,24 @@ function orderedQuestionIds(pages: readonly PlannedPage[]): string[] {
   )
 }
 
-/** Every question's raw column setting, keyed by id — what its context menu
- * highlights, as opposed to `PlannedQuestion`'s resolved `grid.columns`. */
+/** Every question's column setting, keyed by id — what its context menu
+ * highlights, read through `columnsOf` so a record stored before the setting
+ * was a plain count highlights the default rather than nothing. */
 function columnSettingsOf(exam: Exam): Record<string, ColumnSetting> {
   const byId: Record<string, ColumnSetting> = {}
-  for (const question of exam.questions) byId[question.id] = question.columns
+  for (const question of exam.questions) byId[question.id] = columnsOf(question)
   return byId
 }
 
-// The four answer-column settings, spelled out because a bare number in a menu
+// The answer-column settings, spelled out because a bare number in a menu
 // would not explain itself.
 const COLUMN_MENU_OPTIONS: readonly { label: string; value: ColumnSetting }[] = [
-  { label: 'Auto', value: 'auto' },
   { label: '1 column', value: 1 },
   { label: '2 columns', value: 2 },
   { label: '4 columns', value: 4 },
 ]
 
-function ColumnLayoutIcon({ columns }: { columns: 1 | 2 | 4 }) {
+function ColumnLayoutIcon({ columns }: { columns: ColumnSetting }) {
   const strokes = columns === 1
     ? [
         'M1.5 2h15',
@@ -126,25 +122,41 @@ function questionMenuItems({
   columns,
   onEdit,
   onDuplicate,
-  onDelete,
+  onReplaceWithEquivalents,
+  onRemove,
   onAdd,
   onSetColumns,
-  onShuffleAnswers,
-  onShuffleSelectedQuestions,
   selectedQuestionIds,
 }: {
   question: PlannedQuestion
   columns: ColumnSetting
   onEdit: (questionId: string) => void
   onDuplicate: (questionId: string) => void
-  onDelete: (questionId: string) => void
+  onReplaceWithEquivalents: (questionIds: readonly string[]) => void
+  onRemove: (questionIds: readonly string[]) => void
   onAdd: (section: QuestionType, afterQuestionId?: string) => void
   onSetColumns: (questionIds: readonly string[], columns: ColumnSetting) => void
-  onShuffleAnswers: (questionIds: readonly string[]) => void
-  onShuffleSelectedQuestions: (questionIds: readonly string[]) => void
   selectedQuestionIds: readonly string[]
 }): MenuItem[] {
+  // Every action that can sensibly apply to more than one question applies to
+  // the whole selection when the question raising the menu is part of it, and
+  // to that question alone otherwise.
+  const actedOnIds = selectedQuestionIds.includes(question.id)
+    ? selectedQuestionIds
+    : [question.id]
   const items: MenuItem[] = [
+    {
+      kind: 'submenu',
+      label: 'Vary',
+      icon: <RefreshCw />,
+      items: [
+        {
+          kind: 'action',
+          label: 'Replace with equivalents',
+          onSelect: () => onReplaceWithEquivalents(actedOnIds),
+        },
+      ],
+    },
     {
       kind: 'action',
       label: 'Edit question',
@@ -167,51 +179,48 @@ function questionMenuItems({
   // Columns are a multiple-choice question's business. An open question has no
   // answers to lay out, so the group is absent rather than present and inert.
   if (question.type === 'multiple-choice') {
-    const answerQuestionIds = selectedQuestionIds.includes(question.id)
-      ? selectedQuestionIds
-      : [question.id]
     items.push(
       { kind: 'separator' },
       {
-        kind: 'action',
-        label: 'Shuffle answer order',
-        icon: <Shuffle />,
-        onSelect: () => onShuffleAnswers(answerQuestionIds),
-      },
-      { kind: 'separator' },
-      { kind: 'label', label: 'Answer columns' },
-    )
-    for (const option of COLUMN_MENU_OPTIONS) {
-      items.push({
-        kind: 'radio',
-        label: option.label,
-        checked: option.value === columns,
-        icon: option.value === 'auto'
-          ? <Sparkles />
-          : <ColumnLayoutIcon columns={option.value} />,
-        onSelect: () => onSetColumns(answerQuestionIds, option.value),
-      })
-    }
-  }
-  if (selectedQuestionIds.length > 1 && selectedQuestionIds.includes(question.id)) {
-    items.push(
-      { kind: 'separator' },
-      {
-        kind: 'action',
-        label: 'Shuffle selected questions',
-        icon: <Shuffle />,
-        onSelect: () => onShuffleSelectedQuestions(selectedQuestionIds),
+        kind: 'submenu',
+        label: 'Answer columns',
+        // The parent row shows the current layout before its submenu asks the
+        // teacher to choose another one.
+        icon: <ColumnLayoutIcon columns={columns} />,
+        items: COLUMN_MENU_OPTIONS.map((option) => ({
+          kind: 'radio',
+          label: option.label,
+          checked: option.value === columns,
+          icon: <ColumnLayoutIcon columns={option.value} />,
+          onSelect: () => onSetColumns(actedOnIds, option.value),
+        })),
       },
     )
   }
   items.push(
     { kind: 'separator' },
+    { kind: 'label', label: 'Vary' },
     {
       kind: 'action',
-      label: 'Delete',
-      icon: <Trash2 />,
+      label: 'Replace with equivalents',
+      icon: <RefreshCw />,
+      onSelect: () => onReplaceWithEquivalents(actedOnIds),
+    },
+  )
+  // Remove, never Delete: this takes the question off the Exam Draft and leaves
+  // its Question Bank record alone, so it is neither destructive nor worth a
+  // confirmation. Permanent deletion is not offered in this workspace at all.
+  items.push(
+    { kind: 'separator' },
+    {
+      kind: 'action',
+      label: 'Remove',
+      icon: <CircleMinus />,
+      // Taking a question off the sheet is the one thing in this menu that
+      // undoes work, so the row says so on hover rather than sitting there in
+      // warning colours all the time.
       destructive: true,
-      onSelect: () => onDelete(question.id),
+      onSelect: () => onRemove(actedOnIds),
     },
   )
   return items
@@ -285,7 +294,7 @@ function QuestionView({
   onOpenMenu,
   dragging,
   dropped,
-  dropPlacement,
+  dropState,
   onDragStart,
   onDragMove,
   onDrop,
@@ -300,7 +309,7 @@ function QuestionView({
   onOpenMenu: (questionId: string, point: MenuPoint, side?: MenuSide) => void
   dragging: boolean
   dropped: boolean
-  dropPlacement: QuestionPlacement | null
+  dropState: QuestionDropState
   onDragStart: (
     question: PlannedQuestion,
     element: HTMLElement,
@@ -335,7 +344,7 @@ function QuestionView({
       className={classes.join(' ')}
       data-question-id={question.id}
       data-drop-target={item.numbered ? question.type : undefined}
-      data-drop={dropPlacement ?? undefined}
+      data-drop={dropState ?? undefined}
       onPointerDown={(event) => {
         if (event.button !== 0) return
         const target = event.target as HTMLElement
@@ -445,7 +454,7 @@ function PageItemView({
   onOpenMenu,
   draggedQuestionIds,
   droppedQuestionIds,
-  dropTarget,
+  dropState,
   onDragStart,
   onDragMove,
   onDrop,
@@ -459,7 +468,7 @@ function PageItemView({
   onOpenMenu: (questionId: string, point: MenuPoint, side?: MenuSide) => void
   draggedQuestionIds: ReadonlySet<string>
   droppedQuestionIds: ReadonlySet<string>
-  dropTarget: { questionId: string; placement: QuestionPlacement } | null
+  dropState: (questionId: string) => QuestionDropState
   onDragStart: (
     question: PlannedQuestion,
     element: HTMLElement,
@@ -488,9 +497,7 @@ function PageItemView({
           onOpenMenu={onOpenMenu}
           dragging={draggedQuestionIds.has(item.question.id)}
           dropped={droppedQuestionIds.has(item.question.id) && item.numbered}
-          dropPlacement={
-            dropTarget?.questionId === item.question.id ? dropTarget.placement : null
-          }
+          dropState={dropState(item.question.id)}
           onDragStart={onDragStart}
           onDragMove={onDragMove}
           onDrop={onDrop}
@@ -716,32 +723,38 @@ export function ExamPage({
   exam,
   version,
   selection,
+  drag,
+  revealQuestionId,
+  onRevealed,
   onEdit,
   onDuplicate,
-  onDelete,
+  onReplaceWithEquivalents,
+  onRemove,
   onAdd,
+  onAddFirst,
   onSetColumns,
-  onShuffleAnswers,
-  onShuffleSelectedQuestions,
-  onMoveQuestions,
   unsavedDraft = false,
   contentSelection = { test: true, answerKey: true },
 }: {
   exam: Exam
   version: Version
   selection: Selection
+  /** The gesture in flight, coordinated across both panes of the workspace. */
+  drag: WorkspaceDrag
+  /** A question an authoring action has just put on the Exam Draft. It is
+   *  scrolled to and briefly highlighted once repagination has actually put it
+   *  on a page — which, for an insertion, is not the same moment. */
+  revealQuestionId?: string | null
+  onRevealed?: () => void
   onEdit: (questionId: string) => void
   onDuplicate: (questionId: string) => void
-  onDelete: (questionId: string) => void
+  onReplaceWithEquivalents: (questionIds: readonly string[]) => void
+  onRemove: (questionIds: readonly string[]) => void
   onAdd: (section: QuestionType, afterQuestionId?: string) => void
+  /** The first question on an empty sheet. Its position names no Question
+   *  Section, so unlike `onAdd` this one has a type still to be chosen. */
+  onAddFirst?: (point: MenuPoint) => void
   onSetColumns: (questionIds: readonly string[], columns: ColumnSetting) => void
-  onShuffleAnswers: (questionIds: readonly string[]) => void
-  onShuffleSelectedQuestions: (questionIds: readonly string[]) => void
-  onMoveQuestions: (
-    questionIds: readonly string[],
-    targetId: string,
-    placement: QuestionPlacement,
-  ) => void
   unsavedDraft?: boolean
   contentSelection?: ExportContentSelection
 }) {
@@ -752,77 +765,17 @@ export function ExamPage({
   const orderedIds = orderedQuestionIds(pages)
   const columnSettings = columnSettingsOf(exam)
   const clearOnBackground = clearOnBackgroundClick(selection)
-  // Pointer capture keeps this gesture in page control. Native HTML dragging
-  // owns the system cursor after `dragstart`, ignoring even a computed
-  // `cursor: grabbing`; a page-owned preview lets the closed hand remain while
-  // preserving the same source, marker, and drop state.
-  const dragged = useRef<{ ids: string[]; type: QuestionType } | null>(null)
-  const dragPreview = useRef<{
-    element: HTMLElement
-    offsetX: number
-    offsetY: number
-  } | null>(null)
-  const [draggedQuestionIds, setDraggedQuestionIds] = useState<ReadonlySet<string>>(
-    new Set(),
-  )
-  // After a successful drop, feedback belongs to the question that moved, not
-  // whichever question happens to remain under the stationary pointer. It
-  // lasts until the pointer moves again and normal geometric hover resumes.
-  const [droppedQuestionIds, setDroppedQuestionIds] = useState<ReadonlySet<string>>(
-    new Set(),
-  )
-  // Where the question would land if it were let go now — what the drop line
-  // is drawn from. Held next to the drag itself so exactly one line can show.
-  const pendingDrop = useRef<{
-    questionId: string
-    placement: QuestionPlacement
-  } | null>(null)
-  const [dropTarget, setDropTarget] = useState<{
-    questionId: string
-    placement: QuestionPlacement
-  } | null>(null)
-
-  const clearDragArtifacts = useCallback(() => {
-    dragPreview.current?.element.remove()
-    dragPreview.current = null
-    document.documentElement.classList.remove('question-drag-active')
-  }, [])
-  const endDrag = useCallback(() => {
-    dragged.current = null
-    pendingDrop.current = null
-    clearDragArtifacts()
-    setDraggedQuestionIds(new Set())
-    setDropTarget(null)
-  }, [clearDragArtifacts])
-  useEffect(() => clearDragArtifacts, [clearDragArtifacts])
-
-  const markDrop = useCallback(
-    (questionId: string, placement: QuestionPlacement) => {
-      const next = { questionId, placement }
-      pendingDrop.current = next
-      // `dragover` fires continuously; only a change in where the question
-      // would land is worth a re-render.
-      setDropTarget((current) =>
-        current?.questionId === questionId && current.placement === placement
-          ? current
-          : next,
-      )
-    },
-    [],
-  )
-  const clearDrop = useCallback(() => {
-    pendingDrop.current = null
-    setDropTarget(null)
-  }, [])
-
+  // Dragging is coordinated above this pane, because one gesture spans both of
+  // them: a Question Bank question composed onto the Exam Draft starts in the
+  // other pane entirely. What stays here is what only this pane knows — which
+  // questions a gesture picks up, and what their markup is — and the pointer
+  // capture and page-owned preview that gesture has always used.
+  const { draggedQuestionIds, droppedQuestionIds } = drag
   const beginDrag = useCallback((
     question: PlannedQuestion,
     element: HTMLElement,
     point: { x: number; y: number },
   ) => {
-    clearDragArtifacts()
-    const bounds = element.getBoundingClientRect()
-    const computed = getComputedStyle(element)
     const ids = selection.isSelected(question.id)
       ? [...new Set(orderedIds.filter((id) =>
           selection.isSelected(id) &&
@@ -836,85 +789,40 @@ export function ExamPage({
         ctrlKey: false,
       })
     }
-    const preview = document.createElement('div')
-    preview.className = 'question-drag-preview'
-    preview.setAttribute('aria-hidden', 'true')
-    preview.setAttribute('inert', '')
-    preview.dataset.count = String(ids.length)
-    const selectedElements = Array.from(
+    const elements = Array.from(
       workspace.current?.querySelectorAll<HTMLElement>('.exam-question[data-question-id]') ?? [],
     ).filter((candidate) => ids.includes(candidate.dataset.questionId ?? ''))
-    for (const selectedElement of selectedElements) {
-      const clone = selectedElement.cloneNode(true) as HTMLElement
-      clone.classList.remove(
-        'exam-question--selected',
-        'exam-question--dragging',
-        'exam-question--dropped',
-      )
-      clone.removeAttribute('data-question-id')
-      clone.removeAttribute('data-drop-target')
-      clone.removeAttribute('data-drop')
-      clone.querySelectorAll('[id]').forEach((child) => child.removeAttribute('id'))
-      preview.append(clone)
-    }
-    Object.assign(preview.style, {
-      left: `${bounds.left}px`,
-      top: `${bounds.top}px`,
-      width: `${bounds.width}px`,
-      color: computed.color,
-      fontFamily: computed.fontFamily,
-      fontSize: computed.fontSize,
-      lineHeight: computed.lineHeight,
-    })
-    document.body.append(preview)
-    document.documentElement.classList.add('question-drag-active')
-    dragPreview.current = {
-      element: preview,
-      offsetX: point.x - bounds.left,
-      offsetY: point.y - bounds.top,
-    }
-    dragged.current = { ids, type: question.type }
-    setDroppedQuestionIds(new Set())
-    setDraggedQuestionIds(new Set(ids))
-  }, [clearDragArtifacts, exam.questions, orderedIds, selection])
-
-  const moveDrag = useCallback((point: { x: number; y: number }) => {
-    const preview = dragPreview.current
-    if (preview) {
-      preview.element.style.left = `${point.x - preview.offsetX}px`
-      preview.element.style.top = `${point.y - preview.offsetY}px`
-    }
-    const source = dragged.current
-    const target = document
-      .elementFromPoint(point.x, point.y)
-      ?.closest<HTMLElement>('.exam-question[data-drop-target]')
-    const targetId = target?.dataset.questionId
-    if (
-      !source ||
-      !target ||
-      !targetId ||
-      source.ids.includes(targetId) ||
-      target.dataset.dropTarget !== source.type
-    ) {
-      clearDrop()
-      return
-    }
-    const bounds = target.getBoundingClientRect()
-    markDrop(
-      targetId,
-      point.y < bounds.top + bounds.height / 2 ? 'before' : 'after',
+    drag.begin(
+      { pane: 'exam-draft', questionIds: ids, type: question.type },
+      { elements, bounds: element.getBoundingClientRect(), point },
     )
-  }, [clearDrop, markDrop])
+  }, [drag, exam.questions, orderedIds, selection])
 
-  const finishDrag = useCallback(() => {
-    const source = dragged.current
-    const target = pendingDrop.current
-    if (source && target) {
-      onMoveQuestions(source.ids, target.questionId, target.placement)
-    }
-    endDrag()
-    if (source && target) setDroppedQuestionIds(new Set(source.ids))
-  }, [endDrag, onMoveQuestions])
+  const questionDropState = useCallback(
+    (questionId: string) => dropStateOf(drag.intent, questionId),
+    [drag.intent],
+  )
+  // Revealing a question an authoring action has just put on the Exam Draft.
+  //
+  // Insertion and Replace change the exam's *content*, and content changes wait
+  // for a pause before the page is measured and packed again. So the question
+  // is not on the page in the frame the action was taken — it arrives one
+  // repagination later, possibly on a different sheet from the one that was in
+  // view. This runs on every plan until the question is actually there, then
+  // scrolls to it. Being scrolled to is the whole of the reveal: the question
+  // is selected, which is a mark that stays put, and a second mark that faded
+  // out over it only made the selection look like it was arriving late.
+  useEffect(() => {
+    if (!revealQuestionId) return
+    const element = workspace.current?.querySelector<HTMLElement>(
+      `.exam-question[data-question-id="${CSS.escape(revealQuestionId)}"]`,
+    )
+    // Not paginated onto a page yet: this effect runs again on the next plan.
+    if (!element) return
+    element.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+    onRevealed?.()
+  }, [revealQuestionId, plan, onRevealed])
+
   // Keyed on the numbered piece: a split question's handles and menu belong to
   // the piece carrying its number, and that is the one holding its `number`.
   const questionsById = new Map(
@@ -943,6 +851,15 @@ export function ExamPage({
   // to act on, so it simply stops being rendered.
   const menuQuestion = menu ? questionsById.get(menu.questionId) : undefined
 
+  // The Question Section a gesture in flight could start, if it is one the Exam
+  // Draft has no questions in. A gesture from within the Exam Draft is a
+  // reorder and can never reach an empty section, so it is offered nothing.
+  const emptySectionOffer =
+    drag.source?.pane === 'question-bank'
+      && !exam.questions.some((question) => question.type === drag.source?.type)
+      ? drag.source.type
+      : null
+
   const workspaceClasses = ['exam-workspace']
   if (unsavedDraft) workspaceClasses.push('exam-workspace--unsaved')
   if (draggedQuestionIds.size > 0) workspaceClasses.push('exam-workspace--dragging')
@@ -955,7 +872,7 @@ export function ExamPage({
       style={PAGE_GEOMETRY}
       onClick={clearOnBackground}
       onPointerMove={() => {
-        if (!dragged.current && droppedQuestionIds.size > 0) setDroppedQuestionIds(new Set())
+        if (!drag.source && droppedQuestionIds.size > 0) drag.clearDropFeedback()
       }}
     >
       {pages.map((page, index) => (
@@ -978,7 +895,16 @@ export function ExamPage({
               <button
                 type="button"
                 className="secondary-button empty-exam-button"
-                onClick={() => onAdd('multiple-choice')}
+                onClick={(event) => {
+                  const bounds = event.currentTarget.getBoundingClientRect()
+                  onAddFirst?.({ x: bounds.left + 12, y: bounds.top + 12 })
+                }}
+                // An empty sheet has nothing drawn on it to aim at, so the way
+                // in is also the way to drop: the placeholder is the first
+                // question's position, and it is the whole of the page rather
+                // than a strip at the top of it.
+                data-empty-section={emptySectionOffer ?? undefined}
+                data-active={drag.intent?.kind === 'insert-first' ? 'true' : undefined}
               >
                 <Plus />
                 Insert your first question
@@ -995,17 +921,41 @@ export function ExamPage({
                 onOpenMenu={openMenu}
                 draggedQuestionIds={draggedQuestionIds}
                 droppedQuestionIds={droppedQuestionIds}
-                dropTarget={dropTarget}
+                dropState={questionDropState}
                 onDragStart={beginDrag}
-                onDragMove={moveDrag}
-                onDrop={finishDrag}
-                onDragEnd={endDrag}
+                onDragMove={drag.move}
+                onDrop={drag.drop}
+                onDragEnd={drag.cancel}
               />
             ))}
           </div>
           <footer className="page-footer">{page.furniture.pageNumber}</footer>
         </article>
       ))}
+
+      {/* The first question of a Question Section the exam has started but has
+          none of — a Short Answer question dragged at an exam with only
+          Multiple Choice ones, say.
+
+          An empty Question Section is not drawn on the sheet at all, because a
+          section is derived from the questions in it, so a gesture aimed at one
+          would have nothing to land on. The offer is made as editing chrome
+          pinned to the foot of this pane: it appears only while a compatible
+          gesture is in flight, it is reachable however far the exam has been
+          scrolled, and it never takes a pixel from the paper's own geometry.
+
+          An exam with nothing in it at all does not need this: the placeholder
+          on the first page is already the first question's position, and it is
+          the drop target. */}
+      {emptySectionOffer && !blank && (
+        <div
+          className="exam-draft-empty-section"
+          data-empty-section={emptySectionOffer}
+          data-active={drag.intent?.kind === 'insert-first' ? 'true' : undefined}
+        >
+          Drop to add the first question
+        </div>
+      )}
 
       {menu && menuQuestion && (
         <ContextMenu
@@ -1014,14 +964,13 @@ export function ExamPage({
           ariaLabel={`Question ${menuQuestion.number} actions`}
           items={questionMenuItems({
             question: menuQuestion,
-            columns: columnSettings[menuQuestion.id] ?? 'auto',
+            columns: columnSettings[menuQuestion.id] ?? DEFAULT_COLUMNS,
             onEdit,
             onDuplicate,
-            onDelete,
+            onReplaceWithEquivalents,
+            onRemove,
             onAdd,
             onSetColumns,
-            onShuffleAnswers,
-            onShuffleSelectedQuestions,
             selectedQuestionIds: [...selection.selectedIds],
           })}
           onClose={closeMenu}

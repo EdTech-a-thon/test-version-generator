@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { seedAuthoringState } from './seed-authoring'
 
 const choice = (id: string) => ({
   type: 'multipleChoiceChoice',
@@ -30,7 +31,7 @@ test('default and authored exam spacing remain distinct', async ({ page }) => {
     {
       id: 'open',
       type: 'open',
-      columns: 'auto',
+      columns: 2,
       doc: {
         type: 'doc',
         content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Explain.' }] }],
@@ -38,15 +39,11 @@ test('default and authored exam spacing remain distinct', async ({ page }) => {
     },
   ]
   const ids = questions.map((question) => question.id)
-  const draft = {
-    exam: { title: 'Spacing repro', questions },
-    versions: [{ id: 'v1', letter: 'A', questionOrder: ids, choiceOrder: {} }],
-    currentVersionId: 'v1',
+  await seedAuthoringState(page, {
+    questionBank: { questions },
+    examDraft: { title: 'Spacing repro', questionIds: ids },
     dirty: false,
-  }
-  await page.addInitScript((initialDraft) => {
-    localStorage.setItem('exam-draft-v1', JSON.stringify(initialDraft))
-  }, draft)
+  })
 
   await page.goto('/')
 

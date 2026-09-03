@@ -8,7 +8,7 @@
 // asserted through the shared fingerprint, so adding a fixture is cheap and a
 // new parity bug costs one more entry in this file.
 
-import type { Exam, Question, RandomSource, Version } from './exam'
+import { DEFAULT_COLUMNS, type Exam, type Question, type RandomSource, type Version } from './exam'
 import type { Randomization } from './export-preparation'
 import {
   pageContentHeight,
@@ -34,7 +34,7 @@ export function mark(type: string, attrs?: Record<string, unknown>): ProseMirror
 }
 
 function open(id: string, ...blocks: ProseMirrorJSON[]): Question {
-  return { id, type: 'open', columns: 'auto', doc: { type: 'doc', content: blocks } }
+  return { id, type: 'open', columns: DEFAULT_COLUMNS, doc: { type: 'doc', content: blocks } }
 }
 
 function choice(id: string, correct: boolean, ...blocks: ProseMirrorJSON[]) {
@@ -78,7 +78,6 @@ export const FIRST_PAGE_BOX = pageContentHeight('first')
  *  so a fixture can put a page boundary exactly where it means to. */
 export function stubHeights(heights: Record<string, number>): Measure {
   return {
-    choiceWidth: () => 0,
     itemHeight: (item: PageItem) =>
       item.kind === 'question' ? (heights[item.question.id] ?? 0) : 0,
   }
@@ -140,7 +139,7 @@ const COMPOSITE_EXAM: Exam = {
   questions: [
     multipleChoice(
       'm1',
-      'auto',
+      2,
       [
         paragraph(
           text('Which of the following is '),
@@ -549,13 +548,13 @@ export const FIXTURES: readonly Fixture[] = [
   ),
 
   fixture(
-    'a question with automatic answer columns',
+    'a question with two answer columns',
     {
-      title: 'Auto columns',
+      title: 'Two columns',
       questions: [
         multipleChoice(
           'm1',
-          'auto',
+          2,
           [paragraph(text('Which planet is closest to the sun?'))],
           [
             choice('c1', true, paragraph(text('Mercury'))),

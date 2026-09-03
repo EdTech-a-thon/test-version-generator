@@ -27,6 +27,10 @@ export type Selection = {
   ) => void
   /** The hover checkbox: always toggles, regardless of modifiers. */
   toggle: (questionId: string) => void
+  /** This question and nothing else — what an authoring action leaves selected
+   *  when it has put a question somewhere. Not a click, so it takes no
+   *  modifiers and needs no on-page order to interpret them against. */
+  select: (questionId: string) => void
   clear: () => void
 }
 
@@ -35,6 +39,11 @@ export function useSelection(): Selection {
   // The last question explicitly clicked (not Shift-clicked), so a Shift-click
   // has somewhere to extend a range from.
   const anchor = useRef<string | null>(null)
+
+  const select = useCallback((questionId: string) => {
+    setSelectedIds(new Set([questionId]))
+    anchor.current = questionId
+  }, [])
 
   const selectOne = useCallback(
     (questionId: string, orderedIds: readonly string[], modifiers: ClickModifiers) => {
@@ -57,10 +66,9 @@ export function useSelection(): Selection {
         anchor.current = questionId
         return
       }
-      setSelectedIds(new Set([questionId]))
-      anchor.current = questionId
+      select(questionId)
     },
-    [],
+    [select],
   )
 
   const toggle = useCallback((questionId: string) => {
@@ -83,5 +91,5 @@ export function useSelection(): Selection {
     [selectedIds],
   )
 
-  return { selectedIds, isSelected, selectOne, toggle, clear }
+  return { selectedIds, isSelected, selectOne, toggle, select, clear }
 }

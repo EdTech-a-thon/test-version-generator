@@ -1,4 +1,78 @@
-:root { font-family: Arial, Helvetica, sans-serif; color: #332a24; background: #eee6da; }
+:root {
+  font-family: Arial, Helvetica, sans-serif; color: #332a24; background: #eee6da;
+  /* The one palette. These are the values the Crepe editor theme is configured
+     with further down, named here so the workspace around it agrees rather than
+     each surface mixing its own browns. */
+  --paper-surface: #fffaf3;
+  --paper-surface-low: #f2e6d8;
+  --paper-outline: #e0d3c2;
+  --paper-ink-soft: #4e3b2f;
+  --paper-accent: #9f5037;
+  --paper-accent-wash: #f4e0cf;
+  /* Taking something away — off the exam, out of the bank's reach — is the one
+     thing the workspace says in red, and it says it the same way everywhere. */
+  --paper-danger: #a3321f;
+  --paper-danger-wash: #f8e0da;
+  --paper-danger-line: #eec8be;
+
+  /* Badge tints. Muted enough to sit inside a page of prose without shouting,
+     separated enough that two of them side by side are two colours. Difficulty
+     is the one ordered scale, so it gets the traffic lights; a Topic gets one
+     of the six neutral tints, picked from its name (see `badges.tsx`). */
+  --badge-ink: #5b4839;
+  --badge-wash: #f4ece1;
+  --badge-line: #e2d6c5;
+  --easy-ink: #3f6b46; --easy-wash: #e6f0e3; --easy-line: #cadfc6;
+  --medium-ink: #8a6320; --medium-wash: #f8ecd2; --medium-line: #ecd9ab;
+  --hard-ink: #a3321f; --hard-wash: #f8e0da; --hard-line: #eec8be;
+  --tint-0-ink: #9f5037; --tint-0-wash: #f4e0cf; --tint-0-line: #ecd0bb;
+  --tint-1-ink: #4b6b52; --tint-1-wash: #e6efe4; --tint-1-line: #cfe0cd;
+  --tint-2-ink: #4a627f; --tint-2-wash: #e4ecf5; --tint-2-line: #cbdaea;
+  --tint-3-ink: #7a4a6b; --tint-3-wash: #f2e4ee; --tint-3-line: #e3cdda;
+  --tint-4-ink: #866321; --tint-4-wash: #f6ecd4; --tint-4-line: #e9d9af;
+  --tint-5-ink: #3d6a68; --tint-5-wash: #e0efed; --tint-5-line: #c6e0dd;
+}
+
+/* A classification badge: a Difficulty, a Topic, or the question's own type.
+   The colour is the whole of what distinguishes them, so the shape is stated
+   once here and never again. */
+.badge {
+  display: inline-flex; align-items: center; gap: 5px; max-width: 100%;
+  padding: 1px 9px; border: 1px solid var(--badge-line); border-radius: 999px;
+  color: var(--badge-ink); background: var(--badge-wash);
+  font-size: 13px; line-height: 1.55; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis;
+}
+.badge svg { flex: none; width: 13px; height: 13px; stroke-width: 2.2; }
+.badge-difficulty[data-difficulty='easy'] {
+  color: var(--easy-ink); background: var(--easy-wash); border-color: var(--easy-line);
+}
+.badge-difficulty[data-difficulty='medium'] {
+  color: var(--medium-ink); background: var(--medium-wash); border-color: var(--medium-line);
+}
+.badge-difficulty[data-difficulty='hard'] {
+  color: var(--hard-ink); background: var(--hard-wash); border-color: var(--hard-line);
+}
+.badge-topic[data-tint='0'] {
+  color: var(--tint-0-ink); background: var(--tint-0-wash); border-color: var(--tint-0-line);
+}
+.badge-topic[data-tint='1'] {
+  color: var(--tint-1-ink); background: var(--tint-1-wash); border-color: var(--tint-1-line);
+}
+.badge-topic[data-tint='2'] {
+  color: var(--tint-2-ink); background: var(--tint-2-wash); border-color: var(--tint-2-line);
+}
+.badge-topic[data-tint='3'] {
+  color: var(--tint-3-ink); background: var(--tint-3-wash); border-color: var(--tint-3-line);
+}
+.badge-topic[data-tint='4'] {
+  color: var(--tint-4-ink); background: var(--tint-4-wash); border-color: var(--tint-4-line);
+}
+.badge-topic[data-tint='5'] {
+  color: var(--tint-5-ink); background: var(--tint-5-wash); border-color: var(--tint-5-line);
+}
+.badge-type svg { color: var(--paper-accent); }
+
 * { box-sizing: border-box; }
 html, body, #root { margin: 0; min-width: 320px; min-height: 100%; }
 button, input, select { font: inherit; }
@@ -47,8 +121,6 @@ button { cursor: pointer; }
 .toolbar-icon-button:hover:not(:disabled) { background: #f7eee3; }
 .toolbar-icon-button:disabled { color: #c5b8ac; cursor: not-allowed; }
 .toolbar-icon-button svg { width: 18px; height: 18px; stroke-width: 2; }
-.insert-question-button { display: inline-flex; align-items: center; gap: 6px; }
-.insert-question-button svg { width: 17px; height: 17px; stroke-width: 2; }
 
 /* The export dialog. One modal over the document, rather than a strip that
    pushes the page it is about out of the way. */
@@ -80,16 +152,23 @@ button { cursor: pointer; }
 .export-actions { flex-wrap: wrap; }
 .export-status { flex: 1; min-width: 0; margin: 0; color: #6e5b4d; font-size: 13px; }
 .export-failure { flex-basis: 100%; order: -1; }
-/* The way into an exam that has nothing in it yet: a placeholder where the
-   first question will be, sized like a question rather than like a toolbar
-   control. Editing chrome — the printed document never has one, because an
-   exam with no questions has nothing to print. */
+/* The way into an exam that has nothing in it yet: a placeholder standing in
+   for the whole of the first page, because that is what the first question is
+   about to become. It is also where a bank question is dropped, so the thing
+   the teacher aims at and the thing that says what will happen are one and the
+   same. Editing chrome — the printed document never has one, because an exam
+   with no questions has nothing to print. */
 .empty-exam-button {
   display: flex; align-items: center; justify-content: center; gap: 7px;
-  width: 100%; min-height: 96px; border-style: dashed; border-color: #cdb9a6;
+  width: 100%; height: 100%; border-style: dashed; border-color: #cdb9a6;
   color: #6e5b4d; background: transparent;
 }
 .empty-exam-button:hover { border-color: #9f5037; color: #9f5037; background: #f7eee3; }
+/* The active drop state, in the same colours the rendered questions use to say
+   a release here would land something. */
+.empty-exam-button[data-active] {
+  border-style: solid; border-color: #9f5037; color: #9f5037; background: #f7e2d5;
+}
 .empty-exam-button svg { width: 17px; height: 17px; stroke-width: 2; }
 
 .print-output { display: none; }
@@ -103,6 +182,185 @@ button { cursor: pointer; }
    module's own constants, so the box content was packed into and the box it
    is laid out in cannot drift apart. The `@page` rule at the foot of this
    file is the same sheet in inches. */
+
+/* ---------------------------------------------------------------------------
+   The split authoring workspace.
+
+   The Question Bank sits beside the rendered Exam Draft at an even split, so
+   neither side reads as the lesser one, and the divider between them moves.
+   The sheet keeps its real geometry — it is a piece of paper, and scaling it to
+   fit a pane would show a layout the printer will not produce — so the Exam
+   Draft pane scrolls instead, in both directions. When there is no room for two
+   panes the bank collapses to a rail rather than squeezing the sheet.
+
+   `--bank-column` is the width `workspace-split.tsx` is holding: a percentage
+   while the bank is open, the rail's width once it is away. The fixed drop
+   offer at the foot of the Exam Draft pane reads it too, so the two cannot
+   disagree about where the pane begins. */
+.authoring-workspace {
+  --bank-column: 33%;
+  --bank-divider: 6px;
+  display: grid; grid-template-columns: var(--bank-column) var(--bank-divider) 1fr;
+  align-items: start;
+}
+.editor-output { min-width: 0; }
+
+/* The divider. A real control: it takes focus and answers the arrow keys, so
+   the split is resizable without a pointer. */
+.workspace-resizer {
+  position: sticky; top: 58px; align-self: start;
+  height: calc(100vh - 58px); cursor: col-resize;
+  background: #f3ece2; border-right: 1px solid #e8dfd2;
+}
+.workspace-resizer:hover, .workspace-resizer:focus-visible { background: #e3d2bd; }
+.workspace-resizer:focus-visible { outline: 2px solid #8a6a4c; outline-offset: -2px; }
+
+.question-bank {
+  position: sticky; top: 58px; align-self: start;
+  display: flex; flex-direction: column; gap: 14px;
+  height: calc(100vh - 58px); padding: 18px 16px; overflow-y: auto;
+  border-right: 1px solid #e8dfd2; background: #fffaf3;
+}
+.question-bank-header {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+}
+.question-bank-header h2 { margin: 0; font-size: 16px; }
+.question-bank-header-actions { display: flex; align-items: center; gap: 6px; }
+.question-bank-header .secondary-button {
+  display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 6px 11px;
+}
+.question-bank-header svg { width: 16px; height: 16px; stroke-width: 2; }
+/* The filter bar: a stem search and one dropdown per filter category. Nothing
+   here is authoring data — it narrows what is shown and is forgotten on
+   reload. */
+.question-bank-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.bank-search { position: relative; flex: 1 1 160px; min-width: 130px; display: flex; }
+.bank-search svg {
+  position: absolute; left: 8px; top: 50%; width: 14px; height: 14px;
+  transform: translateY(-50%); color: #9c8977; stroke-width: 2;
+}
+.bank-search input {
+  width: 100%; padding: 6px 8px 6px 27px; border: 1px solid #ddcdb9; border-radius: 6px;
+  background: #fffdf8; font-size: 13px;
+}
+.bank-filter { position: relative; }
+.bank-filter-button {
+  display: inline-flex; align-items: center; gap: 5px; min-height: 30px; padding: 5px 9px;
+  border: 1px solid #ddcdb9; border-radius: 6px; color: #5b4839; background: #fffdf8;
+  font-size: 13px;
+}
+.bank-filter-button:hover { border-color: #cdb9a6; background: #f7ede0; }
+.bank-filter-button[data-active] { border-color: #b99a78; background: #f3e4d1; }
+.bank-filter-count {
+  min-width: 16px; padding: 0 4px; border-radius: 999px;
+  color: #fffdf8; background: #8a6a4c; font-size: 11px; text-align: center;
+}
+/* Anchored to the viewport rather than to the button, because the bank
+   scrolls: a list positioned inside it is clipped by the pane it belongs to.
+   `left`/`top` come from the component, which has already kept it inside the
+   window. The width matches LIST_WIDTH in question-bank-pane.tsx. */
+.bank-filter-list {
+  position: fixed; z-index: 900;
+  width: 190px; max-height: 260px; padding: 5px; overflow-y: auto;
+  border: 1px solid #e0d3c2; border-radius: 8px; background: #fffdf8;
+  box-shadow: 0 8px 24px rgb(91 68 47 / 18%);
+}
+.bank-filter-option {
+  display: flex; align-items: center; gap: 8px; padding: 5px 7px; border-radius: 5px;
+  font-size: 13px; cursor: pointer;
+}
+.bank-filter-option:hover { background: #f5eade; }
+.bank-filter-empty { margin: 0; padding: 6px 7px; color: #8a7868; font-size: 13px; }
+.bank-filter-clear {
+  padding: 5px 8px; border: 0; border-radius: 6px; color: #6b5a4c;
+  background: transparent; font-size: 13px; text-decoration: underline;
+}
+.bank-filter-clear:hover { color: #3c2d22; background: #f3e9dc; }
+
+.question-bank-empty { margin: 0; color: #7a6a5c; font-size: 14px; line-height: 1.5; }
+/* A bank nobody has written into yet reads as prose, because there is nothing
+   to look at. A bank whose questions are all behind the current search is a
+   panel where the rows would have been, so an empty result never looks like a
+   bank that lost its contents. */
+.question-bank-empty[data-empty='no-matches'] {
+  padding: 18px 16px; border: 1px dashed #d8c7b2; border-radius: 8px;
+  background: #fdf6ec; text-align: center;
+}
+.question-bank-list {
+  display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none;
+}
+.question-bank-row {
+  display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px;
+  border: 1px solid #e2d6c5; border-radius: 8px; background: #fffdf8;
+}
+.question-bank-row:hover { border-color: #d8cbbb; }
+.question-bank-row[data-in-exam] {
+  border-color: var(--paper-outline); background: var(--paper-surface-low);
+}
+/* On the exam: a tick at rest, and the minus that takes it off under the
+   cursor. Both icons are always in the slot, so the swap costs no layout and
+   the button never changes size. */
+.question-bank-included { color: var(--paper-accent); }
+.question-bank-included-hover { display: none; }
+.question-bank-included:hover, .question-bank-included:focus-visible {
+  border-color: var(--paper-danger-line); color: var(--paper-danger);
+  background: var(--paper-danger-wash);
+}
+.question-bank-included:hover .question-bank-included-resting,
+.question-bank-included:focus-visible .question-bank-included-resting { display: none; }
+.question-bank-included:hover .question-bank-included-hover,
+.question-bank-included:focus-visible .question-bank-included-hover { display: block; }
+/* The clicked row. Selection is a place to act from, not a change to the exam:
+   it is never persisted and never undoable. */
+.question-bank-row[aria-current='true'] {
+  border-color: var(--paper-accent); box-shadow: inset 0 0 0 1px var(--paper-accent);
+  background: var(--paper-accent-wash);
+}
+.question-bank-row:focus-visible { outline: 2px solid #8a6a4c; outline-offset: 2px; }
+/* An unused row is a drag source and says so; a row already on the exam is
+   not one, because a reference occurs at most once. */
+.question-bank-row[data-draggable] { cursor: grab; }
+.question-bank-row[data-draggable]:active { cursor: grabbing; }
+.question-bank-row[data-dragging] { opacity: 0.4; }
+.question-bank-row-content {
+  flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 4px;
+}
+.question-bank-row-meta {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 8px;
+  color: #7a6a5c; font-size: 11px; letter-spacing: 0.05em; text-transform: uppercase;
+}
+.question-bank-row-badge {
+  padding: 1px 7px; border-radius: 999px;
+  color: #4e3b2f; background: #efe2d1; letter-spacing: 0; text-transform: none;
+}
+/* One line, always: the row is a projection of the stem, and a taller row would
+   make the bank harder to scan rather than more informative. */
+.question-bank-row-stem { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.question-bank-row-line {
+  min-width: 0; overflow: hidden; font-size: 14px; text-overflow: ellipsis; white-space: nowrap;
+}
+.question-bank-row-content-badge {
+  flex: none; padding: 1px 6px; border-radius: 4px;
+  color: #6b5a4c; background: #f0e6d8; font-size: 11px;
+}
+.question-bank-row-topics { display: flex; flex-wrap: wrap; gap: 5px; }
+/* The bank is a scanning surface: the same badges as the popup's front matter,
+   at the size the rest of a row is written in. */
+.question-bank-row-meta .badge, .question-bank-row-topics .badge {
+  padding: 0 7px; font-size: 11px; letter-spacing: 0; text-transform: none;
+}
+.question-bank-row-meta .badge svg, .question-bank-row-topics .badge svg {
+  width: 11px; height: 11px;
+}
+.question-bank-row-actions { flex: none; display: flex; gap: 2px; }
+.question-bank-action {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; border: 1px solid transparent; border-radius: 6px;
+  color: #6b5a4c; background: transparent;
+}
+.question-bank-action:hover { border-color: #d8cbbb; background: #f3e9dc; }
+.question-bank-action svg { width: 16px; height: 16px; stroke-width: 2; }
+
 .exam-workspace {
   min-height: calc(100vh - 58px); padding: 26px 24px; overflow-x: auto;
 }
@@ -180,12 +438,28 @@ button { cursor: pointer; }
 .exam-question:active { cursor: grabbing; }
 
 /* Pointer capture keeps the page, rather than native HTML dragging, in charge
-   of the cursor. The root class also covers the bars outside the workspace. */
+   of the cursor. The root class also covers the bars outside the workspace.
+
+   The cursor is where "this would not land here" is said. A question in another
+   Question Section exposes no drop state of its own — nothing is drawn on it at
+   all — so the only thing left to say so is the pointer. */
 .question-drag-active,
 .question-drag-active *,
 .exam-workspace--dragging,
 .exam-workspace--dragging * { cursor: grabbing !important; }
+.question-drag-active[data-drag-intent='none'],
+.question-drag-active[data-drag-intent='none'] * { cursor: no-drop !important; }
 .question-drag-active { user-select: none; }
+
+/* While a Question Bank question is in flight, every position it could reach
+   says so — before the pointer is over any one of them, which is what makes a
+   compatible target findable rather than discovered by trial. */
+.question-drag-active[data-drag-pane='question-bank'][data-drag-section='multiple-choice']
+  .exam-question[data-drop-target='multiple-choice']:not([data-drop]),
+.question-drag-active[data-drag-pane='question-bank'][data-drag-section='open']
+  .exam-question[data-drop-target='open']:not([data-drop]) {
+  outline: 1px dashed #c9b49b; outline-offset: 5px;
+}
 
 /* A page-owned counterpart to the browser's drag image. It keeps the exact
    question markup and grab offset without surrendering the cursor to native
@@ -204,6 +478,24 @@ button { cursor: pointer; }
   padding: 3px 7px; border-radius: 999px; color: #fffaf3; background: #9f5037;
   font: 600 12px/1.3 Arial, Helvetica, sans-serif;
 }
+/* A Question Bank row in flight is a row, not a sheet: it keeps the compact
+   markup it had rather than pretending to be a rendered question. */
+.question-drag-preview[data-pane='question-bank'] { max-width: 340px; padding: 0; }
+.question-drag-preview[data-pane='question-bank'] .question-bank-row {
+  margin: 0; background: #fffdf8;
+}
+.question-drag-preview[data-pane='question-bank'] .question-bank-row-actions {
+  display: none;
+}
+/* What releasing would do, said on the thing the pointer is carrying: Insert,
+   Replace, or — over an incompatible position — nothing, because the no-drop
+   cursor has already said it. */
+.question-drag-preview[data-intent-label]:not([data-intent-label=''])::before {
+  content: attr(data-intent-label); position: absolute; top: -11px; left: 8px;
+  padding: 2px 8px; border-radius: 999px; color: #fffaf3; background: #6d5a45;
+  font: 600 11px/1.5 Arial, Helvetica, sans-serif; letter-spacing: 0.03em;
+}
+.question-drag-preview[data-intent='replace']::before { background: #9f5037; }
 
 /* Hover and selection are painted with a background plus a matching spread
    `box-shadow`, never padding: the shadow bleeds the colour past the box
@@ -235,6 +527,26 @@ button { cursor: pointer; }
    pointer — so the row you lifted stays findable underneath. */
 .exam-question--dragging { opacity: 0.4; }
 
+/* The first question of a Question Section that has none.
+
+   An empty section is not drawn on the sheet — a section is derived from the
+   questions in it — so a composition gesture would have nothing to aim at. This
+   is the offer, pinned to the foot of the Exam Draft pane while a compatible
+   gesture is in flight: reachable however far the exam has been scrolled, and
+   never a pixel taken from the paper's own geometry. */
+.exam-draft-empty-section {
+  position: fixed; z-index: 900;
+  left: calc(var(--bank-column) + var(--bank-divider)); right: 0; bottom: 0;
+  display: flex; align-items: center; justify-content: center;
+  height: 68px; margin: 0 18px 18px; border-radius: 8px;
+  border: 2px dashed #c9b49b; background: #fffaf3f2; color: #6d5a45;
+  font: 600 14px/1.4 Arial, Helvetica, sans-serif;
+  box-shadow: 0 6px 18px rgb(55 42 33 / 12%);
+}
+.exam-draft-empty-section[data-active] {
+  border-color: #9f5037; border-style: solid; color: #9f5037; background: #f7e2d5;
+}
+
 /* The drop line: where the question would land if it were let go now. It sits
    in the 26px gap between questions, so it never covers what it is pointing
    between. */
@@ -244,6 +556,14 @@ button { cursor: pointer; }
 }
 .exam-question[data-drop="before"]::after { top: -14px; }
 .exam-question[data-drop="after"]::after { bottom: -14px; }
+/* Replacement is a different claim from insertion, so it is drawn differently:
+   the whole target is marked, because the whole of it is what would be taken
+   out of the exam. Painted with a spread shadow rather than a border, so the
+   question's measured height is untouched. */
+.exam-question[data-drop="replace"] {
+  background: #f7e2d5; box-shadow: 0 0 0 6px #f7e2d5, 0 0 0 8px #9f5037;
+}
+.exam-question[data-drop="replace"]::after { content: none; }
 .question-number { display: flex; align-items: baseline; gap: 8px; font-weight: 700; }
 /* The line a student writes their letter on. */
 .answer-blank { flex: 1; border-bottom: 1px solid #332a24; transform: translateY(-3px); }
@@ -289,7 +609,7 @@ button { cursor: pointer; }
    overflow; `left`/`top` come from the component, which has already flipped
    and clamped them against the viewport. */
 .context-menu {
-  position: fixed; z-index: 60; min-width: 196px; max-height: 80vh; overflow-y: auto;
+  position: fixed; z-index: 60; min-width: 196px; max-height: 80vh; overflow: visible;
   padding: 4px; border: 1px solid #e0d3c2; border-radius: 8px; background: #fffdf8;
   box-shadow: 0 10px 30px rgb(55 42 33 / 18%), 0 2px 6px rgb(55 42 33 / 10%);
   font-family: Arial, Helvetica, sans-serif; font-size: 13px;
@@ -306,9 +626,14 @@ button { cursor: pointer; }
   color: #4e3b2f; background: transparent; font: inherit; text-align: left;
 }
 .context-menu-item:hover, .context-menu-item:focus { background: #f2e6d8; outline: none; }
-.context-menu-item--destructive { color: #a3321f; }
-.context-menu-item--destructive:hover,
-.context-menu-item--destructive:focus { background: #f8e0da; }
+/* Destructive rows read like every other row until the cursor is on them:
+   colouring the whole menu's odd one out at rest makes the menu look alarming
+   rather than the action. */
+.context-menu-item--destructive:hover, .context-menu-item--destructive:focus {
+  color: var(--paper-danger); background: var(--paper-danger-wash);
+}
+.context-menu-item--destructive:hover .context-menu-icon,
+.context-menu-item--destructive:focus .context-menu-icon { color: var(--paper-danger); }
 /* One leading slot for every row, whether it holds an action's icon or a radio
    row's dot, so the labels line up down the whole menu. */
 .context-menu-icon {
@@ -326,7 +651,6 @@ button { cursor: pointer; }
   flex: none; display: flex; align-items: center; justify-content: center;
   width: 12px; height: 16px;
 }
-.context-menu-item--destructive .context-menu-icon { color: #b8503c; }
 .context-menu-dot {
   width: 6px; height: 6px; border-radius: 50%; background: #9f5037;
 }
@@ -335,6 +659,23 @@ button { cursor: pointer; }
   font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
 }
 .context-menu-separator { height: 1px; margin: 4px -1px; background: #eadfd0; }
+.context-menu-submenu { position: relative; }
+.context-menu-submenu-arrow { margin-left: auto; color: #8b7868; font-size: 18px; line-height: 1; }
+.context-submenu {
+  position: absolute; z-index: 61; top: -4px; left: calc(100% + 5px); min-width: 196px;
+  padding: 4px; border: 1px solid #e0d3c2; border-radius: 8px; background: #fffdf8;
+  box-shadow: 0 10px 30px rgb(55 42 33 / 18%), 0 2px 6px rgb(55 42 33 / 10%);
+}
+.context-menu[data-side='left'] .context-submenu {
+  right: calc(100% + 5px); left: auto;
+}
+
+.vary-summary {
+  position: fixed; z-index: 40; left: 50%; bottom: 22px; transform: translateX(-50%);
+  margin: 0; padding: 9px 14px; border: 1px solid #d8cab8; border-radius: 8px;
+  color: #46372d; background: #fffaf3; box-shadow: 0 8px 24px rgb(91 68 47 / 18%);
+  font-size: 13px; font-weight: 600;
+}
 
 
 /* Question content. */
@@ -351,17 +692,79 @@ button { cursor: pointer; }
 }
 .question-dialog {
   width: min(980px, 100%); height: min(820px, 94vh); display: grid;
-  grid-template-rows: auto 1fr auto; overflow: hidden; border-radius: 10px;
+  /* Header, front matter and actions take the room they need; the editor is
+     the one row that grows, because the writing is what the dialog is for. */
+  grid-template-rows: auto auto 1fr auto; overflow: hidden; border-radius: 10px;
   background: #fffaf3; box-shadow: 0 18px 55px rgb(55 42 33 / 30%);
 }
 .dialog-header, .dialog-actions { padding: 14px 18px; border-bottom: 1px solid #e8dfd2; }
 .dialog-header { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
 .dialog-header h2 { margin: 0; font-size: 18px; }
-.dialog-header label { display: flex; align-items: center; gap: 9px; color: #6e5b4d; font-size: 13px; }
-.dialog-header select, .choice-controls select {
+.choice-controls select {
   padding: 7px 30px 7px 9px; border: 1px solid #cdb9a6; border-radius: 6px; background: #fffdf8;
 }
 .dialog-actions { justify-content: flex-end; border-top: 1px solid #e8dfd2; border-bottom: 0; }
+
+/* A question's front matter: one row per property, the label on the left and
+   what has been chosen on the right. It is indented to the document's own text
+   margin — the same expression `.dialog-editor .milkdown > .ProseMirror` uses,
+   folded into one — so the classification and the question it classifies hang
+   off the same left edge, and a thin rule is all that separates them. Both
+   optional properties are ordinarily blank, so a blank row has to look
+   deliberate rather than unfinished. */
+.front-matter {
+  display: flex; flex-direction: column; gap: 1px;
+  padding: 12px max(68px, calc((100% - 720px) / 2));
+  border-bottom: 1px solid var(--paper-outline); background: #fffdf8;
+}
+.front-matter-field { position: relative; display: flex; align-items: center; gap: 10px; }
+.front-matter-label {
+  display: inline-flex; align-items: center; gap: 7px;
+  flex: 0 0 104px; color: var(--paper-ink-soft); font-size: 13px;
+}
+.front-matter-label svg { width: 14px; height: 14px; stroke-width: 2; }
+/* Wide enough for what has been chosen and no wider — only many Topics make a
+   row grow. The floor is there because the ordinary state of these fields is
+   blank, and "Empty" is a smaller word than the target a teacher is aiming a
+   pointer at: an unset field stays as wide as a filled one looks. */
+.front-matter-value {
+  flex: 0 1 auto; display: flex; align-items: center; flex-wrap: wrap; gap: 6px;
+  min-width: 160px; min-height: 28px; padding: 3px 8px;
+  border: 1px solid transparent; border-radius: 6px;
+  background: transparent; text-align: left;
+}
+.front-matter-value:hover { background: var(--paper-surface-low); }
+.front-matter-value:focus-visible { outline: 2px solid var(--paper-accent); outline-offset: -2px; }
+/* Type is stated rather than chosen, so its row is not a control. */
+.front-matter-stated { cursor: default; }
+.front-matter-stated:hover { background: transparent; }
+.front-matter-blank { color: #9c8b7c; font-size: 13px; }
+
+/* The list of what can be chosen, with a box to narrow it. Typing filters and
+   moves the highlight; it never rewrites a value, because the spelling is the
+   teacher's. */
+.front-matter-list {
+  position: absolute; z-index: 40; top: calc(100% - 2px); left: 104px; width: min(320px, 100%);
+  padding: 6px; border: 1px solid var(--paper-outline); border-radius: 8px;
+  background: var(--paper-surface); box-shadow: 0 10px 28px rgb(91 68 47 / 20%);
+}
+.front-matter-search {
+  width: 100%; padding: 6px 9px; border: 1px solid #cdb9a6; border-radius: 6px;
+  background: #fffdf8; font-size: 13px;
+}
+.front-matter-options { max-height: 188px; margin-top: 6px; overflow-y: auto; }
+.front-matter-option {
+  display: flex; align-items: center; gap: 7px; width: 100%; padding: 5px 7px;
+  border: 0; border-radius: 5px; color: var(--paper-ink-soft);
+  background: transparent; font-size: 13px; text-align: left;
+}
+/* One highlight, wherever it was last moved by the pointer or the arrow keys,
+   because Enter takes the row it is on. */
+.front-matter-option[data-active] { background: var(--paper-surface-low); }
+.front-matter-option svg { width: 14px; height: 14px; stroke-width: 2.5; }
+.front-matter-option[data-chosen] svg:last-child { margin-left: auto; color: var(--paper-accent); }
+.front-matter-empty { margin: 0; padding: 7px; color: #8a7868; font-size: 13px; }
+
 .dialog-editor { min-height: 0; padding: 0 32px; overflow-y: auto; background: #fffdf8; }
 .dialog-editor .milkdown {
   min-height: 100%;
@@ -383,11 +786,11 @@ button { cursor: pointer; }
   --crepe-color-inline-area: #f2e6d8;
 }
 .dialog-editor .milkdown > .ProseMirror { min-height: 100%; padding: 46px max(36px, calc((100% - 720px) / 2)); }
+/* The caret is the browser's own, in the ink the page is written in. Crepe's
+   painted stand-in is switched off where the editor is configured, so this is
+   the only caret there is. */
 .dialog-editor .milkdown :is(input, textarea, [contenteditable="true"]) {
   caret-color: #4e3b2f;
-}
-.dialog-editor .milkdown .ProseMirror-focused {
-  --prosemirror-virtual-cursor-color: #4e3b2f;
 }
 .dialog-editor .milkdown .cm-cursor { border-left-color: #4e3b2f; }
 .dialog-editor .milkdown .milkdown-toolbar .toolbar-item svg {
@@ -520,6 +923,17 @@ button { cursor: pointer; }
    shrinking it would mean showing a layout the printer will not produce. The
    workspace scrolls instead. */
 @media (max-width: 880px) {
+  /* Too narrow for two panes: the bank goes above the sheet rather than
+     squeezing it, and the divider has nothing left to divide. */
+  .authoring-workspace {
+    --bank-divider: 0px; grid-template-columns: 1fr;
+  }
+  .question-bank {
+    position: static; height: auto; max-height: 44vh;
+    border-right: none; border-bottom: 1px solid #e8dfd2;
+  }
+  .workspace-resizer { display: none; }
+  .exam-draft-empty-section { left: 0; }
   .exam-workspace { padding: 16px 0; }
   .dialog-backdrop { padding: 0; }
   .question-dialog { width: 100%; height: 100vh; border-radius: 0; }
@@ -536,8 +950,8 @@ button { cursor: pointer; }
 @media print {
   /* Chrome off: only the test prints. The measuring host is chrome too, and
      an off-screen block left in the flow prints as blank sheets. */
-  .document-bar, .question-handles, .context-menu,
-  .measure-host, .editor-output,
+  .document-bar, .question-handles, .context-menu, .vary-summary,
+  .measure-host, .authoring-workspace,
   .dialog-backdrop {
     display: none;
   }
@@ -552,13 +966,19 @@ button { cursor: pointer; }
     break-after: page;
   }
   .exam-question { break-inside: avoid; }
-  /* Selection, hover and drag feedback are all editing chrome — never printed. */
+  /* Selection, hover and drag feedback are all editing chrome — never printed.
+     The Replace highlight is stated with an attribute, so it needs saying at
+     the same specificity to be taken back. */
   .exam-question,
   .exam-question:hover,
-  .exam-question--selected {
-    background: none; box-shadow: none; opacity: 1;
+  .exam-question--selected,
+  .exam-question[data-drop='replace'],
+  .exam-question--revealed {
+    background: none; box-shadow: none; opacity: 1; animation: none;
   }
   .exam-question[data-drop]::after { display: none; }
+  .exam-draft-empty-section, .workspace-resizer,
+  .question-drag-preview { display: none; }
 }
 
 /* The pages either side of the editor — About and Privacy — plus the footer

@@ -2,7 +2,8 @@ import { expect, test } from '@playwright/test'
 
 test('typed -> and <- become real arrows', async ({ page }) => {
   await page.goto('/')
-  await page.getByRole('button', { name: 'Insert question' }).click()
+  await page.getByRole('button', { name: 'Insert your first question' }).click()
+  await page.getByRole('menuitem', { name: 'Multiple choice' }).click()
 
   const dialog = page.getByRole('dialog', { name: 'Question editor' })
   const editor = dialog.locator('.ProseMirror')

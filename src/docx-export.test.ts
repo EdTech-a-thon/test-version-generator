@@ -24,7 +24,7 @@ const exam: Exam = {
     {
       id: 'q1',
       type: 'open',
-      columns: 'auto',
+      columns: 2,
       doc: {
         type: 'doc',
         content: [paragraph(text('Show  your work')), paragraph()],

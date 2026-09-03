@@ -28,8 +28,11 @@ import {
   type PdfManifest,
 } from './pdf-manifest'
 import { checkPrerequisites, environmentReport } from './export-environment'
+import { seedAuthoringState } from './seed-authoring'
 import { FIXTURES, PIXEL_PNG, seededRandom, type Fixture } from '../src/export-fixtures'
 import { imageSourcesOf } from '../src/docx-export'
+import { orderedChoices, type Question } from '../src/exam'
+import type { ProseMirrorJSON } from '../src/question-doc'
 import { buildExportDocument, STUDENT_TEST } from '../src/export-plan'
 import {
   plansOf,
@@ -385,22 +388,36 @@ async function stubPrintDialog(
   })
 }
 
-/** The fixture, put where the application looks for its draft. */
+/** The fixture's questions with their answers already in the fixture Version's
+ *  order. An Exam Draft records no choice order — answers print in the order
+ *  they were authored in — so a fixture that permuted its answers is seeded
+ *  with them authored that way, which is the same paper by another route. */
+function authoredInVersionOrder(fixture: Fixture): Question[] {
+  return fixture.exam.questions.map((question) => {
+    const ordered = orderedChoices(question, fixture.version)
+    if (ordered.length === 0) return question
+    const content = (question.doc.content as ProseMirrorJSON[]).map((node) =>
+      node.type === 'multipleChoice'
+        ? { ...node, content: ordered.map((choice) => choice.node) }
+        : node,
+    )
+    return { ...question, doc: { ...question.doc, content } }
+  })
+}
+
+/** The fixture, put where the application looks for its authoring state. */
 async function seed(
   page: import('@playwright/test').Page,
   fixture: Fixture,
 ): Promise<void> {
-  await page.addInitScript(
-    (draft) => {
-      localStorage.setItem('exam-draft-v1', JSON.stringify(draft))
+  await seedAuthoringState(page, {
+    questionBank: { questions: authoredInVersionOrder(fixture) },
+    examDraft: {
+      title: fixture.exam.title,
+      questionIds: fixture.version.questionOrder,
     },
-    {
-      exam: fixture.exam,
-      versions: [fixture.version],
-      currentVersionId: fixture.version.id,
-      dirty: false,
-    },
-  )
+    dirty: false,
+  })
 }
 
 /** Fonts and images decide the page's real height, and the application
