@@ -1,6 +1,28 @@
 const databaseName = 'test-parrot-version-history-v1'
 const databaseVersion = 2
+const questionBankStore = 'question-bank'
+const authoringStateStore = 'authoring-state'
+const savedAuthoringStore = 'saved-authoring-state'
 const mediaStore = 'media-assets'
+
+// The worker can be the first client to open an existing v1 database: a
+// persisted image may be requested before the application starts its normal
+// authoring backend. Its upgrade must therefore establish the complete v2
+// schema, not merely the store it reads.
+function upgradeSchema(database) {
+  if (!database.objectStoreNames.contains(questionBankStore)) {
+    database.createObjectStore(questionBankStore, { keyPath: 'id' })
+  }
+  if (!database.objectStoreNames.contains(authoringStateStore)) {
+    database.createObjectStore(authoringStateStore, { keyPath: 'key' })
+  }
+  if (!database.objectStoreNames.contains(savedAuthoringStore)) {
+    database.createObjectStore(savedAuthoringStore)
+  }
+  if (!database.objectStoreNames.contains(mediaStore)) {
+    database.createObjectStore(mediaStore, { keyPath: 'hash' })
+  }
+}
 
 self.addEventListener('install', () => self.skipWaiting())
 self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()))
@@ -9,11 +31,7 @@ function assetFor(hash) {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(databaseName, databaseVersion)
     request.onerror = () => reject(request.error)
-    request.onupgradeneeded = () => {
-      if (!request.result.objectStoreNames.contains(mediaStore)) {
-        request.result.createObjectStore(mediaStore, { keyPath: 'hash' })
-      }
-    }
+    request.onupgradeneeded = () => upgradeSchema(request.result)
     request.onsuccess = () => {
       const database = request.result
       const transaction = database.transaction(mediaStore, 'readonly')
