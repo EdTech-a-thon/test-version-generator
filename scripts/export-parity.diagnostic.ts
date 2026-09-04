@@ -7,8 +7,8 @@
 // What it does, per fixture, at the highest seam the product has:
 //
 //   1. Seeds the real application with the fixture and lets it settle.
-//   2. Captures the print Export Adapter as the Reference PDF with the pinned
-//      Playwright Chromium, through the real export dialog.
+//   2. Captures the dialog's clean print-reference preview as the Reference PDF
+//      with the pinned Playwright Chromium.
 //   3. Downloads the real DOCX through that same dialog.
 //   4. Renders that DOCX to PDF with the pinned LibreOffice Comparison Engine.
 //   5. Compares page count, page dimensions and ordered content per page.
@@ -29,7 +29,7 @@ import {
 } from './pdf-manifest'
 import { checkPrerequisites, environmentReport } from './export-environment'
 import { seedAuthoringState } from './seed-authoring'
-import { FIXTURES, PIXEL_PNG, seededRandom, type Fixture } from '../src/export-fixtures'
+import { FIXTURES, PIXEL_PNG, type Fixture } from '../src/export-fixtures'
 import { imageSourcesOf } from '../src/docx-export'
 import { orderedChoices, type Question } from '../src/exam'
 import type { ProseMirrorJSON } from '../src/question-doc'
@@ -38,6 +38,7 @@ import {
   plansOf,
   prepareExport,
   versionRange,
+  EMPTY_PUBLICATION_HISTORY,
   type ExportConfiguration,
 } from '../src/export-preparation'
 import {
@@ -56,26 +57,15 @@ const ARTIFACTS = join(process.cwd(), 'export-artifacts')
 // has historically lost. The fast suite covers every feature on its own.
 const COMPARED = new Set([
   'a realistic composite exam',
-  // Several Generated Versions and both Content Selection streams, in one
-  // print operation and one Word package.
-  'a realistic composite exam in three versions with answer keys',
   'a four-column choice grid with an empty cell',
   'inline and block images',
   'a table with a header row',
   'a question that moves whole to the next page',
 ])
 
-/** The seed both runs draw from. Randomization is a fresh draw in production;
- *  the comparison needs the print run and the Word run to publish the same
- *  Generated Versions, so the diagnostic pins the source before each export. */
-const SEED = 20260828
-
-function configurationOf(fixture: Fixture, format: 'print' | 'docx'): ExportConfiguration {
+function configurationOf(): ExportConfiguration {
   return {
-    format,
-    selection: { test: true, answerKey: fixture.answerKey ?? false },
-    versionCount: fixture.versions ?? 1,
-    randomization: fixture.randomization ?? { questions: false, answers: false },
+    selection: { test: true, answerKey: true },
   }
 }
 
@@ -94,7 +84,10 @@ function mathSourcesOf(fingerprint: {
 }
 
 function slug(name: string): string {
-  return name.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase()
+  return name
+    .replace(/[^a-z0-9]+/gi, '-')
+    .replace(/^-|-$/g, '')
+    .toLowerCase()
 }
 
 function convertToPdf(docx: string, outputDirectory: string): string {
@@ -119,7 +112,9 @@ function convertToPdf(docx: string, outputDirectory: string): string {
     },
   )
   if (result.status !== 0) {
-    throw new Error(`LibreOffice conversion failed:\n${result.stdout}\n${result.stderr}`)
+    throw new Error(
+      `LibreOffice conversion failed:\n${result.stdout}\n${result.stderr}`,
+    )
   }
   return docx.replace(/\.docx$/, '.pdf')
 }
@@ -155,17 +150,17 @@ for (const fixture of fixtures) {
     rmSync(directory, { recursive: true, force: true })
     mkdirSync(directory, { recursive: true })
 
-    // The plans the application will prepare for itself, prepared here too —
-    // from the same seed — so the recorded artifacts describe the same export
-    // and the image seeding knows which pictures to put in the cache.
-    const configuration = configurationOf(fixture, 'print')
+    // The plans the application will prepare for itself, prepared here too so
+    // recorded artifacts describe the same canonical test/key publication.
+    const configuration = configurationOf()
     const plans = plansOf(
       prepareExport({
         exam: fixture.exam,
         version: fixture.version,
         configuration,
-        random: seededRandom(SEED),
+        history: EMPTY_PUBLICATION_HISTORY,
         measure: fixture.measure,
+        createdAt: '2026-09-04T12:00:00.000Z',
       }),
     )
     const pageSize = plans[0]!.pageSize
@@ -175,12 +170,7 @@ for (const fixture of fixtures) {
       'export-document.json',
       JSON.stringify(
         exportDocumentFingerprint(
-          buildExportDocument(
-            fixture.exam,
-            fixture.version,
-            STUDENT_TEST,
-            fixture.measure,
-          ),
+          buildExportDocument(fixture.exam, fixture.version, STUDENT_TEST),
         ),
         null,
         2,
@@ -193,8 +183,6 @@ for (const fixture of fixtures) {
     )
 
     await seed(page, fixture)
-    await stubPrintDialog(page)
-    await pinRandomness(page)
     // The application registers its image worker and reloads itself once, so
     // wait for a rendered page rather than for the first navigation.
     await page.goto('/')
@@ -209,25 +197,26 @@ for (const fixture of fixtures) {
     }
     await settle(page)
 
-    // 1. The Reference PDF, out of the print Export Adapter the application
-    //    actually prints, configured through the real export dialog.
+    // 1. The Reference PDF, from the clean print-reference preview configured
+    //    through the real export dialog.
     const referencePdf = join(directory, 'reference.pdf')
     await configureExport(page, configuration)
-    await page.getByRole('button', { name: 'Print', exact: true }).click()
-    // Attached, not visible: the print document is `display: none` until print
-    // media applies, which is exactly what `page.pdf()` applies.
-    await page
-      .locator('.print-output .exam-page')
-      .first()
-      .waitFor({ state: 'attached' })
+    await page.locator('.export-preview .exam-page').first().waitFor()
     await settle(page)
-    // Read straight off the document, and before the capture: `printToPDF`
-    // fires `afterprint`, which is the application's cue to take the print
-    // document down again. A locator would be no good either — the print output
-    // is `display: none` until print media applies.
     const printMarkup = await page.evaluate(
-      () => document.querySelector('.print-output')?.outerHTML ?? '',
+      () => document.querySelector('.export-preview')?.outerHTML ?? '',
     )
+    await page.addStyleTag({
+      content: `
+      @media print {
+        .dialog-backdrop { display: block !important; position: static !important; padding: 0 !important; }
+        .export-dialog { display: block !important; width: auto !important; max-height: none !important; box-shadow: none !important; }
+        .dialog-header, .export-controls, .export-actions { display: none !important; }
+        .export-publication-body, .export-preview { display: block !important; padding: 0 !important; overflow: visible !important; background: #fff !important; }
+        .export-preview .exam-workspace { display: block !important; }
+      }
+    `,
+    })
     await page.pdf({
       path: referencePdf,
       width: '8.5in',
@@ -236,20 +225,32 @@ for (const fixture of fixtures) {
       printBackground: false,
       preferCSSPageSize: false,
     })
-    // The printed markup, while it is still mounted: this is the reference for
-    // structural parity, and it is the same DOM the PDF was just made from.
     await page.reload()
     await page.locator('.exam-page').first().waitFor()
     await settle(page)
 
     // 2. The real DOCX, downloaded the way a teacher downloads it — the same
-    //    configuration, the same seed, so the same Generated Versions.
+    //    configuration and canonical plans.
     const downloadPromise = page.waitForEvent('download')
-    await configureExport(page, configurationOf(fixture, 'docx'))
+    await configureExport(page, configuration)
     await page.getByRole('button', { name: 'Download DOCX' }).click()
     const download = await downloadPromise
     const docx = join(directory, 'export.docx')
     await download.saveAs(docx)
+
+    // The media-rich composite is downloaded again from stored history. A
+    // matching fingerprint must use the immutable canonical plans byte-for-
+    // semantic-byte rather than rebuilding a second historical path.
+    if (fixture.name === 'a realistic composite exam') {
+      const historicalPromise = page.waitForEvent('download')
+      await configureExport(page, configuration)
+      await page.getByRole('button', { name: 'Download DOCX' }).click()
+      const historical = join(directory, 'historical-export.docx')
+      await (await historicalPromise).saveAs(historical)
+      expect(await docxFingerprint(readFileSync(historical))).toEqual(
+        await docxFingerprint(readFileSync(docx)),
+      )
+    }
 
     // 3. Structural parity, against the document the browser actually laid out
     //    — real measurement, real page assignment, not a plan this file built
@@ -274,7 +275,11 @@ for (const fixture of fixtures) {
     const converted = pdfManifest(convertedPdf)
     record(directory, 'reference-manifest.txt', manifestText(reference))
     record(directory, 'docx-manifest.txt', manifestText(converted))
-    const paged = comparePdfs(reference, converted, equationWords(mathSourcesOf(printed)))
+    const paged = comparePdfs(
+      reference,
+      converted,
+      equationWords(mathSourcesOf(printed)),
+    )
     record(directory, 'page-report.txt', describePdfDifferences(paged))
 
     const failed = structural.length > 0 || paged.length > 0
@@ -282,10 +287,15 @@ for (const fixture of fixtures) {
       await testInfo.attach('structural-report', {
         path: join(directory, 'structural-report.txt'),
       })
-      await testInfo.attach('page-report', { path: join(directory, 'page-report.txt') })
+      await testInfo.attach('page-report', {
+        path: join(directory, 'page-report.txt'),
+      })
     } else {
       // Nothing failed, so nothing needs explaining. Only failures keep bytes.
-      rmSync(join(directory, 'libreoffice-profile'), { recursive: true, force: true })
+      rmSync(join(directory, 'libreoffice-profile'), {
+        recursive: true,
+        force: true,
+      })
     }
 
     expect(describeDifferences(structural)).toBe('no differences')
@@ -298,20 +308,20 @@ async function seedImages(
   page: import('@playwright/test').Page,
   fixture: Fixture,
 ): Promise<void> {
-  const owned = await page.evaluate(
-    async (base64) => {
-      const bytes = Uint8Array.from(atob(base64), (character) => character.charCodeAt(0))
-      const file = new File([bytes], 'fixture.png', { type: 'image/png' })
-      const { saveImage } = await import('/src/local-images.ts')
-      return saveImage(file)
-    },
-    Buffer.from(PIXEL_PNG.data).toString('base64'),
-  )
+  const owned = await page.evaluate(async (base64) => {
+    const bytes = Uint8Array.from(atob(base64), (character) =>
+      character.charCodeAt(0),
+    )
+    const file = new File([bytes], 'fixture.png', { type: 'image/png' })
+    const { saveImage } = await import('/src/local-images.ts')
+    return saveImage(file)
+  }, Buffer.from(PIXEL_PNG.data).toString('base64'))
   const replace = (node: ProseMirrorJSON): ProseMirrorJSON => ({
     ...node,
-    attrs: (node.type === 'image' || node.type === 'image-block')
-      ? { ...(node.attrs as object), src: owned }
-      : node.attrs,
+    attrs:
+      node.type === 'image' || node.type === 'image-block'
+        ? { ...(node.attrs as object), src: owned }
+        : node.attrs,
     content: Array.isArray(node.content)
       ? node.content.map((child) => replace(child as ProseMirrorJSON))
       : node.content,
@@ -325,78 +335,28 @@ async function seedImages(
   }
   await seedAuthoringState(page, {
     questionBank: { questions: authoredInVersionOrder({ ...fixture, exam }) },
-    examDraft: { title: exam.title, questionIds: fixture.version.questionOrder },
+    examDraft: {
+      title: exam.title,
+      questionIds: fixture.version.questionOrder,
+    },
     dirty: false,
   })
 }
 
-/** Drives the real export dialog to one configuration, having pinned the
- *  random source first: two exports of the same fixture must publish the same
- *  Generated Versions, or there would be nothing to compare. */
+/** Drives the real one-Version export dialog to one Content Selection. */
 async function configureExport(
   page: import('@playwright/test').Page,
   configuration: ExportConfiguration,
 ): Promise<void> {
-  await page.evaluate(
-    (seed) => (window as unknown as { seedRandom(seed: number): void }).seedRandom(seed),
-    SEED,
-  )
   await page.getByRole('button', { name: 'Export', exact: true }).click()
-  const dialog = page.getByRole('dialog', { name: 'Export' })
+  const dialog = page.getByRole('dialog', { name: 'Export DOCX' })
   await dialog.waitFor()
-  await dialog
-    .getByRole('radio', {
-      name: configuration.format === 'print' ? 'Print / Save as PDF' : 'Word (.docx)',
-    })
-    .check()
   await dialog
     .getByRole('checkbox', { name: 'Student test' })
     .setChecked(configuration.selection.test)
   await dialog
     .getByRole('checkbox', { name: 'Answer key' })
     .setChecked(configuration.selection.answerKey)
-  await dialog
-    .getByRole('spinbutton', { name: 'Versions' })
-    .fill(String(configuration.versionCount))
-  await dialog
-    .getByRole('checkbox', { name: 'Shuffle question order' })
-    .setChecked(configuration.randomization.questions)
-  await dialog
-    .getByRole('checkbox', { name: 'Shuffle answer order' })
-    .setChecked(configuration.randomization.answers)
-}
-
-/** The same generator `seededRandom` uses, installed over `Math.random` and
- *  re-seeded before each export. Production draws freshly; the comparison
- *  cannot. */
-async function pinRandomness(page: import('@playwright/test').Page): Promise<void> {
-  await page.addInitScript(() => {
-    ;(window as unknown as { seedRandom(seed: number): void }).seedRandom = (
-      seed: number,
-    ) => {
-      let state = seed >>> 0 || 1
-      Math.random = () => {
-        state = (state * 1664525 + 1013904223) >>> 0
-        return state / 0x100000000
-      }
-    }
-  })
-}
-
-/**
- * Stands in for the browser's print dialog.
- *
- * The application keeps its print document mounted until `afterprint` fires. A
- * headless capture never opens a dialog, so `window.print()` becomes a no-op
- * and no `afterprint` follows: the document stays put for as long as producing
- * the PDF takes, which is what a real, open dialog would also do.
- */
-async function stubPrintDialog(
-  page: import('@playwright/test').Page,
-): Promise<void> {
-  await page.addInitScript(() => {
-    window.print = () => {}
-  })
 }
 
 /** The fixture's questions with their answers already in the fixture Version's

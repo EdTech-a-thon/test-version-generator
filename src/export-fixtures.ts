@@ -8,8 +8,7 @@
 // asserted through the shared fingerprint, so adding a fixture is cheap and a
 // new parity bug costs one more entry in this file.
 
-import { DEFAULT_COLUMNS, type Exam, type Question, type RandomSource, type Version } from './exam'
-import type { Randomization } from './export-preparation'
+import { DEFAULT_COLUMNS, type Exam, type Question, type Version } from './exam'
 import {
   pageContentHeight,
   unmeasured,
@@ -19,22 +18,35 @@ import {
 import type { ExportImage } from './docx-export'
 import type { ProseMirrorJSON } from './question-doc'
 
-export function text(value: string, ...marks: ProseMirrorJSON[]): ProseMirrorJSON {
+export function text(
+  value: string,
+  ...marks: ProseMirrorJSON[]
+): ProseMirrorJSON {
   return marks.length > 0
     ? { type: 'text', text: value, marks }
     : { type: 'text', text: value }
 }
 
 export function paragraph(...content: ProseMirrorJSON[]): ProseMirrorJSON {
-  return content.length > 0 ? { type: 'paragraph', content } : { type: 'paragraph' }
+  return content.length > 0
+    ? { type: 'paragraph', content }
+    : { type: 'paragraph' }
 }
 
-export function mark(type: string, attrs?: Record<string, unknown>): ProseMirrorJSON {
+export function mark(
+  type: string,
+  attrs?: Record<string, unknown>,
+): ProseMirrorJSON {
   return attrs ? { type, attrs } : { type }
 }
 
 function open(id: string, ...blocks: ProseMirrorJSON[]): Question {
-  return { id, type: 'open', columns: DEFAULT_COLUMNS, doc: { type: 'doc', content: blocks } }
+  return {
+    id,
+    type: 'open',
+    columns: DEFAULT_COLUMNS,
+    doc: { type: 'doc', content: blocks },
+  }
 }
 
 function choice(id: string, correct: boolean, ...blocks: ProseMirrorJSON[]) {
@@ -104,22 +116,6 @@ export type Fixture = {
   /** Every image source in the fixture resolves to the same pixel. */
   images?: boolean
   answerKey?: boolean
-  /** How many Versions the export publishes. One unless the fixture is about
-   *  Generated Versions. */
-  versions?: number
-  /** Which dimensions Randomization may reorder for those Versions. */
-  randomization?: Randomization
-}
-
-/** A `RandomSource` that always draws the same sequence, so a fixture's
- *  Generated Versions are the same arrangements every run. Nothing about the
- *  generator matters beyond being deterministic and reasonably spread. */
-export function seededRandom(seed: number): RandomSource {
-  let state = seed >>> 0 || 1
-  return () => {
-    state = (state * 1664525 + 1013904223) >>> 0
-    return state / 0x100000000
-  }
 }
 
 const fixture = (
@@ -127,7 +123,13 @@ const fixture = (
   exam: Exam,
   questionVersion: Version,
   extra: Partial<Fixture> = {},
-): Fixture => ({ name, exam, version: questionVersion, measure: unmeasured, ...extra })
+): Fixture => ({
+  name,
+  exam,
+  version: questionVersion,
+  measure: unmeasured,
+  ...extra,
+})
 
 // ---------------------------------------------------------------------------
 // One fixture per supported feature
@@ -194,7 +196,10 @@ const COMPOSITE_EXAM: Exam = {
       paragraph(),
       {
         type: 'image-block',
-        attrs: { src: '/local-images/graph.png', caption: 'Pressure against volume' },
+        attrs: {
+          src: `/local-images/${'a'.repeat(64)}`,
+          caption: 'Pressure against volume',
+        },
       },
     ),
   ],
@@ -203,7 +208,10 @@ const COMPOSITE_EXAM: Exam = {
 export const FIXTURES: readonly Fixture[] = [
   fixture(
     'a plain short-answer question',
-    { title: 'Plain', questions: [open('o1', paragraph(text('Explain photosynthesis.')))] },
+    {
+      title: 'Plain',
+      questions: [open('o1', paragraph(text('Explain photosynthesis.')))],
+    },
     version(['o1']),
   ),
 
@@ -243,7 +251,10 @@ export const FIXTURES: readonly Fixture[] = [
           'o1',
           paragraph(
             text('Read '),
-            text('the notes', mark('link', { href: 'https://example.test/notes' })),
+            text(
+              'the notes',
+              mark('link', { href: 'https://example.test/notes' }),
+            ),
             text(' first.'),
           ),
         ),
@@ -276,11 +287,17 @@ export const FIXTURES: readonly Fixture[] = [
       questions: [
         open(
           'o1',
-          { type: 'heading', attrs: { level: 1 }, content: [text('Background')] },
+          {
+            type: 'heading',
+            attrs: { level: 1 },
+            content: [text('Background')],
+          },
           { type: 'heading', attrs: { level: 3 }, content: [text('Detail')] },
           {
             type: 'blockquote',
-            content: [paragraph(text('Energy cannot be created or destroyed.'))],
+            content: [
+              paragraph(text('Energy cannot be created or destroyed.')),
+            ],
           },
         ),
       ],
@@ -306,7 +323,10 @@ export const FIXTURES: readonly Fixture[] = [
                   {
                     type: 'bullet_list',
                     content: [
-                      { type: 'list_item', content: [paragraph(text('beta one'))] },
+                      {
+                        type: 'list_item',
+                        content: [paragraph(text('beta one'))],
+                      },
                     ],
                   },
                 ],
@@ -352,35 +372,32 @@ export const FIXTURES: readonly Fixture[] = [
     {
       title: 'Tables',
       questions: [
-        open(
-          'o1',
-          {
-            type: 'table',
-            content: [
-              {
-                type: 'table_header_row',
-                content: [
-                  { type: 'table_header', content: [paragraph(text('Element'))] },
-                  { type: 'table_header', content: [paragraph(text('Symbol'))] },
-                ],
-              },
-              {
-                type: 'table_row',
-                content: [
-                  { type: 'table_cell', content: [paragraph(text('Sodium'))] },
-                  { type: 'table_cell', content: [paragraph(text('Na'))] },
-                ],
-              },
-              {
-                type: 'table_row',
-                content: [
-                  { type: 'table_cell', content: [paragraph(text('Chlorine'))] },
-                  { type: 'table_cell', content: [paragraph(text('Cl'))] },
-                ],
-              },
-            ],
-          },
-        ),
+        open('o1', {
+          type: 'table',
+          content: [
+            {
+              type: 'table_header_row',
+              content: [
+                { type: 'table_header', content: [paragraph(text('Element'))] },
+                { type: 'table_header', content: [paragraph(text('Symbol'))] },
+              ],
+            },
+            {
+              type: 'table_row',
+              content: [
+                { type: 'table_cell', content: [paragraph(text('Sodium'))] },
+                { type: 'table_cell', content: [paragraph(text('Na'))] },
+              ],
+            },
+            {
+              type: 'table_row',
+              content: [
+                { type: 'table_cell', content: [paragraph(text('Chlorine'))] },
+                { type: 'table_cell', content: [paragraph(text('Cl'))] },
+              ],
+            },
+          ],
+        }),
       ],
     },
     version(['o1']),
@@ -395,12 +412,18 @@ export const FIXTURES: readonly Fixture[] = [
           'o1',
           paragraph(
             text('The apparatus '),
-            { type: 'image', attrs: { src: '/local-images/inline.png', alt: 'burner' } },
+            {
+              type: 'image',
+              attrs: { src: `/local-images/${'b'.repeat(64)}`, alt: 'burner' },
+            },
             text(' is shown.'),
           ),
           {
             type: 'image-block',
-            attrs: { src: '/local-images/setup.png', caption: 'Full setup' },
+            attrs: {
+              src: `/local-images/${'c'.repeat(64)}`,
+              caption: 'Full setup',
+            },
           },
         ),
       ],
@@ -462,8 +485,16 @@ export const FIXTURES: readonly Fixture[] = [
           1,
           [paragraph(text('Which statement is correct?'))],
           [
-            choice('c1', true, paragraph(text('Mass is conserved in a closed system.'))),
-            choice('c2', false, paragraph(text('Mass is created by combustion.'))),
+            choice(
+              'c1',
+              true,
+              paragraph(text('Mass is conserved in a closed system.')),
+            ),
+            choice(
+              'c2',
+              false,
+              paragraph(text('Mass is created by combustion.')),
+            ),
           ],
         ),
       ],
@@ -486,7 +517,11 @@ export const FIXTURES: readonly Fixture[] = [
               true,
               paragraph(text('H'), text('2', mark('subscript')), text('O')),
             ),
-            choice('c2', false, paragraph({ type: 'math_inline', attrs: { value: 'x^2' } })),
+            choice(
+              'c2',
+              false,
+              paragraph({ type: 'math_inline', attrs: { value: 'x^2' } }),
+            ),
             choice('c3', false, paragraph(text('none', mark('emphasis')))),
             choice('c4', false, paragraph()),
           ],
@@ -643,88 +678,10 @@ export const FIXTURES: readonly Fixture[] = [
     'a realistic composite exam',
     COMPOSITE_EXAM,
     version(['m2', 'm1'], { m1: ['c3', 'c1', 'c4', 'c2'] }),
-    { images: true, answerKey: true, measure: stubHeights({ m1: 300, m2: 300, o1: 300 }) },
-  ),
-
-  // ---------------------------------------------------------------------
-  // Generated Versions
-  //
-  // The same Question Content, published as several papers. What these add to
-  // the corpus is the shape of a multi-document export: tests before keys,
-  // every document numbered from its own page one, every page carrying its own
-  // Version label, and an answer key whose letters follow that Version's
-  // choice order rather than the one on screen.
-
-  fixture(
-    'a realistic composite exam in three versions with answer keys',
-    COMPOSITE_EXAM,
-    version(['m2', 'm1'], { m1: ['c3', 'c1', 'c4', 'c2'] }),
     {
       images: true,
       answerKey: true,
-      versions: 3,
-      randomization: { questions: true, answers: true },
       measure: stubHeights({ m1: 300, m2: 300, o1: 300 }),
     },
-  ),
-
-  // The smallest space Randomization can work in: one question with two
-  // choices arranges exactly two ways, so asking for both asks for the whole
-  // of it.
-  fixture(
-    'both possible arrangements of a two-choice question',
-    {
-      title: 'Two arrangements',
-      questions: [
-        multipleChoice(
-          'm1',
-          1,
-          [paragraph(text('Is the statement true?'))],
-          [
-            choice('c1', true, paragraph(text('True'))),
-            choice('c2', false, paragraph(text('False'))),
-          ],
-        ),
-      ],
-    },
-    version(['m1'], { m1: ['c1', 'c2'] }),
-    {
-      answerKey: true,
-      versions: 2,
-      randomization: { questions: false, answers: true },
-    },
-  ),
-
-  // Question Randomization alone, across two Question Sections that must stay
-  // separate, with the key omitted so the tests-only ordering is covered too.
-  fixture(
-    'question order randomized within each section',
-    {
-      title: 'Sections held apart',
-      questions: [
-        multipleChoice(
-          'm1',
-          1,
-          [paragraph(text('First multiple choice.'))],
-          [
-            choice('c1', true, paragraph(text('Yes'))),
-            choice('c2', false, paragraph(text('No'))),
-          ],
-        ),
-        multipleChoice(
-          'm2',
-          1,
-          [paragraph(text('Second multiple choice.'))],
-          [
-            choice('c3', false, paragraph(text('Yes'))),
-            choice('c4', true, paragraph(text('No'))),
-          ],
-        ),
-        open('o1', paragraph(text('First short answer.'))),
-        open('o2', paragraph(text('Second short answer.'))),
-      ],
-    },
-    version(['m1', 'm2', 'o1', 'o2']),
-    { versions: 4, randomization: { questions: true, answers: false } },
   ),
 ]

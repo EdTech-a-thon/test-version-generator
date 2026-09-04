@@ -37,6 +37,11 @@ import {
   type QuestionBank,
 } from './question-bank'
 import { selectedExam, type SelectedExam } from './selected-exam'
+import {
+  EMPTY_PUBLICATION_HISTORY,
+  type PublicationCommit,
+  type PublicationHistory,
+} from './export-preparation'
 
 /** Everything authoring owns: canonical content, the selection made from it,
  *  and whether that has reached the saved state yet. */
@@ -66,6 +71,8 @@ export interface Backend<T> {
 export interface DurableAuthoringBackend extends Backend<AuthoringState> {
   readSaved(): Promise<SavedState | null>
   commitSaved(value: SavedState): Promise<void>
+  readPublicationHistory(): Promise<PublicationHistory>
+  commitPublication(value: SavedState, publication: PublicationCommit): Promise<void>
 }
 
 export type MemoryBackend<T> = Backend<T> & {
@@ -231,6 +238,10 @@ export type ExamStore = {
   undo(): void
   redo(): void
   save(): Promise<void>
+  /** Atomically saves the current authoring state and appends a newly prepared
+   * Version's immutable records. A re-export saves without appending. */
+  publish(publication: PublicationCommit): Promise<void>
+  publicationHistory(): PublicationHistory
   discard(): Promise<void>
 
   /** Resolves once every mirrored write has landed. For tests and shutdown. */
@@ -264,6 +275,7 @@ export function createExamStore(options: {
   backend: Backend<AuthoringState>
   savedBackend?: Backend<SavedState>
   saved?: SavedState | null
+  publicationHistory?: PublicationHistory
   initial?: AuthoringState
 }): ExamStore {
   const { backend, savedBackend } = options
@@ -272,6 +284,7 @@ export function createExamStore(options: {
     : null
   let state: AuthoringState = options.initial ?? createAuthoringState()
   let saved: SavedState | null = options.saved ?? null
+  let publicationHistory = options.publicationHistory ?? EMPTY_PUBLICATION_HISTORY
   // The derived Exam, kept beside the state it was derived from. Deriving it
   // once per change rather than once per read is what lets a consumer treat it
   // as a stable dependency; `selectedExam` reuses the halves that did not move.
@@ -552,6 +565,39 @@ export function createExamStore(options: {
       }
     },
 
+    publish: async (publication) => {
+      await pending
+      const publishingState = state
+      const nextSaved: SavedState = {
+        questionBank: publishingState.questionBank,
+        examDraft: publishingState.examDraft,
+      }
+      if (durableBackend) {
+        await durableBackend.commitPublication(nextSaved, publication)
+      } else {
+        await savedBackend?.write(nextSaved)
+      }
+      saved = nextSaved
+      if (publication.version) {
+        publicationHistory = {
+          versions: [...publicationHistory.versions, publication.version],
+          revisions: [...publicationHistory.revisions, ...publication.revisions],
+          plans: [...publicationHistory.plans, ...publication.plans],
+        }
+      }
+      if (state !== publishingState) return
+      if (durableBackend) {
+        state = { ...publishingState, dirty: false }
+        selected = selectedExam(state.questionBank, state.examDraft, selected)
+        for (const listener of listeners) listener()
+      } else {
+        apply((current) => ({ ...current, dirty: false }), false)
+        await pending
+      }
+    },
+
+    publicationHistory: () => publicationHistory,
+
     discard: async () => {
       const restored: AuthoringState = saved
         ? { ...saved, dirty: false }
@@ -575,6 +621,7 @@ export async function loadExamStore(
 ): Promise<ExamStore> {
   let stored: AuthoringState | null = null
   let saved: SavedState | null = null
+  let publicationHistory: PublicationHistory = EMPTY_PUBLICATION_HISTORY
   try {
     stored = await backend.read()
   } catch (error) {
@@ -588,10 +635,23 @@ export async function loadExamStore(
   } catch (error) {
     console.error('Could not read the saved exam', error)
   }
+  try {
+    publicationHistory = 'readPublicationHistory' in backend
+      ? await (backend as DurableAuthoringBackend).readPublicationHistory()
+      : EMPTY_PUBLICATION_HISTORY
+  } catch (error) {
+    console.error('Could not read Version History', error)
+  }
   const initial = isAuthoringState(stored)
     ? stored
     : saved
       ? { ...saved, dirty: false }
       : createAuthoringState()
-  return createExamStore({ backend, savedBackend, saved, initial })
+  return createExamStore({
+    backend,
+    savedBackend,
+    saved,
+    initial,
+    publicationHistory,
+  })
 }

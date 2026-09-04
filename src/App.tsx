@@ -47,19 +47,18 @@ import type { ColumnSetting, Difficulty, Question, QuestionPlacement, QuestionTy
 import { DifficultyBadge, TopicBadge } from './badges'
 import { bankQuestionById } from './question-bank'
 import type { ExamStore } from './exam-store'
-import { ExamPage, PrintDocument } from './exam-page'
+import { ExamPage } from './exam-page'
 import { QuestionBankPane } from './question-bank-pane'
 import { NO_FILTER, topicOptions, type QuestionBankFilter } from './question-bank-view'
 import { useSelection } from './use-selection'
 import { useWorkspaceDrag } from './use-workspace-drag'
 import { WorkspaceSplit } from './workspace-split'
-import type { LayoutPlan } from './export-plan'
 import {
   DEFAULT_EXPORT_CONFIGURATION,
-  plansOf,
   prepareExport,
   type ExportConfiguration,
   type PreparationProgress,
+  type PreparedExport,
 } from './export-preparation'
 import { ExportDialog } from './export-dialog'
 import { domMeasure } from './dom-measure'
@@ -635,14 +634,14 @@ function ExamEditor({ store }: { store: ExamStore }) {
     error: string | null
   } | null>(null)
   const exportButton = useRef<HTMLButtonElement>(null)
-  // What a finished preparation handed over: the plans print mounts, or the
-  // Word file to save. Set only once the dialog has closed, so the native
-  // action never starts behind a modal that is still up.
-  const [handoff, setHandoff] = useState<
-    | { format: 'print'; plans: LayoutPlan[]; configuration: ExportConfiguration }
-    | { format: 'docx'; blob: Blob; filename: string; configuration: ExportConfiguration }
-    | null
-  >(null)
+  // The Word file is handed to the browser only after its Version transaction
+  // commits. Browser cancellation from that point cannot rewrite history.
+  const [handoff, setHandoff] = useState<{
+    blob: Blob
+    filename: string
+    configuration: ExportConfiguration
+  } | null>(null)
+  const [storageNotice, setStorageNotice] = useState<string | null>(null)
   // Selection lives here, alongside the store, so page interactions and
   // selection-wide context-menu actions share one source of truth.
   const selection = useSelection()
@@ -785,6 +784,18 @@ function ExamEditor({ store }: { store: ExamStore }) {
     if (editing || exportDialog) return
     const onKeyDown = (event: KeyboardEvent) => {
       if (
+        event.key.toLowerCase() === 'p'
+        && (event.ctrlKey || event.metaKey)
+        && !event.altKey
+      ) {
+        event.preventDefault()
+        setExportDialog({
+          configuration: DEFAULT_EXPORT_CONFIGURATION,
+          error: null,
+        })
+        return
+      }
+      if (
         event.key.toLowerCase() === 'z'
         && (event.ctrlKey || event.metaKey)
         && !event.altKey
@@ -826,59 +837,68 @@ function ExamEditor({ store }: { store: ExamStore }) {
   /**
    * One export, from the Export button to the moment the browser takes over.
    *
-   * Saving first is what stops stale content being published: there is no Save
-   * button, so the export is the commit, and a failed write aborts the export
-   * with a message rather than quietly printing yesterday's exam.
-   *
-   * Then one call to the preparation seam, which is the only thing that decides
-   * how many Versions there are and what each of them says. DOCX is packaged
-   * here too, while the dialog is still up and can show progress and catch a
-   * failure; the final native action is handed back so it starts after the
-   * dialog has closed and focus is back on Export.
+   * The selected DOCX is fully packaged first. Only then does one IndexedDB
+   * transaction commit immutable history, required media, and the current
+   * authoring state. The browser receives the download after that commit.
    */
   const runExport = async (
     configuration: ExportConfiguration,
     onProgress: (progress: PreparationProgress) => void,
   ) => {
-    try {
-      await store.save()
-    } catch (error) {
-      console.error('Could not save the exam before exporting', error)
-      throw new Error(
-        'Your latest changes could not be saved, so the export was stopped. '
-        + 'Check your connection and try again.',
-      )
-    }
-
     const prepared = prepareExport({
       ...store.selectedExam(),
       configuration,
-      // Not seeded: a later export deliberately draws a fresh set rather than
-      // reproducing an earlier one.
-      random: Math.random,
+      history: store.publicationHistory(),
       measure: domMeasure,
+      createdAt: new Date().toISOString(),
       onProgress,
     })
-    const plans = plansOf(prepared)
-
-    if (configuration.format === 'print') {
-      setHandoff({ format: 'print', plans, configuration })
-      return
-    }
+    let blob: Blob
     try {
-      // Loaded on demand: the Word writer and its ZIP machinery stay out of the
-      // application's initial bundle.
-      const { createExamDocx } = await import('./docx-export')
-      setHandoff({
-        format: 'docx',
-        blob: await createExamDocx(plans),
-        filename: prepared.filename,
-        configuration,
-      })
+      const { createPublicationDocx } = await import('./docx-export')
+      blob = await createPublicationDocx(prepared.documents)
     } catch (error) {
       console.error('Could not create the DOCX file', error)
+      if (error instanceof Error && error.message.startsWith('Required media')) {
+        throw error
+      }
       throw new Error('The Word file could not be created. Please try again.')
     }
+
+    let durability: 'granted' | 'denied' | null = null
+    if (
+      prepared.resolution.kind === 'new'
+      && store.publicationHistory().versions.length === 0
+    ) {
+      try {
+        durability = await navigator.storage?.persist?.() ? 'granted' : 'denied'
+      } catch {
+        durability = 'denied'
+      }
+    }
+
+    try {
+      await store.publish(prepared.publication)
+    } catch (error) {
+      console.error('Could not commit the Version', error)
+      if (error instanceof DOMException && error.name === 'QuotaExceededError') {
+        throw new Error(
+          'Browser storage is full. Free space in this browser, then try exporting again.',
+        )
+      }
+      throw new Error(
+        'The Version could not be saved to browser storage, so no download was started. Try again.',
+      )
+    }
+
+    if (durability) {
+      setStorageNotice(
+        durability === 'granted'
+          ? 'Version History is stored locally in this browser with persistent storage enabled. Keep an external archival copy of important files.'
+          : 'Persistent storage was not granted. Version History remains browser-local and may be cleared by the browser; keep an external archival copy.',
+      )
+    }
+    setHandoff({ blob, filename: prepared.filename, configuration })
   }
 
   /** A native action that never started: reopen the dialog on the same
@@ -888,47 +908,37 @@ function ExamEditor({ store }: { store: ExamStore }) {
     setExportDialog({ configuration, error: message })
   }
 
-  // The handoff, once the dialog is out of the way.
-  //
-  // The print document stays mounted until `afterprint` says the browser is
-  // done with it. Unmounting in the frame that follows `window.print()` assumes
-  // the dialog has already read the DOM, and a preview that re-reads it — or a
-  // headless capture that never opens a dialog at all — would find nothing
-  // there. Off screen the extra markup costs nothing: `.print-output` is
-  // `display: none` until print media applies.
+  // The handoff, once the dialog is out of the way and publication is durable.
   useEffect(() => {
     if (!handoff) return
-    if (handoff.format === 'docx') {
-      const { blob, filename, configuration } = handoff
-      void import('./docx-export')
-        .then(({ saveDocxFile }) => {
-          saveDocxFile(blob, filename)
-          setHandoff(null)
-        })
-        .catch((error: unknown) => {
-          console.error('Could not start the DOCX download', error)
-          exportFailed(configuration, 'The download could not be started. Please try again.')
-        })
-      return
-    }
-    const done = () => setHandoff(null)
-    window.addEventListener('afterprint', done)
-    const frame = window.requestAnimationFrame(() => {
-      try {
-        window.print()
-      } catch (error) {
-        console.error('Could not open the print dialog', error)
-        exportFailed(
-          handoff.configuration,
-          'The print dialog could not be opened. Please try again.',
-        )
-      }
-    })
-    return () => {
-      window.removeEventListener('afterprint', done)
-      window.cancelAnimationFrame(frame)
-    }
+    const { blob, filename, configuration } = handoff
+    void import('./docx-export')
+      .then(({ saveDocxFile }) => {
+        saveDocxFile(blob, filename)
+        setHandoff(null)
+      })
+      .catch((error: unknown) => {
+        console.error('Could not start the DOCX download', error)
+        exportFailed(configuration, 'The download could not be started. The Version remains in History.')
+      })
   }, [handoff])
+
+  let exportPreview: PreparedExport | null = null
+  let previewError: string | null = null
+  if (exportDialog) {
+    try {
+      exportPreview = prepareExport({
+        exam,
+        version,
+        configuration: exportDialog.configuration,
+        history: store.publicationHistory(),
+        measure: domMeasure,
+        createdAt: new Date().toISOString(),
+      })
+    } catch (error) {
+      previewError = error instanceof Error ? error.message : 'The export cannot be prepared.'
+    }
+  }
 
   return (
     <>
@@ -985,13 +995,18 @@ function ExamEditor({ store }: { store: ExamStore }) {
 
       {exportDialog && (
         <ExportDialog
-          exam={exam}
-          version={version}
           configuration={exportDialog.configuration}
           onConfigurationChange={(configuration) =>
             setExportDialog((current) => (current ? { ...current, configuration } : current))
           }
-          initialError={exportDialog.error}
+          version={exportPreview?.resolution.version ?? null}
+          existing={exportPreview?.resolution.kind === 'existing'}
+          previewPlans={exportPreview?.documents ?? []}
+          empty={exam.questions.length === 0}
+          initialError={
+            exportDialog.error
+            ?? (exam.questions.length === 0 ? null : previewError)
+          }
           onSubmit={async (configuration, onProgress) => {
             await runExport(configuration, onProgress)
             closeExportDialog()
@@ -1080,9 +1095,13 @@ function ExamEditor({ store }: { store: ExamStore }) {
         </p>
       )}
 
-      <Footer />
+      {storageNotice && (
+        <p className="storage-notice" role="status">
+          {storageNotice}
+        </p>
+      )}
 
-      {handoff?.format === 'print' && <PrintDocument plans={handoff.plans} />}
+      <Footer />
 
       {choosingType && (
         <ContextMenu

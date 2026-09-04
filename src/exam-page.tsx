@@ -701,16 +701,15 @@ function usePaginatedExam(
 
 // The print Export Adapter's own document.
 //
-// One export is a collection of standalone documents — a student test or an
-// answer key, one per Generated Version — and this mounts every planned page of
-// every one of them, in the order `export-preparation.ts` prepared them, for a
-// single native Print operation.
+// One export is the canonical student test and answer key for one immutable
+// Version. This mounts every planned page in preparation order for the internal
+// print-reference and preview paths.
 //
 // It plans nothing. `ExamPage` above paginates what the teacher is editing;
 // this draws plans that were already resolved, which is what lets several
 // Versions print together without any of them being repaginated per format.
 // Each document is its own workspace, and print CSS breaks a page between them.
-function PlannedDocument({ plan }: { plan: LayoutPlan }) {
+export function ExportPreview({ plan }: { plan: LayoutPlan }) {
   return (
     <main className="exam-workspace" style={PAGE_GEOMETRY}>
       {plan.pages.map((page) => (
@@ -735,7 +734,7 @@ export function PrintDocument({ plans }: { plans: readonly LayoutPlan[] }) {
   return (
     <div className="print-output">
       {plans.map((plan, index) => (
-        <PlannedDocument key={`${plan.version.letter}-${plan.pages[0]?.stream}-${index}`} plan={plan} />
+        <ExportPreview key={`${plan.version.letter}-${plan.pages[0]?.stream}-${index}`} plan={plan} />
       ))}
     </div>
   )

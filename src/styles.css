@@ -129,6 +129,26 @@ button { cursor: pointer; }
   grid-template-rows: auto 1fr auto; overflow: hidden; border-radius: 10px;
   background: #fffaf3; box-shadow: 0 18px 55px rgb(55 42 33 / 30%);
 }
+.export-dialog--publication { width: min(1120px, 100%); }
+.export-publication-body {
+  min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 290px;
+  overflow: hidden;
+}
+.export-preview { min-width: 0; padding: 18px; overflow: auto; background: #e9e1d7; }
+.export-preview .exam-workspace { min-height: 0; padding: 0; overflow: visible; }
+.export-preview .exam-page { margin: 0 auto 18px; }
+.export-controls {
+  min-width: 0; padding: 18px; display: flex; flex-direction: column; gap: 18px;
+  overflow-y: auto; border-left: 1px solid #e0d3c5;
+}
+.export-version-state { display: grid; gap: 4px; margin: 0; color: #6e5b4d; }
+.export-version-state strong { color: #332a24; font-size: 20px; }
+.export-durability-note { margin: 0; color: #6e5b4d; font-size: 13px; line-height: 1.45; }
+.storage-notice {
+  position: fixed; right: 18px; bottom: 18px; z-index: 20; max-width: 420px;
+  margin: 0; padding: 12px 14px; border: 1px solid #cdb9a6; border-radius: 8px;
+  color: #4e3b2f; background: #fffaf3; box-shadow: 0 8px 24px rgb(55 42 33 / 18%);
+}
 .export-dialog-body {
   min-height: 0; padding: 16px 18px; display: grid; gap: 16px; overflow-y: auto;
 }
@@ -936,6 +956,9 @@ button { cursor: pointer; }
   .exam-draft-empty-section { left: 0; }
   .exam-workspace { padding: 16px 0; }
   .dialog-backdrop { padding: 0; }
+  .export-publication-body { grid-template-columns: 1fr; }
+  .export-preview { display: none; }
+  .export-controls { border-left: 0; }
   .question-dialog { width: 100%; height: 100vh; border-radius: 0; }
   .dialog-editor { padding: 0; }
 }

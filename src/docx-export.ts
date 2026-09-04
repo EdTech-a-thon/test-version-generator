@@ -7,10 +7,10 @@
 // on page three, in what order, under which number and letter, is what that
 // page of the Word document says.
 //
-// An export is an ordered collection of standalone documents — a student test
-// or an answer key, one per Generated Version — and they are packaged into one
-// combined file in exactly the order `export-preparation.ts` prepared them.
-// Nothing here reorders them, generates one, or decides how many there are.
+// An export is the selected canonical documents for one friendly-named Version:
+// the student test before its answer key when both are selected. They are
+// packaged in exactly the order `export-preparation.ts` prepared them. Nothing
+// here reorders them, resolves identity, or decides Content Selection.
 //
 // The plans' pages are serialized explicitly. Each planned page becomes one
 // Word section that starts on a new page and carries the header variant, footer
@@ -992,6 +992,53 @@ export async function createExamDocx(
   media: MediaLoader = browserMedia,
 ): Promise<Blob> {
   const images = await loadImages(plans, media)
+  const blob = await Packer.toBlob(createExamDocxDocument(plans, images))
+  return blob.type === DOCX_MIME ? blob : new Blob([blob], { type: DOCX_MIME })
+}
+
+/** Publication packaging is strict: an immutable Version may never be created
+ * with a text fallback standing in for media it promises to preserve. The
+ * lower-level adapter remains tolerant for parity diagnostics and callers that
+ * explicitly want its visible fallback behavior. */
+export async function createPublicationDocx(
+  plans: readonly LayoutPlan[],
+  media: MediaLoader = browserMedia,
+): Promise<Blob> {
+  const images = await loadImages(plans, media)
+  const missing = imageSourcesOf(plans).find((source) => !images.has(source))
+  if (missing) {
+    let questionNumber: number | null = null
+    const contains = (node: ProseMirrorJSON): boolean => {
+      const attrs = attrsOf(node)
+      if (
+        (node.type === 'image' || node.type === 'image-block')
+        && stringOf(attrs.src) === missing
+      ) return true
+      return childrenOf(node).some(contains)
+    }
+    for (const plan of plans) {
+      for (const page of plan.pages) {
+        for (const item of page.items) {
+          if (
+            item.kind === 'question'
+            && (
+              item.stem.some(contains)
+              || (item.grid?.cells.flat().some((cell) => cell && contains(cell.node)) ?? false)
+            )
+          ) {
+            questionNumber = item.question.number
+            break
+          }
+        }
+        if (questionNumber !== null) break
+      }
+      if (questionNumber !== null) break
+    }
+    throw new Error(
+      `Required media for question ${questionNumber ?? 'unknown'} could not be resolved. `
+      + 'Re-add the image and try again.',
+    )
+  }
   const blob = await Packer.toBlob(createExamDocxDocument(plans, images))
   return blob.type === DOCX_MIME ? blob : new Blob([blob], { type: DOCX_MIME })
 }

@@ -9,9 +9,17 @@
 
 import { describe, expect, test } from 'bun:test'
 import JSZip from 'jszip'
-import { createExamDocx, createExamDocxDocument } from './docx-export'
-import { docxFilename, plansOf, prepareExport } from './export-preparation'
-import { seededRandom } from './export-fixtures'
+import {
+  createExamDocx,
+  createExamDocxDocument,
+  createPublicationDocx,
+} from './docx-export'
+import {
+  EMPTY_PUBLICATION_HISTORY,
+  docxFilename,
+  plansOf,
+  prepareExport,
+} from './export-preparation'
 import { docxFingerprint } from './docx-fingerprint'
 import { parseXml } from './xml'
 import { FIXTURES, PIXEL_PNG, paragraph, text } from './export-fixtures'
@@ -65,14 +73,13 @@ describe('DOCX packaging', () => {
     expect([...signature]).toEqual([0x50, 0x4b])
   })
 
-  test('names the file after the exam and the versions it holds', () => {
-    expect(docxFilename(exam.title, ['A'])).toBe(
-      'Chemistry- Unit 3 - Review-version-A.docx',
+  test('names the file after the exam and friendly Version', () => {
+    expect(docxFilename(exam.title, 'Amber Badger')).toBe(
+      'Chemistry- Unit 3 - Review-Amber Badger.docx',
     )
-    expect(docxFilename(exam.title, ['A', 'B', 'C'])).toBe(
-      'Chemistry- Unit 3 - Review-versions-A-C.docx',
+    expect(docxFilename('  ...  ', 'Amber Badger')).toBe(
+      'Untitled exam-Amber Badger.docx',
     )
-    expect(docxFilename('  ...  ', ['A'])).toBe('Untitled exam-version-A.docx')
   })
 
   test('names the document after the exam and the version it exported', async () => {
@@ -213,6 +220,20 @@ describe('links and pictures', () => {
     // Loudly wrong beats silently missing: the reader can see what was lost.
     expect(body).toContain('[Image: burner]')
   })
+
+  test('publication refuses unresolved required media and identifies the question', async () => {
+    const fixture = FIXTURES.find((item) => item.name.includes('inline and block images'))!
+    const plan = planExport({
+      exam: fixture.exam,
+      version: fixture.version,
+      selection: STUDENT_TEST,
+      measure: unmeasured,
+    })
+
+    expect(createPublicationDocx([plan], async () => null)).rejects.toThrow(
+      'question 1',
+    )
+  })
 })
 
 describe('lists are numbering, not typed-in markers', () => {
@@ -238,7 +259,7 @@ describe('lists are numbering, not typed-in markers', () => {
   })
 })
 
-describe('one combined package for a multi-version export', () => {
+describe('one combined package for a published Version', () => {
   const mixed: Exam = {
     title: 'Mixed',
     questions: [
@@ -283,13 +304,11 @@ describe('one combined package for a multi-version export', () => {
         exam: mixed,
         version: mixedVersion,
         configuration: {
-          format: 'docx',
           selection: { test: true, answerKey: true },
-          versionCount: 2,
-          randomization: { questions: false, answers: true },
         },
-        random: seededRandom(7),
+        history: EMPTY_PUBLICATION_HISTORY,
         measure: unmeasured,
+        createdAt: '2026-09-04T12:00:00.000Z',
       }),
     )
   }
@@ -300,31 +319,26 @@ describe('one combined package for a multi-version export', () => {
     const body = await part(zip, 'word/document.xml')
     const sections = body.match(/<w:sectPr/g) ?? []
 
-    expect(plans.length).toBe(4)
+    expect(plans.length).toBe(2)
     expect(sections.length).toBe(
       plans.reduce((count, plan) => count + plan.pages.length, 0),
     )
   })
 
-  test('restarts page numbering and relabels the version for each document', async () => {
+  test('restarts page numbering and carries the friendly name on both documents', async () => {
     const fingerprint = await docxFingerprint(
       await (await createExamDocx(preparedPlans(), async () => null)).arrayBuffer(),
     )
 
-    // Two tests then two keys, each one page long, each numbered from one and
-    // each naming the version it belongs to.
+    // The test and key each begin on page one and carry one stable name.
     expect(fingerprint.pages.map((page) => page.footer)).toEqual([
       ['para 1'],
       ['para 1'],
-      ['para 1'],
-      ['para 1'],
     ])
-    expect(
-      fingerprint.pages.map(
-        (page) => /ID: ([A-Z])/.exec(page.header.join(' '))?.[1] ?? '',
-      ),
-    ).toEqual(['A', 'B', 'A', 'B'])
-    expect(fingerprint.version).toBe('A-B')
+    expect(fingerprint.pages.every((page) =>
+      page.header.join(' ').includes('Version: Amber Badger'),
+    )).toBe(true)
+    expect(fingerprint.version).toBe('Amber Badger')
   })
 
   test('writes an answer key as headings and bold letters, not as a refusal', async () => {
@@ -332,14 +346,12 @@ describe('one combined package for a multi-version export', () => {
     const fingerprint = await docxFingerprint(
       await (await createExamDocx(plans, async () => null)).arrayBuffer(),
     )
-    const keys = fingerprint.pages.slice(2)
+    const keys = fingerprint.pages.slice(1)
 
     expect(keys[0]!.content).toEqual([
       'heading:1 Answer Section',
       'heading:2 Multiple Choice',
       'para 1. «strong»A«/»',
     ])
-    // Version B shuffled the answers, so its key names the other letter.
-    expect(keys[1]!.content.at(-1)).toBe('para 1. «strong»B«/»')
   })
 })

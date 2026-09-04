@@ -740,6 +740,7 @@ describe('the dirty flag and persistence', () => {
     const backend: DurableAuthoringBackend = {
       read: async () => working,
       readSaved: async () => saved,
+      readPublicationHistory: async () => ({ versions: [], revisions: [], plans: [] }),
       write: (value) =>
         schedule(async () => {
           if (firstWrite) {
@@ -751,6 +752,11 @@ describe('the dirty flag and persistence', () => {
           working = structuredClone(value)
         }),
       commitSaved: (value) =>
+        schedule(() => {
+          saved = structuredClone(value)
+          working = { ...structuredClone(value), dirty: false }
+        }),
+      commitPublication: (value) =>
         schedule(() => {
           saved = structuredClone(value)
           working = { ...structuredClone(value), dirty: false }

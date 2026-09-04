@@ -1,13 +1,16 @@
 const databaseName = 'test-parrot-version-history-v1'
-const databaseVersion = 2
+const databaseVersion = 3
 const questionBankStore = 'question-bank'
 const authoringStateStore = 'authoring-state'
 const savedAuthoringStore = 'saved-authoring-state'
 const mediaStore = 'media-assets'
+const versionStore = 'versions'
+const questionRevisionStore = 'question-revisions'
+const layoutPlanStore = 'layout-plans'
 
-// The worker can be the first client to open an existing v1 database: a
+// The worker can be the first client to open an existing database: a
 // persisted image may be requested before the application starts its normal
-// authoring backend. Its upgrade must therefore establish the complete v2
+// authoring backend. Its upgrade must therefore establish the complete v3
 // schema, not merely the store it reads.
 function upgradeSchema(database) {
   if (!database.objectStoreNames.contains(questionBankStore)) {
@@ -21,6 +24,15 @@ function upgradeSchema(database) {
   }
   if (!database.objectStoreNames.contains(mediaStore)) {
     database.createObjectStore(mediaStore, { keyPath: 'hash' })
+  }
+  if (!database.objectStoreNames.contains(versionStore)) {
+    database.createObjectStore(versionStore, { keyPath: 'id' })
+  }
+  if (!database.objectStoreNames.contains(questionRevisionStore)) {
+    database.createObjectStore(questionRevisionStore, { keyPath: 'id' })
+  }
+  if (!database.objectStoreNames.contains(layoutPlanStore)) {
+    database.createObjectStore(layoutPlanStore, { keyPath: 'id' })
   }
 }
 
