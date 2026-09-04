@@ -1,4 +1,5 @@
 node_modules
+.coordinator
 dist
 playwright-report
 test-results
