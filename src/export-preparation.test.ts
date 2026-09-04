@@ -4,6 +4,7 @@ import {
   DEFAULT_EXPORT_CONFIGURATION,
   EMPTY_PUBLICATION_HISTORY,
   prepareExport,
+  prepareHistoricalExport,
   type PublicationHistory,
   versionFingerprintOf,
 } from './export-preparation'
@@ -111,6 +112,26 @@ describe('one-Version export preparation', () => {
       'answer-key',
     ])
     expect(prepared.publication.plans).toHaveLength(2)
+  })
+
+  test('reads a historical Version from stored plans without current content or layout', () => {
+    const first = prepareExport(inputs())
+    const history = committed(first)
+    const historical = prepareHistoricalExport({
+      history,
+      version: first.resolution.version,
+      configuration: { selection: { test: false, answerKey: true } },
+    })
+
+    expect(historical.documents).toEqual([first.canonicalPlans.answerKey])
+    expect(historical.filename).toBe('Biology Quiz-Amber Badger.docx')
+    expect(historical.publication).toEqual({
+      version: null,
+      revisions: [],
+      plans: [],
+      mediaHashes: [],
+    })
+    expect(history).toEqual(committed(first))
   })
 
   test('metadata-only edits reuse the Version, Question Revision, and first provenance', () => {

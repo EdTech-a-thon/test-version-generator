@@ -205,6 +205,33 @@ button { cursor: pointer; }
 
 .print-output { display: none; }
 
+/* Version History is an inspection drawer, not another editing surface. */
+.version-history-drawer {
+  position: fixed; z-index: 19; top: 58px; right: 0; bottom: 0; width: min(360px, 100vw);
+  padding: 18px; overflow-y: auto; border-left: 1px solid #e0d3c2;
+  background: #fffaf3; box-shadow: -8px 0 24px rgb(55 42 33 / 16%);
+}
+.version-history-drawer[hidden] { display: none; }
+.version-history-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+.version-history-header h2 { margin: 0; font-size: 18px; }
+.version-history-header p, .version-history-empty { margin: 6px 0 0; color: #6e5b4d; font-size: 13px; line-height: 1.45; }
+.version-history-list { display: grid; gap: 8px; margin: 20px 0 0; padding: 0; list-style: none; }
+.version-history-item {
+  display: grid; width: 100%; gap: 4px; padding: 12px; border: 1px solid #e0d3c2;
+  border-radius: 8px; color: #4e3b2f; background: #fffdf8; text-align: left;
+}
+.version-history-item:hover, .version-history-item:focus-visible { border-color: #9f5037; background: #f7eee3; }
+.version-history-item[aria-current='page'] { border-color: #9f5037; box-shadow: inset 0 0 0 1px #9f5037; }
+.version-history-item time, .version-history-item span { color: #6e5b4d; font-size: 13px; }
+.historical-document { min-height: calc(100vh - 58px); }
+.historical-document-bar {
+  position: sticky; top: 58px; z-index: 2; display: flex; align-items: center; justify-content: space-between;
+  gap: 16px; padding: 12px 24px; border-bottom: 1px solid #e0d3c2; background: #fffaf3;
+}
+.historical-document-bar p { margin: 0 0 2px; color: #6e5b4d; font-size: 13px; }
+.historical-document-bar h2 { margin: 0; font-size: 18px; }
+.historical-document-pages .exam-workspace { min-height: 0; }
+
 /* The rendered test. Everything below the document bar is a view of what the
    printer will produce; nothing in it is typeable.
 
@@ -1000,7 +1027,7 @@ button { cursor: pointer; }
   /* Chrome off: only the test prints. The measuring host is chrome too, and
      an off-screen block left in the flow prints as blank sheets. */
   .document-bar, .question-handles, .context-menu, .vary-summary,
-  .measure-host, .authoring-workspace,
+  .measure-host, .authoring-workspace, .version-history-drawer,
   .dialog-backdrop {
     display: none;
   }

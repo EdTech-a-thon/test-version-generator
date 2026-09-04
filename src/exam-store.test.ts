@@ -13,6 +13,11 @@ import type {
   SavedState,
 } from './exam-store'
 import { VERSIONED_STORAGE_NAME } from './indexeddb-authoring'
+import {
+  prepareExport,
+  prepareHistoricalExport,
+} from './export-preparation'
+import { unmeasured } from './export-plan'
 
 function memory(initial: AuthoringState | null = null) {
   return createMemoryBackend<AuthoringState>(initial)
@@ -840,6 +845,46 @@ describe('the dirty flag and persistence', () => {
     store.addToExamDraft(question.id)
 
     expect(store.getState().dirty).toBe(true)
+  })
+
+  test('historical re-export preparation is read-only for current, saved, and dirty authoring state', async () => {
+    const { backend, savedBackend, store, questions } = await withExamDraft(1, 'open')
+    await store.save()
+    const first = store.selectedExam()
+    const published = prepareExport({
+      ...first,
+      configuration: { selection: { test: true, answerKey: true } },
+      history: store.publicationHistory(),
+      measure: unmeasured,
+      createdAt: '2026-09-04T12:00:00.000Z',
+    })
+    await store.publish(published.publication)
+
+    // This is unsaved authoring work. Historical re-export must not quietly
+    // commit it, clear its dirty flag, or alter the last saved snapshot.
+    store.setTitle('Unsaved live draft')
+    await store.whenSettled()
+    const beforeState = store.getState()
+    const beforeHistory = structuredClone(store.publicationHistory())
+    const beforeSaved = structuredClone(savedBackend.value)
+    const beforeWrites = backend.writes
+
+    const historical = prepareHistoricalExport({
+      history: store.publicationHistory(),
+      version: published.resolution.version,
+      configuration: { selection: { test: true, answerKey: true } },
+    })
+
+    expect(historical.publication.version).toBeNull()
+    expect(historical.publication.revisions).toEqual([])
+    expect(historical.publication.plans).toEqual([])
+    // Production does not call store.publish for this prepared export.
+    expect(store.getState()).toBe(beforeState)
+    expect(store.getState().dirty).toBe(true)
+    expect(store.publicationHistory()).toEqual(beforeHistory)
+    expect(savedBackend.value).toEqual(beforeSaved)
+    expect(backend.writes).toBe(beforeWrites)
+    expect(renderedIds(store)).toEqual([questions[0]!.id])
   })
 
   test('a refresh restores the Question Bank, the Exam Draft and the dirty flag', async () => {

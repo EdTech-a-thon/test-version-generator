@@ -326,6 +326,118 @@ test('publication commits once, reuses its identity, and leaves the Exam Draft u
   ).toBe(1)
 })
 
+test('Version History browses newest stored plans and re-exports without changing history', async ({
+  page,
+}) => {
+  await open(page)
+
+  let dialog = await openDialog(page)
+  let download = page.waitForEvent('download')
+  await dialog.getByRole('button', { name: 'Download DOCX' }).click()
+  await download
+
+  await page.getByRole('textbox', { name: 'Exam name' }).fill('Second Biology Quiz')
+  dialog = await openDialog(page)
+  download = page.waitForEvent('download')
+  await dialog.getByRole('button', { name: 'Download DOCX' }).click()
+  await download
+
+  const historyBeforeReExport = structuredClone(await historyOf(page))
+  const liveQuestions = page.locator('.draft-document:not([hidden]) .exam-question')
+  // Keep a selected draft question while inspecting history. Delete,
+  // Backspace, undo, and redo must not reach this hidden selection.
+  await liveQuestions.nth(0).click()
+  const draftBeforeBrowsing = await page.locator('.draft-document').evaluate((draft) => draft.innerHTML)
+  const draftTitleBeforeBrowsing = await page.getByRole('textbox', { name: 'Exam name' }).inputValue()
+  await page.getByRole('button', { name: 'Version History' }).click()
+  await page.keyboard.press('Delete')
+  await page.keyboard.press('Backspace')
+  await page.keyboard.press('Control+Z')
+  await page.keyboard.press('Control+Shift+Z')
+  await expect(page.locator('.draft-document')).toHaveJSProperty('innerHTML', draftBeforeBrowsing)
+  // The exposed edge of the draft is inert while the drawer is open: pointer
+  // selection, context menu, and double-click editing cannot reach it.
+  await liveQuestions.nth(0).click({ force: true })
+  await liveQuestions.nth(0).dblclick({ force: true })
+  await liveQuestions.nth(0).click({ button: 'right', force: true })
+  await expect(page.getByRole('dialog', { name: 'Question editor' })).toHaveCount(0)
+  await expect(page.locator('.context-menu')).toHaveCount(0)
+  await expect(page.locator('.draft-document')).toHaveJSProperty('innerHTML', draftBeforeBrowsing)
+  await expect(page.getByRole('textbox', { name: 'Exam name' })).toHaveValue(draftTitleBeforeBrowsing)
+  // Pointer attempts do not take a history item's keyboard activation away.
+  await page.getByLabel('Version History').locator('.version-history-item').first().focus()
+  // The same commands are also suppressed after selection hides the drawer.
+  await page.keyboard.press('Enter')
+  const initialBackToDraft = page.getByRole('button', { name: 'Back to draft' })
+  await expect(initialBackToDraft).toBeFocused()
+  await page.keyboard.press('Delete')
+  await expect(page.locator('.draft-document')).toHaveJSProperty('innerHTML', draftBeforeBrowsing)
+  await page.keyboard.press('Backspace')
+  await expect(page.locator('.draft-document')).toHaveJSProperty('innerHTML', draftBeforeBrowsing)
+  await page.keyboard.press('Control+Z')
+  await expect(page.locator('.draft-document')).toHaveJSProperty('innerHTML', draftBeforeBrowsing)
+  await page.keyboard.press('Control+Shift+Z')
+  await expect(page.locator('.draft-document')).toHaveJSProperty('innerHTML', draftBeforeBrowsing)
+  await initialBackToDraft.click()
+
+  await liveQuestions.nth(0).click()
+  await page.keyboard.press('Delete')
+  await liveQuestions.nth(0).click()
+  await page.keyboard.press('Delete')
+  await expect(liveQuestions).toHaveCount(0)
+  // The current draft can now be empty: historical export still has its own
+  // stored plans, revisions, and Media Assets to use.
+  const draftTitle = page.getByRole('textbox', { name: 'Exam name' })
+  await draftTitle.focus()
+
+  await page.getByRole('button', { name: 'Version History' }).click()
+  const history = page.getByLabel('Version History')
+  const versions = history.locator('.version-history-item')
+  await expect(versions.nth(0)).toBeFocused()
+  await expect(versions).toHaveCount(2)
+  await expect(versions.nth(0)).toContainText('Amber Falcon')
+  await expect(versions.nth(1)).toContainText('Amber Badger')
+  await expect(versions.nth(0)).toContainText('2 questions')
+
+  // Keyboard selection moves focus out of the drawer before that drawer hides.
+  await page.keyboard.press('Enter')
+  const backToDraft = page.getByRole('button', { name: 'Back to draft' })
+  await expect(backToDraft).toBeVisible()
+  await expect(backToDraft).toBeFocused()
+  await expect(page.locator('.historical-document')).toContainText('Second Biology Quiz')
+
+  // The historical document is a clean read-only view; authoring controls,
+  // including the live draft title, are unavailable while it is in front.
+  await expect(page.getByRole('textbox', { name: 'Exam name' })).toBeDisabled()
+  await expect(page.locator('.historical-document')).toContainText('Second Biology Quiz')
+
+  // Reopening History while browsing must not replace the remembered draft
+  // target. Keyboard selection returns focus to the historical document.
+  await page.getByRole('button', { name: 'Version History' }).click()
+  await expect(versions.nth(0)).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(backToDraft).toBeFocused()
+
+  await page.getByRole('button', { name: 'Historical Export', exact: true }).click()
+  dialog = dialogOf(page)
+  await expect(dialog).toBeVisible()
+  await expect(dialog.getByText('Re-export existing Version')).toBeVisible()
+  await expect(dialog.getByText('Amber Falcon', { exact: true })).toBeVisible()
+  download = page.waitForEvent('download')
+  await dialog.getByRole('button', { name: 'Download DOCX' }).click()
+  await download
+  // Historical export is read-only: no Version, revision, plan, metadata, or
+  // order changes while its DOCX is assembled from stored records.
+  expect(await historyOf(page)).toEqual(historyBeforeReExport)
+
+  await backToDraft.click()
+  await expect(draftTitle).toHaveValue('Second Biology Quiz')
+  await expect(draftTitle).toBeFocused()
+  // The same mounted draft document returns; it was not reconstructed from
+  // history and remains empty after its live Remove action.
+  await expect(page.locator('.draft-document:not([hidden]) .exam-question')).toHaveCount(0)
+})
+
 test('persistent-storage denial is explained separately from publication failure', async ({
   page,
 }) => {

@@ -56,6 +56,7 @@ import { WorkspaceSplit } from './workspace-split'
 import {
   DEFAULT_EXPORT_CONFIGURATION,
   prepareExport,
+  prepareHistoricalExport,
   type ExportConfiguration,
   type PreparationProgress,
   type PreparedExport,
@@ -78,6 +79,7 @@ import {
 import { ContextMenu, type MenuPoint } from './context-menu'
 import { useRoute } from './use-route'
 import { Footer } from './site-chrome'
+import { HistoricalDocument, VersionHistoryDrawer } from './version-history'
 import { AboutPage, PrivacyPage } from './site-pages'
 
 /** The mark each Question Section goes by, so a type reads the same wherever
@@ -634,6 +636,21 @@ function ExamEditor({ store }: { store: ExamStore }) {
     error: string | null
   } | null>(null)
   const exportButton = useRef<HTMLButtonElement>(null)
+  const historyButton = useRef<HTMLButtonElement>(null)
+  // Browsing a Version hides the mounted draft document and puts its immutable
+  // stored Layout Plans in the same center lane. Returning therefore restores
+  // the same editing view rather than rebuilding authoring state.
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const [viewingVersionId, setViewingVersionId] = useState<string | null>(null)
+  const [historicalFocusKey, setHistoricalFocusKey] = useState(0)
+  const priorDraftFocus = useRef<HTMLElement | null>(null)
+  const publicationHistory = store.publicationHistory()
+  const viewingVersion = publicationHistory.versions.find(
+    (candidate) => candidate.id === viewingVersionId,
+  ) ?? null
+  // History inspection is read-only: no authoring command may leak through to
+  // the still-mounted draft while a drawer or stored Version is in front.
+  const isHistoricalBrowsing = historyOpen || viewingVersion !== null
   // The Word file is handed to the browser only after its Version transaction
   // commits. Browser cancellation from that point cannot rewrite history.
   const [handoff, setHandoff] = useState<{
@@ -661,6 +678,22 @@ function ExamEditor({ store }: { store: ExamStore }) {
   // The outcome of the latest Vary command stays visible and is announced to
   // assistive technology. It is transient UI feedback, not authoring state.
   const [varySummary, setVarySummary] = useState<string | null>(null)
+  // Remember the actual authoring control that last held focus. History owns
+  // focus while it is open, so it must not replace this restoration target.
+  useEffect(() => {
+    const remember = (event: FocusEvent) => {
+      const target = event.target
+      if (
+        viewingVersion === null
+        && target instanceof HTMLElement
+        && target.closest('.draft-document, .document-identity')
+      ) {
+        priorDraftFocus.current = target
+      }
+    }
+    document.addEventListener('focusin', remember)
+    return () => document.removeEventListener('focusin', remember)
+  }, [viewingVersion])
   useEffect(() => {
     if (!varySummary) return
     const timer = window.setTimeout(() => setVarySummary(null), 4_000)
@@ -802,6 +835,16 @@ function ExamEditor({ store }: { store: ExamStore }) {
   useEffect(() => {
     if (editing || exportDialog) return
     const onKeyDown = (event: KeyboardEvent) => {
+      const authoringShortcut =
+        (event.key.toLowerCase() === 'z' && (event.ctrlKey || event.metaKey) && !event.altKey)
+        || event.key === 'Delete'
+        || event.key === 'Backspace'
+      if (isHistoricalBrowsing && authoringShortcut) {
+        // Do not let Backspace navigate away either: during history inspection
+        // these keys name no authoring action at all.
+        event.preventDefault()
+        return
+      }
       if (
         event.key.toLowerCase() === 'z'
         && (event.ctrlKey || event.metaKey)
@@ -834,7 +877,7 @@ function ExamEditor({ store }: { store: ExamStore }) {
     }
     document.addEventListener('keydown', onKeyDown)
     return () => document.removeEventListener('keydown', onKeyDown)
-  }, [clearSelection, editing, exportDialog, selection.selectedIds, store])
+  }, [clearSelection, editing, exportDialog, isHistoricalBrowsing, selection.selectedIds, store])
 
   const closeExportDialog = () => {
     setExportDialog(null)
@@ -845,15 +888,21 @@ function ExamEditor({ store }: { store: ExamStore }) {
     configuration: ExportConfiguration,
     onProgress?: (progress: PreparationProgress) => void,
   ) =>
-    prepareExport({
-      exam,
-      version,
-      configuration,
-      history: store.publicationHistory(),
-      measure: domMeasure,
-      createdAt: new Date().toISOString(),
-      onProgress,
-    })
+    viewingVersion
+      ? prepareHistoricalExport({
+        history: publicationHistory,
+        version: viewingVersion,
+        configuration,
+      })
+      : prepareExport({
+        exam,
+        version,
+        configuration,
+        history: publicationHistory,
+        measure: domMeasure,
+        createdAt: new Date().toISOString(),
+        onProgress,
+      })
 
   /**
    * One export, from the Export button to the moment the browser takes over.
@@ -892,7 +941,10 @@ function ExamEditor({ store }: { store: ExamStore }) {
     }
 
     try {
-      await store.publish(prepared.publication)
+      // A historical export has no current authoring state to save and no
+      // immutable records to append. Its artifact comes entirely from stored
+      // plans and Media Assets, so leave the live draft untouched.
+      if (!viewingVersion) await store.publish(prepared.publication)
     } catch (error) {
       console.error('Could not commit the Version', error)
       if (error instanceof DOMException && error.name === 'QuotaExceededError') {
@@ -958,6 +1010,7 @@ function ExamEditor({ store }: { store: ExamStore }) {
             aria-label="Exam name"
             className="document-title"
             value={state.examDraft.title}
+            disabled={isHistoricalBrowsing}
             onChange={(event) => store.setTitle(event.target.value)}
           />
         </div>
@@ -967,8 +1020,10 @@ function ExamEditor({ store }: { store: ExamStore }) {
             className="toolbar-icon-button"
             aria-label="Undo"
             title="Undo (Ctrl/Cmd+Z)"
-            disabled={!store.canUndo()}
-            onClick={store.undo}
+            disabled={isHistoricalBrowsing || !store.canUndo()}
+            onClick={() => {
+              if (!isHistoricalBrowsing) store.undo()
+            }}
           >
             <Undo2 />
           </button>
@@ -977,10 +1032,29 @@ function ExamEditor({ store }: { store: ExamStore }) {
             className="toolbar-icon-button"
             aria-label="Redo"
             title="Redo (Ctrl/Cmd+Shift+Z)"
-            disabled={!store.canRedo()}
-            onClick={store.redo}
+            disabled={isHistoricalBrowsing || !store.canRedo()}
+            onClick={() => {
+              if (!isHistoricalBrowsing) store.redo()
+            }}
           >
             <Redo2 />
+          </button>
+          <button
+            ref={historyButton}
+            type="button"
+            className="secondary-button"
+            aria-expanded={historyOpen}
+            aria-controls="version-history"
+            onPointerDown={() => {
+              // Reopening History while inspecting a Version must retain the
+              // original draft target for Back to draft.
+              if (viewingVersion !== null) return
+              const active = document.activeElement
+              priorDraftFocus.current = active instanceof HTMLElement ? active : null
+            }}
+            onClick={() => setHistoryOpen((open) => !open)}
+          >
+            Version History
           </button>
           <button
             ref={exportButton}
@@ -995,7 +1069,7 @@ function ExamEditor({ store }: { store: ExamStore }) {
               })
             }
           >
-            Export
+            {viewingVersion ? 'Historical Export' : 'Export'}
           </button>
         </div>
       </header>
@@ -1008,10 +1082,12 @@ function ExamEditor({ store }: { store: ExamStore }) {
           }
           resolution={exportPreview?.resolution ?? null}
           previewPlans={exportPreview?.documents ?? []}
-          empty={exam.questions.length === 0}
+          // A stored Version is independently exportable even if the live
+          // Exam Draft was emptied after it was published.
+          empty={!viewingVersion && exam.questions.length === 0}
           initialError={
             exportDialog.error
-            ?? (exam.questions.length === 0 ? null : previewError)
+            ?? (!viewingVersion && exam.questions.length === 0 ? null : previewError)
           }
           onSubmit={async (configuration, onProgress) => {
             await runExport(configuration, onProgress)
@@ -1021,11 +1097,31 @@ function ExamEditor({ store }: { store: ExamStore }) {
         />
       )}
 
+      <VersionHistoryDrawer
+        versions={publicationHistory.versions}
+        selectedVersionId={viewingVersion?.id ?? null}
+        open={historyOpen}
+        onOpenChange={(open) => {
+          setHistoryOpen(open)
+          if (!open) requestAnimationFrame(() => historyButton.current?.focus())
+        }}
+        onSelect={(selectedVersion) => {
+          setViewingVersionId(selectedVersion.id)
+          setHistoricalFocusKey((key) => key + 1)
+          setHistoryOpen(false)
+        }}
+      />
+
       {/* The split authoring workspace: the Question Bank beside the rendered
           Exam Draft. The bank opens as the narrower pane — it is picked from
           rather than read — and the divider moves. */}
       <WorkspaceSplit
         bank={
+          <div
+            className="question-bank-authoring"
+            inert={isHistoricalBrowsing || undefined}
+            aria-hidden={isHistoricalBrowsing || undefined}
+          >
           <QuestionBankPane
             bank={state.questionBank}
             examDraftIds={examDraftIds}
@@ -1051,9 +1147,19 @@ function ExamEditor({ store }: { store: ExamStore }) {
               if (selection.isSelected(questionId)) selection.toggle(questionId)
             }}
           />
+          </div>
         }
         examDraft={
-          <ExamPage
+          <>
+            <div
+              className="draft-document"
+              hidden={viewingVersion !== null}
+              // The drawer is itself historical browsing, so the exposed part
+              // of the draft cannot receive pointer authoring gestures either.
+              inert={isHistoricalBrowsing || undefined}
+              aria-hidden={isHistoricalBrowsing || undefined}
+            >
+              <ExamPage
             exam={exam}
             version={version}
             selection={selection}
@@ -1090,8 +1196,29 @@ function ExamEditor({ store }: { store: ExamStore }) {
             onSetColumns={(questionIds, columns) =>
               store.setQuestionColumns(questionIds, columns)
             }
-            unsavedDraft={!store.hasSavedExam()}
-          />
+                unsavedDraft={!store.hasSavedExam()}
+              />
+            </div>
+            {viewingVersion && (
+              <HistoricalDocument
+                version={viewingVersion}
+                plans={prepareHistoricalExport({
+                  history: publicationHistory,
+                  version: viewingVersion,
+                  configuration: DEFAULT_EXPORT_CONFIGURATION,
+                }).documents}
+                focusKey={historicalFocusKey}
+                onBack={() => {
+                  setViewingVersionId(null)
+                  requestAnimationFrame(() => {
+                    if (priorDraftFocus.current?.isConnected) {
+                      priorDraftFocus.current.focus()
+                    }
+                  })
+                }}
+              />
+            )}
+          </>
         }
       />
 

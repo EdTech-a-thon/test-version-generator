@@ -371,6 +371,40 @@ function newRevisionRecords(
   return { ids, revisions }
 }
 
+/**
+ * Select documents from a stored Version without consulting an Exam Draft or
+ * running layout again. This is deliberately separate from `prepareExport`:
+ * history browsing stays valid after authoring content or layout code changes.
+ */
+export function prepareHistoricalExport({
+  history,
+  version,
+  configuration,
+}: {
+  history: PublicationHistory
+  version: PublishedVersion
+  configuration: ExportConfiguration
+}): PreparedExport {
+  if (!configuration.selection.test && !configuration.selection.answerKey) {
+    throw new Error('Choose the student test, the answer key, or both.')
+  }
+  const canonicalPlans = storedPlansOf(history, version)
+  return {
+    resolution: { kind: 'existing', version },
+    canonicalPlans,
+    documents: documentsOf(canonicalPlans, configuration.selection),
+    // The title belongs to the stored Layout Plan, never the live Exam Draft.
+    filename: docxFilename(canonicalPlans.test.title, version.name),
+    fingerprint: version.fingerprint,
+    publication: {
+      version: null,
+      revisions: [],
+      plans: [],
+      mediaHashes: mediaHashesOf([canonicalPlans.test, canonicalPlans.answerKey]),
+    },
+  }
+}
+
 /** Prepare one immutable Version or an exact re-export. */
 export function prepareExport({
   exam,

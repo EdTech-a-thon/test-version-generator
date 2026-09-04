@@ -17,7 +17,9 @@
 // Everything it produced is kept when it fails, in `export-artifacts/`.
 
 import { spawnSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import JSZip from 'jszip'
 import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
 import {
@@ -121,6 +123,21 @@ function convertToPdf(docx: string, outputDirectory: string): string {
 
 function record(directory: string, name: string, contents: string): void {
   writeFileSync(join(directory, name), contents)
+}
+
+/** The historical package must retain actual Media Asset bytes, not merely an
+ * image relationship or MIME type. Normalize their part names away while
+ * retaining a content hash for every packaged byte sequence. */
+async function packagedMediaHashes(bytes: Uint8Array): Promise<string[]> {
+  const archive = await JSZip.loadAsync(bytes)
+  return await Promise.all(
+    Object.entries(archive.files)
+      .filter(([name, file]) => name.startsWith('word/media/') && !file.dir)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(async ([, file]) =>
+        createHash('sha256').update(await file.async('nodebuffer')).digest('hex'),
+      ),
+  )
 }
 
 function manifestText(manifest: PdfManifest): string {
@@ -238,17 +255,37 @@ for (const fixture of fixtures) {
     const docx = join(directory, 'export.docx')
     await download.saveAs(docx)
 
-    // The media-rich composite is downloaded again from stored history. A
-    // matching fingerprint must use the immutable canonical plans byte-for-
-    // semantic-byte rather than rebuilding a second historical path.
+    // The media-rich composite is downloaded again through Version History,
+    // not the live draft Export action. This exercises the stored-plan path:
+    // changing the current layout engine or Question Bank cannot alter it.
     if (fixture.name === 'a realistic composite exam') {
+      // Destroy the live source after publication. A history export which
+      // reads current Question Content, Media Assets, or a new Layout Plan
+      // cannot match the original package below.
+      const liveQuestions = page.locator('.draft-document:not([hidden]) .exam-question')
+      while (await liveQuestions.count()) {
+        await liveQuestions.first().click()
+        await page.keyboard.press('Delete')
+      }
+      await expect(liveQuestions).toHaveCount(0)
+
+      await page.getByRole('button', { name: 'Version History' }).click()
+      const history = page.getByLabel('Version History')
+      await history.locator('.version-history-item').first().click()
+      await page.getByRole('button', { name: 'Historical Export', exact: true }).click()
+      const historicalDialog = page.getByRole('dialog', { name: 'Export DOCX' })
+      await historicalDialog.waitFor()
       const historicalPromise = page.waitForEvent('download')
-      await configureExport(page, configuration)
-      await page.getByRole('button', { name: 'Download DOCX' }).click()
+      await historicalDialog.getByRole('button', { name: 'Download DOCX' }).click()
       const historical = join(directory, 'historical-export.docx')
       await (await historicalPromise).saveAs(historical)
-      expect(await docxFingerprint(readFileSync(historical))).toEqual(
-        await docxFingerprint(readFileSync(docx)),
+      const originalBytes = readFileSync(docx)
+      const historicalBytes = readFileSync(historical)
+      expect(await docxFingerprint(historicalBytes)).toEqual(
+        await docxFingerprint(originalBytes),
+      )
+      expect(await packagedMediaHashes(historicalBytes)).toEqual(
+        await packagedMediaHashes(originalBytes),
       )
     }
 
