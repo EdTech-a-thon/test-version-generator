@@ -45,7 +45,7 @@ import { DEFAULT_COLUMNS, columnsOf, type ColumnSetting, type Exam, type Questio
 import type { Selection } from './use-selection'
 import type { WorkspaceDrag } from './use-workspace-drag'
 import { dropStateOf, type QuestionDropState } from './workspace-drag'
-import { CircleMinus, Copy, EllipsisVertical, ListPlus, Pencil, Plus, RefreshCw } from 'lucide-react'
+import { CircleMinus, Copy, EllipsisVertical, ListPlus, Pencil, Plus, RefreshCw, Shuffle } from 'lucide-react'
 import {
   ContextMenu,
   type MenuItem,
@@ -123,6 +123,7 @@ function questionMenuItems({
   onEdit,
   onDuplicate,
   onReplaceWithEquivalents,
+  onShuffleSelected,
   onRemove,
   onAdd,
   onSetColumns,
@@ -133,6 +134,7 @@ function questionMenuItems({
   onEdit: (questionId: string) => void
   onDuplicate: (questionId: string) => void
   onReplaceWithEquivalents: (questionIds: readonly string[]) => void
+  onShuffleSelected: (questionIds: readonly string[]) => void
   onRemove: (questionIds: readonly string[]) => void
   onAdd: (section: QuestionType, afterQuestionId?: string) => void
   onSetColumns: (questionIds: readonly string[], columns: ColumnSetting) => void
@@ -200,6 +202,12 @@ function questionMenuItems({
   items.push(
     { kind: 'separator' },
     { kind: 'label', label: 'Vary' },
+    {
+      kind: 'action',
+      label: 'Shuffle question order',
+      icon: <Shuffle />,
+      onSelect: () => onShuffleSelected(actedOnIds),
+    },
     {
       kind: 'action',
       label: 'Replace with equivalents',
@@ -729,6 +737,7 @@ export function ExamPage({
   onEdit,
   onDuplicate,
   onReplaceWithEquivalents,
+  onShuffleSelected,
   onRemove,
   onAdd,
   onAddFirst,
@@ -749,6 +758,7 @@ export function ExamPage({
   onEdit: (questionId: string) => void
   onDuplicate: (questionId: string) => void
   onReplaceWithEquivalents: (questionIds: readonly string[]) => void
+  onShuffleSelected: (questionIds: readonly string[]) => void
   onRemove: (questionIds: readonly string[]) => void
   onAdd: (section: QuestionType, afterQuestionId?: string) => void
   /** The first question on an empty sheet. Its position names no Question
@@ -843,9 +853,13 @@ export function ExamPage({
   } | null>(null)
   const closeMenu = useCallback(() => setMenu(null), [])
   const openMenu = useCallback(
-    (questionId: string, point: MenuPoint, side: MenuSide = 'right') =>
-      setMenu({ questionId, point, side }),
-    [],
+    (questionId: string, point: MenuPoint, side: MenuSide = 'right') => {
+      // A menu raised from outside the selection changes the command scope to
+      // that question. Raised from inside it, the selection remains intact.
+      if (!selection.isSelected(questionId)) selection.select(questionId)
+      setMenu({ questionId, point, side })
+    },
+    [selection],
   )
   // A question deleted while its own menu is open leaves the menu with nothing
   // to act on, so it simply stops being rendered.
@@ -968,6 +982,7 @@ export function ExamPage({
             onEdit,
             onDuplicate,
             onReplaceWithEquivalents,
+            onShuffleSelected,
             onRemove,
             onAdd,
             onSetColumns,

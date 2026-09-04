@@ -1,0 +1,33 @@
+{
+  "branch": "crepe-editor",
+  "verify": [
+    "bun test",
+    "bun run build",
+    "git diff --check"
+  ],
+  "maxRepairCycles": 2,
+  "notify": {
+    "on": [
+      "blocked",
+      "done"
+    ],
+    "command": "scripts/coordinator-notify.sh"
+  },
+  "skills": {
+    "implement": ".agents/skills/implement",
+    "review": ".agents/skills/code-review",
+    "extra": [
+      ".agents/skills/tdd"
+    ]
+  },
+  "implementation": {
+    "provider": "litellm",
+    "model": "gpt-5.6-terra",
+    "thinking": "high"
+  },
+  "review": {
+    "provider": "litellm",
+    "model": "gpt-5.6-sol",
+    "thinking": "high"
+  }
+}

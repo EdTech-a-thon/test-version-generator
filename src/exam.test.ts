@@ -10,6 +10,7 @@ import {
   nextVersionLetter,
   moveQuestion,
   moveQuestions,
+  shuffleSelectedQuestions,
   orderedChoices,
   orderedQuestions,
   questionById,
@@ -217,6 +218,41 @@ describe('version ordering edits', () => {
     expect(
       moveQuestions(exam, version, ['q1', 'o1'], 'q3', 'after').questionOrder,
     ).toEqual(['q2', 'q3', 'q1', 'o1'])
+  })
+
+  test('shuffles selected questions only within their existing section positions', () => {
+    const exam = examOf([
+      multipleChoice('m1', ['a']),
+      multipleChoice('m2', ['a']),
+      multipleChoice('m3', ['a']),
+      open('o1'),
+      open('o2'),
+      open('o3'),
+    ])
+    const version = versionOf(['m1', 'm2', 'm3', 'o1', 'o2', 'o3'])
+
+    const shuffled = shuffleSelectedQuestions(
+      exam,
+      version,
+      ['m1', 'm3', 'o1', 'o3'],
+      () => 0.99,
+    )
+
+    expect(shuffled.questionOrder).toEqual(['m3', 'm2', 'm1', 'o3', 'o2', 'o1'])
+  })
+
+  test('forces a non-identity permutation and leaves ineligible selections alone', () => {
+    const exam = examOf([
+      multipleChoice('m1', ['a']),
+      multipleChoice('m2', ['a']),
+      open('o1'),
+    ])
+    const version = versionOf(['m1', 'm2', 'o1'])
+
+    expect(
+      shuffleSelectedQuestions(exam, version, ['m1', 'm2', 'o1'], () => 0).questionOrder,
+    ).toEqual(['m2', 'm1', 'o1'])
+    expect(shuffleSelectedQuestions(exam, version, ['m1', 'o1'], () => 0)).toBe(version)
   })
 
   test('appending a question adds it to the end of the ordering, once', () => {

@@ -728,6 +728,11 @@ function ExamEditor({ store }: { store: ExamStore }) {
     // now, and a selection pointing at it names no position on the Exam Draft.
     selectAndReveal(incomingQuestionId)
   }
+  const shuffleSelectedQuestions = (questionIds: readonly string[]) => {
+    store.shuffleSelectedQuestions(questionIds)
+    setVarySummary('Shuffled question order.')
+  }
+
   const replaceWithEquivalentQuestions = (questionIds: readonly string[]) => {
     const before = store.getState().examDraft.questionIds
     const positions = questionIds
@@ -1034,6 +1039,7 @@ function ExamEditor({ store }: { store: ExamStore }) {
             }}
             onDuplicate={(questionId) => store.duplicateInExamDraft(questionId)}
             onReplaceWithEquivalents={replaceWithEquivalentQuestions}
+            onShuffleSelected={shuffleSelectedQuestions}
             onRemove={(questionIds) => {
               store.removeFromExamDraft(questionIds)
               selection.clear()

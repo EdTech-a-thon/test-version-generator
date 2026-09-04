@@ -16,6 +16,7 @@
 import {
   duplicateQuestion,
   moveQuestions,
+  shuffleSelectedQuestions,
   topicsOf,
   type ColumnSetting,
   type Question,
@@ -196,6 +197,10 @@ export type ExamStore = {
     targetId: string,
     placement: QuestionPlacement,
   ): void
+  /** Shuffles selected references only among their current positions, within
+   *  each Question Section. Every eligible section changes order in this one
+   *  authoring action. */
+  shuffleSelectedQuestions(questionIds: readonly string[]): void
   /** Removes references from the Exam Draft, leaving their Question Bank
    *  records exactly as they were. Remove excludes; it never deletes. */
   removeFromExamDraft(questionIds: readonly string[]): void
@@ -467,6 +472,17 @@ export function createExamStore(options: {
         return withExamDraft(
           current,
           withReferenceOrder(current.examDraft, moved.questionOrder),
+        )
+      }),
+
+    shuffleSelectedQuestions: (questionIds) =>
+      change((current) => {
+        const { exam, version } = selectedExam(current.questionBank, current.examDraft)
+        const shuffled = shuffleSelectedQuestions(exam, version, questionIds, Math.random)
+        if (shuffled === version) return current
+        return withExamDraft(
+          current,
+          withReferenceOrder(current.examDraft, shuffled.questionOrder),
         )
       }),
 

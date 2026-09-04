@@ -575,6 +575,56 @@ describe('moving a reference', () => {
   })
 })
 
+describe('shuffling selected questions', () => {
+  test('shuffles the selected scope within each Question Section as one undo step', async () => {
+    const { store } = await freshStore()
+    const multipleChoice = [
+      createQuestion('multiple-choice'),
+      createQuestion('multiple-choice'),
+      createQuestion('multiple-choice'),
+    ]
+    const shortAnswer = [createQuestion('open'), createQuestion('open')]
+    for (const question of [
+      multipleChoice[0]!,
+      shortAnswer[0]!,
+      multipleChoice[1]!,
+      shortAnswer[1]!,
+      multipleChoice[2]!,
+    ]) {
+      store.createInExamDraft(question)
+    }
+
+    store.shuffleSelectedQuestions([
+      multipleChoice[0]!.id,
+      multipleChoice[2]!.id,
+      shortAnswer[0]!.id,
+      shortAnswer[1]!.id,
+    ])
+
+    const shuffled = renderedIds(store)
+    expect(shuffled.slice(0, 3)).toEqual([
+      multipleChoice[2]!.id,
+      multipleChoice[1]!.id,
+      multipleChoice[0]!.id,
+    ])
+    expect(shuffled.slice(3)).toEqual([shortAnswer[1]!.id, shortAnswer[0]!.id])
+    store.undo()
+    expect(renderedIds(store)).toEqual([
+      ...multipleChoice.map((question) => question.id),
+      ...shortAnswer.map((question) => question.id),
+    ])
+  })
+
+  test('does not record an action when no section has two selected questions', async () => {
+    const { store, questions } = await withExamDraft(2)
+    const before = store.getState()
+
+    store.shuffleSelectedQuestions([questions[0]!.id])
+
+    expect(store.getState()).toBe(before)
+  })
+})
+
 describe('duplicating', () => {
   test('banks a copy and places it after the original', async () => {
     const { store, questions } = await withExamDraft(2)
