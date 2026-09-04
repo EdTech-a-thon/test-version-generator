@@ -6,7 +6,7 @@
     "bun run build",
     "git diff --check"
   ],
-  "maxRepairCycles": 3,
+  "maxRepairCycles": 5,
   "notify": {
     "on": [
       "blocked",
