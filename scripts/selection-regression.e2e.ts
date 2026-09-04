@@ -47,6 +47,9 @@ test('Remove takes every selected question off the Exam Draft, not out of the ba
   const questions = await openSelectedQuestions(page)
 
   await questions.nth(1).click({ button: 'right' })
+  // Column layouts live in the collapsed "Answer columns" submenu; open it
+  // before asserting the layout options are shown.
+  await page.getByRole('menuitem', { name: 'Answer columns' }).hover()
   await expect(page.locator('[data-column-layout]')).toHaveCount(3)
   await expect(page.locator('[data-column-layout="1"]')).toBeVisible()
   await expect(page.locator('[data-column-layout="2"]')).toBeVisible()

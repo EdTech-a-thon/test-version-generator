@@ -78,7 +78,13 @@ const COLUMN_MENU_OPTIONS: readonly { label: string; value: ColumnSetting }[] = 
   { label: '4 columns', value: 4 },
 ]
 
-function ColumnLayoutIcon({ columns }: { columns: ColumnSetting }) {
+function ColumnLayoutIcon({
+  columns,
+  withDataAttribute = true,
+}: {
+  columns: ColumnSetting
+  withDataAttribute?: boolean
+}) {
   const strokes = columns === 1
     ? [
         'M1.5 2h15',
@@ -105,7 +111,7 @@ function ColumnLayoutIcon({ columns }: { columns: ColumnSetting }) {
       fill="none"
       stroke="currentColor"
       aria-hidden="true"
-      data-column-layout={columns}
+      data-column-layout={withDataAttribute ? columns : undefined}
     >
       {strokes.map((stroke) => (
         <path key={stroke} d={stroke} strokeLinecap="round" />
@@ -124,6 +130,7 @@ function questionMenuItems({
   onDuplicate,
   onReplaceWithEquivalents,
   onShuffleSelected,
+  onShuffleSelectedAnswers,
   onRemove,
   onAdd,
   onSetColumns,
@@ -135,6 +142,7 @@ function questionMenuItems({
   onDuplicate: (questionId: string) => void
   onReplaceWithEquivalents: (questionIds: readonly string[]) => void
   onShuffleSelected: (questionIds: readonly string[]) => void
+  onShuffleSelectedAnswers: (questionIds: readonly string[]) => void
   onRemove: (questionIds: readonly string[]) => void
   onAdd: (section: QuestionType, afterQuestionId?: string) => void
   onSetColumns: (questionIds: readonly string[], columns: ColumnSetting) => void
@@ -152,6 +160,12 @@ function questionMenuItems({
       label: 'Vary',
       icon: <RefreshCw />,
       items: [
+        {
+          kind: 'action',
+          label: 'Shuffle answer order',
+          icon: <Shuffle />,
+          onSelect: () => onShuffleSelectedAnswers(actedOnIds),
+        },
         {
           kind: 'action',
           label: 'Replace with equivalents',
@@ -188,7 +202,7 @@ function questionMenuItems({
         label: 'Answer columns',
         // The parent row shows the current layout before its submenu asks the
         // teacher to choose another one.
-        icon: <ColumnLayoutIcon columns={columns} />,
+        icon: <ColumnLayoutIcon columns={columns} withDataAttribute={false} />,
         items: COLUMN_MENU_OPTIONS.map((option) => ({
           kind: 'radio',
           label: option.label,
@@ -738,6 +752,7 @@ export function ExamPage({
   onDuplicate,
   onReplaceWithEquivalents,
   onShuffleSelected,
+  onShuffleSelectedAnswers,
   onRemove,
   onAdd,
   onAddFirst,
@@ -759,6 +774,7 @@ export function ExamPage({
   onDuplicate: (questionId: string) => void
   onReplaceWithEquivalents: (questionIds: readonly string[]) => void
   onShuffleSelected: (questionIds: readonly string[]) => void
+  onShuffleSelectedAnswers: (questionIds: readonly string[]) => void
   onRemove: (questionIds: readonly string[]) => void
   onAdd: (section: QuestionType, afterQuestionId?: string) => void
   /** The first question on an empty sheet. Its position names no Question
@@ -983,6 +999,7 @@ export function ExamPage({
             onDuplicate,
             onReplaceWithEquivalents,
             onShuffleSelected,
+            onShuffleSelectedAnswers,
             onRemove,
             onAdd,
             onSetColumns,

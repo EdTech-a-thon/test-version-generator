@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { createQuestion, orderedQuestions, topicsOf } from './exam'
+import { choicesOf, createQuestion, orderedChoices, orderedQuestions, topicsOf } from './exam'
 import type { Question } from './exam'
 import {
   createAuthoringState,
@@ -82,6 +82,29 @@ describe('a fresh installation', () => {
     expect(store.getState().questionBank.questions).toEqual([])
     expect(store.getState().examDraft.questionIds).toEqual([])
     expect(store.getState().dirty).toBe(false)
+  })
+
+  test('rejects stored answer arrangements whose choices are not arrays of strings', async () => {
+    const question = createQuestion('multiple-choice')
+    for (const choiceOrder of [
+      { [question.id]: 5 },
+      { [question.id]: ['valid-id', 5] },
+    ]) {
+      const corrupt = {
+        questionBank: { questions: [question] },
+        examDraft: {
+          title: 'Corrupt answer order',
+          questionIds: [question.id],
+          choiceOrder,
+        },
+        dirty: false,
+      }
+
+      const store = await loadExamStore(memory(corrupt as unknown as AuthoringState))
+
+      expect(store.getState()).toEqual(createAuthoringState())
+      expect(store.selectedExam().exam.questions).toEqual([])
+    }
   })
 })
 
@@ -572,6 +595,70 @@ describe('moving a reference', () => {
     // Nothing was recorded, so undo reaches past it to the last real action.
     store.undo()
     expect(renderedIds(store)).toEqual([questions[0]!.id])
+  })
+})
+
+describe('shuffling selected answers', () => {
+  test('independently shuffles selected Multiple Choice answers, preserves correctness, and undoes once', async () => {
+    const { store } = await freshStore()
+    const first = createQuestion('multiple-choice')
+    const second = createQuestion('multiple-choice')
+    const shortAnswer = createQuestion('open')
+    const ineligible = {
+      ...createQuestion('multiple-choice'),
+      doc: {
+        type: 'doc',
+        content: [
+          { type: 'paragraph' },
+          {
+            type: 'multipleChoice',
+            content: [
+              {
+                type: 'multipleChoiceChoice',
+                attrs: { id: 'only-choice', correct: true },
+                content: [{ type: 'paragraph' }],
+              },
+            ],
+          },
+        ],
+      },
+    }
+    for (const question of [first, second, shortAnswer, ineligible]) {
+      store.createInExamDraft(question)
+    }
+    const beforeFirst = choicesOf(first).map((choice) => choice.id)
+    const beforeSecond = choicesOf(second).map((choice) => choice.id)
+
+    store.shuffleSelectedAnswers([first.id, second.id, shortAnswer.id, ineligible.id])
+
+    const { exam, version } = store.selectedExam()
+    const renderedFirst = exam.questions.find((question) => question.id === first.id)!
+    const renderedSecond = exam.questions.find((question) => question.id === second.id)!
+    expect(version.choiceOrder[first.id]).toHaveLength(beforeFirst.length)
+    expect(version.choiceOrder[second.id]).toHaveLength(beforeSecond.length)
+    expect(version.choiceOrder[first.id]).not.toEqual(beforeFirst)
+    expect(version.choiceOrder[second.id]).not.toEqual(beforeSecond)
+    expect(version.choiceOrder[shortAnswer.id]).toBeUndefined()
+    expect(version.choiceOrder[ineligible.id]).toBeUndefined()
+    expect(choicesOf(renderedFirst).map((choice) => choice.id)).toEqual(beforeFirst)
+    expect(orderedChoices(renderedFirst, version).find((choice) => choice.correct)?.id)
+      .toBe(choicesOf(first).find((choice) => choice.correct)?.id)
+    expect(choicesOf(renderedSecond).map((choice) => choice.id)).toEqual(beforeSecond)
+
+    store.undo()
+    expect(store.selectedExam().version.choiceOrder).toEqual({})
+    expect(store.canUndo()).toBe(true)
+    store.undo()
+    expect(renderedIds(store)).toEqual([first.id, second.id, shortAnswer.id])
+  })
+
+  test('does not record an answer shuffle when every selection is ineligible', async () => {
+    const { store, questions } = await withExamDraft(1, 'open')
+    const before = store.getState()
+
+    store.shuffleSelectedAnswers([questions[0]!.id])
+
+    expect(store.getState()).toBe(before)
   })
 })
 

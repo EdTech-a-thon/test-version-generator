@@ -408,3 +408,49 @@ export function shuffleSelectedQuestions(
 
   return changed ? { ...version, questionOrder } : version
 }
+
+/**
+ * Shuffles the answers of every selected eligible Multiple Choice question,
+ * independently. The Question Content is not changed: this records an order
+ * of stable choice ids in the arrangement alone, so correctness remains on
+ * the choice it was authored on.
+ *
+ * A selected Short Answer question, an unknown question, and a Multiple Choice
+ * question with fewer than two choices cannot vary and are left alone. As with
+ * question shuffling, an identity Fisher–Yates draw is rotated so every
+ * eligible selected question visibly changes order.
+ */
+export function shuffleSelectedAnswers(
+  exam: Exam,
+  version: Version,
+  questionIds: readonly string[],
+  random: RandomSource,
+): Version {
+  const selected = new Set(questionIds)
+  let choiceOrder = version.choiceOrder
+  let changed = false
+
+  for (const question of exam.questions) {
+    if (!selected.has(question.id) || question.type !== 'multiple-choice') continue
+    const current = orderedChoices(question, version)
+    if (current.length < 2) continue
+
+    const shuffled = current.map((choice) => choice.id)
+    for (let index = shuffled.length - 1; index > 0; index -= 1) {
+      const swapIndex = Math.floor(random() * (index + 1))
+      ;[shuffled[index], shuffled[swapIndex]] = [
+        shuffled[swapIndex]!,
+        shuffled[index]!,
+      ]
+    }
+    if (shuffled.every((id, index) => id === current[index]!.id)) {
+      shuffled.push(shuffled.shift()!)
+    }
+
+    if (!changed) choiceOrder = { ...choiceOrder }
+    choiceOrder[question.id] = shuffled
+    changed = true
+  }
+
+  return changed ? { ...version, choiceOrder } : version
+}

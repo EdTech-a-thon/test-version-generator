@@ -16,6 +16,7 @@
 import {
   duplicateQuestion,
   moveQuestions,
+  shuffleSelectedAnswers,
   shuffleSelectedQuestions,
   topicsOf,
   type ColumnSetting,
@@ -26,6 +27,7 @@ import {
   bankQuestionById,
   createExamDraft,
   createQuestionBank,
+  withChoiceOrder,
   withQuestionBanked,
   withReferenceAdded,
   withReferenceOrder,
@@ -103,6 +105,17 @@ function isQuestionBank(value: unknown): value is QuestionBank {
   return typeof bank === 'object' && bank !== null && Array.isArray(bank.questions)
 }
 
+function isChoiceOrder(value: unknown): value is Record<string, string[]> {
+  return (
+    typeof value === 'object'
+    && value !== null
+    && !Array.isArray(value)
+    && Object.values(value).every(
+      (choices) => Array.isArray(choices) && choices.every((choiceId) => typeof choiceId === 'string'),
+    )
+  )
+}
+
 function isExamDraft(value: unknown): value is ExamDraft {
   const draft = value as ExamDraft | null
   return (
@@ -110,7 +123,8 @@ function isExamDraft(value: unknown): value is ExamDraft {
     draft !== null &&
     typeof draft.title === 'string' &&
     Array.isArray(draft.questionIds) &&
-    draft.questionIds.every((id) => typeof id === 'string')
+    draft.questionIds.every((id) => typeof id === 'string') &&
+    (draft.choiceOrder === undefined || isChoiceOrder(draft.choiceOrder))
   )
 }
 
@@ -201,6 +215,10 @@ export type ExamStore = {
    *  each Question Section. Every eligible section changes order in this one
    *  authoring action. */
   shuffleSelectedQuestions(questionIds: readonly string[]): void
+  /** Shuffles each selected eligible Multiple Choice question's answers in one
+   *  authoring action. The order belongs to the Exam Draft, not Question
+   *  Content, so its canonical authored order remains intact. */
+  shuffleSelectedAnswers(questionIds: readonly string[]): void
   /** Removes references from the Exam Draft, leaving their Question Bank
    *  records exactly as they were. Remove excludes; it never deletes. */
   removeFromExamDraft(questionIds: readonly string[]): void
@@ -483,6 +501,17 @@ export function createExamStore(options: {
         return withExamDraft(
           current,
           withReferenceOrder(current.examDraft, shuffled.questionOrder),
+        )
+      }),
+
+    shuffleSelectedAnswers: (questionIds) =>
+      change((current) => {
+        const { exam, version } = selectedExam(current.questionBank, current.examDraft)
+        const shuffled = shuffleSelectedAnswers(exam, version, questionIds, Math.random)
+        if (shuffled === version) return current
+        return withExamDraft(
+          current,
+          withChoiceOrder(current.examDraft, shuffled.choiceOrder),
         )
       }),
 

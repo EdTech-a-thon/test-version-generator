@@ -12,6 +12,7 @@ import {
   createQuestionBank,
   isInExamDraft,
   withQuestionBanked,
+  withChoiceOrder,
   withReferenceAdded,
   withReferenceOrder,
   withReferenceReplaced,
@@ -111,9 +112,13 @@ describe('referencing from the Exam Draft', () => {
     expect(isInExamDraft(draft, 'q9')).toBe(false)
   })
 
-  test('Removes references and leaves an unreferenced Remove alone', () => {
-    const draft = draftOf()
-    expect(withReferencesRemoved(draft, ['q1', 'q3']).questionIds).toEqual(['q2'])
+  test('Removes references and their answer arrangements, and leaves an unreferenced Remove alone', () => {
+    const draft = withChoiceOrder(draftOf(), {
+      q1: ['a', 'b'], q2: ['c', 'd'], q3: ['e', 'f'],
+    })
+    const removed = withReferencesRemoved(draft, ['q1', 'q3'])
+    expect(removed.questionIds).toEqual(['q2'])
+    expect(removed.choiceOrder).toEqual({ q2: ['c', 'd'] })
     expect(withReferencesRemoved(draft, ['q9'])).toBe(draft)
   })
 })
@@ -150,12 +155,13 @@ describe('reordering the Exam Draft', () => {
 })
 
 describe('replacing a reference', () => {
-  test('puts the incoming question in the outgoing one’s place', () => {
-    expect(withReferenceReplaced(draftOf(), 'q2', 'q9').questionIds).toEqual([
-      'q1',
-      'q9',
-      'q3',
-    ])
+  test('puts the incoming question in the outgoing one’s place with its authored answer order', () => {
+    const draft = withChoiceOrder(draftOf(), {
+      q1: ['a', 'b'], q2: ['c', 'd'], q9: ['e', 'f'],
+    })
+    const replaced = withReferenceReplaced(draft, 'q2', 'q9')
+    expect(replaced.questionIds).toEqual(['q1', 'q9', 'q3'])
+    expect(replaced.choiceOrder).toEqual({ q1: ['a', 'b'] })
   })
 
   test('refuses when the outgoing question is not on the Exam Draft', () => {

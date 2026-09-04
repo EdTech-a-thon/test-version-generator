@@ -733,6 +733,11 @@ function ExamEditor({ store }: { store: ExamStore }) {
     setVarySummary('Shuffled question order.')
   }
 
+  const shuffleSelectedAnswers = (questionIds: readonly string[]) => {
+    store.shuffleSelectedAnswers(questionIds)
+    setVarySummary('Shuffled answer order.')
+  }
+
   const replaceWithEquivalentQuestions = (questionIds: readonly string[]) => {
     const before = store.getState().examDraft.questionIds
     const positions = questionIds
@@ -1040,6 +1045,7 @@ function ExamEditor({ store }: { store: ExamStore }) {
             onDuplicate={(questionId) => store.duplicateInExamDraft(questionId)}
             onReplaceWithEquivalents={replaceWithEquivalentQuestions}
             onShuffleSelected={shuffleSelectedQuestions}
+            onShuffleSelectedAnswers={shuffleSelectedAnswers}
             onRemove={(questionIds) => {
               store.removeFromExamDraft(questionIds)
               selection.clear()
