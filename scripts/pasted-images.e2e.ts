@@ -111,7 +111,7 @@ test('images paste through the native browser clipboard', async ({ page }) => {
   await expect(editor.locator('img[src^="/local-images/"]')).toHaveCount(1)
 })
 
-test('copied web images render and persist with a question', async ({
+test('copied web images are captured and persist with a question', async ({
   page,
 }) => {
   await page.goto('/')
@@ -123,12 +123,34 @@ test('copied web images render and persist with a question', async ({
   await editor.locator('> p').first().click()
   await pasteHtmlImage(editor, '<img src="/logo.png" alt="Crepe">')
 
+  // #26: a pasted web image is copied into the application-owned Media Store at
+  // ingestion and rendered through a stable internal reference, never left
+  // pointing at its original mutable URL.
   const imageBlock = editor.locator('.milkdown-image-block')
-  await expect(imageBlock.locator('img[src="/logo.png"]')).toHaveCount(1)
   await expect(imageBlock.locator('.image-resize-handle')).toHaveCount(1)
+  const capturedImage = imageBlock.locator('img[src^="/local-images/"]')
+  await expect(capturedImage).toHaveCount(1)
+  await expect(imageBlock.locator('img[src="/logo.png"]')).toHaveCount(0)
+
   await page.getByRole('button', { name: 'Save question' }).click()
   const question = page.locator('.exam-question').first()
-  await expect(question.locator('img[src="/logo.png"]')).toHaveCount(1)
+  await expect(question.locator('img[src^="/local-images/"]')).toHaveCount(1)
+  await expect(question.locator('img[src="/logo.png"]')).toHaveCount(0)
+
+  // Renders after reload from owned storage, independent of the original URL.
+  await page.reload()
+  const reloadedImage = page
+    .locator('.exam-question')
+    .first()
+    .locator('img[src^="/local-images/"]')
+  await expect(reloadedImage).toHaveCount(1)
+  await expect
+    .poll(() =>
+      reloadedImage.evaluate(
+        (image) => (image as HTMLImageElement).naturalWidth,
+      ),
+    )
+    .toBeGreaterThan(0)
 })
 
 test('copied web images with a clipboard file use a resizable block', async ({
