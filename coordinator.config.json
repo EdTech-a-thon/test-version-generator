@@ -2,10 +2,11 @@
   "branch": "crepe-editor",
   "verify": [
     "bun test",
+    "bun run test:e2e",
     "bun run build",
     "git diff --check"
   ],
-  "maxRepairCycles": 2,
+  "maxRepairCycles": 3,
   "notify": {
     "on": [
       "blocked",

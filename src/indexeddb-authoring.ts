@@ -10,13 +10,18 @@ import type {
   DurableAuthoringBackend,
   SavedState,
 } from './exam-store'
+import {
+  MEDIA_ASSET_STORE,
+  VERSIONED_STORAGE_NAME,
+  VERSIONED_STORAGE_VERSION,
+} from './storage-schema'
 
-export const VERSIONED_STORAGE_NAME = 'test-parrot-version-history-v1'
+export { VERSIONED_STORAGE_NAME } from './storage-schema'
 export const QUESTION_BANK_STORE = 'question-bank'
 export const AUTHORING_STATE_STORE = 'authoring-state'
 export const SAVED_AUTHORING_STORE = 'saved-authoring-state'
 
-const DATABASE_VERSION = 1
+const DATABASE_VERSION = VERSIONED_STORAGE_VERSION
 const CURRENT_AUTHORING_KEY = 'current'
 const SAVED_AUTHORING_KEY = 'saved'
 
@@ -45,6 +50,9 @@ function openDatabase(databaseName: string): Promise<IDBDatabase> {
       }
       if (!database.objectStoreNames.contains(SAVED_AUTHORING_STORE)) {
         database.createObjectStore(SAVED_AUTHORING_STORE)
+      }
+      if (!database.objectStoreNames.contains(MEDIA_ASSET_STORE)) {
+        database.createObjectStore(MEDIA_ASSET_STORE, { keyPath: 'hash' })
       }
     }
     request.onsuccess = () => resolve(request.result)

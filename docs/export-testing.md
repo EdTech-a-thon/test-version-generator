@@ -107,7 +107,7 @@ Fixtures are committed as readable source in `src/export-fixtures.ts`. Generated
 
 1. Checks its prerequisites and reports exactly what is missing and how to install it. It never skips silently.
 2. Records the resolved tool versions, platform, locale and paper size.
-3. Seeds the real application with a fixture — its images included, put in the Cache Storage the image worker reads — waits for fonts and images to settle, and drives the real export dialog: format, Content Selection, Version count and Randomization, then Print.
+3. Seeds the real application with a fixture — its images included, ingested into the IndexedDB Media Store as content-addressed Media Assets and rewritten to their stable internal references — waits for fonts and images to settle, and drives the real export dialog: format, Content Selection, Version count and Randomization, then Print.
 4. Takes the print output's own markup and captures it with the pinned Playwright Chromium as the Reference PDF.
 5. Downloads the real DOCX through the same dialog, on the same configuration and the same pinned random source, so both outputs publish the same Generated Versions.
 6. Compares the DOCX's structural fingerprint against that printed markup. The reference is the document the browser actually laid out, with real measurement deciding where the pages fell — not a plan the diagnostic rebuilt for itself, which could not know what the browser measured.

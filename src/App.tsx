@@ -63,8 +63,8 @@ import {
 } from './export-preparation'
 import { ExportDialog } from './export-dialog'
 import { domMeasure } from './dom-measure'
-import { saveImage } from './local-images'
-import { configurePastedImages } from './pasted-images'
+import { ownDocumentMedia, saveImage } from './local-images'
+import { configurePastedImages, settlePendingMedia } from './pasted-images'
 import {
   AlignLeft,
   Check,
@@ -476,10 +476,13 @@ function QuestionDialog({
   }, [onCancel])
 
   const saveQuestion = async () => {
+    await settlePendingMedia()
     const saved: Question = {
       ...question,
       type,
-      doc: cleanDocument(readEditorDocument.current?.() ?? latestDoc.current),
+      doc: await ownDocumentMedia(
+        cleanDocument(readEditorDocument.current?.() ?? latestDoc.current),
+      ),
     }
     if (difficulty) saved.difficulty = difficulty
     else delete saved.difficulty

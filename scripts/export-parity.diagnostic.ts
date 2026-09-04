@@ -199,12 +199,11 @@ for (const fixture of fixtures) {
     // wait for a rendered page rather than for the first navigation.
     await page.goto('/')
     await page.locator('.exam-page').first().waitFor()
-    // A teacher's uploads live in Cache Storage, served back by that worker. A
-    // fixture's images have to be put there the same way, or both outputs would
-    // agree on a picture neither of them has.
-    const sources = imageSourcesOf(plans)
-    if (sources.length > 0) {
-      await seedImages(page, sources)
+    // Media Assets own image bytes. Fixture documents are rewritten to the
+    // same content-addressed references the application persists before their
+    // normalized authoring records are seeded.
+    if (imageSourcesOf(plans).length > 0) {
+      await seedImages(page, fixture)
       await page.goto('/')
       await page.locator('.exam-page').first().waitFor()
     }
@@ -294,29 +293,41 @@ for (const fixture of fixtures) {
   })
 }
 
-/** The fixture's pictures, put in the cache the image worker reads. */
+/** Rewrites fixture image references to one content-addressed Media Asset. */
 async function seedImages(
   page: import('@playwright/test').Page,
-  sources: readonly string[],
+  fixture: Fixture,
 ): Promise<void> {
-  await page.evaluate(
-    async ({ urls, base64 }) => {
-      const bytes = Uint8Array.from(atob(base64), (character) =>
-        character.charCodeAt(0),
-      )
-      const cache = await caches.open('crepe-local-images-v1')
-      for (const url of urls) {
-        await cache.put(
-          url,
-          new Response(bytes, { headers: { 'Content-Type': 'image/png' } }),
-        )
-      }
+  const owned = await page.evaluate(
+    async (base64) => {
+      const bytes = Uint8Array.from(atob(base64), (character) => character.charCodeAt(0))
+      const file = new File([bytes], 'fixture.png', { type: 'image/png' })
+      const { saveImage } = await import('/src/local-images.ts')
+      return saveImage(file)
     },
-    {
-      urls: [...sources],
-      base64: Buffer.from(PIXEL_PNG.data).toString('base64'),
-    },
+    Buffer.from(PIXEL_PNG.data).toString('base64'),
   )
+  const replace = (node: ProseMirrorJSON): ProseMirrorJSON => ({
+    ...node,
+    attrs: (node.type === 'image' || node.type === 'image-block')
+      ? { ...(node.attrs as object), src: owned }
+      : node.attrs,
+    content: Array.isArray(node.content)
+      ? node.content.map((child) => replace(child as ProseMirrorJSON))
+      : node.content,
+  })
+  const exam = {
+    ...fixture.exam,
+    questions: fixture.exam.questions.map((question) => ({
+      ...question,
+      doc: replace(question.doc),
+    })),
+  }
+  await seedAuthoringState(page, {
+    questionBank: { questions: authoredInVersionOrder({ ...fixture, exam }) },
+    examDraft: { title: exam.title, questionIds: fixture.version.questionOrder },
+    dirty: false,
+  })
 }
 
 /** Drives the real export dialog to one configuration, having pinned the

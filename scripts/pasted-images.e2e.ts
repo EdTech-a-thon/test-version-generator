@@ -132,12 +132,51 @@ test('copied web images are captured and persist with a question', async ({
   await expect(capturedImage).toHaveCount(1)
   await expect(imageBlock.locator('img[src="/logo.png"]')).toHaveCount(0)
 
+  // The public media boundary retains hash, bytes, MIME type and dimensions;
+  // Question Content retains only the stable internal media reference.
+  const media = await page.evaluate(async (source) => {
+    const hash = source.slice('/local-images/'.length)
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open('test-parrot-version-history-v1')
+      request.onsuccess = () => resolve(request.result)
+      request.onerror = () => reject(request.error)
+    })
+    try {
+      return await new Promise<{
+        hash: string
+        mimeType: string
+        byteLength: number
+        width: number
+        height: number
+      } | undefined>((resolve, reject) => {
+        const request = database.transaction('media-assets').objectStore('media-assets').get(hash)
+        request.onsuccess = () => {
+          const asset = request.result
+          resolve(asset && { ...asset, byteLength: asset.bytes.byteLength })
+        }
+        request.onerror = () => reject(request.error)
+      })
+    } finally {
+      database.close()
+    }
+  }, await capturedImage.getAttribute('src'))
+  expect(media).toMatchObject({
+    hash: (await capturedImage.getAttribute('src'))!.slice('/local-images/'.length),
+    mimeType: 'image/png',
+  })
+  expect(media?.byteLength).toBeGreaterThan(0)
+  expect(media?.width).toBeGreaterThan(0)
+  expect(media?.height).toBeGreaterThan(0)
+
   await page.getByRole('button', { name: 'Save question' }).click()
   const question = page.locator('.exam-question').first()
   await expect(question.locator('img[src^="/local-images/"]')).toHaveCount(1)
   await expect(question.locator('img[src="/logo.png"]')).toHaveCount(0)
 
-  // Renders after reload from owned storage, independent of the original URL.
+  // Renders after reload from owned storage, independent of the original URL
+  // and the retired Cache Storage implementation.
+  await page.evaluate(() => caches.delete('crepe-local-images-v1'))
+  await page.route('/logo.png', (route) => route.abort())
   await page.reload()
   const reloadedImage = page
     .locator('.exam-question')
@@ -151,6 +190,93 @@ test('copied web images are captured and persist with a question', async ({
       ),
     )
     .toBeGreaterThan(0)
+})
+
+test('identical image bytes share one Media Asset', async ({ page }) => {
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Insert your first question' }).click()
+  await page.getByRole('menuitem', { name: 'Multiple choice' }).click()
+
+  const editor = page.getByRole('dialog', { name: 'Question editor' }).locator('.ProseMirror')
+  await editor.locator('> p').first().click()
+  await pastePng(editor)
+  await pastePng(editor)
+  await expect(editor.locator('img[src^="/local-images/"]')).toHaveCount(2)
+
+  const assetCount = await page.evaluate(async () => {
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open('test-parrot-version-history-v1')
+      request.onsuccess = () => resolve(request.result)
+      request.onerror = () => reject(request.error)
+    })
+    try {
+      return await new Promise<number>((resolve, reject) => {
+        const request = database.transaction('media-assets').objectStore('media-assets').count()
+        request.onsuccess = () => resolve(request.result)
+        request.onerror = () => reject(request.error)
+      })
+    } finally {
+      database.close()
+    }
+  })
+  expect(assetCount).toBe(1)
+})
+
+test('an uncapturable pasted image is visibly unresolved', async ({ page }) => {
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Insert your first question' }).click()
+  await page.getByRole('menuitem', { name: 'Multiple choice' }).click()
+
+  const editor = page.getByRole('dialog', { name: 'Question editor' }).locator('.ProseMirror')
+  await editor.locator('> p').first().click()
+  await pasteHtmlImage(editor, '<img src="/does-not-exist.png">')
+  await expect(editor).toContainText('[Image could not be captured.]')
+  await expect(editor.locator('img[src="/does-not-exist.png"]')).toHaveCount(0)
+})
+
+test('a nonexistent internal media reference is visibly unresolved', async ({ page }) => {
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Insert your first question' }).click()
+  await page.getByRole('menuitem', { name: 'Multiple choice' }).click()
+
+  const editor = page.getByRole('dialog', { name: 'Question editor' }).locator('.ProseMirror')
+  await editor.locator('> p').first().click()
+  await pasteHtmlImage(editor, `<img src="/local-images/${'a'.repeat(64)}">`)
+  await expect(editor).toContainText('[Image could not be captured.]')
+  await expect(editor.locator('img[src^="/local-images/"]')).toHaveCount(0)
+})
+
+test('Save waits for a pending successful image capture', async ({ page }) => {
+  await page.route('/slow-logo.png', async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 500))
+    await route.fulfill({ path: 'public/logo.png', contentType: 'image/png' })
+  })
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Insert your first question' }).click()
+  await page.getByRole('menuitem', { name: 'Multiple choice' }).click()
+
+  const dialog = page.getByRole('dialog', { name: 'Question editor' })
+  const editor = dialog.locator('.ProseMirror')
+  await editor.locator('> p').first().click()
+  await pasteHtmlImage(editor, '<img src="/slow-logo.png">')
+  await page.getByRole('button', { name: 'Save question' }).click()
+  const question = page.locator('.exam-question').first()
+  await expect(question.locator('img[src^="/local-images/"]')).toHaveCount(1)
+  await expect(question).not.toContainText('[Image could not be captured.]')
+})
+
+test('mixed HTML keeps every image and surrounding text', async ({ page }) => {
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Insert your first question' }).click()
+  await page.getByRole('menuitem', { name: 'Multiple choice' }).click()
+
+  const editor = page.getByRole('dialog', { name: 'Question editor' }).locator('.ProseMirror')
+  await editor.locator('> p').first().click()
+  await pasteHtmlImage(editor, 'before <img src="/logo.png"> middle <img src="/logo.png"> after')
+  await expect(editor).toContainText('before')
+  await expect(editor).toContainText('middle')
+  await expect(editor).toContainText('after')
+  await expect(editor.locator('img[src^="/local-images/"]')).toHaveCount(2)
 })
 
 test('copied web images with a clipboard file use a resizable block', async ({
