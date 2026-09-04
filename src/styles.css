@@ -137,12 +137,24 @@ button { cursor: pointer; }
 .export-preview { min-width: 0; padding: 18px; overflow: auto; background: #e9e1d7; }
 .export-preview .exam-workspace { min-height: 0; padding: 0; overflow: visible; }
 .export-preview .exam-page { margin: 0 auto 18px; }
+/* The preview reuses the printed question markup, not the authoring gestures. */
+.export-preview .exam-question,
+.export-preview .exam-question:active { cursor: default; }
+.export-preview .exam-question:hover {
+  background: transparent; box-shadow: none;
+}
 .export-controls {
   min-width: 0; padding: 18px; display: flex; flex-direction: column; gap: 18px;
   overflow-y: auto; border-left: 1px solid #e0d3c5;
 }
 .export-version-state { display: grid; gap: 4px; margin: 0; color: #6e5b4d; }
 .export-version-state strong { color: #332a24; font-size: 20px; }
+.export-format {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px;
+  margin: 0; padding: 10px 0; border-top: 1px solid #e8dfd2; border-bottom: 1px solid #e8dfd2;
+}
+.export-format dt { font-weight: 700; }
+.export-format dd { margin: 0; color: #6e5b4d; }
 .export-durability-note { margin: 0; color: #6e5b4d; font-size: 13px; line-height: 1.45; }
 .storage-notice {
   position: fixed; right: 18px; bottom: 18px; z-index: 20; max-width: 420px;
@@ -595,6 +607,14 @@ button { cursor: pointer; }
 /* The choice grid: a table for the column-major layout, borderless everywhere. */
 .choice-grid { width: 100%; margin: 8px 0 0; border: 0; border-collapse: collapse; table-layout: fixed; }
 .choice-cell { padding: 1px 12px 1px 0; border: 0; vertical-align: top; }
+.choice-cell[data-correct-answer] { position: relative; }
+/* Correctness is authoring-only feedback. It is absolutely positioned so it
+   cannot change the measured or printed choice-grid geometry. */
+.choice-correctness-marker {
+  position: absolute; top: 0; right: 2px; width: 15px; height: 15px;
+  border: 1px solid #8b7868; border-radius: 50%; color: #6d5a45; background: #fffdf8;
+  text-align: center; font: 700 11px/14px Arial, Helvetica, sans-serif;
+}
 .choice-letter { float: left; margin-right: 6px; font-weight: 400; }
 .choice-body > :first-child { margin-top: 0; }
 .choice-body > :last-child { margin-bottom: 0; }
@@ -956,8 +976,14 @@ button { cursor: pointer; }
   .exam-draft-empty-section { left: 0; }
   .exam-workspace { padding: 16px 0; }
   .dialog-backdrop { padding: 0; }
-  .export-publication-body { grid-template-columns: 1fr; }
-  .export-preview { display: none; }
+  /* Keep the output-faithful paper available: the dialog stacks rather than
+     discarding its preview when its two desktop columns no longer fit. */
+  .export-publication-body {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(260px, 1fr) auto;
+    overflow-y: auto;
+  }
+  .export-preview { min-height: 260px; }
   .export-controls { border-left: 0; }
   .question-dialog { width: 100%; height: 100vh; border-radius: 0; }
   .dialog-editor { padding: 0; }
@@ -999,7 +1025,7 @@ button { cursor: pointer; }
   .exam-question--revealed {
     background: none; box-shadow: none; opacity: 1; animation: none;
   }
-  .exam-question[data-drop]::after { display: none; }
+  .exam-question[data-drop]::after, .choice-correctness-marker { display: none; }
   .exam-draft-empty-section, .workspace-resizer,
   .question-drag-preview { display: none; }
 }

@@ -67,7 +67,45 @@ const AUTHORING = {
   dirty: false,
 }
 
-async function open(page: Page, persistent = true) {
+const AUTHORING_WITH_LINK = {
+  ...AUTHORING,
+  questionBank: {
+    questions: EXAM.questions.map((question) =>
+      question.id === 'm1'
+        ? {
+            ...question,
+            doc: {
+              ...question.doc,
+              content: [
+                {
+                  type: 'paragraph',
+                  content: [
+                    {
+                      type: 'text',
+                      text: 'Linked question',
+                      marks: [
+                        {
+                          type: 'link',
+                          attrs: { href: '/preview-link-target' },
+                        },
+                      ],
+                    },
+                  ],
+                },
+                ...question.doc.content.slice(1),
+              ],
+            },
+          }
+        : question,
+    ),
+  },
+}
+
+async function open(
+  page: Page,
+  persistent = true,
+  authoring = AUTHORING,
+) {
   await page.addInitScript((granted) => {
     const state = { calls: 0, granted }
     ;(window as unknown as { persistence: typeof state }).persistence = state
@@ -79,7 +117,7 @@ async function open(page: Page, persistent = true) {
       },
     })
   }, persistent)
-  await seedAuthoringState(page, AUTHORING)
+  await seedAuthoringState(page, authoring)
   await page.goto('/')
   await page.locator('.exam-page').first().waitFor()
 }
@@ -104,6 +142,29 @@ async function historyOf(page: Page): Promise<PublicationHistory> {
   })
 }
 
+/** Hold the first publication after packaging, while the dialog is preparing. */
+async function holdPersistentStorage(page: Page) {
+  await page.evaluate(() => {
+    let release: ((granted: boolean) => void) | undefined
+    const pending = new Promise<boolean>((resolve) => {
+      release = resolve
+    })
+    Object.defineProperty(navigator.storage, 'persist', {
+      configurable: true,
+      value: () => pending,
+    })
+    ;(window as typeof window & { releaseExportPersistence?: () => void })
+      .releaseExportPersistence = () => release?.(true)
+  })
+}
+
+async function releasePersistentStorage(page: Page) {
+  await page.evaluate(() => {
+    ;(window as typeof window & { releaseExportPersistence?: () => void })
+      .releaseExportPersistence?.()
+  })
+}
+
 test('Export defaults to one complete friendly-named DOCX with a clean preview', async ({
   page,
 }) => {
@@ -120,17 +181,74 @@ test('Export defaults to one complete friendly-named DOCX with a clean preview',
     dialog.getByRole('spinbutton', { name: 'Versions' }),
   ).toHaveCount(0)
   await expect(dialog.getByText('Randomize', { exact: false })).toHaveCount(0)
-  await expect(dialog.getByText('New Version')).toBeVisible()
+  await expect(dialog.locator('.export-version-state')).toContainText('New Version')
   await expect(dialog.getByText('Amber Badger', { exact: true })).toBeVisible()
+  await expect(dialog.locator('.export-format')).toContainText('FormatDOCX')
+  const preview = dialog.getByLabel('Export Preview')
+  await expect(preview.locator('.exam-page')).toHaveCount(2)
+  await expect(preview).toContainText('Which is a mammal?')
+  // Correctness is useful authoring feedback, but neither a student-facing
+  // preview nor the document it represents may disclose it.
   await expect(
-    dialog.getByLabel('Export Preview').locator('.exam-page'),
-  ).toHaveCount(2)
+    page.locator('.exam-question[data-question-id="m1"] .choice-correctness-marker'),
+  ).toHaveAccessibleName('Correct answer')
+  await expect(preview.locator('.choice-correctness-marker')).toHaveCount(0)
   await expect(
-    dialog.getByLabel('Export Preview').locator('.question-handles'),
+    preview.locator('.question-handles, .exam-question--selected, [data-drop]'),
   ).toHaveCount(0)
+  const previewQuestion = preview.locator('.exam-question').first()
+  // The inert paper is deliberately not hoverable. Inspect its styles without
+  // dispatching a pointer event that inert content correctly rejects.
+  await expect(previewQuestion).toHaveCSS('cursor', 'default')
+  await expect(previewQuestion).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+  await expect(previewQuestion).toHaveCSS('box-shadow', 'none')
   await expect(
     dialog.getByRole('button', { name: 'Download DOCX' }),
   ).toBeEnabled()
+})
+
+test('Export lays the preview left of the format and content controls on desktop', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await open(page)
+  const dialog = await openDialog(page)
+
+  const geometry = await dialog.locator('.export-publication-body').evaluate((body) => {
+    const preview = body.querySelector<HTMLElement>('.export-preview')!
+    const controls = body.querySelector<HTMLElement>('.export-controls')!
+    const previewBounds = preview.getBoundingClientRect()
+    const controlsBounds = controls.getBoundingClientRect()
+    return {
+      previewLeft: previewBounds.left,
+      previewRight: previewBounds.right,
+      controlsLeft: controlsBounds.left,
+      controlsTop: controlsBounds.top,
+      previewTop: previewBounds.top,
+    }
+  })
+
+  expect(geometry.previewLeft).toBeLessThan(geometry.controlsLeft)
+  expect(geometry.previewRight).toBeLessThanOrEqual(geometry.controlsLeft + 1)
+  expect(geometry.previewTop).toBe(geometry.controlsTop)
+  await expect(dialog.locator('.export-format')).toContainText('FormatDOCX')
+})
+
+test('Export keeps its preview available in a narrow stacked layout', async ({ page }) => {
+  await page.setViewportSize({ width: 800, height: 900 })
+  await open(page)
+  const dialog = await openDialog(page)
+  const preview = dialog.getByLabel('Export Preview')
+
+  await expect(preview).toBeVisible()
+  await expect(preview.locator('.exam-page')).toHaveCount(2)
+  const geometry = await dialog.locator('.export-publication-body').evaluate((body) => {
+    const preview = body.querySelector<HTMLElement>('.export-preview')!
+    const controls = body.querySelector<HTMLElement>('.export-controls')!
+    return {
+      previewTop: preview.getBoundingClientRect().top,
+      controlsTop: controls.getBoundingClientRect().top,
+    }
+  })
+  expect(geometry.previewTop).toBeLessThan(geometry.controlsTop)
 })
 
 test('test-only, key-only, and both remain selectable', async ({ page }) => {
@@ -223,6 +341,53 @@ test('persistent-storage denial is explained separately from publication failure
   expect((await historyOf(page)).versions).toHaveLength(1)
 })
 
+test('preparation locks dismissal and controls while announcing progress accessibly', async ({
+  page,
+}) => {
+  await open(page, true, AUTHORING_WITH_LINK)
+  await holdPersistentStorage(page)
+  const dialog = await openDialog(page)
+  const download = page.waitForEvent('download')
+  const previewLink = dialog.locator('.export-preview a')
+
+  // Preview content represents paper rather than offering an alternate
+  // navigation surface, so even authored links cannot interrupt publication.
+  await expect(previewLink).toHaveCount(1)
+  await expect(dialog.locator('.export-preview')).toHaveAttribute('inert', '')
+
+  await dialog.getByRole('button', { name: 'Download DOCX' }).click()
+
+  const status = dialog.getByRole('status', {
+    name: 'Export preparation status',
+  })
+  await expect(status).toContainText('Resolving Version identity')
+  await expect(status).toHaveAttribute('aria-live', 'polite')
+  await expect(dialog.getByRole('checkbox', { name: 'Student test' })).toBeDisabled()
+  await expect(dialog.getByRole('checkbox', { name: 'Answer key' })).toBeDisabled()
+  await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeDisabled()
+  await expect(
+    dialog.getByRole('button', { name: 'Preparing…' }),
+  ).toBeDisabled()
+
+  await page.keyboard.press('Escape')
+  await expect(dialog).toBeVisible()
+  await page.locator('.dialog-backdrop').click({ position: { x: 5, y: 5 } })
+  await expect(dialog).toBeVisible()
+
+  // A forced pointer event reaches the link's coordinates; inert content still
+  // cannot receive it or navigate away from the locked dialog.
+  await dialog.locator('.export-preview a').click({ force: true })
+  expect(page.url()).not.toContain('/preview-link-target')
+  await page.keyboard.press('Tab')
+  await expect(dialog).toBeFocused()
+  await page.keyboard.press('Shift+Tab')
+  await expect(dialog).toBeFocused()
+
+  await releasePersistentStorage(page)
+  await download
+  await expect(dialog).toBeHidden()
+})
+
 test('an IndexedDB transaction failure creates neither history nor download', async ({
   page,
 }) => {
@@ -240,12 +405,34 @@ test('an IndexedDB transaction failure creates neither history nor download', as
     }
   })
   const dialog = await openDialog(page)
+  await dialog.getByRole('checkbox', { name: 'Student test' }).uncheck()
   await dialog.getByRole('button', { name: 'Download DOCX' }).click()
 
   await expect(dialog.getByRole('alert')).toContainText(
     'no download was started',
   )
   await expect(dialog).toBeVisible()
+  // The failed attempt stays in the same clean preview configuration, ready
+  // for a retry rather than silently returning to the default selection.
+  await expect(
+    dialog.getByRole('checkbox', { name: 'Student test' }),
+  ).not.toBeChecked()
+  await expect(
+    dialog.getByRole('checkbox', { name: 'Answer key' }),
+  ).toBeChecked()
+  await expect(
+    dialog.getByLabel('Export Preview').locator('.exam-page'),
+  ).toHaveCount(1)
+  // Recovery returns focus to the enabled controls, which keeps both tab
+  // directions inside the dialog instead of falling through to its opener.
+  const studentTest = dialog.getByRole('checkbox', { name: 'Student test' })
+  await expect(studentTest).toBeFocused()
+  await page.keyboard.press('Shift+Tab')
+  await expect(
+    dialog.getByRole('button', { name: 'Download DOCX' }),
+  ).toBeFocused()
+  await page.keyboard.press('Tab')
+  await expect(studentTest).toBeFocused()
   expect((await historyOf(page)).versions).toHaveLength(0)
 })
 
@@ -315,7 +502,20 @@ test('Cmd/Ctrl+P routes to Export, and every dismissal restores focus', async ({
   })
 
   await page.keyboard.press('Control+P')
-  await expect(dialogOf(page)).toBeVisible()
+  const dialog = dialogOf(page)
+  await expect(dialog).toBeVisible()
+  // The dialog starts in its configuration and keeps focus inside it.
+  await expect(
+    dialog.getByRole('checkbox', { name: 'Student test' }),
+  ).toBeFocused()
+  await page.keyboard.press('Shift+Tab')
+  await expect(
+    dialog.getByRole('button', { name: 'Download DOCX' }),
+  ).toBeFocused()
+  await page.keyboard.press('Tab')
+  await expect(
+    dialog.getByRole('checkbox', { name: 'Student test' }),
+  ).toBeFocused()
   expect(
     await page.evaluate(
       () =>

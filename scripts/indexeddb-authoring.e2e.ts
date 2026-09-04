@@ -187,6 +187,10 @@ test('publication aborts every store when a required Media Asset is absent', asy
   page,
 }) => {
   await page.goto('/')
+  // A first visit registers the image service worker, which may reload once
+  // before it takes control. Wait for application startup rather than running
+  // the IndexedDB probe in the navigation that registration replaces.
+  await page.getByRole('textbox', { name: 'Exam name' }).waitFor()
   const result = await page.evaluate(async () => {
     const authoringPath = '/src/indexeddb-authoring.ts'
     const preparationPath = '/src/export-preparation.ts'

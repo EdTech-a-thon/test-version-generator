@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { ExportPreview } from './exam-page'
 import type { LayoutPlan } from './export-plan'
 import type {
@@ -18,7 +18,10 @@ function focusableWithin(root: HTMLElement): HTMLElement[] {
     root.querySelectorAll<HTMLElement>(
       'button, input, select, textarea, [href], [tabindex]:not([tabindex="-1"])',
     ),
-  ).filter((element) => !element.matches(':disabled'))
+  ).filter(
+    (element) =>
+      !element.matches(':disabled') && element.closest('[inert]') === null,
+  )
 }
 
 export function ExportDialog({
@@ -66,6 +69,20 @@ export function ExportDialog({
     first?.focus()
   }, [])
 
+  // Preparation disables every dialog control. Keep focus on the dialog itself
+  // during that interval so Tab cannot escape into the authoring workspace.
+  useLayoutEffect(() => {
+    if (preparing) {
+      dialog.current?.focus()
+      return
+    }
+    // Restore a predictable in-dialog target after a recoverable failure.
+    if (error) {
+      const [first] = focusableWithin(dialog.current!)
+      first?.focus()
+    }
+  }, [error, preparing])
+
   const close = () => {
     if (!preparing) onCancel()
   }
@@ -109,9 +126,16 @@ export function ExportDialog({
         const focusable = focusableWithin(dialog.current)
         const first = focusable[0]
         const last = focusable.at(-1)
-        if (!first || !last) return
+        if (!first || !last) {
+          event.preventDefault()
+          dialog.current.focus()
+          return
+        }
         const active = document.activeElement
-        if (
+        if (active === dialog.current) {
+          event.preventDefault()
+          ;(event.shiftKey ? last : first).focus()
+        } else if (
           event.shiftKey &&
           (active === first || !dialog.current.contains(active))
         ) {
@@ -129,13 +153,17 @@ export function ExportDialog({
         aria-modal="true"
         aria-labelledby={`${id}-title`}
         ref={dialog}
+        tabIndex={-1}
       >
         <header className="dialog-header">
           <h2 id={`${id}-title`}>Export DOCX</h2>
         </header>
 
         <div className="export-publication-body">
-          <div className="export-preview" aria-label="Export Preview">
+          {/* The preview is output-faithful, not an alternate reading or
+              navigation surface. `inert` prevents authored links and any
+              future focusable document content from escaping this dialog. */}
+          <div className="export-preview" aria-label="Export Preview" inert>
             {previewPlans.map((plan, index) => (
               <ExportPreview
                 key={`${plan.pages[0]?.stream ?? 'empty'}-${index}`}
@@ -157,6 +185,11 @@ export function ExportDialog({
                 <strong>{resolution.version.name}</strong>
               </p>
             )}
+
+            <dl className="export-format">
+              <dt>Format</dt>
+              <dd>DOCX</dd>
+            </dl>
 
             <fieldset
               className="export-field"
@@ -211,7 +244,12 @@ export function ExportDialog({
         </div>
 
         <footer className="dialog-actions export-actions">
-          <p className="export-status" role="status" aria-live="polite">
+          <p
+            className="export-status"
+            role="status"
+            aria-live="polite"
+            aria-label="Export preparation status"
+          >
             {preparing ? progress : null}
           </p>
           {error && (

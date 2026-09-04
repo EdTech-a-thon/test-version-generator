@@ -31,18 +31,40 @@ function blocksOf(node: ProseMirrorJSON): ProseMirrorJSON[] {
 
 // The grid is drawn as a real table so that a cell's answer stays inside its
 // column, and every border is off: on paper this is a layout, not a table.
-export function ChoiceGridView({ grid }: { grid: ChoiceGrid }) {
+export function ChoiceGridView({
+  grid,
+  showCorrectness = false,
+}: {
+  grid: ChoiceGrid
+  /** The Exam Draft alone may reveal correctness; previews and artifacts may not. */
+  showCorrectness?: boolean
+}) {
   return (
     <table className="choice-grid" data-columns={grid.columns}>
       <tbody>
         {grid.cells.map((row, rowIndex) => (
           <tr key={rowIndex}>
             {row.map((choice, columnIndex) => (
-              <td key={columnIndex} className="choice-cell">
+              <td
+                key={columnIndex}
+                className="choice-cell"
+                data-correct-answer={
+                  showCorrectness && choice?.correct ? 'true' : undefined
+                }
+              >
                 {choice && (
                   <>
                     <span className="choice-letter">{choice.letter}.</span>
                     <DocView className="choice-body" content={blocksOf(choice.node)} />
+                    {showCorrectness && choice.correct && (
+                      <span
+                        className="choice-correctness-marker"
+                        role="img"
+                        aria-label="Correct answer"
+                      >
+                        ✓
+                      </span>
+                    )}
                   </>
                 )}
               </td>
@@ -57,7 +79,14 @@ export function ChoiceGridView({ grid }: { grid: ChoiceGrid }) {
 // A question, or the piece of one this page carries. The number column is drawn
 // either way so a continued question's text stays in the same place down the
 // page; only the first piece puts a number and an answer blank in it.
-export function QuestionContent({ item }: { item: QuestionItem }) {
+export function QuestionContent({
+  item,
+  showCorrectness = false,
+}: {
+  item: QuestionItem
+  /** Correct-answer feedback is authoring chrome, never export content. */
+  showCorrectness?: boolean
+}) {
   return (
     <>
       <div className="question-number">
@@ -68,7 +97,9 @@ export function QuestionContent({ item }: { item: QuestionItem }) {
       </div>
       <div className="question-body">
         <DocView className="question-stem" content={item.stem} />
-        {item.grid && <ChoiceGridView grid={item.grid} />}
+        {item.grid && (
+          <ChoiceGridView grid={item.grid} showCorrectness={showCorrectness} />
+        )}
       </div>
     </>
   )

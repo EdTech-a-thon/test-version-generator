@@ -462,7 +462,7 @@ function QuestionView({
       {item.numbered && (
         <QuestionHandles question={question} onAdd={onAdd} onOpenMenu={onOpenMenu} />
       )}
-      <QuestionContent item={item} />
+      <QuestionContent item={item} showCorrectness />
     </section>
   )
 }
