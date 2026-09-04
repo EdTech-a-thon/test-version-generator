@@ -316,8 +316,38 @@ test('Cmd/Ctrl+P routes to Export, and every dismissal restores focus', async ({
 
   await page.keyboard.press('Control+P')
   await expect(dialogOf(page)).toBeVisible()
+  expect(
+    await page.evaluate(
+      () =>
+        !document.dispatchEvent(
+          new KeyboardEvent('keydown', {
+            key: 'p',
+            ctrlKey: true,
+            bubbles: true,
+            cancelable: true,
+          }),
+        ),
+    ),
+  ).toBe(true)
   await page.keyboard.press('Escape')
   await expect(exportButton).toBeFocused()
+
+  await page.locator('.exam-question[data-question-id]').first().dblclick()
+  await expect(page.getByRole('dialog', { name: 'Question editor' })).toBeVisible()
+  expect(
+    await page.evaluate(
+      () =>
+        !document.dispatchEvent(
+          new KeyboardEvent('keydown', {
+            key: 'p',
+            ctrlKey: true,
+            bubbles: true,
+            cancelable: true,
+          }),
+        ),
+    ),
+  ).toBe(true)
+  await page.keyboard.press('Escape')
 
   await openDialog(page)
   await dialogOf(page).getByRole('button', { name: 'Cancel' }).click()

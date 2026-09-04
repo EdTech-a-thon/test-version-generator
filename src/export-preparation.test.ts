@@ -5,6 +5,7 @@ import {
   EMPTY_PUBLICATION_HISTORY,
   prepareExport,
   type PublicationHistory,
+  versionFingerprintOf,
 } from './export-preparation'
 import { unmeasured, type Measure } from './export-plan'
 
@@ -160,6 +161,59 @@ describe('one-Version export preparation', () => {
     expect(
       prepareExport(inputs(copied, committed(first))).resolution.kind,
     ).toBe('existing')
+  })
+
+  test('identical presentation states from distinct Question Bank records retain distinct revisions', () => {
+    const original = multipleChoice()
+    const copied = multipleChoice({ id: 'copied-source' })
+    const request = inputs(original)
+    request.exam.questions = [original, copied]
+    request.version.questionOrder = [original.id, copied.id]
+
+    const prepared = prepareExport(request)
+
+    expect(prepared.publication.revisions.map((revision) => revision.sourceQuestionId)).toEqual([
+      'source-question',
+      'copied-source',
+    ])
+    expect(prepared.resolution.version.revisionIds).toHaveLength(2)
+    expect(new Set(prepared.resolution.version.revisionIds).size).toBe(2)
+  })
+
+  test('media identity keeps each content hash at its published occurrence', () => {
+    const a = `/local-images/${'a'.repeat(64)}`
+    const b = `/local-images/${'b'.repeat(64)}`
+    const withImages = (sources: string[]) =>
+      multipleChoice({
+        doc: {
+          type: 'doc',
+          content: [
+            paragraph('Which animal is a mammal?'),
+            ...sources.map((src) => ({ type: 'image-block', attrs: { src } })),
+            {
+              type: 'multipleChoice',
+              content: [
+                choice('whale-choice', 'Whale', true),
+                choice('shark-choice', 'Shark'),
+              ],
+            },
+          ],
+        },
+      })
+
+    expect(prepareExport(inputs(withImages([a, b, a]))).fingerprint).not.toBe(
+      prepareExport(inputs(withImages([a, a, b]))).fingerprint,
+    )
+  })
+
+  test('explicit page-break decisions identify a Version', () => {
+    const prepared = prepareExport(inputs())
+    const changed = structuredClone(prepared.canonicalPlans)
+    changed.answerKey.pages[0]!.breakBefore = true
+
+    expect(
+      versionFingerprintOf(prepared.canonicalPlans.test, prepared.canonicalPlans.answerKey),
+    ).not.toBe(versionFingerprintOf(changed.test, changed.answerKey))
   })
 
   test('published content, correctness, arrangement, columns, media, and page assignment identify a Version', () => {

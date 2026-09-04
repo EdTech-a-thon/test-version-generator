@@ -781,20 +781,27 @@ function ExamEditor({ store }: { store: ExamStore }) {
   })
 
   useEffect(() => {
-    if (editing || exportDialog) return
-    const onKeyDown = (event: KeyboardEvent) => {
+    const onPrintShortcut = (event: KeyboardEvent) => {
       if (
         event.key.toLowerCase() === 'p'
         && (event.ctrlKey || event.metaKey)
         && !event.altKey
       ) {
         event.preventDefault()
+        if (editing || exportDialog) return
         setExportDialog({
           configuration: DEFAULT_EXPORT_CONFIGURATION,
           error: null,
         })
-        return
       }
+    }
+    document.addEventListener('keydown', onPrintShortcut)
+    return () => document.removeEventListener('keydown', onPrintShortcut)
+  }, [editing, exportDialog])
+
+  useEffect(() => {
+    if (editing || exportDialog) return
+    const onKeyDown = (event: KeyboardEvent) => {
       if (
         event.key.toLowerCase() === 'z'
         && (event.ctrlKey || event.metaKey)
@@ -834,6 +841,20 @@ function ExamEditor({ store }: { store: ExamStore }) {
     exportButton.current?.focus()
   }
 
+  const prepareForPublication = (
+    configuration: ExportConfiguration,
+    onProgress?: (progress: PreparationProgress) => void,
+  ) =>
+    prepareExport({
+      exam,
+      version,
+      configuration,
+      history: store.publicationHistory(),
+      measure: domMeasure,
+      createdAt: new Date().toISOString(),
+      onProgress,
+    })
+
   /**
    * One export, from the Export button to the moment the browser takes over.
    *
@@ -845,21 +866,14 @@ function ExamEditor({ store }: { store: ExamStore }) {
     configuration: ExportConfiguration,
     onProgress: (progress: PreparationProgress) => void,
   ) => {
-    const prepared = prepareExport({
-      ...store.selectedExam(),
-      configuration,
-      history: store.publicationHistory(),
-      measure: domMeasure,
-      createdAt: new Date().toISOString(),
-      onProgress,
-    })
+    const prepared = prepareForPublication(configuration, onProgress)
     let blob: Blob
+    const docx = await import('./docx-export')
     try {
-      const { createPublicationDocx } = await import('./docx-export')
-      blob = await createPublicationDocx(prepared.documents)
+      blob = await docx.createPublicationDocx(prepared.documents)
     } catch (error) {
       console.error('Could not create the DOCX file', error)
-      if (error instanceof Error && error.message.startsWith('Required media')) {
+      if (docx.isRequiredMediaError(error)) {
         throw error
       }
       throw new Error('The Word file could not be created. Please try again.')
@@ -927,14 +941,7 @@ function ExamEditor({ store }: { store: ExamStore }) {
   let previewError: string | null = null
   if (exportDialog) {
     try {
-      exportPreview = prepareExport({
-        exam,
-        version,
-        configuration: exportDialog.configuration,
-        history: store.publicationHistory(),
-        measure: domMeasure,
-        createdAt: new Date().toISOString(),
-      })
+      exportPreview = prepareForPublication(exportDialog.configuration)
     } catch (error) {
       previewError = error instanceof Error ? error.message : 'The export cannot be prepared.'
     }
@@ -999,8 +1006,7 @@ function ExamEditor({ store }: { store: ExamStore }) {
           onConfigurationChange={(configuration) =>
             setExportDialog((current) => (current ? { ...current, configuration } : current))
           }
-          version={exportPreview?.resolution.version ?? null}
-          existing={exportPreview?.resolution.kind === 'existing'}
+          resolution={exportPreview?.resolution ?? null}
           previewPlans={exportPreview?.documents ?? []}
           empty={exam.questions.length === 0}
           initialError={

@@ -211,17 +211,13 @@ export function questionRevisionFingerprint(question: Question): string {
   })
 }
 
-function mediaSourcesOf(plans: readonly LayoutPlan[]): string[] {
+function mediaSourceOccurrencesOf(plans: readonly LayoutPlan[]): string[] {
   const sources: string[] = []
-  const seen = new Set<string>()
   const visit = (node: ProseMirrorJSON) => {
     const attrs = node.attrs as Record<string, unknown> | undefined
     if (node.type === 'image' || node.type === 'image-block') {
       const source = typeof attrs?.src === 'string' ? attrs.src : ''
-      if (source && !seen.has(source)) {
-        seen.add(source)
-        sources.push(source)
-      }
+      if (source) sources.push(source)
     }
     if (Array.isArray(node.content)) {
       for (const child of node.content) visit(child as ProseMirrorJSON)
@@ -239,6 +235,14 @@ function mediaSourcesOf(plans: readonly LayoutPlan[]): string[] {
     }
   }
   return sources
+}
+
+function mediaSourcesOf(plans: readonly LayoutPlan[]): string[] {
+  return [...new Set(mediaSourceOccurrencesOf(plans))]
+}
+
+function mediaIdentityOf(source: string): string {
+  return OWNED_MEDIA.exec(source)?.[1] ?? source
 }
 
 /** The Version identity vocabulary is the public Layout Plan fingerprint for
@@ -260,7 +264,12 @@ export function versionFingerprintOf(
   return JSON.stringify({
     title: fingerprint.title,
     pages: fingerprint.pages,
-    media: mediaSourcesOf([test, answerKey]),
+    // Image ordinals in the Layout Plan retain position, so bind every ordinal
+    // to its content hash rather than collapsing repeated media into a set.
+    media: mediaSourceOccurrencesOf([test, answerKey]).map(mediaIdentityOf),
+    breaks: [test, answerKey].flatMap((plan) =>
+      plan.pages.map((page) => page.breakBefore),
+    ),
   })
 }
 
@@ -324,14 +333,18 @@ function newRevisionRecords(
   history: PublicationHistory,
   createdAt: string,
 ): { ids: string[]; revisions: QuestionRevision[] } {
-  const byFingerprint = new Map(
-    history.revisions.map((revision) => [revision.fingerprint, revision]),
+  const bySourceAndFingerprint = new Map(
+    history.revisions.map((revision) => [
+      JSON.stringify([revision.sourceQuestionId, revision.fingerprint]),
+      revision,
+    ]),
   )
   const revisions: QuestionRevision[] = []
   const takenIds = history.revisions.map((revision) => revision.id)
   const ids = questions.map((question) => {
     const fingerprint = questionRevisionFingerprint(question)
-    const existing = byFingerprint.get(fingerprint)
+    const identity = JSON.stringify([question.id, fingerprint])
+    const existing = bySourceAndFingerprint.get(identity)
     if (existing) return existing.id
     const revision: QuestionRevision = {
       id: nextId('revision', [
@@ -352,7 +365,7 @@ function newRevisionRecords(
       createdAt,
     }
     revisions.push(revision)
-    byFingerprint.set(fingerprint, revision)
+    bySourceAndFingerprint.set(identity, revision)
     return revision.id
   })
   return { ids, revisions }

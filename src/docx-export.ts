@@ -107,6 +107,22 @@ export type ExportImage = {
 /** Resolves an image source to bytes, or to `null` when it cannot be read. */
 export type MediaLoader = (src: string) => Promise<ExportImage | null>
 
+/** A strict publication failure which the application can present without
+ * disguising affected-question guidance as a generic packaging problem. */
+export class RequiredMediaError extends Error {
+  constructor(questionNumber: number | null) {
+    super(
+      `Required media for question ${questionNumber ?? 'unknown'} could not be resolved. `
+      + 'Re-add the image and try again.',
+    )
+    this.name = 'RequiredMediaError'
+  }
+}
+
+export function isRequiredMediaError(error: unknown): error is RequiredMediaError {
+  return error instanceof RequiredMediaError
+}
+
 const IMAGE_TYPES: Record<string, ExportImage['type']> = {
   'image/png': 'png',
   'image/jpeg': 'jpg',
@@ -1034,10 +1050,7 @@ export async function createPublicationDocx(
       }
       if (questionNumber !== null) break
     }
-    throw new Error(
-      `Required media for question ${questionNumber ?? 'unknown'} could not be resolved. `
-      + 'Re-add the image and try again.',
-    )
+    throw new RequiredMediaError(questionNumber)
   }
   const blob = await Packer.toBlob(createExamDocxDocument(plans, images))
   return blob.type === DOCX_MIME ? blob : new Blob([blob], { type: DOCX_MIME })

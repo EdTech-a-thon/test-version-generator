@@ -4,7 +4,7 @@ import type { LayoutPlan } from './export-plan'
 import type {
   ExportConfiguration,
   PreparationProgress,
-  PublishedVersion,
+  PreparedExport,
 } from './export-preparation'
 
 function progressMessage(progress: PreparationProgress): string {
@@ -24,8 +24,7 @@ function focusableWithin(root: HTMLElement): HTMLElement[] {
 export function ExportDialog({
   configuration,
   onConfigurationChange,
-  version,
-  existing,
+  resolution,
   previewPlans,
   empty,
   initialError,
@@ -34,8 +33,7 @@ export function ExportDialog({
 }: {
   configuration: ExportConfiguration
   onConfigurationChange: (configuration: ExportConfiguration) => void
-  version: PublishedVersion | null
-  existing: boolean
+  resolution: PreparedExport['resolution'] | null
   previewPlans: readonly LayoutPlan[]
   empty: boolean
   initialError?: string | null
@@ -58,7 +56,7 @@ export function ExportDialog({
   const emptyError = empty
     ? 'Add at least one question to the Exam Draft before exporting.'
     : null
-  const invalid = selectionError !== null || emptyError !== null || !version
+  const invalid = selectionError !== null || emptyError !== null || !resolution
 
   const changeSelection = (selection: ExportConfiguration['selection']) =>
     onConfigurationChange({ selection })
@@ -147,14 +145,16 @@ export function ExportDialog({
           </div>
 
           <div className="export-controls">
-            {version && (
+            {resolution && (
               <p
                 className="export-version-state"
                 role="status"
                 aria-live="polite"
               >
-                {existing ? 'Re-export existing Version' : 'New Version'}
-                <strong>{version.name}</strong>
+                {resolution.kind === 'existing'
+                  ? 'Re-export existing Version'
+                  : 'New Version'}
+                <strong>{resolution.version.name}</strong>
               </p>
             )}
 
