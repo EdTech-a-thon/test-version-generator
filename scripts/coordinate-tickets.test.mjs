@@ -137,6 +137,26 @@ test('parseReviewVerdict rejects invalid JSON', () => {
   assert.equal(parseReviewVerdict('{"verdict":"maybe"}').ok, false);
 });
 
+test('parseReviewVerdict ignores prose braces and takes the final verdict line', () => {
+  const report = [
+    'A stored entry such as `{ choiceOrder: { q1: 5 } }` passes validation.',
+    'Another example object {foo: bar} appears mid-report.',
+    '',
+    '{"verdict":"reject","findings":[{"title":"stale order","evidence":"e","requiredChange":"c"}]}',
+  ].join('\n');
+  const r = parseReviewVerdict(report);
+  assert.equal(r.ok, true);
+  assert.equal(r.verdict, 'reject');
+  assert.equal(r.findings.length, 1);
+});
+
+test('parseReviewVerdict tolerates braces inside JSON string values', () => {
+  const r = parseReviewVerdict('{"verdict":"reject","findings":[{"title":"has } brace","evidence":"{not json}"}]}');
+  assert.equal(r.ok, true);
+  assert.equal(r.verdict, 'reject');
+  assert.equal(r.findings.length, 1);
+});
+
 test('parseArgs parses tickets/resume/push', () => {
   assert.deepEqual(parseArgs(['--tickets', '6,7,8']).tickets, [6, 7, 8]);
   assert.equal(parseArgs(['--resume']).resume, true);

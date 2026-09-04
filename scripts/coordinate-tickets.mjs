@@ -240,25 +240,71 @@ export function buildReviewPrompt({ number, issueFile, baseCommit }) {
 
 // ---------- review parsing ----------
 
-export function parseReviewVerdict(text) {
-  if (!text) return { ok: false, reason: 'empty review response' };
-  let raw = text.trim();
-  const fence = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  if (fence) raw = fence[1].trim();
-  // fall back to the last {...} block
-  if (!raw.startsWith('{')) {
-    const first = raw.indexOf('{');
-    const last = raw.lastIndexOf('}');
-    if (first === -1 || last === -1) return { ok: false, reason: 'no JSON object found' };
-    raw = raw.slice(first, last + 1);
-  }
+// Try to parse a single well-formed verdict object. Returns the validated
+// verdict on success, or null when the text is not a usable verdict object.
+function tryVerdictObject(raw) {
   let obj;
-  try { obj = JSON.parse(raw); } catch (e) { return { ok: false, reason: 'invalid JSON: ' + e.message }; }
-  if (obj.verdict !== 'accept' && obj.verdict !== 'reject') {
-    return { ok: false, reason: 'unknown verdict: ' + JSON.stringify(obj.verdict) };
-  }
+  try { obj = JSON.parse(raw); } catch { return null; }
+  if (!obj || typeof obj !== 'object') return null;
+  if (obj.verdict !== 'accept' && obj.verdict !== 'reject') return null;
   const findings = Array.isArray(obj.findings) ? obj.findings : [];
   return { ok: true, verdict: obj.verdict, findings };
+}
+
+// Scan a string for balanced top-level {...} objects and return their spans.
+// Brace counting is string-literal aware so braces inside JSON strings do not
+// unbalance the scan. Prose braces (e.g. `{ q1: 5 }`) simply fail to parse and
+// are skipped by the caller.
+function balancedObjectSpans(s) {
+  const spans = [];
+  let depth = 0, start = -1, inStr = false, esc = false;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (c === '\\') esc = true;
+      else if (c === '"') inStr = false;
+      continue;
+    }
+    if (c === '"') { inStr = true; continue; }
+    if (c === '{') { if (depth === 0) start = i; depth++; }
+    else if (c === '}') {
+      if (depth > 0) { depth--; if (depth === 0 && start !== -1) { spans.push([start, i + 1]); start = -1; } }
+    }
+  }
+  return spans;
+}
+
+export function parseReviewVerdict(text) {
+  if (!text) return { ok: false, reason: 'empty review response' };
+  const trimmed = text.trim();
+
+  // The coordinator contract requires the verdict as the VERY LAST line. Honor
+  // that first so prose containing stray braces (e.g. `{ choiceOrder: 5 }`)
+  // cannot hijack the parse.
+  const lastLine = trimmed.split('\n').map((l) => l.trim()).filter(Boolean).pop();
+  if (lastLine) {
+    const v = tryVerdictObject(lastLine);
+    if (v) return v;
+  }
+
+  // Next, prefer a fenced ```json block if present.
+  const fence = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fence) {
+    const v = tryVerdictObject(fence[1].trim());
+    if (v) return v;
+  }
+
+  // Finally, scan every balanced {...} object and take the LAST one that is a
+  // valid verdict. Scanning from the end tolerates any amount of leading prose.
+  const spans = balancedObjectSpans(trimmed);
+  for (let i = spans.length - 1; i >= 0; i--) {
+    const [a, b] = spans[i];
+    const v = tryVerdictObject(trimmed.slice(a, b));
+    if (v) return v;
+  }
+
+  return { ok: false, reason: 'no valid verdict object found' };
 }
 
 // ---------- coordinator ----------
