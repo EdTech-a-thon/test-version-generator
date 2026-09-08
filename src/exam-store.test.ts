@@ -3,6 +3,7 @@ import { choicesOf, createQuestion, orderedChoices, orderedQuestions, topicsOf }
 import type { Question } from './exam'
 import {
   createAuthoringState,
+  createExamStore,
   createMemoryBackend,
   loadExamStore,
 } from './exam-store'
@@ -881,6 +882,69 @@ describe('the dirty flag and persistence', () => {
 
     store.undo()
     expect(store.getState().examDraft).toEqual(beforeReplacement)
+  })
+
+  test('reconciles mixed updated and missing revisions atomically, with overrides and one Undo step', async () => {
+    const { store, questions } = await withExamDraft(2)
+    const first = store.selectedExam()
+    const historicalAnswerOrder = [...choicesOf(questions[0]!)].map((choice) => choice.id).reverse()
+    const published = prepareExport({
+      ...first,
+      version: {
+        ...first.version,
+        choiceOrder: { [questions[0]!.id]: historicalAnswerOrder },
+      },
+      configuration: DEFAULT_EXPORT_CONFIGURATION,
+      history: store.publicationHistory(),
+      measure: unmeasured,
+      createdAt: '2026-09-04T12:00:00.000Z',
+    })
+    await store.publish(published.publication)
+    // A fresh authoring boundary models a deleted historical source: only the
+    // updated current record remains in the Question Bank.
+    const changed = {
+      ...questions[0]!,
+      doc: {
+        ...questions[0]!.doc,
+        content: [
+          { type: 'paragraph', content: [{ type: 'text', text: 'Latest wording' }] },
+          ...questions[0]!.doc.content.slice(1),
+        ],
+      },
+    }
+    const reconciliationStore = createExamStore({
+      backend: memory(),
+      publicationHistory: store.publicationHistory(),
+      initial: {
+        questionBank: { questions: [changed] },
+        examDraft: { title: first.exam.title, questionIds: [changed.id], choiceOrder: {} },
+        dirty: false,
+      },
+    })
+    const before = structuredClone(reconciliationStore.getState())
+    const [updated, missing] = published.publication.revisions
+
+    // An invalid disposition does not partially add the historical updated
+    // question or replace the draft while it discovers the missing-row error.
+    expect(reconciliationStore.reconcileHistoricalVersionAsDraft(published.resolution.version.id, {
+      [updated!.id]: 'keep-historical',
+      [missing!.id]: 'keep-historical',
+    })).toBe(false)
+    expect(reconciliationStore.getState()).toEqual(before)
+
+    expect(reconciliationStore.reconcileHistoricalVersionAsDraft(published.resolution.version.id, {
+      [updated!.id]: 'use-latest',
+      [missing!.id]: 'add-to-question-bank',
+    })).toBe(true)
+    const reconciled = reconciliationStore.getState()
+    expect(reconciled.questionBank.questions).toHaveLength(2)
+    expect(reconciled.questionBank.questions.map((question) => question.id)).not.toContain(questions[1]!.id)
+    expect(reconciled.examDraft.questionIds[0]).toBe(questions[0]!.id)
+    expect(reconciled.examDraft.questionIds).toHaveLength(2)
+    expect(reconciled.examDraft.choiceOrder).toEqual({ [questions[0]!.id]: historicalAnswerOrder })
+
+    reconciliationStore.undo()
+    expect(reconciliationStore.getState()).toEqual(before)
   })
 
   test('retains the Version resolved by a re-export as the last export', async () => {

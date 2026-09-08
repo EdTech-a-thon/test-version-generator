@@ -1,7 +1,14 @@
-import { useLayoutEffect, useRef, type RefObject } from "react";
+import { useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { ExportPreview } from "./exam-page";
-import type { PublishedVersion } from "./export-preparation";
+import type { Question } from "./exam";
+import type { PublishedVersion, QuestionRevision } from "./export-preparation";
+import type {
+  HistoricalQuestionDifference,
+  HistoricalQuestionResolution,
+  HistoricalQuestionReview,
+} from "./historical-draft";
 import type { LayoutPlan } from "./export-plan";
+import { choiceNodesOf, stemNodesOf, type ProseMirrorJSON } from "./question-doc";
 
 function focusableWithin(root: HTMLElement): HTMLElement[] {
   return Array.from(
@@ -172,6 +179,224 @@ export function HistoricalDocument({
         ))}
       </div>
     </section>
+  );
+}
+
+const DIFFERENCE_LABELS: Record<HistoricalQuestionDifference, string> = {
+  content: "content",
+  answers: "answers",
+  correctness: "correctness",
+  media: "media",
+  columns: "answer-column layout",
+};
+
+function revisionQuestion(revision: QuestionRevision): Question {
+  return {
+    id: revision.sourceQuestionId,
+    type: revision.question.type,
+    doc: revision.question.doc,
+    columns: revision.question.columns,
+    ...revision.metadata,
+  };
+}
+
+function attrsOf(node: ProseMirrorJSON): Record<string, unknown> {
+  return typeof node.attrs === "object" && node.attrs !== null
+    ? (node.attrs as Record<string, unknown>)
+    : {};
+}
+
+function attributesDescription(attrs: Record<string, unknown>): string {
+  const attributes = Object.entries(attrs)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, value]) => `${key}=${JSON.stringify(value)}`)
+    .join(", ");
+  return attributes ? ` (${attributes})` : "";
+}
+
+function marksDescription(node: ProseMirrorJSON): string {
+  if (!Array.isArray(node.marks) || node.marks.length === 0) return "";
+  const marks = (node.marks as ProseMirrorJSON[])
+    .map((mark) => `${String(mark.type ?? "mark")}${attributesDescription(attrsOf(mark))}`)
+    .join(", ");
+  return ` [${marks}]`;
+}
+
+/** A lossless, accessible textual projection of a supported authored node.
+ * This deliberately walks the complete tree rather than flattening prose:
+ * marks (including link targets) live on inline descendants, and images may
+ * occur inline inside a paragraph. Attributes are included so authored image
+ * size and every other presentation distinction can be reconciled. */
+function describeRichNode(node: ProseMirrorJSON): string {
+  const type = String(node.type ?? "content");
+  const attrs = attributesDescription(attrsOf(node));
+  const marks = marksDescription(node);
+  if (type === "text") return `text${marks}: ${JSON.stringify(String(node.text ?? ""))}`;
+  if (type === "image" || type === "image-block") return `${type}${attrs}${marks}`;
+  const children = Array.isArray(node.content)
+    ? (node.content as ProseMirrorJSON[]).map(describeRichNode).join("; ")
+    : "";
+  return `${type}${attrs}${marks}${children ? ` { ${children} }` : ""}`;
+}
+
+/** The browser-facing comparison says every authored node, mark, and
+ * presentation attribute. */
+function questionComparisonSummary(question: Question): string {
+  const stem = stemNodesOf(question.doc)
+    .map(describeRichNode)
+    .join("; ");
+  const choices = choiceNodesOf(question.doc);
+  const answers = choices.length === 0
+    ? "Short answer"
+    : choices.map((choice, index) => {
+        const attrs = attrsOf(choice);
+        const content = Array.isArray(choice.content)
+          ? choice.content.map((node) => describeRichNode(node as ProseMirrorJSON)).join("; ")
+          : "";
+        return `Answer ${index + 1}${attrs.correct === true ? " (correct)" : ""}: ${content || "Blank"}`;
+      }).join(". ");
+  return `Content: ${stem || "Untitled question"}. ${answers}. Answer-column layout: ${question.columns} column${question.columns === 1 ? "" : "s"}.`;
+}
+/** Review is deliberately a separate modal from the replace warning: it gives
+ * every divergent Question Revision an explicit disposition before the store
+ * receives one all-or-nothing reconciliation command. */
+export function ReviewHistoricalQuestions({
+  rows,
+  onCancel,
+  onConfirm,
+}: {
+  rows: readonly HistoricalQuestionReview[];
+  onCancel: () => void;
+  onConfirm: (resolutions: Record<string, HistoricalQuestionResolution>) => void;
+}) {
+  const dialog = useRef<HTMLElement>(null);
+  const [resolutions, setResolutions] = useState<
+    Record<string, HistoricalQuestionResolution>
+  >(() =>
+    Object.fromEntries(
+      rows.map((row) => [row.revision.id, row.defaultResolution]),
+    ),
+  );
+
+  useLayoutEffect(() => {
+    dialog.current?.querySelector<HTMLButtonElement>(".secondary-button")?.focus();
+  }, []);
+
+  const setResolution = (
+    revisionId: string,
+    resolution: HistoricalQuestionResolution,
+  ) => setResolutions((current) => ({ ...current, [revisionId]: resolution }));
+
+  return (
+    <div
+      className="dialog-backdrop"
+      role="presentation"
+      onPointerDown={(event) => {
+        if (event.target === event.currentTarget) onCancel();
+      }}
+      onKeyDown={(event) => {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          event.stopPropagation();
+          onCancel();
+          return;
+        }
+        if (event.key !== "Tab" || !dialog.current) return;
+        const focusable = focusableWithin(dialog.current);
+        const first = focusable[0];
+        const last = focusable.at(-1);
+        if (!first || !last) {
+          event.preventDefault();
+          dialog.current.focus();
+        } else if (event.shiftKey && (document.activeElement === first || !dialog.current.contains(document.activeElement))) {
+          event.preventDefault();
+          last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first.focus();
+        }
+      }}
+    >
+      <section
+        className="use-as-draft-dialog historical-review-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="review-historical-questions-title"
+        ref={dialog}
+        tabIndex={-1}
+      >
+        <header className="dialog-header">
+          <h2 id="review-historical-questions-title">Review questions</h2>
+        </header>
+        <div className="use-as-draft-body historical-review-body">
+          <p>
+            Choose how to reconcile the historical questions before using this
+            Version as the draft. Your Question Bank and draft will change only
+            when you confirm.
+          </p>
+          <ol className="historical-review-rows">
+            {rows.map((row, index) => {
+              const oldQuestion = revisionQuestion(row.revision);
+              const currentQuestion = row.current;
+              const options: readonly [HistoricalQuestionResolution, string][] =
+                row.status === "updated"
+                  ? [
+                      ["use-latest", "Use latest"],
+                      ["keep-historical", "Keep historical as new question"],
+                    ]
+                  : [
+                      ["add-to-question-bank", "Add to Question Bank"],
+                      ["leave-out", "Leave out"],
+                    ];
+              return (
+                <li key={row.revision.id} className="historical-review-row">
+                  <h3>
+                    Question {index + 1}: {row.status === "updated" ? "Updated" : "Not in Question Bank"}
+                  </h3>
+                  {row.status === "updated" && (
+                    <p className="historical-review-differences">
+                      Changed: {row.differences.map((difference) => DIFFERENCE_LABELS[difference]).join(", ")}.
+                    </p>
+                  )}
+                  <fieldset>
+                    <legend className="sr-only">Resolution for question {index + 1}</legend>
+                    {options.map(([value, label]) => (
+                      <label key={value} className="historical-review-option">
+                        <input
+                          type="radio"
+                          name={`historical-resolution-${row.revision.id}`}
+                          value={value}
+                          checked={resolutions[row.revision.id] === value}
+                          onChange={() => setResolution(row.revision.id, value)}
+                        />
+                        {label}
+                      </label>
+                    ))}
+                  </fieldset>
+                  <details>
+                    <summary>Compare historical and current question</summary>
+                    <dl className="historical-comparison">
+                      <div>
+                        <dt>Historical</dt>
+                        <dd>{questionComparisonSummary(oldQuestion)}</dd>
+                      </div>
+                      <div>
+                        <dt>{currentQuestion ? "Current" : "Current"}</dt>
+                        <dd>{currentQuestion ? questionComparisonSummary(currentQuestion) : "Not in Question Bank"}</dd>
+                      </div>
+                    </dl>
+                  </details>
+                </li>
+              );
+            })}
+          </ol>
+        </div>
+        <footer className="dialog-actions">
+          <button type="button" className="secondary-button" onClick={onCancel}>Cancel</button>
+          <button type="button" className="primary-button" onClick={() => onConfirm(resolutions)}>Use as draft</button>
+        </footer>
+      </section>
+    </div>
   );
 }
 

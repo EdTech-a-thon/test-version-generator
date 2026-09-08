@@ -37,7 +37,11 @@ import {
   type QuestionBank,
 } from './question-bank'
 import { selectedExam, type SelectedExam } from './selected-exam'
-import { compatibleHistoricalDraft } from './historical-draft'
+import {
+  compatibleHistoricalDraft,
+  reconcileHistoricalDraft,
+  type HistoricalQuestionResolution,
+} from './historical-draft'
 import {
   EMPTY_PUBLICATION_HISTORY,
   type PublicationCommit,
@@ -238,6 +242,13 @@ export type ExamStore = {
   /** Replaces the complete Exam Draft arrangement with a compatible historical
    * Version while retaining current Question Bank records. */
   useHistoricalVersionAsDraft(versionId: string): boolean
+  /** Reconciles a historical Version in one atomic, undoable authoring action.
+   * Historical recreations are new Question Bank records; current records are
+   * never overwritten. */
+  reconcileHistoricalVersionAsDraft(
+    versionId: string,
+    resolutions: Readonly<Record<string, HistoricalQuestionResolution>>,
+  ): boolean
 
   /** Whether anything has ever been saved — what tells an untouched draft from
    *  an exam with unsaved changes. */
@@ -566,6 +577,31 @@ export function createExamStore(options: {
         replacement === current.examDraft
           ? current
           : { ...current, examDraft: replacement },
+      )
+      return changed
+    },
+
+    reconcileHistoricalVersionAsDraft: (versionId, resolutions) => {
+      const version = publicationHistory.versions.find((item) => item.id === versionId)
+      if (!version) return false
+      const replacement = reconcileHistoricalDraft(
+        publicationHistory,
+        version,
+        state.examDraft,
+        state.questionBank,
+        resolutions,
+      )
+      if (!replacement) return false
+      const changed = replacement.questionBank !== state.questionBank
+        || replacement.examDraft !== state.examDraft
+      change((current) =>
+        !changed
+          ? current
+          : {
+              ...current,
+              questionBank: replacement.questionBank,
+              examDraft: replacement.examDraft,
+            },
       )
       return changed
     },

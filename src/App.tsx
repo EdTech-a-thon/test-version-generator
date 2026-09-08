@@ -81,12 +81,14 @@ import { useRoute } from './use-route'
 import { Footer } from './site-chrome'
 import {
   HistoricalDocument,
+  ReviewHistoricalQuestions,
   UseAsDraftConfirmation,
   VersionHistoryDrawer,
 } from './version-history'
 import {
   compatibleHistoricalDraft,
   draftMatchesHistoricalVersion,
+  historicalReconciliation,
 } from './historical-draft'
 import { AboutPage, PrivacyPage } from './site-pages'
 
@@ -653,6 +655,7 @@ function ExamEditor({ store }: { store: ExamStore }) {
   const [viewingVersionId, setViewingVersionId] = useState<string | null>(null)
   const [historicalFocusKey, setHistoricalFocusKey] = useState(0)
   const [confirmingUseAsDraft, setConfirmingUseAsDraft] = useState(false)
+  const [reviewingHistoricalQuestions, setReviewingHistoricalQuestions] = useState(false)
   const priorDraftFocus = useRef<HTMLElement | null>(null)
   const useAsDraftButton = useRef<HTMLButtonElement>(null)
   const publicationHistory = store.publicationHistory()
@@ -667,6 +670,13 @@ function ExamEditor({ store }: { store: ExamStore }) {
       publicationHistory,
       viewingVersion,
       state.examDraft,
+      state.questionBank,
+    )
+    : null
+  const historicalReview = viewingVersion
+    ? historicalReconciliation(
+      publicationHistory,
+      viewingVersion,
       state.questionBank,
     )
     : null
@@ -852,7 +862,7 @@ function ExamEditor({ store }: { store: ExamStore }) {
         && !event.altKey
       ) {
         event.preventDefault()
-        if (editing || exportDialog || confirmingUseAsDraft) return
+        if (editing || exportDialog || confirmingUseAsDraft || reviewingHistoricalQuestions) return
         setExportDialog({
           configuration: DEFAULT_EXPORT_CONFIGURATION,
           error: null,
@@ -862,10 +872,10 @@ function ExamEditor({ store }: { store: ExamStore }) {
     }
     document.addEventListener('keydown', onPrintShortcut)
     return () => document.removeEventListener('keydown', onPrintShortcut)
-  }, [confirmingUseAsDraft, editing, exportDialog, viewingVersion])
+  }, [confirmingUseAsDraft, editing, exportDialog, reviewingHistoricalQuestions, viewingVersion])
 
   useEffect(() => {
-    if (editing || exportDialog || confirmingUseAsDraft) return
+    if (editing || exportDialog || confirmingUseAsDraft || reviewingHistoricalQuestions) return
     const onKeyDown = (event: KeyboardEvent) => {
       const authoringShortcut =
         (event.key.toLowerCase() === 'z' && (event.ctrlKey || event.metaKey) && !event.altKey)
@@ -909,7 +919,7 @@ function ExamEditor({ store }: { store: ExamStore }) {
     }
     document.addEventListener('keydown', onKeyDown)
     return () => document.removeEventListener('keydown', onKeyDown)
-  }, [clearSelection, confirmingUseAsDraft, editing, exportDialog, isHistoricalBrowsing, selection.selectedIds, store])
+  }, [clearSelection, confirmingUseAsDraft, editing, exportDialog, isHistoricalBrowsing, reviewingHistoricalQuestions, selection.selectedIds, store])
 
   const restoreUseAsDraftFocus = () => {
     requestAnimationFrame(() => useAsDraftButton.current?.focus())
@@ -1253,12 +1263,14 @@ function ExamEditor({ store }: { store: ExamStore }) {
                   configuration: DEFAULT_EXPORT_CONFIGURATION,
                 }).documents}
                 focusKey={historicalFocusKey}
-                canUseAsDraft={historicalDraft !== null}
+                canUseAsDraft={historicalDraft !== null || historicalReview !== null}
                 useAsDraftButton={useAsDraftButton}
                 onUseAsDraft={() => {
-                  if (!viewingVersion || !historicalDraft) return
+                  if (!viewingVersion || !historicalReview) return
                   if (draftDiffersFromLastVersion) {
                     setConfirmingUseAsDraft(true)
+                  } else if (historicalReview.rows.length > 0) {
+                    setReviewingHistoricalQuestions(true)
                   } else {
                     store.useHistoricalVersionAsDraft(viewingVersion.id)
                   }
@@ -1306,8 +1318,27 @@ function ExamEditor({ store }: { store: ExamStore }) {
             })
           }}
           onReplace={() => {
-            store.useHistoricalVersionAsDraft(viewingVersion.id)
             setConfirmingUseAsDraft(false)
+            if (historicalReview?.rows.length) {
+              setReviewingHistoricalQuestions(true)
+            } else {
+              store.useHistoricalVersionAsDraft(viewingVersion.id)
+              restoreUseAsDraftFocus()
+            }
+          }}
+        />
+      )}
+
+      {reviewingHistoricalQuestions && viewingVersion && historicalReview && (
+        <ReviewHistoricalQuestions
+          rows={historicalReview.rows}
+          onCancel={() => {
+            setReviewingHistoricalQuestions(false)
+            restoreUseAsDraftFocus()
+          }}
+          onConfirm={(resolutions) => {
+            store.reconcileHistoricalVersionAsDraft(viewingVersion.id, resolutions)
+            setReviewingHistoricalQuestions(false)
             restoreUseAsDraftFocus()
           }}
         />
