@@ -226,22 +226,31 @@ test('AC2: failed verify repairs impl session without a reviewer', async () => {
 
 // ============ AC3/AC4: reject -> resume impl, fresh reviewer, then accept ============
 
-test('AC3/AC4: rejected review resumes impl and uses a fresh reviewer, then accepts', async () => {
+test('AC3/AC4: rejected review resumes impl and reuses ONE persistent reviewer, then accepts', async () => {
   const root = tmpRoot();
   const state = { diff: 'seed' };
   let implCalls = 0;
-  const reviewerSessions = [];
+  let reviewerSpawns = 0;
+  let reviewPrompts = 0;
   const spawn = makeFakeSpawn([
-    (msg, ci) => { implCalls += 1; return { assistantText: `impl ${ci}`, settle: true }; }, // impl (reused)
-    () => { reviewerSessions.push('r1'); return { assistantText: '{"verdict":"reject","findings":[{"title":"fix"}]}', settle: true }; },
-    () => { reviewerSessions.push('r2'); return { assistantText: '{"verdict":"accept","findings":[]}', settle: true }; },
+    (msg, ci) => { implCalls += 1; return { assistantText: `impl ${ci}`, settle: true }; }, // impl (reused across repair)
+    (msg, ci) => {
+      // ONE persistent reviewer session, prompted once per cycle. It carries
+      // memory, so it rejects the first revision then accepts the fix.
+      if (ci === 0) reviewerSpawns += 1; // count the session on its first prompt
+      reviewPrompts += 1;
+      return ci === 0
+        ? { assistantText: '{"verdict":"reject","findings":[{"title":"fix"}]}', settle: true }
+        : { assistantText: '{"verdict":"accept","findings":[]}', settle: true };
+    },
   ]);
   const run = makeFakeRun(gitGhHandlers(state));
   const coord = makeCoord(root, baseConfig(), { run, spawn });
   coord.startRun([6]);
   await coord.run();
   assert.equal(implCalls, 2, 'impl session reused for repair');
-  assert.deepEqual(reviewerSessions, ['r1', 'r2'], 'two distinct reviewer sessions');
+  assert.equal(reviewerSpawns, 1, 'exactly one reviewer session for the ticket');
+  assert.equal(reviewPrompts, 2, 'the same reviewer is re-prompted each cycle');
   assert.equal(coord.state.accepted.includes(6), true);
 });
 

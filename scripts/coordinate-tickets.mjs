@@ -211,6 +211,32 @@ export function buildRepairFromReview({ report }) {
   ].join('\n');
 }
 
+// Follow-up re-review sent to the SAME persistent reviewer session after the
+// implementer addressed the prior findings. The reviewer already holds its
+// earlier report in context; this prompt steers it to CONVERGE rather than
+// hunt for brand-new niches each cycle.
+export function buildReReviewPrompt({ number, baseCommit }) {
+  return [
+    `The implementer has revised the ticket in response to YOUR previous`,
+    `blocking findings. Re-review the CURRENT diff (${baseCommit}...HEAD) for`,
+    `ticket #${number} in this same session.`,
+    ``,
+    `Convergence contract — read carefully:`,
+    `- Your job now is to VERIFY whether each blocking finding you previously`,
+    `  raised is resolved. Go through them one by one and say resolved or not.`,
+    `- Do NOT go hunting for brand-new, previously-unraised issues. Only raise a`,
+    `  NEW blocker if the revision INTRODUCED a regression, or if it is a`,
+    `  genuine unmet ACCEPTANCE CRITERION of equal or greater severity than the`,
+    `  findings you already raised — not incremental edge-case polish you simply`,
+    `  did not mention before. When in doubt, accept.`,
+    `- If all previously-raised blockers are resolved and no true regression was`,
+    `  introduced, you MUST accept.`,
+    `- Same output contract: your VERY LAST line is exactly one JSON object:`,
+    `  {"verdict":"accept","findings":[]}  or`,
+    `  {"verdict":"reject","findings":[{"title":"...","evidence":"...","requiredChange":"..."}]}`,
+  ].join('\n');
+}
+
 export function buildReviewPrompt({ number, issueFile, baseCommit }) {
   return [
     // Invoke the real two-axis review skill against this ticket's diff.
@@ -222,8 +248,9 @@ export function buildReviewPrompt({ number, issueFile, baseCommit }) {
     `source rather than re-fetching).`,
     ``,
     `Coordinator contract:`,
-    `- You are a FRESH reviewer. Inspect the repository read-only; do NOT edit`,
-    `  any file.`,
+    `- You are the reviewer of record for this ticket and will RE-REVIEW later`,
+    `  revisions in this same session, carrying your findings forward. Inspect`,
+    `  the repository read-only; do NOT edit any file.`,
     `- Run the skill's two axes and produce its Standards/Spec report as usual.`,
     `- THEN decide a single blocking verdict for the coordinator. Treat as`,
     `  blockers only: unmet acceptance criteria, incorrect behavior/regressions,`,
@@ -403,6 +430,8 @@ export class Coordinator {
     mkdirp(tdir);
     this.state.currentTicket = number;
     this.state.repairCycles = 0;
+    // Each ticket gets its own persistent reviewer; make sure none leaks in.
+    this.stopReviewer();
 
     // 1. Prepare
     const baseCommit = this.git('rev-parse HEAD').stdout.trim();
@@ -444,14 +473,15 @@ export class Coordinator {
     for (;;) {
       // verify (repair on failure until it passes)
       const verifyOk = await this.verifyLoop(number, impl, tdir);
-      if (verifyOk === 'blocked') { impl.stop(); return 'blocked'; }
+      if (verifyOk === 'blocked') { impl.stop(); this.stopReviewer(); return 'blocked'; }
       const verifyHash = this.trackedDiffHash();
 
       // review
       const verdict = await this.review(number, tdir, issueFile);
-      if (verdict === 'blocked') { impl.stop(); return 'blocked'; }
+      if (verdict === 'blocked') { impl.stop(); this.stopReviewer(); return 'blocked'; }
       if (verdict.verdict === 'accept') {
         impl.stop();
+        this.stopReviewer();
         return this.accept(number, issue.title, verifyHash);
       }
       // reject -> repair the same implementation session
@@ -459,13 +489,14 @@ export class Coordinator {
       this.saveState();
       if (this.state.repairCycles > this.config.maxRepairCycles) {
         impl.stop();
+        this.stopReviewer();
         return this.block(number, `exceeded maxRepairCycles (${this.config.maxRepairCycles})`);
       }
       this.logStage(`[#${number}] repair ${this.state.repairCycles}/${this.config.maxRepairCycles} started`);
       this.transition('repairing');
       const feedback = buildRepairFromReview({ report: verdict.report });
       res = await impl.prompt(feedback);
-      if (!res.settled) { impl.stop(); return this.block(number, 'pi exited during repair'); }
+      if (!res.settled) { impl.stop(); this.stopReviewer(); return this.block(number, 'pi exited during repair'); }
       // loop back to verify
     }
   }
@@ -508,6 +539,15 @@ export class Coordinator {
     return { ok: true, logFile };
   }
 
+  // Tear down the ticket's persistent reviewer session, if any. Safe to call
+  // when none exists (between tickets, or after a block).
+  stopReviewer() {
+    if (this._reviewer) {
+      try { this._reviewer.stop(); } catch { /* ignore */ }
+      this._reviewer = null;
+    }
+  }
+
   async review(number, tdir, issueFile) {
     this.transition('reviewing');
     const base = this.state.baseCommit;
@@ -522,20 +562,29 @@ export class Coordinator {
     fs.writeFileSync(testDiffFile, this.git(`diff ${base} -- '*test*' '*spec*' '*.e2e.*'`).stdout);
 
     const before = this.trackedDiffHash();
-    const rev = new PiSession(this.deps, {
-      agentCfg: this.config.review,
-      sessionDir: path.join(rdir, 'session'),
-      rpcLogPath: path.join(rdir, 'rpc.log'),
-      name: `review-${number}-${this.state.repairCycles}`,
-      skillPaths: this.skillPathsFor('review'),
-    });
-    rev.start();
-    const prompt = buildReviewPrompt({ number, issueFile, baseCommit: base });
+    const firstReview = !this._reviewer;
+    if (firstReview) {
+      // Create ONE reviewer for the whole ticket. Reusing this session across
+      // repair cycles gives the reviewer memory of its own prior findings, so
+      // it converges (verifies fixes) instead of a fresh agent inventing new
+      // niches every cycle. Its session/rpc log live in the cycle-0 dir.
+      this._reviewer = new PiSession(this.deps, {
+        agentCfg: this.config.review,
+        sessionDir: path.join(rdir, 'session'),
+        rpcLogPath: path.join(rdir, 'rpc.log'),
+        name: `review-${number}`,
+        skillPaths: this.skillPathsFor('review'),
+      });
+      this._reviewer.start();
+    }
+    const rev = this._reviewer;
+    const prompt = firstReview
+      ? buildReviewPrompt({ number, issueFile, baseCommit: base })
+      : buildReReviewPrompt({ number, baseCommit: base });
     fs.writeFileSync(path.join(rdir, 'prompt.txt'), prompt);
     const res = await rev.prompt(prompt);
     const report = rev.lastAssistantText || '';
     fs.writeFileSync(path.join(rdir, 'response.txt'), report);
-    rev.stop();
     if (!res.settled) { this.block(number, 'reviewer exited before settling'); return 'blocked'; }
 
     const after = this.trackedDiffHash();
