@@ -71,6 +71,10 @@ export const EMPTY_PUBLICATION_HISTORY: PublicationHistory = {
 }
 
 export type PublicationCommit = {
+  /** The Version the live draft export resolved, including a re-export.
+   * Historical exports omit it because they never become the current draft's
+   * comparison point. */
+  exportedVersionId?: string
   /** Null for a re-export: immutable history receives no duplicate Version. */
   version: PublishedVersion | null
   revisions: QuestionRevision[]
@@ -454,6 +458,7 @@ export function prepareExport({
       filename: docxFilename(exam.title, existing.name),
       fingerprint,
       publication: {
+        exportedVersionId: existing.id,
         version: null,
         revisions: [],
         plans: [],
@@ -508,6 +513,7 @@ export function prepareExport({
     filename: docxFilename(exam.title, published.name),
     fingerprint,
     publication: {
+      exportedVersionId: published.id,
       version: published,
       revisions: revisions.revisions,
       plans,

@@ -38,6 +38,7 @@ type AuthoringControl = {
   key: typeof CURRENT_AUTHORING_KEY
   questionIds: string[]
   examDraft: AuthoringState['examDraft']
+  lastExportedVersionId?: string
   dirty: boolean
 }
 
@@ -105,6 +106,9 @@ export function indexedDBAuthoringRecordsOf(
       key: CURRENT_AUTHORING_KEY,
       questionIds: state.questionBank.questions.map((question) => question.id),
       examDraft: state.examDraft,
+      ...(state.lastExportedVersionId
+        ? { lastExportedVersionId: state.lastExportedVersionId }
+        : {}),
       dirty: state.dirty,
     },
   }
@@ -148,6 +152,9 @@ async function readAuthoringState(database: IDBDatabase): Promise<AuthoringState
       }),
     },
     examDraft: control.examDraft,
+    ...(typeof control.lastExportedVersionId === 'string'
+      ? { lastExportedVersionId: control.lastExportedVersionId }
+      : {}),
     dirty: control.dirty,
   }
 }

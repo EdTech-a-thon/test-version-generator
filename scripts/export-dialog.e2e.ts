@@ -438,6 +438,145 @@ test('Version History browses newest stored plans and re-exports without changin
   await expect(page.locator('.draft-document:not([hidden]) .exam-question')).toHaveCount(0)
 })
 
+test('Use as draft confirms replacement, preserves Cancel, and restores the historical arrangement', async ({ page }) => {
+  await open(page)
+  const dialog = await openDialog(page)
+  const download = page.waitForEvent('download')
+  await dialog.getByRole('button', { name: 'Download DOCX' }).click()
+  await download
+
+  const questions = page.locator('.draft-document:not([hidden]) .exam-question')
+  const historicalAnswers = await questions.nth(0).locator('.choice-body').allTextContents()
+  await page.getByRole('button', { name: 'Actions for question 1' }).focus()
+  await page.keyboard.press('Enter')
+  await page.getByRole('menuitem', { name: 'Vary' }).press('ArrowRight')
+  await page.getByRole('menuitem', { name: 'Shuffle answer order' }).press('Enter')
+  const liveAnswers = await questions.nth(0).locator('.choice-body').allTextContents()
+  expect(liveAnswers).not.toEqual(historicalAnswers)
+  await page.getByRole('textbox', { name: 'Exam name' }).fill('Renamed live draft')
+  const bankBeforeConfirmation = await page.locator('.question-bank-authoring').evaluate((bank) => bank.innerHTML)
+
+  await page.getByRole('button', { name: 'Version History' }).click()
+  await page.getByLabel('Version History').locator('.version-history-item').click()
+  const useAsDraft = page.getByRole('button', { name: 'Use as draft' })
+  await useAsDraft.click()
+  const confirmation = page.getByRole('dialog', { name: 'Replace current draft?' })
+  await expect(confirmation).toBeVisible()
+  await page.keyboard.press('Control+P')
+  await expect(confirmation).toBeVisible()
+  await expect(dialogOf(page)).toHaveCount(0)
+  await expect(confirmation.getByRole('button', { name: 'Cancel' })).toBeFocused()
+  await page.keyboard.press('Shift+Tab')
+  await expect(confirmation.getByRole('button', { name: 'Replace anyway' })).toBeFocused()
+  await page.keyboard.press('Tab')
+  await expect(confirmation.getByRole('button', { name: 'Cancel' })).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(useAsDraft).toBeFocused()
+
+  await page.getByRole('button', { name: 'Back to draft' }).click()
+  await expect(page.getByRole('textbox', { name: 'Exam name' })).toHaveValue('Renamed live draft')
+  expect(await questions.nth(0).locator('.choice-body').allTextContents()).toEqual(liveAnswers)
+  await expect(page.locator('.question-bank-authoring')).toHaveJSProperty('innerHTML', bankBeforeConfirmation)
+  await page.getByRole('button', { name: 'Version History' }).click()
+  await page.getByLabel('Version History').locator('.version-history-item').click()
+
+  await useAsDraft.focus()
+  await page.keyboard.press('Enter')
+  await page.keyboard.press('Tab')
+  await page.keyboard.press('Tab')
+  await expect(confirmation.getByRole('button', { name: 'Replace anyway' })).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(useAsDraft).toBeFocused()
+  await page.getByRole('button', { name: 'Back to draft' }).click()
+  expect(await questions.nth(0).locator('.choice-body').allTextContents()).toEqual(historicalAnswers)
+  await page.keyboard.press('Control+Z')
+  expect(await questions.nth(0).locator('.choice-body').allTextContents()).toEqual(liveAnswers)
+  await expect(page.getByRole('textbox', { name: 'Exam name' })).toHaveValue('Renamed live draft')
+})
+
+test('Use as draft exports the live draft without replacing the selected Version', async ({ page }) => {
+  await open(page)
+  const initialDialog = await openDialog(page)
+  const firstDownload = page.waitForEvent('download')
+  await initialDialog.getByRole('button', { name: 'Download DOCX' }).click()
+  await firstDownload
+
+  await page.getByRole('textbox', { name: 'Exam name' }).fill('Current draft export')
+  const draftBeforeExport = await page.locator('.draft-document').evaluate((draft) => draft.innerHTML)
+  const bankBeforeExport = await page.locator('.question-bank-authoring').evaluate((bank) => bank.innerHTML)
+  const historyBeforeExport = structuredClone(await historyOf(page))
+
+  await page.getByRole('button', { name: 'Version History' }).click()
+  await page.getByLabel('Version History').locator('.version-history-item').click()
+  const useAsDraft = page.getByRole('button', { name: 'Use as draft' })
+  await useAsDraft.click()
+  const confirmation = page.getByRole('dialog', { name: 'Replace current draft?' })
+  await expect(confirmation).toBeVisible()
+  await page.keyboard.press('Tab')
+  await expect(confirmation.getByRole('button', { name: 'Export current draft' })).toBeFocused()
+  await page.keyboard.press('Enter')
+  const exportDialog = dialogOf(page)
+  await expect(exportDialog).toBeVisible()
+  await expect(exportDialog.getByText('New Version')).toBeVisible()
+  const download = page.waitForEvent('download')
+  await exportDialog.getByRole('button', { name: 'Download DOCX' }).click()
+  await download
+  await expect(useAsDraft).toBeFocused()
+
+  const historyAfterExport = await historyOf(page)
+  expect(historyAfterExport.versions).toHaveLength(historyBeforeExport.versions.length + 1)
+  expect(historyAfterExport.versions[0]).toEqual(historyBeforeExport.versions[0])
+  await expect(page.locator('.historical-document')).toBeVisible()
+  await page.getByRole('button', { name: 'Back to draft' }).click()
+  await expect(page.locator('.draft-document')).toHaveJSProperty('innerHTML', draftBeforeExport)
+  await expect(page.locator('.question-bank-authoring')).toHaveJSProperty('innerHTML', bankBeforeExport)
+})
+
+test('Use as draft compares with an older Version that was re-exported last', async ({ page }) => {
+  await open(page)
+  let dialog = await openDialog(page)
+  let download = page.waitForEvent('download')
+  await dialog.getByRole('button', { name: 'Download DOCX' }).click()
+  await download
+
+  const title = page.getByRole('textbox', { name: 'Exam name' })
+  await title.fill('Newer Version')
+  dialog = await openDialog(page)
+  download = page.waitForEvent('download')
+  await dialog.getByRole('button', { name: 'Download DOCX' }).click()
+  await download
+
+  // This reuses the first Version but is still the last successful live-draft
+  // export, so it becomes the confirmation comparison point.
+  await title.fill('Biology Quiz')
+  dialog = await openDialog(page)
+  await expect(dialog.getByText('Re-export existing Version')).toBeVisible()
+  download = page.waitForEvent('download')
+  await dialog.getByRole('button', { name: 'Download DOCX' }).click()
+  await download
+
+  // Return to the newer Version's title. Comparing against append-only history
+  // would incorrectly treat this as unchanged; it differs from the re-export.
+  await title.fill('Newer Version')
+  await page.getByRole('button', { name: 'Version History' }).click()
+  await page.getByLabel('Version History').locator('.version-history-item').nth(1).click()
+  await page.getByRole('button', { name: 'Use as draft' }).click()
+  await expect(page.getByRole('dialog', { name: 'Replace current draft?' })).toBeVisible()
+
+  // The checkpoint belongs to publication, not the title edit's undo history.
+  // Undo twice returns to Version 2's draft while Version 1 remains the last
+  // successful export, so Use as Draft must still demand confirmation.
+  await page.keyboard.press('Escape')
+  await page.getByRole('button', { name: 'Back to draft' }).click()
+  await page.keyboard.press('Control+Z')
+  await page.keyboard.press('Control+Z')
+  await expect(title).toHaveValue('Newer Version')
+  await page.getByRole('button', { name: 'Version History' }).click()
+  await page.getByLabel('Version History').locator('.version-history-item').nth(1).click()
+  await page.getByRole('button', { name: 'Use as draft' }).click()
+  await expect(page.getByRole('dialog', { name: 'Replace current draft?' })).toBeVisible()
+})
+
 test('persistent-storage denial is explained separately from publication failure', async ({
   page,
 }) => {

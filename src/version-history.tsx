@@ -1,7 +1,15 @@
-import { useLayoutEffect, useRef } from "react";
+import { useLayoutEffect, useRef, type RefObject } from "react";
 import { ExportPreview } from "./exam-page";
 import type { PublishedVersion } from "./export-preparation";
 import type { LayoutPlan } from "./export-plan";
+
+function focusableWithin(root: HTMLElement): HTMLElement[] {
+  return Array.from(
+    root.querySelectorAll<HTMLElement>(
+      'button, input, select, textarea, [href], [tabindex]:not([tabindex="-1"])',
+    ),
+  ).filter((element) => !element.matches(':disabled'))
+}
 
 function creationTime(createdAt: string): string {
   const date = new Date(createdAt);
@@ -107,11 +115,17 @@ export function HistoricalDocument({
   version,
   plans,
   onBack,
+  onUseAsDraft,
+  canUseAsDraft,
+  useAsDraftButton,
   focusKey,
 }: {
   version: PublishedVersion;
   plans: readonly LayoutPlan[];
   onBack: () => void;
+  onUseAsDraft: () => void;
+  canUseAsDraft: boolean;
+  useAsDraftButton: RefObject<HTMLButtonElement | null>;
   /** Bumped for reselection of the same Version from its drawer. */
   focusKey: number;
 }) {
@@ -133,9 +147,21 @@ export function HistoricalDocument({
           <p>Viewing Version</p>
           <h2>{version.name}</h2>
         </div>
-        <button ref={back} type="button" className="secondary-button" onClick={onBack}>
-          Back to draft
-        </button>
+        <div className="historical-document-actions">
+          <button
+            ref={useAsDraftButton}
+            type="button"
+            className="secondary-button"
+            disabled={!canUseAsDraft}
+            title={canUseAsDraft ? undefined : 'This Version no longer matches its current Question Bank records.'}
+            onClick={onUseAsDraft}
+          >
+            Use as draft
+          </button>
+          <button ref={back} type="button" className="secondary-button" onClick={onBack}>
+            Back to draft
+          </button>
+        </div>
       </header>
       <div className="historical-document-pages">
         {plans.map((plan, index) => (
@@ -147,4 +173,77 @@ export function HistoricalDocument({
       </div>
     </section>
   );
+}
+
+export function UseAsDraftConfirmation({
+  onCancel,
+  onExportCurrent,
+  onReplace,
+}: {
+  onCancel: () => void;
+  onExportCurrent: () => void;
+  onReplace: () => void;
+}) {
+  const dialog = useRef<HTMLElement>(null)
+
+  useLayoutEffect(() => {
+    dialog.current?.querySelector<HTMLButtonElement>('.secondary-button')?.focus()
+  }, [])
+
+  return (
+    <div
+      className="dialog-backdrop"
+      role="presentation"
+      onPointerDown={(event) => {
+        if (event.target === event.currentTarget) onCancel()
+      }}
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') {
+          event.preventDefault()
+          event.stopPropagation()
+          onCancel()
+          return
+        }
+        if (event.key !== 'Tab' || !dialog.current) return
+        const focusable = focusableWithin(dialog.current)
+        const first = focusable[0]
+        const last = focusable.at(-1)
+        if (!first || !last) {
+          event.preventDefault()
+          dialog.current.focus()
+          return
+        }
+        const active = document.activeElement
+        if (active === dialog.current) {
+          event.preventDefault()
+          ;(event.shiftKey ? last : first).focus()
+        } else if (event.shiftKey && (active === first || !dialog.current.contains(active))) {
+          event.preventDefault()
+          last.focus()
+        } else if (!event.shiftKey && active === last) {
+          event.preventDefault()
+          first.focus()
+        }
+      }}
+    >
+      <section
+        className="use-as-draft-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="use-as-draft-title"
+        ref={dialog}
+        tabIndex={-1}
+      >
+        <header className="dialog-header"><h2 id="use-as-draft-title">Replace current draft?</h2></header>
+        <div className="use-as-draft-body">
+          <p>Your current draft differs from the last exported Version. Export it first, cancel, or replace it with this historical arrangement.</p>
+        </div>
+        <footer className="dialog-actions">
+          <button type="button" className="secondary-button" onClick={onCancel}>Cancel</button>
+          <button type="button" className="secondary-button" onClick={onExportCurrent}>Export current draft</button>
+          <button type="button" className="primary-button" onClick={onReplace}>Replace anyway</button>
+        </footer>
+      </section>
+    </div>
+  )
 }

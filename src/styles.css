@@ -230,6 +230,10 @@ button { cursor: pointer; }
 }
 .historical-document-bar p { margin: 0 0 2px; color: #6e5b4d; font-size: 13px; }
 .historical-document-bar h2 { margin: 0; font-size: 18px; }
+.historical-document-actions { display: flex; align-items: center; gap: 10px; }
+.use-as-draft-dialog { width: min(460px, calc(100vw - 32px)); background: #fffaf3; border: 1px solid #e0d3c2; border-radius: 10px; box-shadow: 0 16px 48px rgb(55 42 33 / 26%); }
+.use-as-draft-body { padding: 18px; color: #4e3b2f; line-height: 1.5; }
+.use-as-draft-body p { margin: 0; }
 .historical-document-pages .exam-workspace { min-height: 0; }
 
 /* The rendered test. Everything below the document bar is a view of what the

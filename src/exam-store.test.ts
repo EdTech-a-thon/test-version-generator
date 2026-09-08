@@ -14,6 +14,7 @@ import type {
 } from './exam-store'
 import { VERSIONED_STORAGE_NAME } from './indexeddb-authoring'
 import {
+  DEFAULT_EXPORT_CONFIGURATION,
   prepareExport,
   prepareHistoricalExport,
 } from './export-preparation'
@@ -845,6 +846,87 @@ describe('the dirty flag and persistence', () => {
     store.addToExamDraft(question.id)
 
     expect(store.getState().dirty).toBe(true)
+  })
+
+  test('uses compatible metadata-only current records with historical answer order as one undoable action', async () => {
+    const { store, questions } = await withExamDraft(2)
+    const first = store.selectedExam()
+    const historicalAnswerOrder = [...choicesOf(questions[0]!)].map((choice) => choice.id).reverse()
+    const published = prepareExport({
+      ...first,
+      version: {
+        ...first.version,
+        questionOrder: [questions[1]!.id, questions[0]!.id],
+        choiceOrder: { [questions[0]!.id]: historicalAnswerOrder },
+      },
+      configuration: DEFAULT_EXPORT_CONFIGURATION,
+      history: store.publicationHistory(),
+      measure: unmeasured,
+      createdAt: '2026-09-04T12:00:00.000Z',
+    })
+    await store.publish(published.publication)
+    store.updateInQuestionBank({
+      ...questions[0]!,
+      difficulty: 'hard',
+      topics: ['Changed topic'],
+    })
+    const beforeReplacement = structuredClone(store.getState().examDraft)
+
+    expect(store.useHistoricalVersionAsDraft(published.resolution.version.id)).toBe(true)
+    expect(store.getState().examDraft.questionIds).toEqual([questions[1]!.id, questions[0]!.id])
+    expect(store.getState().examDraft.choiceOrder).toEqual({
+      [questions[0]!.id]: historicalAnswerOrder,
+    })
+    expect(bankIds(store)).toEqual([questions[0]!.id, questions[1]!.id])
+
+    store.undo()
+    expect(store.getState().examDraft).toEqual(beforeReplacement)
+  })
+
+  test('retains the Version resolved by a re-export as the last export', async () => {
+    const { store, questions } = await withExamDraft(1)
+    const first = prepareExport({
+      ...store.selectedExam(),
+      configuration: DEFAULT_EXPORT_CONFIGURATION,
+      history: store.publicationHistory(),
+      measure: unmeasured,
+      createdAt: '2026-09-04T12:00:00.000Z',
+    })
+    await store.publish(first.publication)
+    store.setTitle('Newer Version')
+    const second = prepareExport({
+      ...store.selectedExam(),
+      configuration: DEFAULT_EXPORT_CONFIGURATION,
+      history: store.publicationHistory(),
+      measure: unmeasured,
+      createdAt: '2026-09-04T12:01:00.000Z',
+    })
+    await store.publish(second.publication)
+
+    store.setTitle('Untitled exam')
+    const reExport = prepareExport({
+      ...store.selectedExam(),
+      configuration: DEFAULT_EXPORT_CONFIGURATION,
+      history: store.publicationHistory(),
+      measure: unmeasured,
+      createdAt: '2026-09-04T12:02:00.000Z',
+    })
+    expect(reExport.resolution.version.id).toBe(first.resolution.version.id)
+    await store.publish(reExport.publication)
+
+    expect(store.getState().lastExportedVersionId).toBe(first.resolution.version.id)
+    expect(store.publicationHistory().versions).toEqual([
+      first.resolution.version,
+      second.resolution.version,
+    ])
+
+    // Publication checkpoints are workflow state, not authoring history. Undo
+    // must restore Version 2's draft without rolling its checkpoint back to
+    // Version 2: Use as Draft must still warn before replacing that draft.
+    store.undo()
+    expect(store.getState().examDraft.title).toBe('Newer Version')
+    expect(store.getState().lastExportedVersionId).toBe(first.resolution.version.id)
+    expect(questions).toHaveLength(1)
   })
 
   test('historical re-export preparation is read-only for current, saved, and dirty authoring state', async () => {
