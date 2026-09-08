@@ -39,6 +39,12 @@ else
   MSG="The ticket coordinator (run ${COORD_RUN_ID}) FINISHED — all queued tickets accepted (${COORD_ACCEPTED:-none}). Read ${COORD_RUN_DIR} and give me a short wrap-up of what shipped."
 fi
 
+# Mobile push to the exe.dev app (best-effort; never aborts the hook).
+PUSH_SCRIPT="$(dirname "$0")/coordinator-push.sh"
+if [ -x "${PUSH_SCRIPT}" ]; then
+  "${PUSH_SCRIPT}" || true
+fi
+
 if ! command -v shelley >/dev/null 2>&1; then
   echo "shelley CLI not found; summary written to ${INBOX}/ (${COORD_EVENT})"
   exit 0
