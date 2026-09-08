@@ -430,6 +430,8 @@ export class Coordinator {
     mkdirp(tdir);
     this.state.currentTicket = number;
     this.state.repairCycles = 0;
+    // A new ticket is forward progress; drop any stale block from an earlier one.
+    this.clearBlocked();
     // Each ticket gets its own persistent reviewer; make sure none leaks in.
     this.stopReviewer();
 
@@ -624,6 +626,7 @@ export class Coordinator {
       this.logStage(`[#${number}] pushed and issue closed`);
     }
     this.state.accepted.push(number);
+    this.clearBlocked();
     this.transition('accepted');
     return 'accepted';
   }
@@ -695,6 +698,13 @@ export class Coordinator {
     this.logStage(`  artifacts: ${this.ticketDir(number)}`);
     this.notify('blocked');
     return 'blocked';
+  }
+
+  // Clear a prior block record once the run makes forward progress again, so
+  // state.json (and every status readout) reflects reality instead of a stale
+  // BLOCKED banner from a ticket that has since recovered.
+  clearBlocked() {
+    if (this.state.blocked) this.state.blocked = null;
   }
 
   async run() {

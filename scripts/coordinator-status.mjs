@@ -99,7 +99,7 @@ function summary(runDir, state) {
   console.log(`Queue: ${state.tickets.join(', ')}`);
   console.log(`Accepted: ${state.accepted && state.accepted.length ? state.accepted.join(', ') : '(none)'}`);
   console.log(`Current: #${state.currentTicket}  state=${state.state}  repairCycles=${state.repairCycles}`);
-  if (state.blocked) {
+  if (state.blocked && state.state === 'blocked') {
     console.log(`BLOCKED #${state.blocked.ticket}: ${state.blocked.reason} (at ${state.blocked.at})`);
   }
   console.log('');
@@ -108,7 +108,7 @@ function summary(runDir, state) {
     const r = latestReview(runDir, t);
     let line = `  #${t}: `;
     if (accepted) line += 'accepted';
-    else if (state.blocked && state.blocked.ticket === t) line += 'BLOCKED';
+    else if (state.blocked && state.state === 'blocked' && state.blocked.ticket === t) line += 'BLOCKED';
     else if (t === state.currentTicket) line += state.state;
     else line += 'queued';
     if (r && r.verdict) {
