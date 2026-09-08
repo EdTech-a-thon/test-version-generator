@@ -203,8 +203,6 @@ button { cursor: pointer; }
 }
 .empty-exam-button svg { width: 17px; height: 17px; stroke-width: 2; }
 
-.print-output { display: none; }
-
 /* Version History is an inspection drawer, not another editing surface. */
 .version-history-drawer {
   position: fixed; z-index: 19; top: 58px; right: 0; bottom: 0; width: min(360px, 100vw);
@@ -1042,37 +1040,37 @@ button { cursor: pointer; }
 @page { size: 8.5in 11in; margin: 0; }
 
 @media print {
-  /* Chrome off: only the test prints. The measuring host is chrome too, and
-     an off-screen block left in the flow prints as blank sheets. */
-  .document-bar, .question-handles, .context-menu, .vary-summary,
-  .measure-host, .authoring-workspace, .version-history-drawer,
-  .dialog-backdrop {
-    display: none;
+  /* Browser print has no product document. Hide the application wholesale so
+     native Print/Save as PDF can never publish authoring, selection, or
+     navigation chrome. The print adapter remains available to parity tests via
+     the clean Export Preview, which their controlled print stylesheet exposes. */
+  html:not([data-export-reference-print]) body,
+  html:not([data-export-reference-print]) #root { display: none !important; }
+
+  /* The diagnostic explicitly opts into the print adapter after opening the
+     clean Export Preview. Its sheets keep the same print geometry the adapter
+     is judged against, without making that browser path available to people. */
+  html[data-export-reference-print] .document-bar,
+  html[data-export-reference-print] .question-handles,
+  html[data-export-reference-print] .context-menu,
+  html[data-export-reference-print] .vary-summary,
+  html[data-export-reference-print] .measure-host,
+  html[data-export-reference-print] .authoring-workspace,
+  html[data-export-reference-print] .version-history-drawer,
+  html[data-export-reference-print] .dialog-backdrop { display: none; }
+  html[data-export-reference-print] body,
+  html[data-export-reference-print] :root { background: #fff; }
+  html[data-export-reference-print] .exam-workspace {
+    min-height: 0; padding: 0; overflow: visible;
   }
-  .print-output { display: block; }
-  body, :root { background: #fff; }
-  .exam-workspace { min-height: 0; padding: 0; overflow: visible; }
-  /* Geometry stays exactly as it is on screen — only the paper around it goes
-     away. Each sheet is one page; the last does not force a blank one after. */
-  .exam-page { margin: 0; box-shadow: none; break-after: page; }
-  .exam-page:last-of-type { break-after: auto; }
-  .print-output .exam-workspace:not(:last-child) .exam-page:last-of-type {
+  html[data-export-reference-print] .exam-page {
+    margin: 0; box-shadow: none; break-after: page;
+  }
+  html[data-export-reference-print] .exam-page:last-of-type { break-after: auto; }
+  html[data-export-reference-print] .export-preview .exam-workspace:not(:last-child) .exam-page:last-of-type {
     break-after: page;
   }
-  .exam-question { break-inside: avoid; }
-  /* Selection, hover and drag feedback are all editing chrome — never printed.
-     The Replace highlight is stated with an attribute, so it needs saying at
-     the same specificity to be taken back. */
-  .exam-question,
-  .exam-question:hover,
-  .exam-question--selected,
-  .exam-question[data-drop='replace'],
-  .exam-question--revealed {
-    background: none; box-shadow: none; opacity: 1; animation: none;
-  }
-  .exam-question[data-drop]::after, .choice-correctness-marker { display: none; }
-  .exam-draft-empty-section, .workspace-resizer,
-  .question-drag-preview { display: none; }
+  html[data-export-reference-print] .exam-question { break-inside: avoid; }
 }
 
 /* The pages either side of the editor — About and Privacy — plus the footer

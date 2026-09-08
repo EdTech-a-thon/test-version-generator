@@ -647,6 +647,10 @@ function ExamEditor({ store }: { store: ExamStore }) {
     source: 'live-draft' | 'historical-version'
   } | null>(null)
   const exportButton = useRef<HTMLButtonElement>(null)
+  // Export can be opened by its visible button or Cmd/Ctrl+P. Remember the
+  // actual focusable opener so dismissing it returns a keyboard user to where
+  // they started, rather than always moving them to the toolbar.
+  const exportTrigger = useRef<HTMLElement | null>(null)
   const historyButton = useRef<HTMLButtonElement>(null)
   // Browsing a Version hides the mounted draft document and puts its immutable
   // stored Layout Plans in the same center lane. Returning therefore restores
@@ -854,6 +858,26 @@ function ExamEditor({ store }: { store: ExamStore }) {
     }
   })
 
+  const openExport = useCallback((
+    source: 'live-draft' | 'historical-version' = viewingVersion
+      ? 'historical-version'
+      : 'live-draft',
+  ) => {
+    // A command may start with focus on the document body. That is not a useful
+    // restoration target, so fall back to the visible Export button in that
+    // case. A real control, such as the Exam name field, retains its own focus.
+    const active = document.activeElement
+    exportTrigger.current =
+      active instanceof HTMLElement && active !== document.body
+        ? active
+        : exportButton.current
+    setExportDialog({
+      configuration: DEFAULT_EXPORT_CONFIGURATION,
+      error: null,
+      source,
+    })
+  }, [viewingVersion])
+
   useEffect(() => {
     const onPrintShortcut = (event: KeyboardEvent) => {
       if (
@@ -861,18 +885,16 @@ function ExamEditor({ store }: { store: ExamStore }) {
         && (event.ctrlKey || event.metaKey)
         && !event.altKey
       ) {
+        // There is deliberately no browser-print fallback: even while another
+        // modal owns focus, Cmd/Ctrl+P must not bypass Version publication.
         event.preventDefault()
         if (editing || exportDialog || confirmingUseAsDraft || reviewingHistoricalQuestions) return
-        setExportDialog({
-          configuration: DEFAULT_EXPORT_CONFIGURATION,
-          error: null,
-          source: viewingVersion ? 'historical-version' : 'live-draft',
-        })
+        openExport()
       }
     }
     document.addEventListener('keydown', onPrintShortcut)
     return () => document.removeEventListener('keydown', onPrintShortcut)
-  }, [confirmingUseAsDraft, editing, exportDialog, reviewingHistoricalQuestions, viewingVersion])
+  }, [confirmingUseAsDraft, editing, exportDialog, openExport, reviewingHistoricalQuestions])
 
   useEffect(() => {
     if (editing || exportDialog || confirmingUseAsDraft || reviewingHistoricalQuestions) return
@@ -927,9 +949,17 @@ function ExamEditor({ store }: { store: ExamStore }) {
 
   const closeExportDialog = () => {
     const source = exportDialog?.source
+    const trigger = exportTrigger.current
+    exportTrigger.current = null
     setExportDialog(null)
-    if (source === 'live-draft' && viewingVersion) restoreUseAsDraftFocus()
-    else exportButton.current?.focus()
+    if (source === 'live-draft' && viewingVersion) {
+      restoreUseAsDraftFocus()
+      return
+    }
+    requestAnimationFrame(() => {
+      if (trigger?.isConnected) trigger.focus()
+      else exportButton.current?.focus()
+    })
   }
 
   const prepareForPublication = (
@@ -1116,13 +1146,7 @@ function ExamEditor({ store }: { store: ExamStore }) {
             className="export-button"
             aria-haspopup="dialog"
             aria-expanded={exportDialog !== null}
-            onClick={() =>
-              setExportDialog({
-                configuration: DEFAULT_EXPORT_CONFIGURATION,
-                error: null,
-                source: viewingVersion ? 'historical-version' : 'live-draft',
-              })
-            }
+            onClick={() => openExport()}
           >
             {viewingVersion ? 'Historical Export' : 'Export'}
           </button>
@@ -1311,11 +1335,7 @@ function ExamEditor({ store }: { store: ExamStore }) {
           }}
           onExportCurrent={() => {
             setConfirmingUseAsDraft(false)
-            setExportDialog({
-              configuration: DEFAULT_EXPORT_CONFIGURATION,
-              error: null,
-              source: 'live-draft',
-            })
+            openExport('live-draft')
           }}
           onReplace={() => {
             setConfirmingUseAsDraft(false)

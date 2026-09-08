@@ -727,19 +727,6 @@ export function ExportPreview({ plan }: { plan: LayoutPlan }) {
   )
 }
 
-/** Everything one export publishes, mounted for the browser's Print dialog.
- *  Hidden on screen — `.print-output` is `display: none` until print media
- *  applies — and kept mounted until the browser says printing has finished. */
-export function PrintDocument({ plans }: { plans: readonly LayoutPlan[] }) {
-  return (
-    <div className="print-output">
-      {plans.map((plan, index) => (
-        <ExportPreview key={`${plan.version.letter}-${plan.pages[0]?.stream}-${index}`} plan={plan} />
-      ))}
-    </div>
-  )
-}
-
 export function ExamPage({
   exam,
   version,

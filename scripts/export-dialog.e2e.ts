@@ -743,7 +743,7 @@ test('an empty Exam Draft is blocked with an actionable message', async ({
   ).toBeDisabled()
 })
 
-test('Cmd/Ctrl+P routes to Export, and every dismissal restores focus', async ({
+test('Cmd/Ctrl+P routes to Export, respects active modals, and restores focus', async ({
   page,
 }) => {
   await open(page)
@@ -783,6 +783,25 @@ test('Cmd/Ctrl+P routes to Export, and every dismissal restores focus', async ({
   await page.keyboard.press('Escape')
   await expect(exportButton).toBeFocused()
 
+  // Playwright uses the host platform's shortcut for direct keyboard input,
+  // so exercise the other browser convention explicitly too.
+  await page.evaluate(() => {
+    document.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: 'p',
+        metaKey: true,
+        bubbles: true,
+        cancelable: true,
+      }),
+    )
+  })
+  await expect(dialog).toBeVisible()
+  await expect(
+    dialog.getByRole('checkbox', { name: 'Student test' }),
+  ).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(exportButton).toBeFocused()
+
   await page.locator('.exam-question[data-question-id]').first().dblclick()
   await expect(page.getByRole('dialog', { name: 'Question editor' })).toBeVisible()
   expect(
@@ -807,4 +826,17 @@ test('Cmd/Ctrl+P routes to Export, and every dismissal restores focus', async ({
   await openDialog(page)
   await page.locator('.dialog-backdrop').click({ position: { x: 5, y: 5 } })
   await expect(exportButton).toBeFocused()
+})
+
+test('native browser print hides the application instead of publishing chrome', async ({ page }) => {
+  await open(page)
+  // Put every kind of authoring chrome on the page before applying the native
+  // print medium. This must remain true even if a shortcut somehow reaches the
+  // browser instead of the application command handler.
+  await page.getByRole('button', { name: 'Version History' }).click()
+  await page.emulateMedia({ media: 'print' })
+
+  await expect(page.locator('#root')).toHaveCSS('display', 'none')
+  await expect(page.locator('.authoring-workspace')).toBeHidden()
+  await expect(page.locator('.version-history-drawer')).toBeHidden()
 })

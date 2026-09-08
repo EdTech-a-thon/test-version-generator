@@ -223,6 +223,9 @@ for (const fixture of fixtures) {
     const printMarkup = await page.evaluate(
       () => document.querySelector('.export-preview')?.outerHTML ?? '',
     )
+    await page.evaluate(() => {
+      document.documentElement.dataset.exportReferencePrint = 'true'
+    })
     await page.addStyleTag({
       content: `
       @media print {
