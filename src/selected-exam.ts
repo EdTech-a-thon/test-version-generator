@@ -11,10 +11,10 @@
 // The split between the two halves is what keeps repagination cheap. The
 // derived `Exam` carries the *content*: the referenced questions in Question
 // Bank order, so its identity survives a pure reordering. The derived `Version`
-// carries the *arrangement*: the Exam Draft's order, and no recorded choice
-// order at all, so answers print in the order they were authored in. Nothing
-// downstream can tell the difference between this and an edited Version, and
-// nothing here writes anything back.
+// carries the *arrangement*: the Exam Draft's question and recorded answer
+// orders. An absent answer order means answers print in the authored order.
+// Nothing downstream can tell the difference between this and an edited
+// Version, and nothing here writes anything back.
 
 import { type Exam, type Version } from './exam'
 import { bankQuestionById, type ExamDraft, type QuestionBank } from './question-bank'
@@ -59,19 +59,29 @@ export function selectedExam(
   // Exam Draft referencing content that is not there is not something export
   // should have to reason about.
   const questionOrder = draft.questionIds.filter((id) => bankQuestionById(bank, id))
+  const choiceOrder = draft.choiceOrder ?? {}
+  const sameChoiceOrder = (left: Record<string, string[]>, right: Record<string, string[]>) => {
+    const entries = Object.entries(left)
+    return entries.length === Object.keys(right).length
+      && entries.every(([questionId, choices]) =>
+        right[questionId]?.length === choices.length
+        && right[questionId].every((choiceId, index) => choiceId === choices[index]),
+      )
+  }
   const version: Version =
     previous
     && previous.version.questionOrder.length === questionOrder.length
     && previous.version.questionOrder.every((id, index) => id === questionOrder[index])
+    && sameChoiceOrder(previous.version.choiceOrder, choiceOrder)
       ? previous.version
       : {
           id: EXAM_DRAFT_VERSION_ID,
           letter: EXAM_DRAFT_VERSION_LETTER,
           questionOrder,
-          // Empty by design: with no recorded choice order every question's
-          // answers print in the order they were authored in, which is exactly
-          // what an Exam Draft means. Export Randomization permutes from here.
-          choiceOrder: {},
+          // With no recorded order answers print as authored. Selection-scoped
+          // answer shuffling records only this presentation state, never
+          // changes the canonical Question Content in the Question Bank.
+          choiceOrder,
         }
 
   return previous && exam === previous.exam && version === previous.version

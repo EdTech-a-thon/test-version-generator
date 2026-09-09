@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import {
   createQuestion,
+  orderedChoices,
   orderedQuestions,
   questionsInSection,
   type Question,
@@ -97,6 +98,26 @@ describe('the Exam rendering and export receive', () => {
     const question = createQuestion('multiple-choice')
     const { exam, version } = selectedExam(banked(question), drafted(question.id))
     expect(version.choiceOrder).toEqual({})
+    expect(exam.questions[0]!.doc).toEqual(question.doc)
+  })
+
+  test('keeps draft answer order apart from canonical Question Content', () => {
+    const question = createQuestion('multiple-choice')
+    const canonicalIds = orderedChoices(question, {
+      id: 'canonical', letter: 'A', questionOrder: [question.id], choiceOrder: {},
+    }).map((choice) => choice.id)
+    const draft = {
+      ...drafted(question.id),
+      choiceOrder: { [question.id]: [...canonicalIds].reverse() },
+    }
+
+    const { exam, version } = selectedExam(banked(question), draft)
+
+    expect(orderedChoices(exam.questions[0]!, version).map((choice) => choice.id))
+      .toEqual([...canonicalIds].reverse())
+    expect(orderedChoices(question, {
+      id: 'canonical', letter: 'A', questionOrder: [question.id], choiceOrder: {},
+    }).map((choice) => choice.id)).toEqual(canonicalIds)
     expect(exam.questions[0]!.doc).toEqual(question.doc)
   })
 })

@@ -9,7 +9,7 @@ The rich-text material authored for one question, including its stem and, when p
 _Avoid_: Question text, editor content
 
 **Question Revision**:
-An immutable export-time presentation state of one Question Bank record, including its Question Content, correct answer, and answer-column layout. Export reuses an exactly matching revision and creates one only for a previously unseen presentation state; Difficulty and Topics do not distinguish revisions.
+An immutable export-time presentation state of one Question Bank record, including its Question Content, correct choice or Suggested Answer, and answer-column layout. Export reuses an exactly matching revision and creates one only for a previously unseen presentation state; Difficulty and Topics do not distinguish revisions.
 _Avoid_: Question copy, historical question
 
 **Question Metadata**:
@@ -64,6 +64,10 @@ To permanently remove Question Content from a Question Bank. Deletion is not ava
 **Short Answer**:
 A Question Type whose response is intentionally brief and does not present answer choices.
 _Avoid_: Open, Open ended, Open Response, Short Response
+
+**Suggested Answer**:
+Optional rich-text material authored for a Short Answer question to represent its answer in the Answer Key.
+_Avoid_: Correct answer, sample response, rubric
 
 **Question Section**:
 A group of questions of the same type whose boundary remains fixed across Versions, such as Multiple Choice or Short Answer.

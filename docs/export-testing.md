@@ -2,185 +2,205 @@
 
 ## Purpose
 
-Print is the authoritative presentation of an exam. DOCX export must preserve the same document semantics and place the same ordered content on the same pages without maintaining an independent reconstruction of the exam.
+The print-reference view is the authoritative presentation of an exam. PDF and
+DOCX export must preserve the same semantics and put the same ordered content
+on the same pages without reconstructing an exam independently.
 
-This document describes the implemented architecture and the acceptance strategy that guards it.
+This document describes the implemented architecture and its acceptance path.
 
 ## Architecture
 
-The export pipeline has one preparation stage, one shared semantic stage and one shared layout stage. Preparation lives in `src/export-preparation.ts`; both shared stages live in `src/export-plan.ts`:
+Publication has one pure preparation boundary and one shared planning pipeline:
 
 ```text
-Exam + current Version + export configuration + Randomness
-                 |
-                 v
-        export preparation          Generated Versions, one
-                 |                  standalone document per
-                 v                  Version and stream
-   Exam + one Version + selection
-                 |
-                 v
-          Export Document
-                 |
-                 v
-            Layout Plan
-              /      \
-             v        v
-    print Export    DOCX Export
-       Adapter         Adapter
-   (exam-page.tsx)  (docx-export.ts)
-             |        |
-             v        v
-     Reference PDF   DOCX
+Exam Draft + Version History + Content Selection
+                    |
+                    v
+          publication preparation
+       canonical test + key Layout Plans
+       fingerprint + Version resolution
+       selected plans + commit payload
+                    |
+                    v
+          Export Document -> Layout Plan
+                         /       \
+                        v         v
+          print-reference view   PDF / DOCX Export Adapters
 ```
 
-`prepareExport({ exam, version, configuration, random, measure })` is the whole preparation interface, and the only application-level orchestrator of Generated Versions. It returns the ordered collection of standalone documents one export publishes — every student test A through the last Version, then every answer key A through the last — plus the filename a Word download takes. Randomization happens here and nowhere else: neither Export Adapter generates or reorders a Version.
+`prepareExport({ exam, version, configuration, history, measure, createdAt })`
+is the application-level pure seam. It always prepares separate canonical
+student-test and answer-key plans, computes one name-independent Export
+Fingerprint across both, resolves an existing or provisional friendly-named
+Version, and returns the selected plans plus the immutable records required for
+publication. Content Selection changes only which plans enter the selected
+artifact; format and Content Selection do not change identity or which plans
+are retained.
 
-`planExport({ exam, version, selection, measure })` is the whole planning interface for one of those documents. Semantic derivation into an Export Document and pagination into a Layout Plan are internal stages behind it; callers never orchestrate them.
+The current Exam Draft arrangement is the only arrangement publication uses.
+Variation belongs to the authoring commands before export. A matching
+fingerprint reuses its stored Version and plans. A new fingerprint receives a
+unique adjective-noun name provisionally, and that name becomes permanent only
+when the publication transaction commits.
 
-Generated Versions are export-local. Their identifiers and labels belong to one export operation, start at A whatever the edited Version is called, and are never written to the exam store.
+`planExport({ exam, version, selection, measure })` remains the one-document
+planning boundary. Semantic derivation into an Export Document and pagination
+into a Layout Plan are internal stages. A Layout Plan is self-contained and
+carries page size and assignment, furniture, stream, explicit breaks, and
+ordered items. Export Adapters never inspect the Exam Draft, measure, or
+repaginate.
 
-The Layout Plan is self-contained. It carries the document title and version, the page size, the ordered pages, each page's header variant and furniture, its footer number, its stream (`test` or `answer-key`), its explicit `breakBefore`, and its ordered page items with question pieces and choice-grid cells. An adapter that has a plan needs neither the exam, the version, nor a `Measure`.
+The print adapter remains an internal preview/reference path (`ExportPreview`
+in `src/exam-page.tsx`). PDF and DOCX are explicit product artifacts. All three
+consume the same selected plans in student-test-then-answer-key order.
 
-Measurement stays injected. `dom-measure.ts` is the production adapter; `unmeasured` and the stubs in `export-fixtures.ts` are the deterministic substitutes tests use. Export Adapters never measure and never repaginate.
-
-Randomness is injected the same way. Production draws from `Math.random`, so a later export is a fresh set rather than a reproduction of an earlier one; tests and the out-of-band comparison pin a deterministic source.
-
-Both adapters consume the whole prepared collection. Print mounts every planned page of every document for one native Print operation (`PrintDocument` in `exam-page.tsx`); DOCX packages them into one combined file, one Word section per planned page, in the same order.
+The browser packages the complete selected PDF or DOCX before persistence. It then
+commits the Version (when new), new Question Revisions, both Layout Plans,
+required Media Assets, and current authoring state in one IndexedDB transaction.
+Only a successful transaction is followed by download. Browser cancellation
+after that point cannot roll history back.
 
 ## Acceptance contract
 
-The Export Document is the semantic oracle. The Reference PDF is the layout oracle. A pinned LibreOffice installation is the Comparison Engine used to make DOCX pagination observable.
+The Export Document is the semantic oracle. The Reference PDF captured from
+the clean print-reference preview is the layout oracle. A pinned LibreOffice
+installation is the Comparison Engine used to make DOCX pagination observable.
 
-Acceptance requires all of the following:
+Acceptance requires:
 
-1. **Semantic parity:** exact ordered content, question and choice identity and order, formatting intent, links, math, images, tables, authored whitespace, and metadata.
-2. **Structural parity:** exact section hierarchy, choice-grid topology, headers, footers, numbering, and explicit keep and break decisions.
-3. **Page parity:** exact page count and dimensions, with the same ordered content assigned to each page.
+1. **Semantic parity:** exact ordered content, question and choice order,
+   formatting intent, links, math, media, tables, whitespace, and answer data.
+2. **Structural parity:** exact section hierarchy, grid topology, headers,
+   footers, numbering, and explicit keep/break decisions.
+3. **Page parity:** exact page count and dimensions, with the same ordered
+   content assigned to each page.
 
-Renderer-chosen line wrapping and element coordinates are not compared. An authored line break remains semantic content and an explicit page break remains structural content. Raster appearance and fonts are not acceptance criteria. Parity applies when the DOCX is first exported and opened; reflow after a user edits it is outside the contract.
+Renderer-selected line wrapping, coordinates, fonts, generated identifiers,
+package metadata, and raster appearance are not compared. Authored line breaks
+remain semantic; explicit page breaks remain structural.
 
-Parity covers the whole prepared collection: the same Generated Versions in the same order, the same Content Selection, the same page assignment per standalone document, the same page-number restarts, and the same Version label on every page of both streams.
+Parity covers the selected plans in order, restarts page numbering per stream,
+and requires the friendly Version name on every page. Version identity is
+always calculated from both canonical plans even when only one stream is
+selected.
 
-## The shared fingerprint
+## Shared fingerprint
 
-Parity is asserted through one small vocabulary of content lines, so a plan, a printed page and a Word document can be compared directly:
+Plan, print-reference markup, and DOCX reduce to the same readable content-line
+vocabulary:
 
 ```text
-heading:<1-6|title> <inline>   a heading, at its level
-para <inline>                  an ordinary paragraph
-code <inline>                  a code block
+heading:<1-6|title> <inline>
+para <inline>
+code <inline>
 list:<bullet|ordered>:<n> <inline>
-rule                           a horizontal rule
-table:<rows>x<columns>         a table or a choice grid opens
-cell:<row>,<column>            one cell opens; its own lines follow
-/table                         the table closes
+rule
+table:<rows>x<columns>
+cell:<row>,<column>
+/table
 ```
 
-and inline content as plain text, `«strong,emphasis»marked text«/»`, `«link:https://…»linked text«/»`, `⟨math:E = mc^2⟩`, `⟨image:2⟩` (the second image in document order), and `⏎` for an authored break.
+Inline content uses plain text, marked spans, links, math source, stable image
+ordinals, and authored-break markers. The Version fingerprint additionally
+includes immutable media hashes while removing the friendly name.
 
-Three modules produce it:
+The implementations are:
 
-- `src/export-fingerprint.ts` — from a Layout Plan and from an Export Document. The reference side.
-- `src/print-fingerprint.ts` — from the print Export Adapter's real markup.
-- `src/docx-fingerprint.ts` — from a generated DOCX package.
-
-The fingerprint deliberately excludes ZIP bytes and timestamps, package part ordering, generated relationship identifiers, revision metadata, style names, indentation, coordinates, and renderer-selected line wrapping.
+- `src/pdf-export.ts` — the dedicated local PDF Export Adapter.
+- `src/export-fingerprint.ts` — Export Document and Layout Plan fingerprints.
+- `src/print-fingerprint.ts` — the print-reference adapter's real markup.
+- `src/docx-fingerprint.ts` — a generated DOCX package.
+- `src/export-preparation.ts` — the two-plan Version fingerprint and revision
+  identity.
 
 ## Test layers
 
 ### Standard tests
 
-`bun test` stays dependency-free and covers:
+`bun test` is dependency-free and covers:
 
-- `src/export-preparation.test.ts` — the preparation interface: Version A preserving the current arrangement, Randomization per dimension, Question Section boundaries, distinctness, the maximum distinct count, termination, document ordering, page-number restarts, Version labels, progress and filenames.
-- `src/export-plan.test.ts` — the planning interface: ordering, sections, numbering, choice letters, grid topology, page geometry, packing, splitting, furniture, streams, breaks, and the Export Document on its own.
-- `src/export-parity.test.ts` — every fixture in `src/export-fixtures.ts`, prepared into its full collection of documents, three ways: the plans against the DOCX adapter, the plans against the print adapter, and the two adapters against each other. It also proves the comparison itself by degrading a real fingerprint the way the DOCX path used to differ and asserting each discrepancy is named.
-- `src/docx-export.test.ts` — packaging: MIME type, ZIP signature, filenames, page size, one Word section per planned page of every prepared document, page-number restarts, answer-key representation, link relationships, packaged image bytes, and list numbering.
-- `src/doc-view.test.ts` — authored whitespace in the read-only document view.
+- `src/export-preparation.test.ts` — canonical plan retention, stream order,
+  fingerprint inclusions/exclusions, Version and Question Revision reuse,
+  provisional naming, blank keys, validation, and filenames.
+- `src/export-plan.test.ts` — semantic derivation, numbering, grids, geometry,
+  packing, splitting, furniture, streams, and breaks.
+- `src/export-parity.test.ts` — each fixture through the plan, print-reference,
+  and DOCX fingerprints, including deliberate degradation checks.
+- `src/docx-export.test.ts` — DOCX packaging, page sections, friendly names,
+  answer keys, links, media bytes, lists, and strict unresolved-media rejection.
+- `src/pdf-export.test.ts` — PDF pages, metadata, links, media, embedded fonts,
+  unsupported-character rejection, and overflow rejection.
+- `src/doc-view.test.ts` — authored whitespace in the read-only view.
 
-Fixtures are committed as readable source in `src/export-fixtures.ts`. Generated DOCX and PDF binaries are never test truth.
+The Playwright suite covers the browser workflow and real IndexedDB behavior:
+default Content Selection, clean preview, New Version/re-export messaging,
+focus and Cmd/Ctrl+P, first-publication persistent storage, atomic publication,
+quota and transaction failures, required-media failure, no phantom download,
+and an unchanged Exam Draft.
 
 ### Out-of-band comparison
 
-`bun run test:exports` is the single documented entry point. It:
+`bun run test:exports` is the single heavyweight entry point. It:
 
-1. Checks its prerequisites and reports exactly what is missing and how to install it. It never skips silently.
-2. Records the resolved tool versions, platform, locale and paper size.
-3. Seeds the real application with a fixture — its images included, put in the Cache Storage the image worker reads — waits for fonts and images to settle, and drives the real export dialog: format, Content Selection, Version count and Randomization, then Print.
-4. Takes the print output's own markup and captures it with the pinned Playwright Chromium as the Reference PDF.
-5. Downloads the real DOCX through the same dialog, on the same configuration and the same pinned random source, so both outputs publish the same Generated Versions.
-6. Compares the DOCX's structural fingerprint against that printed markup. The reference is the document the browser actually laid out, with real measurement deciding where the pages fell — not a plan the diagnostic rebuilt for itself, which could not know what the browser measured.
-7. Converts the DOCX with the pinned, headless LibreOffice Comparison Engine.
-8. Extracts a normalized per-page manifest from both PDFs and compares page count, page dimensions, and ordered content per page.
+1. Verifies LibreOffice, Poppler, and Playwright Chromium prerequisites.
+2. Records tool versions, platform, locale, and paper size.
+3. Seeds the real application, including content-addressed Media Assets.
+4. Drives the real export dialog with both Content Selection streams.
+5. Captures the clean print-reference preview as the Reference PDF.
+6. Downloads the dedicated PDF and compares its normalized pages directly.
+7. Downloads the real DOCX through the publication workflow.
+8. Re-exports the media-rich composite from stored history and verifies its
+   normalized DOCX structure is unchanged.
+9. Compares structural fingerprints and normalized per-page PDF manifests.
 
-PDF normalization keeps page boundaries, page dimensions and content order, and discards coordinates and the line grouping each renderer chose for itself: a page's content is compared as its ordered words. Ligatures and substituted dashes and quotes are normalized as typography rather than content.
+PDF normalization keeps page boundaries, dimensions, and word order while
+discarding coordinates and renderer-selected line grouping. Ruled blanks and
+typeset math are excluded from word comparison and asserted structurally in the
+fast suite.
 
-Two things are deliberately outside the word comparison, because neither is text and neither renderer writes them the same way:
+### Invocation policy
 
-- **Blanks.** A blank for a student to write on is a ruled box in print and a run of underscores in Word. Runs of underscores are dropped from both sides; that the blank exists is asserted structurally in the fast suite, as the planned `_______ 1.` line.
-- **Typeset mathematics.** KaTeX lays an equation out as glyph boxes that extract as spaced characters; an Office Math object may extract as nothing. The words of each equation the document actually contains are dropped from both sides; that the equation exists, and what its source is, is asserted structurally as `⟨math:…⟩`.
+The heavyweight comparison is not part of `bun test`, `bun run test:e2e`, or
+CI. Run it when a change affects the Export Document, Layout Plan, either Export
+Adapter, pagination, print styling, media rendering, or supported document-node
+rendering.
 
-The application keeps its print document mounted until `afterprint`, rather than unmounting in the animation frame after `window.print()`. That is what lets a print preview re-read the DOM and what lets a headless capture read it at all; the diagnostic stands in for the dialog by making `window.print()` a no-op, so no `afterprint` follows and the document stays put.
+### Prerequisites
 
-Prerequisites, and what each is for:
+| Tool                | Command                | Role                          |
+| ------------------- | ---------------------- | ----------------------------- |
+| LibreOffice         | `soffice`              | DOCX to PDF Comparison Engine |
+| Poppler             | `pdftotext`, `pdfinfo` | normalized PDF manifests      |
+| Playwright Chromium | —                      | Reference PDF capture         |
 
-| Tool | Command | Role | Install |
-| --- | --- | --- | --- |
-| LibreOffice | `soffice` | Comparison Engine: DOCX → PDF | `apt-get install -y libreoffice-writer` |
-| Poppler | `pdftotext` | ordered content per page | `apt-get install -y poppler-utils` |
-| Poppler | `pdfinfo` | page count and dimensions | `apt-get install -y poppler-utils` |
-| Playwright Chromium | — | Reference PDF capture | `bunx playwright install chromium` |
+`LANG`, `LC_ALL`, and `TZ` are pinned to `C`/`UTC`; the PDF uses US Letter with
+zero outer margin because the Layout Plan owns the page padding.
 
-`LANG`, `LC_ALL` and `TZ` are pinned to `C`/`UTC` for the comparison, and the PDF is captured at US Letter with zero PDF margin so the sheet is the plan's own. Resolved fonts are recorded for diagnosis only; no product font is changed for parity.
+## Fixtures and failure artifacts
 
-## Invocation policy
+`src/export-fixtures.ts` holds one synthetic fixture per supported block, mark,
+link, break, list, table, image, math, Question Type, and column setting, plus
+pagination boundaries and a realistic media-rich composite. Generated binary
+files are never test truth.
 
-`test:exports` does not run in `bun test`, does not run in `bun run test:e2e`, and does not run automatically in CI. Its absence from routine CI is intentional, not a missing gate. Run it when:
-
-- the user explicitly requests export comparison;
-- diagnosing a print/DOCX parity problem; or
-- reviewing or implementing a diff that affects the Export Document, the Layout Plan, either Export Adapter, pagination, print styling, or supported document-node rendering.
-
-Editor interaction, storage, and other changes outside those branches do not invoke it.
-
-## Fixtures
-
-`src/export-fixtures.ts` holds the corpus: one minimal fixture per supported block, inline mark, link, authored break, list form, table shape, image form, math form, question type and choice-grid setting; boundary cases for a question moving whole to the next page and a question splitting across pages; a realistic composite; and multi-Version fixtures — the composite in three randomized Versions with answer keys, both arrangements of a two-choice question, and question-order Randomization across two Question Sections. A fixture names its own Version count and Randomization; preparation turns it into the collection both adapters are fed.
-
-Every parity bug adds the smallest source fixture that reproduces it. The test must fail before the fix and pass after it.
-
-Fixtures use synthetic content only. A realistic production document belongs in the corpus only after removing student, teacher and school data.
-
-## Failure artifacts
-
-A failed comparison keeps, under `export-artifacts/<fixture>/` (git-ignored):
-
-- `fixture.json` — the source exam;
-- `layout-plan.json` — the normalized Layout Plan fingerprint, as planned without browser measurement;
-- `print-document.json` — the printed document's fingerprint, as the browser laid it out;
-- `export.docx` — the generated package;
-- `reference.pdf` — the print Export Adapter's output;
-- `export.pdf` — the DOCX rendered by the Comparison Engine;
-- `reference-manifest.txt` and `docx-manifest.txt` — the normalized per-page manifests;
-- `structural-report.txt` and `page-report.txt` — the comparisons; and
-- `../environment.txt` — tool versions, platform, locale and paper size.
-
-These artifacts explain failures; they are not committed golden files.
+A failed heavyweight comparison keeps diagnostic material under
+`export-artifacts/<fixture>/`: source fixture, normalized plans and adapter
+fingerprints, DOCX, Reference and converted PDFs, manifests, reports, and an
+environment record. Successful comparisons remove disposable converter state.
 
 ## Known limits
 
-- **Mathematics is a native equation carrying its LaTeX source.** The DOCX adapter emits a real Office Math object, so Word treats the equation as an equation and it stays editable — but the object's content is the authored LaTeX rather than OMML's own fraction, radical and script structure, because translating LaTeX into OMML needs a parser this codebase does not have. `\frac{a}{b}` therefore appears inside the equation as it was written. The source is preserved and the representation is native; the typesetting is not.
-- **The out-of-band comparison cannot adjudicate typeset mathematics or ruled blanks.** Both are excluded from the PDF word comparison for the reasons above; both are asserted structurally in the fast suite.
-- **Randomized exports are not reproducible.** No seed or generation record is persisted, so a second export of the same exam publishes a fresh set of Generated Versions. The out-of-band comparison pins `Math.random` in the page for exactly this reason; nothing in production does.
+- Office Math stores the authored LaTeX source in a native equation object; it
+  does not translate LaTeX into fully structured OMML.
+- The PDF word comparison cannot adjudicate ruled blanks or typeset math; both
+  remain covered structurally.
+- Version History is browser-local. Persistent-storage permission strengthens
+  local durability but is not an archival guarantee.
 
 ## Adding a supported document node
 
-The supported set is named once, in `SUPPORTED_NODES` and `SUPPORTED_MARKS` in `src/question-doc.ts`. A newly supported editor node needs all four of these:
-
-1. `doc-view.tsx` — how print draws it.
-2. `docx-export.ts` — how Word holds it.
-3. `export-fingerprint.ts` — the content line it reduces to, so the plan side has an expectation.
-4. `print-fingerprint.ts` — how that line is read back out of print's markup.
-
-Plus a fixture in `export-fixtures.ts`. `export-parity.test.ts` asserts that every name in `SUPPORTED_NODES` and `SUPPORTED_MARKS` appears in a fixture, and that every question type, column setting and page-header variant does too — so a node added to the list without coverage fails rather than disappearing quietly.
+Add support in all four mappings — `doc-view.tsx`, `docx-export.ts`,
+`export-fingerprint.ts`, and `print-fingerprint.ts` — and add the smallest
+fixture to `src/export-fixtures.ts`. The parity suite asserts complete coverage
+of `SUPPORTED_NODES`, `SUPPORTED_MARKS`, Question Types, column settings, and
+page-header variants.

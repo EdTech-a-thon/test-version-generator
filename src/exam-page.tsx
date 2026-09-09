@@ -45,7 +45,7 @@ import { DEFAULT_COLUMNS, columnsOf, type ColumnSetting, type Exam, type Questio
 import type { Selection } from './use-selection'
 import type { WorkspaceDrag } from './use-workspace-drag'
 import { dropStateOf, type QuestionDropState } from './workspace-drag'
-import { CircleMinus, Copy, EllipsisVertical, ListPlus, Pencil, Plus, RefreshCw } from 'lucide-react'
+import { CircleMinus, Copy, EllipsisVertical, ListPlus, Pencil, Plus, RefreshCw, Shuffle } from 'lucide-react'
 import {
   ContextMenu,
   type MenuItem,
@@ -78,7 +78,13 @@ const COLUMN_MENU_OPTIONS: readonly { label: string; value: ColumnSetting }[] = 
   { label: '4 columns', value: 4 },
 ]
 
-function ColumnLayoutIcon({ columns }: { columns: ColumnSetting }) {
+function ColumnLayoutIcon({
+  columns,
+  withDataAttribute = true,
+}: {
+  columns: ColumnSetting
+  withDataAttribute?: boolean
+}) {
   const strokes = columns === 1
     ? [
         'M1.5 2h15',
@@ -105,7 +111,7 @@ function ColumnLayoutIcon({ columns }: { columns: ColumnSetting }) {
       fill="none"
       stroke="currentColor"
       aria-hidden="true"
-      data-column-layout={columns}
+      data-column-layout={withDataAttribute ? columns : undefined}
     >
       {strokes.map((stroke) => (
         <path key={stroke} d={stroke} strokeLinecap="round" />
@@ -123,6 +129,8 @@ function questionMenuItems({
   onEdit,
   onDuplicate,
   onReplaceWithEquivalents,
+  onShuffleSelected,
+  onShuffleSelectedAnswers,
   onRemove,
   onAdd,
   onSetColumns,
@@ -133,6 +141,8 @@ function questionMenuItems({
   onEdit: (questionId: string) => void
   onDuplicate: (questionId: string) => void
   onReplaceWithEquivalents: (questionIds: readonly string[]) => void
+  onShuffleSelected: (questionIds: readonly string[]) => void
+  onShuffleSelectedAnswers: (questionIds: readonly string[]) => void
   onRemove: (questionIds: readonly string[]) => void
   onAdd: (section: QuestionType, afterQuestionId?: string) => void
   onSetColumns: (questionIds: readonly string[], columns: ColumnSetting) => void
@@ -150,6 +160,12 @@ function questionMenuItems({
       label: 'Vary',
       icon: <RefreshCw />,
       items: [
+        {
+          kind: 'action',
+          label: 'Shuffle answer order',
+          icon: <Shuffle />,
+          onSelect: () => onShuffleSelectedAnswers(actedOnIds),
+        },
         {
           kind: 'action',
           label: 'Replace with equivalents',
@@ -186,7 +202,7 @@ function questionMenuItems({
         label: 'Answer columns',
         // The parent row shows the current layout before its submenu asks the
         // teacher to choose another one.
-        icon: <ColumnLayoutIcon columns={columns} />,
+        icon: <ColumnLayoutIcon columns={columns} withDataAttribute={false} />,
         items: COLUMN_MENU_OPTIONS.map((option) => ({
           kind: 'radio',
           label: option.label,
@@ -200,6 +216,12 @@ function questionMenuItems({
   items.push(
     { kind: 'separator' },
     { kind: 'label', label: 'Vary' },
+    {
+      kind: 'action',
+      label: 'Shuffle question order',
+      icon: <Shuffle />,
+      onSelect: () => onShuffleSelected(actedOnIds),
+    },
     {
       kind: 'action',
       label: 'Replace with equivalents',
@@ -440,7 +462,7 @@ function QuestionView({
       {item.numbered && (
         <QuestionHandles question={question} onAdd={onAdd} onOpenMenu={onOpenMenu} />
       )}
-      <QuestionContent item={item} />
+      <QuestionContent item={item} showCorrectness />
     </section>
   )
 }
@@ -679,16 +701,15 @@ function usePaginatedExam(
 
 // The print Export Adapter's own document.
 //
-// One export is a collection of standalone documents — a student test or an
-// answer key, one per Generated Version — and this mounts every planned page of
-// every one of them, in the order `export-preparation.ts` prepared them, for a
-// single native Print operation.
+// One export is the canonical student test and answer key for one immutable
+// Version. This mounts every planned page in preparation order for the internal
+// print-reference and preview paths.
 //
 // It plans nothing. `ExamPage` above paginates what the teacher is editing;
 // this draws plans that were already resolved, which is what lets several
 // Versions print together without any of them being repaginated per format.
 // Each document is its own workspace, and print CSS breaks a page between them.
-function PlannedDocument({ plan }: { plan: LayoutPlan }) {
+export function ExportPreview({ plan }: { plan: LayoutPlan }) {
   return (
     <main className="exam-workspace" style={PAGE_GEOMETRY}>
       {plan.pages.map((page) => (
@@ -706,19 +727,6 @@ function PlannedDocument({ plan }: { plan: LayoutPlan }) {
   )
 }
 
-/** Everything one export publishes, mounted for the browser's Print dialog.
- *  Hidden on screen — `.print-output` is `display: none` until print media
- *  applies — and kept mounted until the browser says printing has finished. */
-export function PrintDocument({ plans }: { plans: readonly LayoutPlan[] }) {
-  return (
-    <div className="print-output">
-      {plans.map((plan, index) => (
-        <PlannedDocument key={`${plan.version.letter}-${plan.pages[0]?.stream}-${index}`} plan={plan} />
-      ))}
-    </div>
-  )
-}
-
 export function ExamPage({
   exam,
   version,
@@ -729,6 +737,8 @@ export function ExamPage({
   onEdit,
   onDuplicate,
   onReplaceWithEquivalents,
+  onShuffleSelected,
+  onShuffleSelectedAnswers,
   onRemove,
   onAdd,
   onAddFirst,
@@ -749,6 +759,8 @@ export function ExamPage({
   onEdit: (questionId: string) => void
   onDuplicate: (questionId: string) => void
   onReplaceWithEquivalents: (questionIds: readonly string[]) => void
+  onShuffleSelected: (questionIds: readonly string[]) => void
+  onShuffleSelectedAnswers: (questionIds: readonly string[]) => void
   onRemove: (questionIds: readonly string[]) => void
   onAdd: (section: QuestionType, afterQuestionId?: string) => void
   /** The first question on an empty sheet. Its position names no Question
@@ -843,9 +855,13 @@ export function ExamPage({
   } | null>(null)
   const closeMenu = useCallback(() => setMenu(null), [])
   const openMenu = useCallback(
-    (questionId: string, point: MenuPoint, side: MenuSide = 'right') =>
-      setMenu({ questionId, point, side }),
-    [],
+    (questionId: string, point: MenuPoint, side: MenuSide = 'right') => {
+      // A menu raised from outside the selection changes the command scope to
+      // that question. Raised from inside it, the selection remains intact.
+      if (!selection.isSelected(questionId)) selection.select(questionId)
+      setMenu({ questionId, point, side })
+    },
+    [selection],
   )
   // A question deleted while its own menu is open leaves the menu with nothing
   // to act on, so it simply stops being rendered.
@@ -968,6 +984,8 @@ export function ExamPage({
             onEdit,
             onDuplicate,
             onReplaceWithEquivalents,
+            onShuffleSelected,
+            onShuffleSelectedAnswers,
             onRemove,
             onAdd,
             onSetColumns,

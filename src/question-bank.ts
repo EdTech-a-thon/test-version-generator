@@ -23,6 +23,10 @@ export type QuestionBank = {
 export type ExamDraft = {
   title: string
   questionIds: string[]
+  /** The Exam Draft's answer arrangement, keyed by Question Bank record id.
+   *  Absent means authored order, preserving compatibility with drafts stored
+   *  before answer shuffling existed. */
+  choiceOrder?: Record<string, string[]>
 }
 
 export function createQuestionBank(): QuestionBank {
@@ -30,7 +34,7 @@ export function createQuestionBank(): QuestionBank {
 }
 
 export function createExamDraft(title: string = DEFAULT_EXAM_TITLE): ExamDraft {
-  return { title, questionIds: [] }
+  return { title, questionIds: [], choiceOrder: {} }
 }
 
 export function bankQuestionById(
@@ -99,7 +103,16 @@ export function withReferencesRemoved(
   const removing = new Set(questionIds)
   const remaining = draft.questionIds.filter((id) => !removing.has(id))
   if (remaining.length === draft.questionIds.length) return draft
-  return { ...draft, questionIds: remaining }
+
+  // A removed question no longer has an arrangement on this Exam Draft. This
+  // also means adding it again starts from its canonical authored answer order.
+  const choiceOrder = draft.choiceOrder
+    ? { ...draft.choiceOrder }
+    : undefined
+  for (const questionId of removing) delete choiceOrder?.[questionId]
+  return choiceOrder
+    ? { ...draft, questionIds: remaining, choiceOrder }
+    : { ...draft, questionIds: remaining }
 }
 
 /** The Exam Draft's references reordered wholesale — how a move records its
@@ -120,6 +133,25 @@ export function withReferenceOrder(
   }
   if (ordered.every((id, index) => id === draft.questionIds[index])) return draft
   return { ...draft, questionIds: ordered }
+}
+
+/** Records a new answer arrangement without changing canonical Question
+ * Content. A missing order and an explicit empty order mean the same thing. */
+export function withChoiceOrder(
+  draft: ExamDraft,
+  choiceOrder: Record<string, string[]>,
+): ExamDraft {
+  const current = draft.choiceOrder ?? {}
+  const currentEntries = Object.entries(current)
+  const nextEntries = Object.entries(choiceOrder)
+  if (
+    currentEntries.length === nextEntries.length
+    && nextEntries.every(([questionId, choices]) =>
+      current[questionId]?.length === choices.length
+      && current[questionId].every((choiceId, index) => choiceId === choices[index]),
+    )
+  ) return draft
+  return { ...draft, choiceOrder }
 }
 
 /**
@@ -144,5 +176,14 @@ export function withReferenceReplaced(
   if (index < 0 || isInExamDraft(draft, incomingQuestionId)) return draft
   const questionIds = [...draft.questionIds]
   questionIds[index] = incomingQuestionId
-  return { ...draft, questionIds }
+  // Replace begins with the incoming question's authored arrangement. Neither
+  // an outgoing arrangement nor stale persisted state may follow it here.
+  const choiceOrder = draft.choiceOrder
+    ? { ...draft.choiceOrder }
+    : undefined
+  delete choiceOrder?.[outgoingQuestionId]
+  delete choiceOrder?.[incomingQuestionId]
+  return choiceOrder
+    ? { ...draft, questionIds, choiceOrder }
+    : { ...draft, questionIds }
 }

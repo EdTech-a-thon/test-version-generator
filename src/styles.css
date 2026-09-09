@@ -111,8 +111,8 @@ button { cursor: pointer; }
 .secondary-button:hover { background: #ebddcd; }
 .primary-button { border-color: #9f5037; color: #fffaf3; background: #9f5037; }
 .primary-button:hover { background: #87422e; }
-.secondary-button:disabled { color: #a8988c; background: #f7eee3; cursor: not-allowed; }
-.secondary-button:disabled:hover { background: #f7eee3; }
+.secondary-button:disabled, .primary-button:disabled { color: #a8988c; border-color: #d8c8b8; background: #f7eee3; cursor: not-allowed; }
+.secondary-button:disabled:hover, .primary-button:disabled:hover { background: #f7eee3; }
 .toolbar-icon-button {
   display: inline-flex; align-items: center; justify-content: center;
   width: 36px; height: 36px; padding: 0; border: 1px solid transparent; border-radius: 8px;
@@ -129,6 +129,45 @@ button { cursor: pointer; }
   grid-template-rows: auto 1fr auto; overflow: hidden; border-radius: 10px;
   background: #fffaf3; box-shadow: 0 18px 55px rgb(55 42 33 / 30%);
 }
+/* A stable publication frame prevents validation feedback from making the
+   modal jump when no Content Selection is chosen. */
+.export-dialog--publication { width: min(1120px, 100%); height: min(760px, 94vh); }
+.export-publication-body {
+  min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 290px;
+  overflow: hidden;
+}
+.export-preview {
+  min-width: 0; min-height: 0; padding: 18px; overflow: auto;
+  overscroll-behavior: contain; background: #e9e1d7;
+}
+.export-preview .exam-workspace { overscroll-behavior: contain; }
+.export-preview .exam-workspace { min-height: 0; padding: 0; overflow: visible; }
+/* The layout plan's sheet stays full-size for publication. Its dialog preview
+   is only a reading surface, so reduce it enough to retain breathing room
+   within the preview lane rather than offering a horizontal scrollbar. */
+.export-preview .exam-page { zoom: 0.92; margin: 0 auto 18px; }
+/* The preview reuses the printed question markup, not the authoring gestures. */
+.export-preview .exam-question,
+.export-preview .exam-question:active { cursor: default; }
+.export-preview .exam-question:hover {
+  background: transparent; box-shadow: none;
+}
+.export-controls {
+  min-width: 0; padding: 18px; display: flex; flex-direction: column; gap: 18px;
+  overflow-y: auto; border-left: 1px solid #e0d3c5;
+}
+.export-version-state { display: grid; gap: 4px; margin: 0; color: #6e5b4d; }
+.export-version-state strong { color: #332a24; font-size: 20px; }
+.export-durability-note { margin: 0; color: #6e5b4d; font-size: 13px; line-height: 1.45; }
+.storage-notice {
+  position: fixed; z-index: 40; left: 50%; bottom: 22px; transform: translateX(-50%);
+  display: flex; align-items: flex-start; gap: 8px; width: min(520px, calc(100vw - 32px));
+  margin: 0; padding: 9px 10px 9px 14px; border: 1px solid #d8cab8; border-radius: 8px;
+  color: #46372d; background: #fffaf3; box-shadow: 0 8px 24px rgb(91 68 47 / 18%);
+  font-size: 13px; font-weight: 600;
+}
+.storage-notice p { flex: 1; margin: 0; line-height: 1.45; }
+.storage-notice .toolbar-icon-button { flex: none; width: 26px; height: 26px; margin: -3px -4px -3px 0; }
 .export-dialog-body {
   min-height: 0; padding: 16px 18px; display: grid; gap: 16px; overflow-y: auto;
 }
@@ -171,7 +210,50 @@ button { cursor: pointer; }
 }
 .empty-exam-button svg { width: 17px; height: 17px; stroke-width: 2; }
 
-.print-output { display: none; }
+/* Version History is an inspection drawer, not another editing surface. */
+.version-history-drawer {
+  position: fixed; z-index: 19; top: 58px; right: 0; bottom: 0; width: min(360px, 100vw);
+  padding: 18px; overflow-y: auto; border-left: 1px solid #e0d3c2;
+  background: #fffaf3; box-shadow: -8px 0 24px rgb(55 42 33 / 16%);
+}
+.version-history-drawer[hidden] { display: none; }
+.version-history-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+.version-history-header h2 { margin: 0; font-size: 18px; }
+.version-history-header p, .version-history-empty { margin: 6px 0 0; color: #6e5b4d; font-size: 13px; line-height: 1.45; }
+.version-history-list { display: grid; gap: 8px; margin: 20px 0 0; padding: 0; list-style: none; }
+.version-history-item {
+  display: grid; width: 100%; gap: 4px; padding: 12px; border: 1px solid #e0d3c2;
+  border-radius: 8px; color: #4e3b2f; background: #fffdf8; text-align: left;
+}
+.version-history-item:hover, .version-history-item:focus-visible { border-color: #9f5037; background: #f7eee3; }
+.version-history-item[aria-current='page'] { border-color: #9f5037; box-shadow: inset 0 0 0 1px #9f5037; }
+.version-history-item time, .version-history-item span { color: #6e5b4d; font-size: 13px; }
+.historical-document { min-height: calc(100vh - 58px); }
+.historical-document-bar {
+  position: sticky; top: 58px; z-index: 2; display: flex; align-items: center; justify-content: space-between;
+  gap: 16px; padding: 12px 24px; border-bottom: 1px solid #d5c1ac; background: #f2e6d8;
+}
+.historical-document-bar p { margin: 0 0 2px; color: #6e5b4d; font-size: 13px; }
+.historical-document-bar h2 { margin: 0; font-size: 18px; }
+.historical-document-actions { display: flex; align-items: center; gap: 10px; }
+.use-as-draft-dialog { width: min(460px, calc(100vw - 32px)); background: #fffaf3; border: 1px solid #e0d3c2; border-radius: 10px; box-shadow: 0 16px 48px rgb(55 42 33 / 26%); }
+.use-as-draft-body { padding: 18px; color: #4e3b2f; line-height: 1.5; }
+.use-as-draft-body p { margin: 0; }
+.historical-review-dialog { width: min(680px, calc(100vw - 32px)); max-height: min(760px, calc(100vh - 32px)); display: grid; grid-template-rows: auto minmax(0, 1fr) auto; }
+.historical-review-body { overflow-y: auto; }
+.historical-review-rows { display: grid; gap: 12px; margin: 16px 0 0; padding: 0; list-style: none; }
+.historical-review-row { padding: 14px; border: 1px solid #e0d3c2; border-radius: 8px; background: #fffdf8; }
+.historical-review-row h3 { margin: 0; font-size: 15px; }
+.historical-review-differences { margin-top: 6px !important; color: #6e5b4d; font-size: 13px; }
+.historical-review-row fieldset { display: grid; gap: 6px; margin: 12px 0; padding: 0; border: 0; }
+.historical-review-option { display: flex; align-items: center; gap: 8px; }
+.historical-review-row details { border-top: 1px solid #e8dfd2; padding-top: 10px; font-size: 13px; }
+.historical-review-row summary { cursor: pointer; font-weight: 600; }
+.historical-comparison { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 10px 0 0; }
+.historical-comparison dt { color: #6e5b4d; font-weight: 600; }
+.historical-comparison dd { margin: 4px 0 0; overflow-wrap: anywhere; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+.historical-document-pages .exam-workspace { min-height: 0; }
 
 /* The rendered test. Everything below the document bar is a view of what the
    printer will produce; nothing in it is typeable.
@@ -215,8 +297,11 @@ button { cursor: pointer; }
 .workspace-resizer:hover, .workspace-resizer:focus-visible { background: #e3d2bd; }
 .workspace-resizer:focus-visible { outline: 2px solid #8a6a4c; outline-offset: -2px; }
 
-.question-bank {
+.question-bank-authoring {
   position: sticky; top: 58px; align-self: start;
+  min-width: 0; height: calc(100vh - 58px);
+}
+.question-bank {
   display: flex; flex-direction: column; gap: 14px;
   height: calc(100vh - 58px); padding: 18px 16px; overflow-y: auto;
   border-right: 1px solid #e8dfd2; background: #fffaf3;
@@ -575,6 +660,14 @@ button { cursor: pointer; }
 /* The choice grid: a table for the column-major layout, borderless everywhere. */
 .choice-grid { width: 100%; margin: 8px 0 0; border: 0; border-collapse: collapse; table-layout: fixed; }
 .choice-cell { padding: 1px 12px 1px 0; border: 0; vertical-align: top; }
+.choice-cell[data-correct-answer] { position: relative; }
+/* Correctness is authoring-only feedback. It is absolutely positioned so it
+   cannot change the measured or printed choice-grid geometry. */
+.choice-correctness-marker {
+  position: absolute; top: 0; right: 2px; width: 15px; height: 15px;
+  border: 1px solid #8b7868; border-radius: 50%; color: #6d5a45; background: #fffdf8;
+  text-align: center; font: 700 11px/14px Arial, Helvetica, sans-serif;
+}
 .choice-letter { float: left; margin-right: 6px; font-weight: 400; }
 .choice-body > :first-child { margin-top: 0; }
 .choice-body > :last-child { margin-bottom: 0; }
@@ -928,14 +1021,24 @@ button { cursor: pointer; }
   .authoring-workspace {
     --bank-divider: 0px; grid-template-columns: 1fr;
   }
+  .question-bank-authoring { position: static; height: auto; }
   .question-bank {
-    position: static; height: auto; max-height: 44vh;
+    height: auto; max-height: 44vh;
     border-right: none; border-bottom: 1px solid #e8dfd2;
   }
   .workspace-resizer { display: none; }
   .exam-draft-empty-section { left: 0; }
   .exam-workspace { padding: 16px 0; }
   .dialog-backdrop { padding: 0; }
+  /* Keep the output-faithful paper available: the dialog stacks rather than
+     discarding its preview when its two desktop columns no longer fit. */
+  .export-publication-body {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(260px, 1fr) auto;
+    overflow-y: auto;
+  }
+  .export-preview { min-height: 260px; }
+  .export-controls { border-left: 0; }
   .question-dialog { width: 100%; height: 100vh; border-radius: 0; }
   .dialog-editor { padding: 0; }
 }
@@ -948,37 +1051,37 @@ button { cursor: pointer; }
 @page { size: 8.5in 11in; margin: 0; }
 
 @media print {
-  /* Chrome off: only the test prints. The measuring host is chrome too, and
-     an off-screen block left in the flow prints as blank sheets. */
-  .document-bar, .question-handles, .context-menu, .vary-summary,
-  .measure-host, .authoring-workspace,
-  .dialog-backdrop {
-    display: none;
+  /* Browser print has no product document. Hide the application wholesale so
+     native Print/Save as PDF can never publish authoring, selection, or
+     navigation chrome. The print adapter remains available to parity tests via
+     the clean Export Preview, which their controlled print stylesheet exposes. */
+  html:not([data-export-reference-print]) body,
+  html:not([data-export-reference-print]) #root { display: none !important; }
+
+  /* The diagnostic explicitly opts into the print adapter after opening the
+     clean Export Preview. Its sheets keep the same print geometry the adapter
+     is judged against, without making that browser path available to people. */
+  html[data-export-reference-print] .document-bar,
+  html[data-export-reference-print] .question-handles,
+  html[data-export-reference-print] .context-menu,
+  html[data-export-reference-print] .vary-summary,
+  html[data-export-reference-print] .measure-host,
+  html[data-export-reference-print] .authoring-workspace,
+  html[data-export-reference-print] .version-history-drawer,
+  html[data-export-reference-print] .dialog-backdrop { display: none; }
+  html[data-export-reference-print] body,
+  html[data-export-reference-print] :root { background: #fff; }
+  html[data-export-reference-print] .exam-workspace {
+    min-height: 0; padding: 0; overflow: visible;
   }
-  .print-output { display: block; }
-  body, :root { background: #fff; }
-  .exam-workspace { min-height: 0; padding: 0; overflow: visible; }
-  /* Geometry stays exactly as it is on screen — only the paper around it goes
-     away. Each sheet is one page; the last does not force a blank one after. */
-  .exam-page { margin: 0; box-shadow: none; break-after: page; }
-  .exam-page:last-of-type { break-after: auto; }
-  .print-output .exam-workspace:not(:last-child) .exam-page:last-of-type {
+  html[data-export-reference-print] .exam-page {
+    margin: 0; box-shadow: none; break-after: page;
+  }
+  html[data-export-reference-print] .exam-page:last-of-type { break-after: auto; }
+  html[data-export-reference-print] .export-preview .exam-workspace:not(:last-child) .exam-page:last-of-type {
     break-after: page;
   }
-  .exam-question { break-inside: avoid; }
-  /* Selection, hover and drag feedback are all editing chrome — never printed.
-     The Replace highlight is stated with an attribute, so it needs saying at
-     the same specificity to be taken back. */
-  .exam-question,
-  .exam-question:hover,
-  .exam-question--selected,
-  .exam-question[data-drop='replace'],
-  .exam-question--revealed {
-    background: none; box-shadow: none; opacity: 1; animation: none;
-  }
-  .exam-question[data-drop]::after { display: none; }
-  .exam-draft-empty-section, .workspace-resizer,
-  .question-drag-preview { display: none; }
+  html[data-export-reference-print] .exam-question { break-inside: avoid; }
 }
 
 /* The pages either side of the editor — About and Privacy — plus the footer

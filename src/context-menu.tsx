@@ -336,6 +336,11 @@ export function ContextMenu({
                         {child.icon}
                       </span>
                       <span className="context-menu-item-label">{child.label}</span>
+                      {child.kind === 'radio' && (
+                        <span className="context-menu-radio-indicator" aria-hidden="true">
+                          {child.checked && <span className="context-menu-dot" />}
+                        </span>
+                      )}
                     </button>
                   ))}
                 </div>

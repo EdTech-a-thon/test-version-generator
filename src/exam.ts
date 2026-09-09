@@ -358,7 +358,99 @@ export function moveQuestions(
   return { ...version, questionOrder }
 }
 
-// The same contract as `Math.random`: a float in [0, 1). Export Randomization
-// is the only thing that draws from one, and it injects its own source so a
-// fixture's Versions are reproducible while a real export is not.
+// The same contract as `Math.random`: a float in [0, 1). Random operations
+// accept it at their pure-model seam, so their tests can be reproducible while
+// an authoring command and a real export can draw from `Math.random`.
 export type RandomSource = () => number
+
+/**
+ * Shuffles only the selected questions among the positions those questions
+ * already occupy, independently in each Question Section.
+ *
+ * A section with fewer than two selected questions cannot vary and is left
+ * untouched. Every eligible section gets a non-identity permutation: a random
+ * Fisher–Yates result that happened to be unchanged is rotated once instead.
+ * This preserves each unselected question and every section boundary while
+ * making one Vary command visibly vary every group it can.
+ */
+export function shuffleSelectedQuestions(
+  exam: Exam,
+  version: Version,
+  questionIds: readonly string[],
+  random: RandomSource,
+): Version {
+  const selected = new Set(questionIds)
+  let changed = false
+  const questionOrder = SECTION_ORDER.flatMap((section) => {
+    const sectionIds = questionsInSection(exam, version, section).map(
+      (question) => question.id,
+    )
+    const selectedIds = sectionIds.filter((id) => selected.has(id))
+    if (selectedIds.length < 2) return sectionIds
+
+    const shuffled = [...selectedIds]
+    for (let index = shuffled.length - 1; index > 0; index -= 1) {
+      const swapIndex = Math.floor(random() * (index + 1))
+      ;[shuffled[index], shuffled[swapIndex]] = [
+        shuffled[swapIndex]!,
+        shuffled[index]!,
+      ]
+    }
+    if (shuffled.every((id, index) => id === selectedIds[index])) {
+      shuffled.push(shuffled.shift()!)
+    }
+    changed = true
+    let nextSelected = 0
+    return sectionIds.map((id) =>
+      selected.has(id) ? shuffled[nextSelected++]! : id,
+    )
+  })
+
+  return changed ? { ...version, questionOrder } : version
+}
+
+/**
+ * Shuffles the answers of every selected eligible Multiple Choice question,
+ * independently. The Question Content is not changed: this records an order
+ * of stable choice ids in the arrangement alone, so correctness remains on
+ * the choice it was authored on.
+ *
+ * A selected Short Answer question, an unknown question, and a Multiple Choice
+ * question with fewer than two choices cannot vary and are left alone. As with
+ * question shuffling, an identity Fisher–Yates draw is rotated so every
+ * eligible selected question visibly changes order.
+ */
+export function shuffleSelectedAnswers(
+  exam: Exam,
+  version: Version,
+  questionIds: readonly string[],
+  random: RandomSource,
+): Version {
+  const selected = new Set(questionIds)
+  let choiceOrder = version.choiceOrder
+  let changed = false
+
+  for (const question of exam.questions) {
+    if (!selected.has(question.id) || question.type !== 'multiple-choice') continue
+    const current = orderedChoices(question, version)
+    if (current.length < 2) continue
+
+    const shuffled = current.map((choice) => choice.id)
+    for (let index = shuffled.length - 1; index > 0; index -= 1) {
+      const swapIndex = Math.floor(random() * (index + 1))
+      ;[shuffled[index], shuffled[swapIndex]] = [
+        shuffled[swapIndex]!,
+        shuffled[index]!,
+      ]
+    }
+    if (shuffled.every((id, index) => id === current[index]!.id)) {
+      shuffled.push(shuffled.shift()!)
+    }
+
+    if (!changed) choiceOrder = { ...choiceOrder }
+    choiceOrder[question.id] = shuffled
+    changed = true
+  }
+
+  return changed ? { ...version, choiceOrder } : version
+}

@@ -10,13 +10,27 @@ import type {
   DurableAuthoringBackend,
   SavedState,
 } from './exam-store'
+import type {
+  PublicationHistory,
+  PublishedLayoutPlan,
+  PublishedVersion,
+  QuestionRevision,
+} from './export-preparation'
+import {
+  LAYOUT_PLAN_STORE,
+  MEDIA_ASSET_STORE,
+  QUESTION_REVISION_STORE,
+  VERSION_STORE,
+  VERSIONED_STORAGE_NAME,
+  VERSIONED_STORAGE_VERSION,
+} from './storage-schema'
 
-export const VERSIONED_STORAGE_NAME = 'test-parrot-version-history-v1'
+export { VERSIONED_STORAGE_NAME } from './storage-schema'
 export const QUESTION_BANK_STORE = 'question-bank'
 export const AUTHORING_STATE_STORE = 'authoring-state'
 export const SAVED_AUTHORING_STORE = 'saved-authoring-state'
 
-const DATABASE_VERSION = 1
+const DATABASE_VERSION = VERSIONED_STORAGE_VERSION
 const CURRENT_AUTHORING_KEY = 'current'
 const SAVED_AUTHORING_KEY = 'saved'
 
@@ -24,6 +38,7 @@ type AuthoringControl = {
   key: typeof CURRENT_AUTHORING_KEY
   questionIds: string[]
   examDraft: AuthoringState['examDraft']
+  lastExportedVersionId?: string
   dirty: boolean
 }
 
@@ -45,6 +60,18 @@ function openDatabase(databaseName: string): Promise<IDBDatabase> {
       }
       if (!database.objectStoreNames.contains(SAVED_AUTHORING_STORE)) {
         database.createObjectStore(SAVED_AUTHORING_STORE)
+      }
+      if (!database.objectStoreNames.contains(MEDIA_ASSET_STORE)) {
+        database.createObjectStore(MEDIA_ASSET_STORE, { keyPath: 'hash' })
+      }
+      if (!database.objectStoreNames.contains(VERSION_STORE)) {
+        database.createObjectStore(VERSION_STORE, { keyPath: 'id' })
+      }
+      if (!database.objectStoreNames.contains(QUESTION_REVISION_STORE)) {
+        database.createObjectStore(QUESTION_REVISION_STORE, { keyPath: 'id' })
+      }
+      if (!database.objectStoreNames.contains(LAYOUT_PLAN_STORE)) {
+        database.createObjectStore(LAYOUT_PLAN_STORE, { keyPath: 'id' })
       }
     }
     request.onsuccess = () => resolve(request.result)
@@ -79,6 +106,9 @@ export function indexedDBAuthoringRecordsOf(
       key: CURRENT_AUTHORING_KEY,
       questionIds: state.questionBank.questions.map((question) => question.id),
       examDraft: state.examDraft,
+      ...(state.lastExportedVersionId
+        ? { lastExportedVersionId: state.lastExportedVersionId }
+        : {}),
       dirty: state.dirty,
     },
   }
@@ -122,8 +152,29 @@ async function readAuthoringState(database: IDBDatabase): Promise<AuthoringState
       }),
     },
     examDraft: control.examDraft,
+    ...(typeof control.lastExportedVersionId === 'string'
+      ? { lastExportedVersionId: control.lastExportedVersionId }
+      : {}),
     dirty: control.dirty,
   }
+}
+
+async function readPublicationHistory(database: IDBDatabase): Promise<PublicationHistory> {
+  const transaction = database.transaction(
+    [VERSION_STORE, QUESTION_REVISION_STORE, LAYOUT_PLAN_STORE],
+    'readonly',
+  )
+  const versionsRequest = transaction.objectStore(VERSION_STORE).getAll()
+  const revisionsRequest = transaction.objectStore(QUESTION_REVISION_STORE).getAll()
+  const plansRequest = transaction.objectStore(LAYOUT_PLAN_STORE).getAll()
+  const [versions, revisions, plans] = await Promise.all([
+    resultOf(versionsRequest) as Promise<PublishedVersion[]>,
+    resultOf(revisionsRequest) as Promise<QuestionRevision[]>,
+    resultOf(plansRequest) as Promise<PublishedLayoutPlan[]>,
+    completionOf(transaction),
+  ])
+  versions.sort((left, right) => left.historyPosition - right.historyPosition)
+  return { versions, revisions, plans }
 }
 
 async function transactionally(
@@ -191,6 +242,47 @@ export function createIndexedDBAuthoringBackend(
         (transaction) => {
           putAuthoringState(transaction, { ...saved, dirty: false })
           transaction.objectStore(SAVED_AUTHORING_STORE).put(saved, SAVED_AUTHORING_KEY)
+        },
+      )
+    },
+
+    readPublicationHistory: async () => {
+      return readPublicationHistory(await database)
+    },
+
+    commitPublication: async (saved, publication) => {
+      await transaction(
+        [
+          QUESTION_BANK_STORE,
+          AUTHORING_STATE_STORE,
+          SAVED_AUTHORING_STORE,
+          VERSION_STORE,
+          QUESTION_REVISION_STORE,
+          LAYOUT_PLAN_STORE,
+          MEDIA_ASSET_STORE,
+        ],
+        (transaction) => {
+          putAuthoringState(transaction, { ...saved, dirty: false })
+          transaction.objectStore(SAVED_AUTHORING_STORE).put(saved, SAVED_AUTHORING_KEY)
+          if (publication.version) {
+            transaction.objectStore(VERSION_STORE).add(publication.version)
+            const revisions = transaction.objectStore(QUESTION_REVISION_STORE)
+            for (const revision of publication.revisions) revisions.add(revision)
+            const plans = transaction.objectStore(LAYOUT_PLAN_STORE)
+            for (const plan of publication.plans) plans.add(plan)
+          }
+
+          // Media is already ingested while authoring. Re-putting the immutable
+          // record inside this transaction both verifies it exists and includes
+          // every required asset in the publication durability boundary.
+          const media = transaction.objectStore(MEDIA_ASSET_STORE)
+          for (const hash of publication.mediaHashes) {
+            const request = media.get(hash)
+            request.onsuccess = () => {
+              if (request.result === undefined) transaction.abort()
+              else media.put(request.result)
+            }
+          }
         },
       )
     },

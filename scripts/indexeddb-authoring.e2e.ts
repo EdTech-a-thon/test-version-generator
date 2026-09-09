@@ -23,7 +23,9 @@ const legacyAuthoringState = (): AuthoringState => {
   }
 }
 
-test('the fresh generation ignores earlier browser authoring data', async ({ page }) => {
+test('the fresh generation ignores earlier browser authoring data', async ({
+  page,
+}) => {
   const legacy = legacyAuthoringState()
   await page.addInitScript((state: AuthoringState) => {
     localStorage.setItem('exam-authoring-v2', JSON.stringify(state))
@@ -34,10 +36,12 @@ test('the fresh generation ignores earlier browser authoring data', async ({ pag
       request.onsuccess = () => {
         const database = request.result
         const transaction = database.transaction('state', 'readwrite')
-        transaction.objectStore('state').put(
-          { questionBank: state.questionBank, examDraft: state.examDraft },
-          'saved',
-        )
+        transaction
+          .objectStore('state')
+          .put(
+            { questionBank: state.questionBank, examDraft: state.examDraft },
+            'saved',
+          )
         transaction.oncomplete = () => {
           database.close()
           resolve()
@@ -45,26 +49,34 @@ test('the fresh generation ignores earlier browser authoring data', async ({ pag
         transaction.onerror = () => reject(transaction.error)
       }
     })
-    const oldCache = caches.open('crepe-local-images-v1').then((cache) =>
-      cache.put('/local-images/legacy', new Response('legacy image bytes')),
-    )
+    const oldCache = caches
+      .open('crepe-local-images-v1')
+      .then((cache) =>
+        cache.put('/local-images/legacy', new Response('legacy image bytes')),
+      )
     ;(window as unknown as { legacySetup: Promise<unknown> }).legacySetup =
       Promise.all([oldDatabase, oldCache])
   }, legacy)
 
   await page.goto('/')
   await page.getByRole('textbox', { name: 'Exam name' }).waitFor()
-  await page.evaluate(() =>
-    (window as unknown as { legacySetup: Promise<unknown> }).legacySetup,
+  await page.evaluate(
+    () => (window as unknown as { legacySetup: Promise<unknown> }).legacySetup,
   )
 
-  await expect(page.getByRole('region', { name: 'Question Bank' }).getByRole('listitem')).toHaveCount(0)
+  await expect(
+    page.getByRole('region', { name: 'Question Bank' }).getByRole('listitem'),
+  ).toHaveCount(0)
   await expect(page.locator('.exam-question')).toHaveCount(0)
-  await expect(page.getByRole('textbox', { name: 'Exam name' })).toHaveValue('Untitled exam')
-  expect(await page.evaluate(() => localStorage.getItem('exam-authoring-v2'))).toBe(
-    JSON.stringify(legacy),
+  await expect(page.getByRole('textbox', { name: 'Exam name' })).toHaveValue(
+    'Untitled exam',
   )
-  expect(await page.evaluate(() => caches.has('crepe-local-images-v1'))).toBe(true)
+  expect(
+    await page.evaluate(() => localStorage.getItem('exam-authoring-v2')),
+  ).toBe(JSON.stringify(legacy))
+  expect(await page.evaluate(() => caches.has('crepe-local-images-v1'))).toBe(
+    true,
+  )
   expect(
     await page.evaluate(async () => {
       const database = await new Promise<IDBDatabase>((resolve, reject) => {
@@ -74,8 +86,12 @@ test('the fresh generation ignores earlier browser authoring data', async ({ pag
       })
       try {
         return await new Promise<boolean>((resolve, reject) => {
-          const request = database.transaction('state').objectStore('state').get('saved')
-          request.onsuccess = () => resolve(request.result.examDraft.title === 'Previous exam')
+          const request = database
+            .transaction('state')
+            .objectStore('state')
+            .get('saved')
+          request.onsuccess = () =>
+            resolve(request.result.examDraft.title === 'Previous exam')
           request.onerror = () => reject(request.error)
         })
       } finally {
@@ -85,7 +101,9 @@ test('the fresh generation ignores earlier browser authoring data', async ({ pag
   ).toBe(true)
 })
 
-test('failed normalized write and Save transactions expose no partial state', async ({ page }) => {
+test('failed normalized write and Save transactions expose no partial state', async ({
+  page,
+}) => {
   await page.goto('/')
   await page.getByRole('textbox', { name: 'Exam name' }).waitFor()
   const baseline = legacyAuthoringState()
@@ -135,7 +153,9 @@ test('failed normalized write and Save transactions expose no partial state', as
   expect(restored.saved).toBeNull()
 })
 
-test('Question Metadata and bank-only content survive a user-visible reload', async ({ page }) => {
+test('Question Metadata and bank-only content survive a user-visible reload', async ({
+  page,
+}) => {
   await page.goto('/')
   await page.getByRole('button', { name: 'New question' }).click()
   await page.getByRole('menuitem', { name: 'Multiple choice' }).click()
@@ -161,4 +181,83 @@ test('Question Metadata and bank-only content survive a user-visible reload', as
   await expect(row).toContainText('Hard')
   await expect(row).toContainText('Photosynthesis')
   await expect(page.locator('.exam-question')).toHaveCount(0)
+})
+
+test('publication aborts every store when a required Media Asset is absent', async ({
+  page,
+}) => {
+  await page.goto('/')
+  // A first visit registers the image service worker, which may reload once
+  // before it takes control. Wait for application startup rather than running
+  // the IndexedDB probe in the navigation that registration replaces.
+  await page.getByRole('textbox', { name: 'Exam name' }).waitFor()
+  const result = await page.evaluate(async () => {
+    const authoringPath = '/src/indexeddb-authoring.ts'
+    const preparationPath = '/src/export-preparation.ts'
+    const selectedPath = '/src/selected-exam.ts'
+    const planPath = '/src/export-plan.ts'
+    const { createIndexedDBAuthoringBackend } = (await import(
+      /* @vite-ignore */ authoringPath
+    )) as typeof import('../src/indexeddb-authoring')
+    const { prepareExport, EMPTY_PUBLICATION_HISTORY } = (await import(
+      /* @vite-ignore */ preparationPath
+    )) as typeof import('../src/export-preparation')
+    const { selectedExam } = (await import(
+      /* @vite-ignore */ selectedPath
+    )) as typeof import('../src/selected-exam')
+    const { unmeasured } = (await import(
+      /* @vite-ignore */ planPath
+    )) as typeof import('../src/export-plan')
+
+    const question = {
+      id: 'q1',
+      type: 'open' as const,
+      columns: 2 as const,
+      doc: {
+        type: 'doc',
+        content: [
+          {
+            type: 'paragraph',
+            content: [{ type: 'text', text: 'Complete me' }],
+          },
+        ],
+      },
+    }
+    const state: AuthoringState = {
+      questionBank: { questions: [question] },
+      examDraft: { title: 'Atomic publication', questionIds: ['q1'] },
+      dirty: true,
+    }
+    const prepared = prepareExport({
+      ...selectedExam(state.questionBank, state.examDraft),
+      configuration: { format: 'pdf', selection: { test: true, answerKey: true } },
+      history: EMPTY_PUBLICATION_HISTORY,
+      measure: unmeasured,
+      createdAt: '2026-09-04T12:00:00.000Z',
+    })
+    prepared.publication.mediaHashes = ['f'.repeat(64)]
+    const backend = createIndexedDBAuthoringBackend(
+      'publication-media-abort-test',
+    )
+    let failed = false
+    try {
+      await backend.commitPublication(
+        { questionBank: state.questionBank, examDraft: state.examDraft },
+        prepared.publication,
+      )
+    } catch {
+      failed = true
+    }
+    return {
+      failed,
+      working: await backend.read(),
+      saved: await backend.readSaved(),
+      history: await backend.readPublicationHistory(),
+    }
+  })
+
+  expect(result.failed).toBe(true)
+  expect(result.working).toBeNull()
+  expect(result.saved).toBeNull()
+  expect(result.history).toEqual({ versions: [], revisions: [], plans: [] })
 })

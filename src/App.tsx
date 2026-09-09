@@ -47,24 +47,24 @@ import type { ColumnSetting, Difficulty, Question, QuestionPlacement, QuestionTy
 import { DifficultyBadge, TopicBadge } from './badges'
 import { bankQuestionById } from './question-bank'
 import type { ExamStore } from './exam-store'
-import { ExamPage, PrintDocument } from './exam-page'
+import { ExamPage } from './exam-page'
 import { QuestionBankPane } from './question-bank-pane'
 import { NO_FILTER, topicOptions, type QuestionBankFilter } from './question-bank-view'
 import { useSelection } from './use-selection'
 import { useWorkspaceDrag } from './use-workspace-drag'
 import { WorkspaceSplit } from './workspace-split'
-import type { LayoutPlan } from './export-plan'
 import {
   DEFAULT_EXPORT_CONFIGURATION,
-  plansOf,
   prepareExport,
+  prepareHistoricalExport,
   type ExportConfiguration,
   type PreparationProgress,
+  type PreparedExport,
 } from './export-preparation'
 import { ExportDialog } from './export-dialog'
 import { domMeasure } from './dom-measure'
-import { saveImage } from './local-images'
-import { configurePastedImages } from './pasted-images'
+import { ownDocumentMedia, saveImage } from './local-images'
+import { configurePastedImages, settlePendingMedia } from './pasted-images'
 import {
   AlignLeft,
   Check,
@@ -79,6 +79,17 @@ import {
 import { ContextMenu, type MenuPoint } from './context-menu'
 import { useRoute } from './use-route'
 import { Footer } from './site-chrome'
+import {
+  HistoricalDocument,
+  ReviewHistoricalQuestions,
+  UseAsDraftConfirmation,
+  VersionHistoryDrawer,
+} from './version-history'
+import {
+  compatibleHistoricalDraft,
+  draftMatchesHistoricalVersion,
+  historicalReconciliation,
+} from './historical-draft'
 import { AboutPage, PrivacyPage } from './site-pages'
 
 /** The mark each Question Section goes by, so a type reads the same wherever
@@ -87,6 +98,8 @@ const QUESTION_TYPE_ICONS: Record<QuestionType, ReactNode> = {
   'multiple-choice': <ListChecks />,
   open: <AlignLeft />,
 }
+
+const STORAGE_NOTICE_DURATION = 8_000
 
 /**
  * One line of a question's front matter: an icon and a label on the left, and
@@ -476,10 +489,13 @@ function QuestionDialog({
   }, [onCancel])
 
   const saveQuestion = async () => {
+    await settlePendingMedia()
     const saved: Question = {
       ...question,
       type,
-      doc: cleanDocument(readEditorDocument.current?.() ?? latestDoc.current),
+      doc: await ownDocumentMedia(
+        cleanDocument(readEditorDocument.current?.() ?? latestDoc.current),
+      ),
     }
     if (difficulty) saved.difficulty = difficulty
     else delete saved.difficulty
@@ -630,16 +646,79 @@ function ExamEditor({ store }: { store: ExamStore }) {
   const [exportDialog, setExportDialog] = useState<{
     configuration: ExportConfiguration
     error: string | null
+    source: 'live-draft' | 'historical-version'
   } | null>(null)
   const exportButton = useRef<HTMLButtonElement>(null)
-  // What a finished preparation handed over: the plans print mounts, or the
-  // Word file to save. Set only once the dialog has closed, so the native
-  // action never starts behind a modal that is still up.
-  const [handoff, setHandoff] = useState<
-    | { format: 'print'; plans: LayoutPlan[]; configuration: ExportConfiguration }
-    | { format: 'docx'; blob: Blob; filename: string; configuration: ExportConfiguration }
-    | null
-  >(null)
+  // Export can be opened by its visible button or Cmd/Ctrl+P. Remember the
+  // actual focusable opener so dismissing it returns a keyboard user to where
+  // they started, rather than always moving them to the toolbar.
+  const exportTrigger = useRef<HTMLElement | null>(null)
+  const historyButton = useRef<HTMLButtonElement>(null)
+  // Browsing a Version hides the mounted draft document and puts its immutable
+  // stored Layout Plans in the same center lane. Returning therefore restores
+  // the same editing view rather than rebuilding authoring state.
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const [viewingVersionId, setViewingVersionId] = useState<string | null>(null)
+  const [historicalFocusKey, setHistoricalFocusKey] = useState(0)
+  const [confirmingUseAsDraft, setConfirmingUseAsDraft] = useState(false)
+  const [reviewingHistoricalQuestions, setReviewingHistoricalQuestions] = useState(false)
+  const priorDraftFocus = useRef<HTMLElement | null>(null)
+  const useAsDraftButton = useRef<HTMLButtonElement>(null)
+  const publicationHistory = store.publicationHistory()
+  const viewingVersion = publicationHistory.versions.find(
+    (candidate) => candidate.id === viewingVersionId,
+  ) ?? null
+  // History inspection is read-only: no authoring command may leak through to
+  // the still-mounted draft while a drawer or stored Version is in front.
+  const isHistoricalBrowsing = historyOpen || viewingVersion !== null
+  const historicalDraft = viewingVersion
+    ? compatibleHistoricalDraft(
+      publicationHistory,
+      viewingVersion,
+      state.examDraft,
+      state.questionBank,
+    )
+    : null
+  const historicalReview = viewingVersion
+    ? historicalReconciliation(
+      publicationHistory,
+      viewingVersion,
+      state.questionBank,
+    )
+    : null
+  const lastExportedVersion = state.lastExportedVersionId
+    ? publicationHistory.versions.find((version) => version.id === state.lastExportedVersionId) ?? null
+    : publicationHistory.versions.at(-1) ?? null
+  const draftDiffersFromLastVersion = lastExportedVersion
+    ? !draftMatchesHistoricalVersion(
+      publicationHistory,
+      lastExportedVersion,
+      state.examDraft,
+      state.questionBank,
+    )
+    : state.dirty
+  // The selected artifact is handed to the browser only after its Version
+  // transaction commits. Browser cancellation from that point cannot rewrite history.
+  const [handoff, setHandoff] = useState<{
+    blob: Blob
+    filename: string
+    format: ExportConfiguration['format']
+    configuration: ExportConfiguration
+    source: 'live-draft' | 'historical-version'
+  } | null>(null)
+  const [storageNotice, setStorageNotice] = useState<string | null>(null)
+  const closeVersionHistory = useCallback(() => {
+    setHistoryOpen(false)
+    requestAnimationFrame(() => historyButton.current?.focus())
+  }, [])
+  const returnToExamDraft = useCallback(() => {
+    setViewingVersionId(null)
+    requestAnimationFrame(() => {
+      if (priorDraftFocus.current?.isConnected) {
+        priorDraftFocus.current.focus()
+      }
+    })
+  }, [])
   // Selection lives here, alongside the store, so page interactions and
   // selection-wide context-menu actions share one source of truth.
   const selection = useSelection()
@@ -659,11 +738,39 @@ function ExamEditor({ store }: { store: ExamStore }) {
   // The outcome of the latest Vary command stays visible and is announced to
   // assistive technology. It is transient UI feedback, not authoring state.
   const [varySummary, setVarySummary] = useState<string | null>(null)
+  // Remember the actual authoring control that last held focus. History owns
+  // focus while it is open, so it must not replace this restoration target.
+  useEffect(() => {
+    const remember = (event: FocusEvent) => {
+      const target = event.target
+      if (
+        viewingVersion === null
+        && target instanceof HTMLElement
+        && target.closest('.draft-document, .document-identity')
+      ) {
+        priorDraftFocus.current = target
+      }
+    }
+    document.addEventListener('focusin', remember)
+    return () => document.removeEventListener('focusin', remember)
+  }, [viewingVersion])
   useEffect(() => {
     if (!varySummary) return
     const timer = window.setTimeout(() => setVarySummary(null), 4_000)
     return () => window.clearTimeout(timer)
   }, [varySummary])
+  // Storage durability is useful feedback immediately after first
+  // publication, not a permanent obstruction over the workspace. It can be
+  // dismissed sooner, and otherwise leaves on the same short-lived cadence as
+  // the other notices.
+  useEffect(() => {
+    if (!storageNotice) return
+    const timer = window.setTimeout(
+      () => setStorageNotice(null),
+      STORAGE_NOTICE_DURATION,
+    )
+    return () => window.clearTimeout(timer)
+  }, [storageNotice])
   // A highlighted bank row is a place to read from, not a thing being acted
   // against, so it lasts exactly as long as the teacher is looking at it: the
   // next press anywhere but on a row takes it back, and so does Escape (with
@@ -728,6 +835,16 @@ function ExamEditor({ store }: { store: ExamStore }) {
     // now, and a selection pointing at it names no position on the Exam Draft.
     selectAndReveal(incomingQuestionId)
   }
+  const shuffleSelectedQuestions = (questionIds: readonly string[]) => {
+    store.shuffleSelectedQuestions(questionIds)
+    setVarySummary('Shuffled question order.')
+  }
+
+  const shuffleSelectedAnswers = (questionIds: readonly string[]) => {
+    store.shuffleSelectedAnswers(questionIds)
+    setVarySummary('Shuffled answer order.')
+  }
+
   const replaceWithEquivalentQuestions = (questionIds: readonly string[]) => {
     const before = store.getState().examDraft.questionIds
     const positions = questionIds
@@ -768,9 +885,57 @@ function ExamEditor({ store }: { store: ExamStore }) {
     }
   })
 
+  const openExport = useCallback((
+    source: 'live-draft' | 'historical-version' = viewingVersion
+      ? 'historical-version'
+      : 'live-draft',
+  ) => {
+    // A command may start with focus on the document body. That is not a useful
+    // restoration target, so fall back to the visible Export button in that
+    // case. A real control, such as the Exam name field, retains its own focus.
+    const active = document.activeElement
+    exportTrigger.current =
+      active instanceof HTMLElement && active !== document.body
+        ? active
+        : exportButton.current
+    setExportDialog({
+      configuration: DEFAULT_EXPORT_CONFIGURATION,
+      error: null,
+      source,
+    })
+  }, [viewingVersion])
+
   useEffect(() => {
-    if (editing || exportDialog) return
+    const onPrintShortcut = (event: KeyboardEvent) => {
+      if (
+        event.key.toLowerCase() === 'p'
+        && (event.ctrlKey || event.metaKey)
+        && !event.altKey
+      ) {
+        // There is deliberately no browser-print fallback: even while another
+        // modal owns focus, Cmd/Ctrl+P must not bypass Version publication.
+        event.preventDefault()
+        if (editing || exportDialog || confirmingUseAsDraft || reviewingHistoricalQuestions) return
+        openExport()
+      }
+    }
+    document.addEventListener('keydown', onPrintShortcut)
+    return () => document.removeEventListener('keydown', onPrintShortcut)
+  }, [confirmingUseAsDraft, editing, exportDialog, openExport, reviewingHistoricalQuestions])
+
+  useEffect(() => {
+    if (editing || exportDialog || confirmingUseAsDraft || reviewingHistoricalQuestions) return
     const onKeyDown = (event: KeyboardEvent) => {
+      const authoringShortcut =
+        (event.key.toLowerCase() === 'z' && (event.ctrlKey || event.metaKey) && !event.altKey)
+        || event.key === 'Delete'
+        || event.key === 'Backspace'
+      if (isHistoricalBrowsing && authoringShortcut) {
+        // Do not let Backspace navigate away either: during history inspection
+        // these keys name no authoring action at all.
+        event.preventDefault()
+        return
+      }
       if (
         event.key.toLowerCase() === 'z'
         && (event.ctrlKey || event.metaKey)
@@ -798,124 +963,197 @@ function ExamEditor({ store }: { store: ExamStore }) {
         return
       }
       if (event.key !== 'Escape') return
+      if (historyOpen) {
+        event.preventDefault()
+        closeVersionHistory()
+        return
+      }
+      if (viewingVersion) {
+        event.preventDefault()
+        returnToExamDraft()
+        return
+      }
       clearSelection()
       setSelectedBankId(null)
     }
     document.addEventListener('keydown', onKeyDown)
     return () => document.removeEventListener('keydown', onKeyDown)
-  }, [clearSelection, editing, exportDialog, selection.selectedIds, store])
+  }, [clearSelection, closeVersionHistory, confirmingUseAsDraft, editing, exportDialog, historyOpen, isHistoricalBrowsing, returnToExamDraft, reviewingHistoricalQuestions, selection.selectedIds, store, viewingVersion])
+
+  const restoreUseAsDraftFocus = () => {
+    requestAnimationFrame(() => useAsDraftButton.current?.focus())
+  }
 
   const closeExportDialog = () => {
+    const source = exportDialog?.source
+    const trigger = exportTrigger.current
+    exportTrigger.current = null
     setExportDialog(null)
-    exportButton.current?.focus()
+    if (source === 'live-draft' && viewingVersion) {
+      restoreUseAsDraftFocus()
+      return
+    }
+    requestAnimationFrame(() => {
+      if (trigger?.isConnected) trigger.focus()
+      else exportButton.current?.focus()
+    })
   }
+
+  const prepareForPublication = (
+    configuration: ExportConfiguration,
+    source: 'live-draft' | 'historical-version',
+    onProgress?: (progress: PreparationProgress) => void,
+  ) =>
+    source === 'historical-version' && viewingVersion
+      ? prepareHistoricalExport({
+        history: publicationHistory,
+        version: viewingVersion,
+        configuration,
+      })
+      : prepareExport({
+        exam,
+        version,
+        configuration,
+        history: publicationHistory,
+        measure: domMeasure,
+        createdAt: new Date().toISOString(),
+        onProgress,
+      })
 
   /**
    * One export, from the Export button to the moment the browser takes over.
    *
-   * Saving first is what stops stale content being published: there is no Save
-   * button, so the export is the commit, and a failed write aborts the export
-   * with a message rather than quietly printing yesterday's exam.
-   *
-   * Then one call to the preparation seam, which is the only thing that decides
-   * how many Versions there are and what each of them says. DOCX is packaged
-   * here too, while the dialog is still up and can show progress and catch a
-   * failure; the final native action is handed back so it starts after the
-   * dialog has closed and focus is back on Export.
+   * The selected artifact is fully packaged first. Only then does one IndexedDB
+   * transaction commit immutable history, required media, and the current
+   * authoring state. The browser receives the download after that commit.
    */
   const runExport = async (
     configuration: ExportConfiguration,
+    source: 'live-draft' | 'historical-version',
     onProgress: (progress: PreparationProgress) => void,
   ) => {
+    const prepared = prepareForPublication(configuration, source, onProgress)
+    let blob: Blob
     try {
-      await store.save()
+      if (configuration.format === 'pdf') {
+        const pdf = await import('./pdf-export')
+        blob = pdf.pdfBlob(await pdf.createPublicationPdf(prepared.documents))
+      } else {
+        const docx = await import('./docx-export')
+        blob = await docx.createPublicationDocx(prepared.documents)
+      }
     } catch (error) {
-      console.error('Could not save the exam before exporting', error)
+      console.error(`Could not create the ${configuration.format.toUpperCase()} file`, error)
+      const media = await import('./export-media')
+      const pdf = configuration.format === 'pdf' ? await import('./pdf-export') : null
+      if (
+        media.isRequiredMediaError(error)
+        || pdf?.isPdfUnsupportedCharacterError(error)
+        || pdf?.isPdfLayoutError(error)
+      ) throw error
       throw new Error(
-        'Your latest changes could not be saved, so the export was stopped. '
-        + 'Check your connection and try again.',
+        configuration.format === 'pdf'
+          ? 'The PDF file could not be created in this browser. Choose DOCX or try again.'
+          : 'The Word file could not be created. Please try again.',
       )
     }
 
-    const prepared = prepareExport({
-      ...store.selectedExam(),
-      configuration,
-      // Not seeded: a later export deliberately draws a fresh set rather than
-      // reproducing an earlier one.
-      random: Math.random,
-      measure: domMeasure,
-      onProgress,
-    })
-    const plans = plansOf(prepared)
+    let durability: 'granted' | 'denied' | null = null
+    if (
+      prepared.resolution.kind === 'new'
+      && store.publicationHistory().versions.length === 0
+    ) {
+      try {
+        durability = await navigator.storage?.persist?.() ? 'granted' : 'denied'
+      } catch {
+        durability = 'denied'
+      }
+    }
 
-    if (configuration.format === 'print') {
-      setHandoff({ format: 'print', plans, configuration })
-      return
-    }
     try {
-      // Loaded on demand: the Word writer and its ZIP machinery stay out of the
-      // application's initial bundle.
-      const { createExamDocx } = await import('./docx-export')
-      setHandoff({
-        format: 'docx',
-        blob: await createExamDocx(plans),
-        filename: prepared.filename,
-        configuration,
-      })
+      // A historical export has no current authoring state to save and no
+      // immutable records to append. Its artifact comes entirely from stored
+      // plans and Media Assets, so leave the live draft untouched.
+      if (source === 'live-draft') await store.publish(prepared.publication)
     } catch (error) {
-      console.error('Could not create the DOCX file', error)
-      throw new Error('The Word file could not be created. Please try again.')
+      console.error('Could not commit the Version', error)
+      if (error instanceof DOMException && error.name === 'QuotaExceededError') {
+        throw new Error(
+          'Browser storage is full. Free space in this browser, then try exporting again.',
+        )
+      }
+      throw new Error(
+        'The Version could not be saved to browser storage, so no download was started. Try again.',
+      )
     }
+
+    if (durability) {
+      setStorageNotice(
+        durability === 'granted'
+          ? 'Version History is stored locally in this browser with persistent storage enabled. Keep an external archival copy of important files.'
+          : 'Persistent storage was not granted. Version History remains browser-local and may be cleared by the browser; keep an external archival copy.',
+      )
+    }
+    setHandoff({
+      blob,
+      filename: prepared.filename,
+      format: configuration.format,
+      configuration,
+      source,
+    })
   }
 
   /** A native action that never started: reopen the dialog on the same
    *  configuration with something the teacher can act on. */
-  const exportFailed = (configuration: ExportConfiguration, message: string) => {
+  const exportFailed = (
+    configuration: ExportConfiguration,
+    source: 'live-draft' | 'historical-version',
+    message: string,
+  ) => {
     setHandoff(null)
-    setExportDialog({ configuration, error: message })
+    setExportDialog({ configuration, source, error: message })
   }
 
-  // The handoff, once the dialog is out of the way.
-  //
-  // The print document stays mounted until `afterprint` says the browser is
-  // done with it. Unmounting in the frame that follows `window.print()` assumes
-  // the dialog has already read the DOM, and a preview that re-reads it — or a
-  // headless capture that never opens a dialog at all — would find nothing
-  // there. Off screen the extra markup costs nothing: `.print-output` is
-  // `display: none` until print media applies.
+  // The handoff, once the dialog is out of the way and publication is durable.
   useEffect(() => {
     if (!handoff) return
-    if (handoff.format === 'docx') {
-      const { blob, filename, configuration } = handoff
-      void import('./docx-export')
-        .then(({ saveDocxFile }) => {
-          saveDocxFile(blob, filename)
-          setHandoff(null)
-        })
-        .catch((error: unknown) => {
-          console.error('Could not start the DOCX download', error)
-          exportFailed(configuration, 'The download could not be started. Please try again.')
-        })
-      return
-    }
-    const done = () => setHandoff(null)
-    window.addEventListener('afterprint', done)
-    const frame = window.requestAnimationFrame(() => {
-      try {
-        window.print()
-      } catch (error) {
-        console.error('Could not open the print dialog', error)
-        exportFailed(
-          handoff.configuration,
-          'The print dialog could not be opened. Please try again.',
-        )
-      }
-    })
-    return () => {
-      window.removeEventListener('afterprint', done)
-      window.cancelAnimationFrame(frame)
-    }
+    const { blob, filename, format, configuration, source } = handoff
+    const save = format === 'pdf'
+      ? import('./pdf-export').then(({ savePdfFile }) => savePdfFile)
+      : import('./docx-export').then(({ saveDocxFile }) => saveDocxFile)
+    void save
+      .then((saveFile) => {
+        saveFile(blob, filename)
+        setHandoff(null)
+      })
+      .catch((error: unknown) => {
+        console.error(`Could not start the ${format.toUpperCase()} download`, error)
+        exportFailed(configuration, source, 'The download could not be started. The Version remains in History.')
+      })
   }, [handoff])
+
+  let exportPreview: PreparedExport | null = null
+  let previewError: string | null = null
+  if (exportDialog) {
+    try {
+      const hasNoSelectedContent =
+        !exportDialog.configuration.selection.test
+        && !exportDialog.configuration.selection.answerKey
+      // An invalid empty selection still has a well-defined Version identity.
+      // Prepare both canonical streams just for that identity, then deliberately
+      // show no paper until the teacher chooses content. This keeps the
+      // re-export/new-Version state visible beside its validation message.
+      const previewConfiguration = hasNoSelectedContent
+        ? DEFAULT_EXPORT_CONFIGURATION
+        : exportDialog.configuration
+      const prepared = prepareForPublication(previewConfiguration, exportDialog.source)
+      exportPreview = hasNoSelectedContent
+        ? { ...prepared, documents: [] }
+        : prepared
+    } catch (error) {
+      previewError = error instanceof Error ? error.message : 'The export cannot be prepared.'
+    }
+  }
 
   return (
     <>
@@ -928,6 +1166,7 @@ function ExamEditor({ store }: { store: ExamStore }) {
             aria-label="Exam name"
             className="document-title"
             value={state.examDraft.title}
+            disabled={isHistoricalBrowsing}
             onChange={(event) => store.setTitle(event.target.value)}
           />
         </div>
@@ -937,8 +1176,10 @@ function ExamEditor({ store }: { store: ExamStore }) {
             className="toolbar-icon-button"
             aria-label="Undo"
             title="Undo (Ctrl/Cmd+Z)"
-            disabled={!store.canUndo()}
-            onClick={store.undo}
+            disabled={isHistoricalBrowsing || !store.canUndo()}
+            onClick={() => {
+              if (!isHistoricalBrowsing) store.undo()
+            }}
           >
             <Undo2 />
           </button>
@@ -947,10 +1188,29 @@ function ExamEditor({ store }: { store: ExamStore }) {
             className="toolbar-icon-button"
             aria-label="Redo"
             title="Redo (Ctrl/Cmd+Shift+Z)"
-            disabled={!store.canRedo()}
-            onClick={store.redo}
+            disabled={isHistoricalBrowsing || !store.canRedo()}
+            onClick={() => {
+              if (!isHistoricalBrowsing) store.redo()
+            }}
           >
             <Redo2 />
+          </button>
+          <button
+            ref={historyButton}
+            type="button"
+            className="secondary-button"
+            aria-expanded={historyOpen}
+            aria-controls="version-history"
+            onPointerDown={() => {
+              // Reopening History while inspecting a Version must retain the
+              // original draft target for Return to Exam Draft.
+              if (viewingVersion !== null) return
+              const active = document.activeElement
+              priorDraftFocus.current = active instanceof HTMLElement ? active : null
+            }}
+            onClick={() => setHistoryOpen((open) => !open)}
+          >
+            Version History
           </button>
           <button
             ref={exportButton}
@@ -958,40 +1218,61 @@ function ExamEditor({ store }: { store: ExamStore }) {
             className="export-button"
             aria-haspopup="dialog"
             aria-expanded={exportDialog !== null}
-            onClick={() =>
-              setExportDialog({
-                configuration: DEFAULT_EXPORT_CONFIGURATION,
-                error: null,
-              })
-            }
+            onClick={() => openExport()}
           >
-            Export
+            {viewingVersion ? 'Historical Export' : 'Export'}
           </button>
         </div>
       </header>
 
       {exportDialog && (
         <ExportDialog
-          exam={exam}
-          version={version}
           configuration={exportDialog.configuration}
           onConfigurationChange={(configuration) =>
             setExportDialog((current) => (current ? { ...current, configuration } : current))
           }
-          initialError={exportDialog.error}
+          resolution={exportPreview?.resolution ?? null}
+          previewPlans={exportPreview?.documents ?? []}
+          // A stored Version is independently exportable even if the live
+          // Exam Draft was emptied after it was published.
+          empty={exportDialog.source === 'live-draft' && exam.questions.length === 0}
+          initialError={
+            exportDialog.error
+            ?? (exportDialog.source === 'live-draft' && exam.questions.length === 0 ? null : previewError)
+          }
           onSubmit={async (configuration, onProgress) => {
-            await runExport(configuration, onProgress)
+            await runExport(configuration, exportDialog.source, onProgress)
             closeExportDialog()
           }}
           onCancel={closeExportDialog}
         />
       )}
 
+      <VersionHistoryDrawer
+        versions={publicationHistory.versions}
+        selectedVersionId={viewingVersion?.id ?? null}
+        open={historyOpen}
+        onOpenChange={(open) => {
+          if (open) setHistoryOpen(true)
+          else closeVersionHistory()
+        }}
+        onSelect={(selectedVersion) => {
+          setViewingVersionId(selectedVersion.id)
+          setHistoricalFocusKey((key) => key + 1)
+          setHistoryOpen(false)
+        }}
+      />
+
       {/* The split authoring workspace: the Question Bank beside the rendered
           Exam Draft. The bank opens as the narrower pane — it is picked from
           rather than read — and the divider moves. */}
       <WorkspaceSplit
         bank={
+          <div
+            className="question-bank-authoring"
+            inert={isHistoricalBrowsing || undefined}
+            aria-hidden={isHistoricalBrowsing || undefined}
+          >
           <QuestionBankPane
             bank={state.questionBank}
             examDraftIds={examDraftIds}
@@ -1017,9 +1298,19 @@ function ExamEditor({ store }: { store: ExamStore }) {
               if (selection.isSelected(questionId)) selection.toggle(questionId)
             }}
           />
+          </div>
         }
         examDraft={
-          <ExamPage
+          <>
+            <div
+              className="draft-document"
+              hidden={viewingVersion !== null}
+              // The drawer is itself historical browsing, so the exposed part
+              // of the draft cannot receive pointer authoring gestures either.
+              inert={isHistoricalBrowsing || undefined}
+              aria-hidden={isHistoricalBrowsing || undefined}
+            >
+              <ExamPage
             exam={exam}
             version={version}
             selection={selection}
@@ -1034,6 +1325,8 @@ function ExamEditor({ store }: { store: ExamStore }) {
             }}
             onDuplicate={(questionId) => store.duplicateInExamDraft(questionId)}
             onReplaceWithEquivalents={replaceWithEquivalentQuestions}
+            onShuffleSelected={shuffleSelectedQuestions}
+            onShuffleSelectedAnswers={shuffleSelectedAnswers}
             onRemove={(questionIds) => {
               store.removeFromExamDraft(questionIds)
               selection.clear()
@@ -1054,8 +1347,35 @@ function ExamEditor({ store }: { store: ExamStore }) {
             onSetColumns={(questionIds, columns) =>
               store.setQuestionColumns(questionIds, columns)
             }
-            unsavedDraft={!store.hasSavedExam()}
-          />
+                unsavedDraft={!store.hasSavedExam()}
+              />
+            </div>
+            {viewingVersion && (
+              <HistoricalDocument
+                version={viewingVersion}
+                plans={prepareHistoricalExport({
+                  history: publicationHistory,
+                  version: viewingVersion,
+                  configuration: DEFAULT_EXPORT_CONFIGURATION,
+                }).documents}
+                focusKey={historicalFocusKey}
+                canUseAsDraft={historicalDraft !== null || historicalReview !== null}
+                useAsDraftButton={useAsDraftButton}
+                onUseAsDraft={() => {
+                  if (!viewingVersion || !historicalReview) return
+                  if (draftDiffersFromLastVersion) {
+                    setConfirmingUseAsDraft(true)
+                  } else if (historicalReview.rows.length > 0) {
+                    setReviewingHistoricalQuestions(true)
+                  } else {
+                    store.useHistoricalVersionAsDraft(viewingVersion.id)
+                  }
+                }}
+                onBack={returnToExamDraft}
+              />
+            )}
+            <Footer />
+          </>
         }
       />
 
@@ -1065,9 +1385,56 @@ function ExamEditor({ store }: { store: ExamStore }) {
         </p>
       )}
 
-      <Footer />
+      {storageNotice && (
+        <div className="storage-notice" role="status" aria-live="polite">
+          <p>{storageNotice}</p>
+          <button
+            type="button"
+            className="toolbar-icon-button"
+            aria-label="Dismiss storage notice"
+            onClick={() => setStorageNotice(null)}
+          >
+            ×
+          </button>
+        </div>
+      )}
 
-      {handoff?.format === 'print' && <PrintDocument plans={handoff.plans} />}
+      {confirmingUseAsDraft && viewingVersion && (
+        <UseAsDraftConfirmation
+          onCancel={() => {
+            setConfirmingUseAsDraft(false)
+            restoreUseAsDraftFocus()
+          }}
+          onExportCurrent={() => {
+            setConfirmingUseAsDraft(false)
+            openExport('live-draft')
+          }}
+          onReplace={() => {
+            setConfirmingUseAsDraft(false)
+            if (historicalReview?.rows.length) {
+              setReviewingHistoricalQuestions(true)
+            } else {
+              store.useHistoricalVersionAsDraft(viewingVersion.id)
+              restoreUseAsDraftFocus()
+            }
+          }}
+        />
+      )}
+
+      {reviewingHistoricalQuestions && viewingVersion && historicalReview && (
+        <ReviewHistoricalQuestions
+          rows={historicalReview.rows}
+          onCancel={() => {
+            setReviewingHistoricalQuestions(false)
+            restoreUseAsDraftFocus()
+          }}
+          onConfirm={(resolutions) => {
+            store.reconcileHistoricalVersionAsDraft(viewingVersion.id, resolutions)
+            setReviewingHistoricalQuestions(false)
+            restoreUseAsDraftFocus()
+          }}
+        />
+      )}
 
       {choosingType && (
         <ContextMenu

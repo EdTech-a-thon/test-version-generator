@@ -10,6 +10,8 @@ import {
   nextVersionLetter,
   moveQuestion,
   moveQuestions,
+  shuffleSelectedAnswers,
+  shuffleSelectedQuestions,
   orderedChoices,
   orderedQuestions,
   questionById,
@@ -172,6 +174,38 @@ describe('choice ordering', () => {
   test('an open question has no choices even if an ordering survives', () => {
     expect(orderedChoices(open('o1'), versionOf(['o1'], { o1: ['c1'] }))).toEqual([])
   })
+
+  test('shuffles every selected eligible question independently without changing canonical choices', () => {
+    const first = multipleChoice('q1', ['a', 'b', 'c'], 'b')
+    const second = multipleChoice('q2', ['d', 'e'], 'd')
+    const shortAnswer = open('o1')
+    const exam = examOf([first, second, shortAnswer])
+    const version = versionOf(['q1', 'q2', 'o1'])
+
+    const shuffled = shuffleSelectedAnswers(exam, version, ['q1', 'q2', 'o1'], () => 0.99)
+
+    expect(shuffled.choiceOrder).toEqual({ q1: ['b', 'c', 'a'], q2: ['e', 'd'] })
+    expect(orderedChoices(first, shuffled).map((item) => item.correct)).toEqual([
+      true,
+      false,
+      false,
+    ])
+    expect(choicesOf(first).map((item) => item.id)).toEqual(['a', 'b', 'c'])
+    expect(first.doc).toBe(first.doc)
+  })
+
+  test('forces a non-identity answer shuffle and skips ineligible questions', () => {
+    const eligible = multipleChoice('q1', ['a', 'b'], 'a')
+    const oneChoice = multipleChoice('q2', ['c'])
+    const shortAnswer = open('o1')
+    const exam = examOf([eligible, oneChoice, shortAnswer])
+    const version = versionOf(['q1', 'q2', 'o1'])
+
+    expect(shuffleSelectedAnswers(exam, version, ['q1'], () => 0).choiceOrder).toEqual({
+      q1: ['b', 'a'],
+    })
+    expect(shuffleSelectedAnswers(exam, version, ['q2', 'o1'], () => 0)).toBe(version)
+  })
 })
 
 describe('version ordering edits', () => {
@@ -217,6 +251,41 @@ describe('version ordering edits', () => {
     expect(
       moveQuestions(exam, version, ['q1', 'o1'], 'q3', 'after').questionOrder,
     ).toEqual(['q2', 'q3', 'q1', 'o1'])
+  })
+
+  test('shuffles selected questions only within their existing section positions', () => {
+    const exam = examOf([
+      multipleChoice('m1', ['a']),
+      multipleChoice('m2', ['a']),
+      multipleChoice('m3', ['a']),
+      open('o1'),
+      open('o2'),
+      open('o3'),
+    ])
+    const version = versionOf(['m1', 'm2', 'm3', 'o1', 'o2', 'o3'])
+
+    const shuffled = shuffleSelectedQuestions(
+      exam,
+      version,
+      ['m1', 'm3', 'o1', 'o3'],
+      () => 0.99,
+    )
+
+    expect(shuffled.questionOrder).toEqual(['m3', 'm2', 'm1', 'o3', 'o2', 'o1'])
+  })
+
+  test('forces a non-identity permutation and leaves ineligible selections alone', () => {
+    const exam = examOf([
+      multipleChoice('m1', ['a']),
+      multipleChoice('m2', ['a']),
+      open('o1'),
+    ])
+    const version = versionOf(['m1', 'm2', 'o1'])
+
+    expect(
+      shuffleSelectedQuestions(exam, version, ['m1', 'm2', 'o1'], () => 0).questionOrder,
+    ).toEqual(['m2', 'm1', 'o1'])
+    expect(shuffleSelectedQuestions(exam, version, ['m1', 'o1'], () => 0)).toBe(version)
   })
 
   test('appending a question adds it to the end of the ordering, once', () => {
