@@ -57,6 +57,16 @@ function ticketDeepDive(runDir, ticket) {
   const tdir = path.join(runDir, 'tickets', String(ticket));
   console.log(`\n=== Ticket #${ticket} ===`);
   const impl = path.join(tdir, 'implementation');
+  const attempts = path.join(tdir, 'attempts');
+  if (exists(attempts)) {
+    for (const attempt of fs.readdirSync(attempts).sort()) {
+      console.log(`\n-- attempt ${attempt} --`);
+      console.log((readText(path.join(attempts, attempt, 'response.txt')) || '(pending)').trim().slice(-4000));
+    }
+    const ledger = readJson(path.join(tdir, 'findings.json')) || [];
+    console.log('\n-- finding ledger --');
+    for (const f of ledger) console.log(`  ${f.id} [${f.status}, ${f.severity}] ${f.title}`);
+  }
   if (exists(path.join(impl, 'final.txt'))) {
     console.log(`\n-- implementation final message --`);
     console.log(readText(path.join(impl, 'final.txt')).trim().slice(0, 4000));
@@ -74,7 +84,7 @@ function ticketDeepDive(runDir, ticket) {
   // all review cycles
   const rroot = path.join(tdir, 'review');
   if (exists(rroot)) {
-    const cycles = fs.readdirSync(rroot).filter((d) => /^\d+$/.test(d)).sort((x, y) => +x - +y);
+    const cycles = fs.readdirSync(rroot).filter((d) => /^\d+$/.test(d) || d.startsWith('candidate-')).sort((x, y) => x.localeCompare(y, undefined, { numeric: true }));
     for (const c of cycles) {
       const v = readJson(path.join(rroot, c, 'verdict.json'));
       console.log(`\n-- review cycle ${c}: ${v ? v.verdict || 'INVALID' : '(no verdict)'} --`);
@@ -98,7 +108,31 @@ function summary(runDir, state) {
   console.log(`Run ${state.runId}  branch-target=${state.push ? 'push' : 'local-only'}`);
   console.log(`Queue: ${state.tickets.join(', ')}`);
   console.log(`Accepted: ${state.accepted && state.accepted.length ? state.accepted.join(', ') : '(none)'}`);
-  console.log(`Current: #${state.currentTicket}  state=${state.state}  repairCycles=${state.repairCycles}`);
+  console.log(`Current: #${state.currentTicket}  state=${state.state}  repairCycles=${state.ticketState?.repairCycles ?? state.repairCycles}`);
+  if (state.schemaVersion === 2) {
+    const t = state.ticketState;
+    console.log(`Workspace: ${state.workDir}`);
+    if (t) {
+      console.log(`Phase: ${t.phase}; agent turns: ${t.agentTurns}; infrastructure retries: ${t.environmentRetries}`);
+      console.log(`Candidate: ${t.candidate?.tree || '(pending)'}; commit: ${t.checkpoints.commit || '(pending)'}`);
+      console.log(`Open findings: ${t.ledger.filter(f => f.status === 'open').map(f => f.id).join(', ') || '(none)'}`);
+    }
+    const heartbeat = readJson(path.join(runDir, 'heartbeat.json'));
+    if (heartbeat) console.log(`Last heartbeat: ${heartbeat.at} (PID ${heartbeat.pid}; historical timestamp is not proof of liveness)`);
+    const events = (readText(path.join(runDir, 'events.jsonl')) || '').split('\n').flatMap(line => {
+      try { return [JSON.parse(line)]; } catch { return []; }
+    });
+    const commands = events.filter(e => e.type === 'command_finished');
+    console.log(`Checks: ${commands.length}; failed attempts: ${commands.filter(e => e.code !== 0).length}; reported flaky tests across attempts: ${commands.reduce((n, e) => n + (e.flaky || 0), 0)}`);
+    for (const role of ['implementation', 'review']) {
+      const usage = events.filter(e => e.type === 'usage' && e.role === role).reduce((u, e) => {
+        for (const key of ['input', 'output', 'cacheRead']) u[key] += e.usage[key] || 0;
+        return u;
+      }, { input: 0, output: 0, cacheRead: 0 });
+      console.log(`${role} tokens: input=${usage.input}, cached=${usage.cacheRead}, output=${usage.output} (cost metadata may be unavailable)`);
+    }
+    console.log(`Events: ${path.join(runDir, 'events.jsonl')}`);
+  }
   if (state.blocked && state.state === 'blocked') {
     console.log(`BLOCKED #${state.blocked.ticket}: ${state.blocked.reason} (at ${state.blocked.at})`);
   }

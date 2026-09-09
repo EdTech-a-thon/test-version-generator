@@ -1,790 +1,535 @@
 #!/usr/bin/env node
-// Simple Agent Coordinator. Node built-ins only. See spec in repo history.
-// Implements a queue of GitHub tickets: implement -> verify -> review -> accept.
-// The script (not an LLM) owns waiting, state, verification, commits, progression.
-
+// The coordinator owns execution, evidence, recovery and publication. Agents
+// implement and review one ticket at a time in a retained isolated worktree.
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { spawn, spawnSync } from 'node:child_process';
-import { StringDecoder } from 'node:string_decoder';
 import process from 'node:process';
+import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { PiSession } from './coordinator-session.mjs';
+import { runCommand, stopCommands, checked, snapshot, acquireLock, selectChecks, failureKind, writeJson } from './coordinator-runtime.mjs';
+import {
+  buildImplementationPrompt, buildRepairFromVerify, buildRepairFromReview,
+  buildReviewPrompt, buildReReviewPrompt, parseReviewVerdict, parseImplementationResult,
+} from './coordinator-prompts.mjs';
+export { buildImplementationPrompt, buildRepairFromVerify, buildRepairFromReview,
+  buildReviewPrompt, buildReReviewPrompt, parseReviewVerdict } from './coordinator-prompts.mjs';
 
-// ---------- small utilities ----------
+const readJson = file => JSON.parse(fs.readFileSync(file, 'utf8'));
+const mkdir = directory => fs.mkdirSync(directory, { recursive: true });
 
-const nowRunId = () => new Date().toISOString().replace(/[:.]/g, '-').replace('Z', 'Z');
-
-function sha(s) { return crypto.createHash('sha256').update(s || '').digest('hex'); }
-
-function truncate(s, max = 8000) {
-  if (!s) return '';
-  if (s.length <= max) return s;
-  const head = s.slice(0, max * 0.6 | 0);
-  const tail = s.slice(-(max * 0.3 | 0));
-  return `${head}\n\n...[truncated ${s.length - head.length - tail.length} chars; full log on disk]...\n\n${tail}`;
-}
-
-function mkdirp(p) { fs.mkdirSync(p, { recursive: true }); }
-
-function writeAtomic(file, data) {
-  const tmp = `${file}.tmp-${process.pid}-${Date.now()}`;
-  fs.writeFileSync(tmp, data);
-  fs.renameSync(tmp, file);
-}
-
-function writeJsonAtomic(file, obj) { writeAtomic(file, JSON.stringify(obj, null, 2)); }
-
-// ---------- default dependencies (injectable for tests) ----------
-
-function defaultRun(cmd, opts = {}) {
-  const r = spawnSync('bash', ['-lc', cmd], {
-    cwd: opts.cwd || process.cwd(),
-    encoding: 'utf8',
-    maxBuffer: 64 * 1024 * 1024,
-    env: opts.env ? { ...process.env, ...opts.env } : process.env,
-  });
-  const stdout = r.stdout || '';
-  const stderr = r.stderr || '';
-  return { code: r.status == null ? 1 : r.status, stdout, stderr, combined: stdout + stderr };
-}
-
-function makeDefaultDeps() {
-  return {
-    run: defaultRun,
-    spawn,
-    log: (line) => process.stdout.write(line + '\n'),
-    now: nowRunId,
-  };
-}
-
-// ---------- Pi RPC session ----------
-// Owns a `pi --mode rpc` child process directly. The coordinator awaits
-// agent_settled; it never hands control to another model while waiting.
-
-class PiSession {
-  constructor(deps, { agentCfg, sessionDir, rpcLogPath, name, skillPaths }) {
-    this.deps = deps;
-    this.agentCfg = agentCfg;
-    this.sessionDir = sessionDir;
-    this.rpcLogPath = rpcLogPath;
-    this.name = name;
-    this.skillPaths = skillPaths || [];
-    this.child = null;
-    this.buffer = '';
-    this.decoder = new StringDecoder('utf8');
-    this.handlers = new Set();
-    this.lastAssistantText = null;
-    this.exited = false;
-    this.exitCode = null;
+export function validateConfig(config) {
+  if (!config || typeof config.branch !== 'string' || !config.branch || config.branch.startsWith('-')) throw new Error('config.branch is required');
+  for (const role of ['implementation', 'review']) {
+    if (!config[role]?.provider || !config[role]?.model) throw new Error(`config.${role} requires provider and model`);
   }
-
-  start() {
-    mkdirp(this.sessionDir);
-    const args = [
-      '--mode', 'rpc',
-      '--session-dir', this.sessionDir,
-      '--provider', this.agentCfg.provider,
-      '--model', this.agentCfg.model,
-      '--thinking', this.agentCfg.thinking || 'high',
-      '-n', this.name || 'coordinator',
-    ];
-    for (const sp of this.skillPaths) { args.push('--skill', sp); }
-    this.child = this.deps.spawn('pi', args, { stdio: ['pipe', 'pipe', 'pipe'] });
-    this.rpcLog = fs.createWriteStream(this.rpcLogPath, { flags: 'a' });
-    this.child.stdout.on('data', (chunk) => this._onData(chunk));
-    this.child.stderr.on('data', (chunk) => this.rpcLog.write(`STDERR ${chunk}`));
-    this.child.on('exit', (code) => { this.exited = true; this.exitCode = code; });
+  for (const key of ['maxRepairCycles', 'maxAgentTurns', 'maxProtocolErrors', 'maxEnvironmentRetries', 'commandTimeoutMs', 'agentTimeoutMs']) {
+    if (config[key] != null && (!Number.isSafeInteger(config[key]) || config[key] < (key.startsWith('max') ? 0 : 1))) throw new Error(`Invalid ${key}`);
   }
-
-  _onData(chunk) {
-    this.buffer += typeof chunk === 'string' ? chunk : this.decoder.write(chunk);
-    for (;;) {
-      const nl = this.buffer.indexOf('\n');
-      if (nl === -1) break;
-      let line = this.buffer.slice(0, nl);
-      this.buffer = this.buffer.slice(nl + 1);
-      if (line.endsWith('\r')) line = line.slice(0, -1);
-      if (!line) continue;
-      this.rpcLog.write(line + '\n');
-      let ev;
-      try { ev = JSON.parse(line); } catch { continue; }
-      this._onEvent(ev);
+  const commandList = commands => Array.isArray(commands) && commands.every(c =>
+    typeof c === 'string' ? c.trim().length > 0 : Array.isArray(c) && c.length > 0 && c.every(a => typeof a === 'string'));
+  if (config.verification) {
+    if (!commandList(config.verification.quick) || !commandList(config.verification.full) || !config.verification.full.length) throw new Error('verification.quick and nonempty verification.full are required');
+    if (config.verification.browserCommand && (!Array.isArray(config.verification.browserCommand) || !commandList([config.verification.browserCommand]))) throw new Error('browserCommand must be an argument array');
+    for (const r of [...config.verification.affected || [], ...config.verification.required || []]) {
+      if (typeof r.match !== 'string' || !r.match) throw new Error('Verification rules require a nonempty match expression');
+      new RegExp(r.match);
+      if (r.commands && !commandList(r.commands)) throw new Error('Invalid verification rule commands');
     }
-  }
-
-  _onEvent(ev) {
-    if (ev.type === 'message_end' && ev.message && ev.message.role === 'assistant') {
-      const text = (ev.message.content || [])
-        .filter((c) => c.type === 'text').map((c) => c.text).join('');
-      if (text) this.lastAssistantText = text;
-    }
-    for (const h of this.handlers) h(ev);
-  }
-
-  _send(obj) {
-    this.child.stdin.write(JSON.stringify(obj) + '\n');
-  }
-
-  // Send a prompt and resolve when the run settles (or the process dies first).
-  prompt(message) {
-    return new Promise((resolve) => {
-      let settled = false;
-      const onEvent = (ev) => {
-        if (ev.type === 'agent_settled') {
-          settled = true;
-          this.handlers.delete(onEvent);
-          this.child.removeListener('exit', onExit);
-          resolve({ settled: true, lastAssistantText: this.lastAssistantText });
-        }
-      };
-      const onExit = () => {
-        if (settled) return;
-        this.handlers.delete(onEvent);
-        resolve({ settled: false, lastAssistantText: this.lastAssistantText });
-      };
-      this.handlers.add(onEvent);
-      this.child.once('exit', onExit);
-      this._send({ type: 'prompt', message });
-    });
-  }
-
-  stop() {
-    try { this.child.stdin.end(); } catch { /* ignore */ }
-    try { this.child.kill('SIGTERM'); } catch { /* ignore */ }
-    try { this.rpcLog.end(); } catch { /* ignore */ }
-  }
+  } else if (!commandList(config.verify) || !config.verify.length) throw new Error('Verification commands are required');
+  if (config.setup && !commandList(config.setup)) throw new Error('Invalid setup commands');
+  return config;
 }
-
-// ---------- prompt generation (pure, testable) ----------
-//
-// We do NOT hand-write the implementation/review methodology. The substance
-// comes from Matt Pocock's `implement` and `code-review` skills, invoked as
-// slash commands (`/skill:implement`, `/skill:code-review`). Everything below
-// is only the thin "coordinator contract" that reconciles those skills with the
-// fact that THIS script — not the agent — owns verification, review dispatch,
-// commits, and ticket progression.
-
-export function buildImplementationPrompt({ number, issueFile }) {
-  return [
-    // Invoke the real skill. It carries the implementation methodology (TDD at
-    // agreed seams, typecheck/test cadence, etc.).
-    `/skill:implement`,
-    ``,
-    `Work item: GitHub ticket #${number}. The full issue text (title, body,`,
-    `comments) is saved at: ${issueFile}. Read AGENTS.md and CONTEXT.md too.`,
-    ``,
-    `Coordinator contract (this overrides the skill's final housekeeping steps,`,
-    `because an outer script owns them — do not fight it):`,
-    `- Implement ONLY ticket #${number}; nothing unrelated.`,
-    `- Do NOT commit, push, close issues, run /code-review yourself, or start`,
-    `  subagents. The coordinator runs verification, the review, and the commit`,
-    `  for you after you settle.`,
-    `- If an existing acceptance test genuinely conflicts with the spec, write`,
-    `  .coordinator/test-change-request.json describing the conflict, then stop.`,
-    `- Stop when the ticket is settled or you are blocked.`,
-  ].join('\n');
-}
-
-export function buildRepairFromVerify({ command, output }) {
-  return [
-    `A required verification command the coordinator ran FAILED. Continue the`,
-    `same /skill:implement work: fix the underlying problem, then stop. Do not`,
-    `commit or review.`,
-    ``,
-    `Command: ${command}`,
-    ``,
-    `Output (truncated; full log on disk):`,
-    '```',
-    truncate(output, 6000),
-    '```',
-  ].join('\n');
-}
-
-export function buildRepairFromReview({ report }) {
-  return [
-    `The /skill:code-review reviewer returned BLOCKING findings. Continue the`,
-    `same /skill:implement work: address every blocking finding below, then`,
-    `stop. Do not commit or review yourself.`,
-    ``,
-    `--- reviewer report ---`,
-    truncate(report, 6000),
-  ].join('\n');
-}
-
-// Follow-up re-review sent to the SAME persistent reviewer session after the
-// implementer addressed the prior findings. The reviewer already holds its
-// earlier report in context; this prompt steers it to CONVERGE rather than
-// hunt for brand-new niches each cycle.
-export function buildReReviewPrompt({ number, baseCommit }) {
-  return [
-    `The implementer has revised the ticket in response to YOUR previous`,
-    `blocking findings. Re-review the CURRENT diff (${baseCommit}...HEAD) for`,
-    `ticket #${number} in this same session.`,
-    ``,
-    `Convergence contract — read carefully:`,
-    `- Your job now is to VERIFY whether each blocking finding you previously`,
-    `  raised is resolved. Go through them one by one and say resolved or not.`,
-    `- Do NOT go hunting for brand-new, previously-unraised issues. Only raise a`,
-    `  NEW blocker if the revision INTRODUCED a regression, or if it is a`,
-    `  genuine unmet ACCEPTANCE CRITERION of equal or greater severity than the`,
-    `  findings you already raised — not incremental edge-case polish you simply`,
-    `  did not mention before. When in doubt, accept.`,
-    `- If all previously-raised blockers are resolved and no true regression was`,
-    `  introduced, you MUST accept.`,
-    `- Same output contract: your VERY LAST line is exactly one JSON object:`,
-    `  {"verdict":"accept","findings":[]}  or`,
-    `  {"verdict":"reject","findings":[{"title":"...","evidence":"...","requiredChange":"..."}]}`,
-  ].join('\n');
-}
-
-export function buildReviewPrompt({ number, issueFile, baseCommit }) {
-  return [
-    // Invoke the real two-axis review skill against this ticket's diff.
-    `/skill:code-review`,
-    ``,
-    `Fixed point for the review: ${baseCommit} (review ${baseCommit}...HEAD, i.e.`,
-    `all changes for this ticket). The originating spec is GitHub ticket`,
-    `#${number}; its full text is saved at: ${issueFile} (use that as the spec`,
-    `source rather than re-fetching).`,
-    ``,
-    `Coordinator contract:`,
-    `- You are the reviewer of record for this ticket and will RE-REVIEW later`,
-    `  revisions in this same session, carrying your findings forward. Inspect`,
-    `  the repository read-only; do NOT edit any file.`,
-    `- Run the skill's two axes and produce its Standards/Spec report as usual.`,
-    `- THEN decide a single blocking verdict for the coordinator. Treat as`,
-    `  blockers only: unmet acceptance criteria, incorrect behavior/regressions,`,
-    `  missing coverage for risky behavior, tests weakened just to pass, or`,
-    `  material maintainability defects. Style/optional items are NOT blockers.`,
-    `- Your VERY LAST line must be exactly one JSON object and nothing after it:`,
-    `  {"verdict":"accept","findings":[]}`,
-    `  or`,
-    `  {"verdict":"reject","findings":[{"title":"...","evidence":"...","requiredChange":"..."}]}`,
-    `  The JSON must reflect the report above; the report is the human-readable`,
-    `  detail, the JSON is the machine gate.`,
-  ].join('\n');
-}
-
-// ---------- review parsing ----------
-
-// Try to parse a single well-formed verdict object. Returns the validated
-// verdict on success, or null when the text is not a usable verdict object.
-function tryVerdictObject(raw) {
-  let obj;
-  try { obj = JSON.parse(raw); } catch { return null; }
-  if (!obj || typeof obj !== 'object') return null;
-  if (obj.verdict !== 'accept' && obj.verdict !== 'reject') return null;
-  const findings = Array.isArray(obj.findings) ? obj.findings : [];
-  return { ok: true, verdict: obj.verdict, findings };
-}
-
-// Scan a string for balanced top-level {...} objects and return their spans.
-// Brace counting is string-literal aware so braces inside JSON strings do not
-// unbalance the scan. Prose braces (e.g. `{ q1: 5 }`) simply fail to parse and
-// are skipped by the caller.
-function balancedObjectSpans(s) {
-  const spans = [];
-  let depth = 0, start = -1, inStr = false, esc = false;
-  for (let i = 0; i < s.length; i++) {
-    const c = s[i];
-    if (inStr) {
-      if (esc) esc = false;
-      else if (c === '\\') esc = true;
-      else if (c === '"') inStr = false;
-      continue;
-    }
-    if (c === '"') { inStr = true; continue; }
-    if (c === '{') { if (depth === 0) start = i; depth++; }
-    else if (c === '}') {
-      if (depth > 0) { depth--; if (depth === 0 && start !== -1) { spans.push([start, i + 1]); start = -1; } }
-    }
-  }
-  return spans;
-}
-
-export function parseReviewVerdict(text) {
-  if (!text) return { ok: false, reason: 'empty review response' };
-  const trimmed = text.trim();
-
-  // The coordinator contract requires the verdict as the VERY LAST line. Honor
-  // that first so prose containing stray braces (e.g. `{ choiceOrder: 5 }`)
-  // cannot hijack the parse.
-  const lastLine = trimmed.split('\n').map((l) => l.trim()).filter(Boolean).pop();
-  if (lastLine) {
-    const v = tryVerdictObject(lastLine);
-    if (v) return v;
-  }
-
-  // Next, prefer a fenced ```json block if present.
-  const fence = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  if (fence) {
-    const v = tryVerdictObject(fence[1].trim());
-    if (v) return v;
-  }
-
-  // Finally, scan every balanced {...} object and take the LAST one that is a
-  // valid verdict. Scanning from the end tolerates any amount of leading prose.
-  const spans = balancedObjectSpans(trimmed);
-  for (let i = spans.length - 1; i >= 0; i--) {
-    const [a, b] = spans[i];
-    const v = tryVerdictObject(trimmed.slice(a, b));
-    if (v) return v;
-  }
-
-  return { ok: false, reason: 'no valid verdict object found' };
-}
-
-// ---------- coordinator ----------
 
 export class Coordinator {
-  constructor({ deps, config, options, root }) {
-    this.deps = deps;
-    this.config = config;
+  constructor({ deps = {}, config, options = {}, root }) {
+    this.root = path.resolve(root);
+    this.config = config == null ? null : validateConfig(config);
     this.options = options;
-    this.root = root;
-    this.coordDir = path.join(root, '.coordinator');
-    this.runsDir = path.join(this.coordDir, 'runs');
+    this.deps = { run: runCommand, spawn, Session: PiSession, log: console.log, ...deps };
+    this.coordDir = path.join(this.root, '.coordinator');
     this.pointerFile = path.join(this.coordDir, 'current-run.json');
+    this.sessions = new Map();
   }
 
-  // Resolve configured skill dirs to absolute paths passed to `pi --skill`.
-  // `which` is 'implement' or 'review'; `extra` skills load into both sessions.
-  skillPathsFor(which) {
-    const s = this.config.skills || {};
-    const out = [];
-    const add = (rel) => { if (rel) out.push(path.isAbsolute(rel) ? rel : path.join(this.root, rel)); };
-    add(s[which]);
-    for (const e of s.extra || []) add(e);
-    return out;
+  command(command, options = {}) {
+    return this.deps.run(command, { cwd: this.workDir || this.root, timeoutMs: this.config.commandTimeoutMs || 600_000, ...options });
   }
-
-  git(cmd) { return this.deps.run(`git ${cmd}`, { cwd: this.root }); }
-  gh(cmd) { return this.deps.run(`gh ${cmd}`, { cwd: this.root }); }
-
-  trackedDiffHash() {
-    return sha(this.git('diff HEAD').stdout);
+  async git(args, cwd = this.workDir || this.root, options = {}) {
+    return checked(this.deps.run, ['git', ...args], { cwd, timeoutMs: 60_000, ...options });
   }
-
-  saveState() { writeJsonAtomic(path.join(this.runDir, 'state.json'), this.state); }
-
-  transition(newState) {
-    this.state.state = newState;
+  ticketDir(number = this.state.currentTicket) { return path.join(this.runDir, 'tickets', String(number)); }
+  saveState() { writeJson(path.join(this.runDir, 'state.json'), this.state); }
+  event(type, fields = {}) {
+    const entry = { id: crypto.randomUUID(), at: new Date().toISOString(), runId: this.state.runId,
+      ticket: this.state.currentTicket, phase: this.state.ticketState?.phase, type, ...fields };
+    fs.appendFileSync(path.join(this.runDir, 'events.jsonl'), JSON.stringify(entry) + '\n');
+  }
+  transition(phase) {
+    this.state.ticketState.phase = phase;
+    this.state.state = phase;
     this.saveState();
+    this.event('transition', { phase });
   }
 
-  ticketDir(n) { return path.join(this.runDir, 'tickets', String(n)); }
-
-  // ----- preconditions -----
-  checkPreconditions(tickets) {
-    const problems = [];
-    for (const tool of ['git', 'gh', 'node', 'pi']) {
-      if (this.deps.run(`command -v ${tool}`).code !== 0) problems.push(`missing tool: ${tool}`);
+  async checkPreconditions(tickets) {
+    if (!tickets?.length || tickets.some(n => !Number.isSafeInteger(n) || n <= 0)) throw new Error('Positive ticket numbers required');
+    if (await this.git(['rev-parse', '--abbrev-ref', 'HEAD'], this.root) !== this.config.branch) throw new Error(`Launch from branch ${this.config.branch}`);
+    if (await this.git(['status', '--porcelain', '--untracked-files=all'], this.root)) throw new Error('Launch checkout must be clean, including untracked files');
+    await this.git(['check-ignore', '.coordinator'], this.root);
+    for (const n of tickets) {
+      const issue = JSON.parse(await checked(this.deps.run, ['gh', 'issue', 'view', String(n), '--json', 'number,state'], { cwd: this.root, timeoutMs: 60_000 }));
+      if (issue.state !== 'OPEN') throw new Error(`Issue #${n} is not open`);
     }
-    const branch = this.git('rev-parse --abbrev-ref HEAD').stdout.trim();
-    const want = this.config.branch || 'dev';
-    if (branch !== want) problems.push(`current branch is '${branch}', must be '${want}'`);
-    const status = this.git('status --porcelain').stdout
-      .split('\n').filter((l) => l && !l.startsWith('??'));
-    if (status.length) problems.push(`tracked files are modified:\n${status.join('\n')}`);
-    if (this.gh('auth status').code !== 0) problems.push('GitHub authentication failed');
-    for (const t of tickets) {
-      const r = this.gh(`issue view ${t} --json number,state,title`);
-      if (r.code !== 0) { problems.push(`issue #${t} not found`); continue; }
-      let j; try { j = JSON.parse(r.stdout); } catch { problems.push(`issue #${t} unreadable`); continue; }
-      if (String(j.state).toUpperCase() !== 'OPEN') problems.push(`issue #${t} is not open (${j.state})`);
-    }
-    // .coordinator must be ignored
-    if (this.git('check-ignore .coordinator').code !== 0) {
-      problems.push('.coordinator/ is not gitignored');
-    }
-    return problems;
   }
 
-  // ----- run lifecycle -----
-  startRun(tickets) {
-    const runId = this.deps.now();
-    this.runDir = path.join(this.runsDir, runId);
-    mkdirp(this.runDir);
-    const baseCommit = this.git('rev-parse HEAD').stdout.trim().slice(0, 7);
-    this.state = {
-      runId, tickets, currentTicket: tickets[0], state: 'queued',
-      baseCommit, implementationSession: null, repairCycles: 0,
-      push: !!this.options.push, accepted: [], blocked: null,
-    };
-    mkdirp(this.runsDir);
-    writeJsonAtomic(this.pointerFile, { runId });
+  async startRun(tickets) {
+    const runId = `${new Date().toISOString().replace(/[:.]/g, '-')}-${crypto.randomUUID().slice(0, 8)}`;
+    this.runDir = path.join(this.coordDir, 'runs', runId);
+    this.workDir = path.join(this.runDir, 'worktree');
+    mkdir(this.runDir);
+    this.state = { schemaVersion: 2, runId, config: this.config, tickets, accepted: [], currentTicket: tickets[0],
+      state: 'setup', baseCommit: await this.git(['rev-parse', 'HEAD'], this.root),
+      workDir: this.workDir, push: !!this.options.push, ticketState: null, blocked: null, setupComplete: false };
     this.saveState();
+    writeJson(this.pointerFile, { runId });
+    this.event('run_started');
   }
 
   loadRun() {
-    const ptr = JSON.parse(fs.readFileSync(this.pointerFile, 'utf8'));
-    this.runDir = path.join(this.runsDir, ptr.runId);
-    this.state = JSON.parse(fs.readFileSync(path.join(this.runDir, 'state.json'), 'utf8'));
+    const { runId } = readJson(this.pointerFile);
+    if (typeof runId !== 'string' || path.basename(runId) !== runId) throw new Error('Invalid run pointer');
+    this.runDir = path.join(this.coordDir, 'runs', runId);
+    this.state = readJson(path.join(this.runDir, 'state.json'));
+    if (this.state.schemaVersion !== 2) throw new Error('Legacy run cannot be safely resumed by this version. Its artifacts are preserved. Inspect outstanding changes and start an explicit new --tickets run from a clean checkout.');
+    this.config = validateConfig(this.state.config);
+    this.workDir = this.state.workDir;
+    if (this.workDir !== path.join(this.runDir, 'worktree')) throw new Error('Invalid worktree path in run state');
+    if (this.options.push) this.state.push = true;
+    this.saveState();
+    this.event('run_resumed');
   }
 
-  logStage(msg) { this.deps.log(msg); }
+  async ensureWorktree() {
+    if (!fs.existsSync(path.join(this.workDir, '.git'))) {
+      await this.git(['worktree', 'add', '--detach', this.workDir, this.state.baseCommit], this.root);
+    }
+    if (this.state.setupComplete) return;
+    mkdir(path.join(this.workDir, '.coordinator'));
+    for (const command of this.config.setup || []) {
+      const result = await this.loggedCommand(command, path.join(this.runDir, 'setup'), 'setup');
+      if (result.code) throw new Error(`Worktree setup failed: ${result.logFile}`);
+    }
+    if (await this.git(['status', '--porcelain', '--untracked-files=all'])) throw new Error('Setup changed source files; inspect the isolated worktree');
+    this.state.setupComplete = true;
+    this.state.dependenciesKey = await this.git(['ls-tree', 'HEAD', '--', 'package.json', 'bun.lock', 'bun.lockb', 'package-lock.json', 'pnpm-lock.yaml', 'yarn.lock']);
+    this.saveState();
+  }
 
-  // ----- per-ticket workflow -----
-  async runTicket(number) {
-    const tdir = this.ticketDir(number);
-    mkdirp(tdir);
+  async prepareTicket(number) {
+    this.closeSessions();
     this.state.currentTicket = number;
-    this.state.repairCycles = 0;
-    // A new ticket is forward progress; drop any stale block from an earlier one.
-    this.clearBlocked();
-    // Each ticket gets its own persistent reviewer; make sure none leaks in.
-    this.stopReviewer();
-
-    // 1. Prepare
-    const baseCommit = this.git('rev-parse HEAD').stdout.trim();
-    this.state.baseCommit = baseCommit.slice(0, 7);
-    const issueRes = this.gh(`issue view ${number} --json number,title,body,comments`);
-    if (issueRes.code !== 0) return this.block(number, 'could not fetch issue');
-    const issue = JSON.parse(issueRes.stdout);
+    const tdir = this.ticketDir(number);
+    mkdir(tdir);
+    const issue = JSON.parse(await checked(this.deps.run, ['gh', 'issue', 'view', String(number), '--json', 'number,title,body,comments'], { cwd: this.root, timeoutMs: 60_000 }));
     const issueFile = path.join(tdir, 'issue.txt');
-    const comments = (issue.comments || []).map((c) => `--- comment ---\n${c.body}`).join('\n\n');
-    fs.writeFileSync(issueFile, `#${number}: ${issue.title}\n\n${issue.body || ''}\n\n${comments}`);
+    fs.writeFileSync(issueFile, `#${number}: ${issue.title}\n\n${issue.body || ''}\n\n${(issue.comments || []).map(c => c.body).join('\n\n--- comment ---\n')}`);
+    this.state.ticketState = { number, title: issue.title, issueFile, base: await this.git(['rev-parse', 'HEAD']),
+      phase: 'implement', attempt: 0, repairCycles: 0, agentTurns: 0, protocolErrors: 0, environmentRetries: 0,
+      ledger: [], reviewStarted: false, candidate: null, checkpoints: {},
+      implementationSession: path.join(tdir, 'implementation', 'session.jsonl'),
+      reviewSession: path.join(tdir, 'review', 'session.jsonl') };
+    this.state.blocked = null;
+    this.transition('implement');
+  }
 
-    // 2. Implement
-    const implDir = path.join(tdir, 'implementation');
-    mkdirp(implDir);
-    const impl = new PiSession(this.deps, {
-      agentCfg: this.config.implementation,
-      sessionDir: path.join(implDir, 'session'),
-      rpcLogPath: path.join(implDir, 'rpc.log'),
-      name: `impl-${number}`,
-      skillPaths: this.skillPathsFor('implement'),
+  async capture() {
+    const t = this.state.ticketState;
+    if (await this.git(['rev-parse', 'HEAD']) !== t.base) throw new Error('Worker HEAD moved outside coordinator publication');
+    return snapshot(this.deps.run, this.workDir, path.join(this.ticketDir(), 'snapshots'), t.base);
+  }
+
+  session(role) {
+    if (this.sessions.has(role)) return this.sessions.get(role);
+    const t = this.state.ticketState;
+    const sessionFile = role === 'implementation' ? t.implementationSession : t.reviewSession;
+    const instance = new this.deps.Session(this.deps, {
+      agentCfg: this.config[role], sessionFile, sessionDir: path.dirname(sessionFile),
+      rpcLogPath: path.join(path.dirname(sessionFile), 'rpc.log'), cwd: this.workDir,
+      name: `${role}-${t.number}`, timeoutMs: this.config.agentTimeoutMs || 1_800_000,
+      skillPaths: [this.config.skills?.[role === 'implementation' ? 'implement' : 'review'], ...(this.config.skills?.extra || [])]
+        .filter(Boolean).map(p => path.resolve(this.workDir, p)),
+      onEvent: ev => {
+        if (ev.type === 'message_end' && ev.message?.role === 'assistant' && ev.message.usage) {
+          this.event('usage', { role, sessionFile, usage: ev.message.usage });
+        }
+      },
     });
-    this.state.implementationSession = path.join(implDir, 'session');
-    this.transition('implementing');
-    this.logStage(`[#${number}] implementation started`);
-    impl.start();
-    const implPrompt = buildImplementationPrompt({ number, issueFile });
-    fs.writeFileSync(path.join(implDir, 'prompt.txt'), implPrompt);
-    let res = await impl.prompt(implPrompt);
-    fs.writeFileSync(path.join(implDir, 'final.txt'), impl.lastAssistantText || '');
-    if (!res.settled) { impl.stop(); return this.block(number, 'pi exited before agent_settled'); }
-    this.logStage(`[#${number}] implementation settled`);
+    instance.start();
+    this.sessions.set(role, instance);
+    return instance;
+  }
 
-    if (fs.existsSync(path.join(this.coordDir, 'test-change-request.json'))) {
-      impl.stop();
-      return this.block(number, 'implementation raised a test-change-request; human review needed');
-    }
+  closeSessions() {
+    for (const session of this.sessions.values()) session.stop({ force: true });
+    this.sessions.clear();
+  }
 
-    // 3/4/5. verify -> review loop
-    for (;;) {
-      // verify (repair on failure until it passes)
-      const verifyOk = await this.verifyLoop(number, impl, tdir);
-      if (verifyOk === 'blocked') { impl.stop(); this.stopReviewer(); return 'blocked'; }
-      const verifyHash = this.trackedDiffHash();
-
-      // review
-      const verdict = await this.review(number, tdir, issueFile);
-      if (verdict === 'blocked') { impl.stop(); this.stopReviewer(); return 'blocked'; }
-      if (verdict.verdict === 'accept') {
-        impl.stop();
-        this.stopReviewer();
-        return this.accept(number, issue.title, verifyHash);
-      }
-      // reject -> repair the same implementation session
-      this.state.repairCycles += 1;
+  async agentTurn(role, prompt, parser) {
+    const t = this.state.ticketState;
+    if (t.agentTurns >= (this.config.maxAgentTurns ?? 40)) return this.block('budget', 'Agent-turn budget exhausted; inspect the run before changing its persisted budget');
+    t.agentTurns++;
+    t.attempt++;
+    const dir = path.join(this.ticketDir(), 'attempts', String(t.attempt).padStart(4, '0'));
+    mkdir(dir);
+    fs.writeFileSync(path.join(dir, 'prompt.txt'), prompt);
+    this.saveState();
+    this.event('agent_started', { role, attempt: t.attempt, dir });
+    const started = Date.now();
+    const result = await this.session(role).prompt(prompt);
+    fs.writeFileSync(path.join(dir, 'response.txt'), result.lastAssistantText || '');
+    this.event('agent_finished', { role, attempt: t.attempt, durationMs: Date.now() - started, settled: result.settled, reason: result.reason });
+    if (!result.settled) return this.block('environment', `${role} did not complete: ${result.reason || 'process exited'}`);
+    let parsed = parser(result.lastAssistantText);
+    if (!parsed.ok) {
+      if (t.protocolErrors >= (this.config.maxProtocolErrors ?? 2)) return this.block('protocol', parsed.reason);
+      t.protocolErrors++;
       this.saveState();
-      if (this.state.repairCycles > this.config.maxRepairCycles) {
-        impl.stop();
-        this.stopReviewer();
-        return this.block(number, `exceeded maxRepairCycles (${this.config.maxRepairCycles})`);
-      }
-      this.logStage(`[#${number}] repair ${this.state.repairCycles}/${this.config.maxRepairCycles} started`);
-      this.transition('repairing');
-      const feedback = buildRepairFromReview({ report: verdict.report });
-      res = await impl.prompt(feedback);
-      if (!res.settled) { impl.stop(); this.stopReviewer(); return this.block(number, 'pi exited during repair'); }
-      // loop back to verify
-    }
-  }
-
-  async verifyLoop(number, impl, tdir) {
-    for (;;) {
-      this.transition('verifying');
-      const { ok, failedCmd, output, logFile } = this.runVerify(number, tdir);
-      if (ok) { this.logStage(`[#${number}] verification passed`); return 'ok'; }
-      this.state.repairCycles += 1;
-      this.saveState();
-      this.logStage(`[#${number}] verification failed: ${failedCmd}`);
-      if (this.state.repairCycles > this.config.maxRepairCycles) {
-        this.block(number, `exceeded maxRepairCycles during verification (log: ${logFile})`);
-        return 'blocked';
-      }
-      this.logStage(`[#${number}] repair ${this.state.repairCycles}/${this.config.maxRepairCycles} started (verify)`);
-      this.transition('repairing');
-      const res = await impl.prompt(buildRepairFromVerify({ command: failedCmd, output }));
-      if (!res.settled) { this.block(number, 'pi exited during verify-repair'); return 'blocked'; }
-    }
-  }
-
-  runVerify(number, tdir) {
-    const dir = path.join(tdir, 'verify');
-    mkdirp(dir);
-    const stamp = Date.now();
-    const logFile = path.join(dir, `${stamp}.log`);
-    let combined = '';
-    for (const cmd of this.config.verify) {
-      const r = this.deps.run(cmd, { cwd: this.root });
-      combined += `$ ${cmd}\n${r.combined}\n(exit ${r.code})\n\n`;
-      if (r.code !== 0) {
-        fs.writeFileSync(logFile, combined);
-        return { ok: false, failedCmd: cmd, output: r.combined, logFile };
-      }
-    }
-    fs.writeFileSync(logFile, combined);
-    this._lastVerifyLog = logFile;
-    return { ok: true, logFile };
-  }
-
-  // Tear down the ticket's persistent reviewer session, if any. Safe to call
-  // when none exists (between tickets, or after a block).
-  stopReviewer() {
-    if (this._reviewer) {
-      try { this._reviewer.stop(); } catch { /* ignore */ }
-      this._reviewer = null;
-    }
-  }
-
-  async review(number, tdir, issueFile) {
-    this.transition('reviewing');
-    const base = this.state.baseCommit;
-    const rdir = path.join(tdir, 'review', String(this.state.repairCycles));
-    mkdirp(rdir);
-    const diffFile = path.join(rdir, 'diff.txt');
-    const statFile = path.join(rdir, 'stat.txt');
-    const verifyFile = this._lastVerifyLog || path.join(rdir, 'verify.txt');
-    const testDiffFile = path.join(rdir, 'test-diff.txt');
-    fs.writeFileSync(diffFile, this.git(`diff ${base} -- .`).stdout);
-    fs.writeFileSync(statFile, this.git(`diff --stat ${base}`).stdout);
-    fs.writeFileSync(testDiffFile, this.git(`diff ${base} -- '*test*' '*spec*' '*.e2e.*'`).stdout);
-
-    const before = this.trackedDiffHash();
-    const firstReview = !this._reviewer;
-    if (firstReview) {
-      // Create ONE reviewer for the whole ticket. Reusing this session across
-      // repair cycles gives the reviewer memory of its own prior findings, so
-      // it converges (verifies fixes) instead of a fresh agent inventing new
-      // niches every cycle. Its session/rpc log live in the cycle-0 dir.
-      this._reviewer = new PiSession(this.deps, {
-        agentCfg: this.config.review,
-        sessionDir: path.join(rdir, 'session'),
-        rpcLogPath: path.join(rdir, 'rpc.log'),
-        name: `review-${number}`,
-        skillPaths: this.skillPathsFor('review'),
-      });
-      this._reviewer.start();
-    }
-    const rev = this._reviewer;
-    const prompt = firstReview
-      ? buildReviewPrompt({ number, issueFile, baseCommit: base })
-      : buildReReviewPrompt({ number, baseCommit: base });
-    fs.writeFileSync(path.join(rdir, 'prompt.txt'), prompt);
-    const res = await rev.prompt(prompt);
-    const report = rev.lastAssistantText || '';
-    fs.writeFileSync(path.join(rdir, 'response.txt'), report);
-    if (!res.settled) { this.block(number, 'reviewer exited before settling'); return 'blocked'; }
-
-    const after = this.trackedDiffHash();
-    if (after !== before) {
-      this.block(number, 'reviewer modified tracked files; not auto-discarding');
-      return 'blocked';
-    }
-    const parsed = parseReviewVerdict(report);
-    parsed.report = report;
-    writeJsonAtomic(path.join(rdir, 'verdict.json'), parsed);
-    if (!parsed.ok) { this.block(number, `reviewer produced invalid verdict: ${parsed.reason}`); return 'blocked'; }
-    if (parsed.verdict === 'accept') {
-      this.logStage(`[#${number}] review accepted`);
-    } else {
-      this.logStage(`[#${number}] review rejected with ${parsed.findings.length} blocker(s)`);
+      // Repair output format in the same session. No implementation/test loop.
+      const correction = `Your last response was not a valid current-turn result: ${parsed.reason}.\nRe-emit your result using the exact JSON schema in the preceding coordinator prompt. Preserve its candidate ID. Use your existing evidence; perform no tools, file edits, or tests. If you could not complete the work, say so rather than inventing evidence.\n`;
+      parsed = await this.agentTurn(role, correction, parser);
     }
     return parsed;
   }
 
-  accept(number, title, verifyHash) {
-    // Confirm nothing changed since verification (else re-verify).
-    if (this.trackedDiffHash() !== verifyHash) {
-      const v = this.runVerify(number, this.ticketDir(number));
-      if (!v.ok) return this.block(number, 'diff changed after review and re-verification failed');
+  async loggedCommand(command, directory, stage, candidateId) {
+    mkdir(directory);
+    const logFile = path.join(directory, `${Date.now()}-${crypto.randomUUID().slice(0, 8)}.log`);
+    fs.writeFileSync(logFile, `$ ${JSON.stringify(command)}\n`);
+    this.event('command_started', { command, stage, candidateId, logFile });
+    const result = await this.command(command, { onOutput: chunk => fs.appendFileSync(logFile, chunk) });
+    // Injected runners may not stream output (used in offline workflow tests).
+    if (result.combined && fs.statSync(logFile).size === Buffer.byteLength(`$ ${JSON.stringify(command)}\n`)) fs.appendFileSync(logFile, result.combined);
+    fs.appendFileSync(logFile, `\n(exit ${result.code})\n`);
+    const flaky = [...result.combined.matchAll(/\b(\d+) flaky\b/g)].reduce((sum, m) => sum + Number(m[1]), 0);
+    this.event('command_finished', { command, stage, candidateId, logFile, code: result.code,
+      durationMs: result.durationMs, timedOut: !!result.timedOut, flaky });
+    return { ...result, logFile, flaky };
+  }
+
+  async verify(candidate, full) {
+    const t = this.state.ticketState;
+    const results = [];
+    const dependenciesKey = await this.git(['ls-tree', candidate.tree, '--', 'package.json', 'bun.lock', 'bun.lockb', 'package-lock.json', 'pnpm-lock.yaml', 'yarn.lock']);
+    if (dependenciesKey !== this.state.dependenciesKey) {
+      for (const command of this.config.setup || []) {
+        const result = await this.loggedCommand(command, path.join(this.ticketDir(), 'verify'), 'dependencies', candidate.tree);
+        if (result.code) return { blocked: await this.block('environment', `Dependency setup failed: ${result.logFile}`) };
+      }
+      if ((await this.capture()).tree !== candidate.tree) return { changed: true };
+      this.state.dependenciesKey = dependenciesKey;
+      this.saveState();
     }
-    this.git('add -A');
-    const safeTitle = title.replace(/"/g, "'").replace(/`/g, "'");
-    const commit = this.git(`commit -m "Implement #${number}: ${safeTitle}"`);
-    if (commit.code !== 0) return this.block(number, `commit failed:\n${commit.combined}`);
-    const shaShort = this.git('rev-parse HEAD').stdout.trim().slice(0, 7);
-    this.logStage(`[#${number}] committed as ${shaShort}`);
-    if (this.state.push) {
-      const push = this.git(`push origin ${this.config.branch || 'dev'}`);
-      if (push.code !== 0) return this.block(number, `push failed:\n${push.combined}`);
-      const close = this.gh(`issue close ${number} --comment "Implemented and verified by coordinator (${shaShort}). Checks: ${this.config.verify.join(', ')}."`);
-      if (close.code !== 0) return this.block(number, `issue close failed:\n${close.combined}`);
-      this.logStage(`[#${number}] pushed and issue closed`);
+    for (const command of selectChecks(this.config, candidate.files, full)) {
+      let result = await this.loggedCommand(command, path.join(this.ticketDir(), 'verify'), full ? 'full' : 'affected', candidate.tree);
+      if (result.code && failureKind(result) === 'environment') {
+        if (t.environmentRetries >= (this.config.maxEnvironmentRetries ?? 2)) return { blocked: await this.block('environment', `Infrastructure retry budget exhausted: ${result.logFile}`) };
+        if ((await this.capture()).tree !== candidate.tree) return { changed: true };
+        t.environmentRetries++;
+        this.saveState();
+        this.event('infrastructure_retry', { command, candidateId: candidate.tree });
+        result = await this.loggedCommand(command, path.join(this.ticketDir(), 'verify'), 'infrastructure-retry', candidate.tree);
+        if (result.code && failureKind(result) === 'environment') return { blocked: await this.block('environment', `Infrastructure failure: ${result.logFile}`) };
+      }
+      results.push({ command, logFile: result.logFile, code: result.code, flaky: result.flaky });
+      if (result.code) return { failed: { command, output: result.combined, logFile: result.logFile } };
     }
-    this.state.accepted.push(number);
-    this.clearBlocked();
-    this.transition('accepted');
+    const verifyFile = path.join(this.ticketDir(), 'verify', `${crypto.randomUUID()}.json`);
+    writeJson(verifyFile, { candidateId: candidate.tree, full, results });
+    if ((await this.capture()).tree !== candidate.tree) return { changed: true };
+    return { verifyFile };
+  }
+
+  async scheduleRepair(feedback) {
+    const t = this.state.ticketState;
+    if (t.repairCycles >= (this.config.maxRepairCycles ?? 5)) return this.block('budget', 'Repair budget exhausted (retained across resume)');
+    t.repairCycles++;
+    t.pendingRepair = feedback;
+    this.transition('repair');
+    return true;
+  }
+
+  async reviewCandidate(candidate, verifyFile) {
+    const t = this.state.ticketState;
+    const directory = path.join(this.ticketDir(), 'review', `candidate-${t.attempt + 1}-${candidate.tree.slice(0, 8)}-${crypto.randomUUID().slice(0, 8)}`);
+    mkdir(directory);
+    const manifestFile = path.join(directory, 'manifest.json');
+    const diffFile = path.join(directory, 'diff.txt');
+    const ledgerFile = path.join(this.ticketDir(), 'findings.json');
+    writeJson(manifestFile, { candidateId: candidate.tree, baseCommit: t.base, files: candidate.files });
+    writeJson(ledgerFile, t.ledger);
+    const diff = await this.command(['git', 'diff', '--binary', t.base, candidate.tree, '--'], { onOutput: chunk => fs.appendFileSync(diffFile, chunk) });
+    if (diff.code) throw new Error('Could not generate candidate diff');
+    if (!fs.existsSync(diffFile)) fs.writeFileSync(diffFile, diff.stdout);
+    const args = { number: t.number, issueFile: t.issueFile, baseCommit: t.base, candidateId: candidate.tree,
+      manifestFile, diffFile, verifyFile, ledgerFile };
+    const prompt = t.reviewStarted ? buildReReviewPrompt(args) : buildReviewPrompt(args);
+    t.reviewStarted = true;
+    this.saveState();
+    const verdict = await this.agentTurn('review', prompt, text => parseReviewVerdict(text, candidate.tree));
+    if (!verdict || verdict === 'blocked') return 'blocked';
+    writeJson(path.join(directory, 'verdict.json'), verdict);
+    if ((await this.capture()).tree !== candidate.tree) return this.block('integrity', 'Candidate changed during read-only review; inspect worktree and review session');
+    const open = t.ledger.filter(f => f.status === 'open');
+    const resolved = new Set(verdict.resolvedFindingIds);
+    if ([...resolved].some(id => !open.some(f => f.id === id)) ||
+        open.some(f => !resolved.has(f.id) && !verdict.findings.some(n => n.id === f.id)) ||
+        verdict.findings.some(f => resolved.has(f.id))) return this.block('protocol', 'Review did not account for outstanding finding IDs consistently');
+    for (const f of t.ledger) if (resolved.has(f.id)) f.status = 'resolved';
+    for (const f of verdict.findings) {
+      const prior = t.ledger.find(p => p.id === f.id);
+      if (prior) Object.assign(prior, f, { status: 'open', lastCandidate: candidate.tree });
+      else t.ledger.push({ ...f, status: 'open', firstCandidate: candidate.tree, lastCandidate: candidate.tree });
+    }
+    writeJson(ledgerFile, t.ledger);
+    this.event('review_verdict', { candidateId: candidate.tree, verdict: verdict.verdict, findings: verdict.findings, resolvedFindingIds: verdict.resolvedFindingIds });
+    this.saveState();
+    if (verdict.verdict === 'accept') return 'accept';
+    const signature = JSON.stringify(verdict.findings.map(f => f.id).sort());
+    if (t.lastRejectedTree === candidate.tree && t.lastFindings === signature) return this.block('no-progress', 'Same candidate and unresolved findings returned after repair');
+    t.lastRejectedTree = candidate.tree;
+    t.lastFindings = signature;
+    return this.scheduleRepair({ type: 'review', report: JSON.stringify(verdict), ledgerFile });
+  }
+
+  async runTicket() {
+    const t = this.state.ticketState;
+    while (t.phase !== 'accepted') {
+      this.state.blocked = null;
+      this.state.state = t.phase;
+      this.saveState();
+      if (t.phase === 'implement' || t.phase === 'repair') {
+        const feedback = t.pendingRepair;
+        const prompt = t.phase === 'implement' ? buildImplementationPrompt({ number: t.number, issueFile: t.issueFile })
+          : feedback.type === 'review' ? buildRepairFromReview(feedback) : buildRepairFromVerify({ ...feedback, command: JSON.stringify(feedback.command) });
+        const result = await this.agentTurn('implementation', prompt, parseImplementationResult);
+        if (!result || result === 'blocked') return 'blocked';
+        if (result.status === 'blocked') return this.block(result.kind, result.reason);
+        t.handoff = result;
+        t.pendingRepair = null;
+        this.transition('quick-verify');
+      } else if (t.phase === 'quick-verify') {
+        const candidate = await this.capture();
+        const checks = await this.verify(candidate, false);
+        if (checks.blocked) return 'blocked';
+        if (checks.changed) return this.block('integrity', 'Verification changed the candidate; inspect generated source changes');
+        if (checks.failed) {
+          if (await this.scheduleRepair({ type: 'verification', ...checks.failed }) === 'blocked') return 'blocked';
+          continue;
+        }
+        t.candidate = candidate;
+        t.verifyFile = checks.verifyFile;
+        this.transition('review');
+      } else if (t.phase === 'review') {
+        if ((await this.capture()).tree !== t.candidate.tree) { this.transition('quick-verify'); continue; }
+        const outcome = await this.reviewCandidate(t.candidate, t.verifyFile);
+        if (outcome === 'blocked') return 'blocked';
+        if (outcome === 'accept') {
+          t.reviewedTree = t.candidate.tree;
+          this.transition('full-verify');
+        }
+      } else if (t.phase === 'full-verify') {
+        if ((await this.capture()).tree !== t.reviewedTree) { this.transition('quick-verify'); continue; }
+        const checks = await this.verify(t.candidate, true);
+        if (checks.blocked) return 'blocked';
+        if (checks.changed) return this.block('integrity', 'Candidate changed during final verification');
+        if (checks.failed) {
+          if (await this.scheduleRepair({ type: 'verification', ...checks.failed }) === 'blocked') return 'blocked';
+          continue;
+        }
+        t.fullVerifyFile = checks.verifyFile;
+        t.verifiedTree = t.candidate.tree;
+        this.transition('publish');
+      } else if (t.phase === 'publish') {
+        if (await this.publish() === 'blocked') return 'blocked';
+      } else throw new Error(`Unknown ticket phase ${t.phase}`);
+    }
     return 'accepted';
   }
 
-  // ----- notification (push, not poll) -----
-  // Called ONLY at terminal transitions: a ticket becomes `blocked` (needs a
-  // human) or the whole run finishes (`done`). Writes a plain-text summary to
-  // disk, then fires one configured command with the event described via env
-  // vars. There is no loop and no timer anywhere in this path.
-  writeSummary(event, extra = {}) {
-    const s = this.state;
-    const lines = [];
-    lines.push(`Coordinator ${event.toUpperCase()} — run ${s.runId}`);
-    lines.push(`Queue: ${s.tickets.join(', ')}`);
-    lines.push(`Accepted: ${s.accepted.length ? s.accepted.join(', ') : '(none)'}`);
-    if (event === 'blocked' && s.blocked) {
-      lines.push('');
-      lines.push(`BLOCKED on ticket #${s.blocked.ticket}: ${s.blocked.reason}`);
-      lines.push(`Artifacts: ${this.ticketDir(s.blocked.ticket)}`);
-      // If a reviewer produced a report, point at the latest one.
-      const rroot = path.join(this.ticketDir(s.blocked.ticket), 'review');
-      if (fs.existsSync(rroot)) {
-        const cycles = fs.readdirSync(rroot).filter((d) => /^\d+$/.test(d)).sort((a, b) => +a - +b);
-        const last = cycles[cycles.length - 1];
-        if (last) lines.push(`Latest review report: ${path.join(rroot, last, 'response.txt')}`);
+  async publish() {
+    const t = this.state.ticketState;
+    const cp = t.checkpoints;
+    if (!cp.commit) {
+      const candidate = await this.capture();
+      if (candidate.tree !== t.reviewedTree || candidate.tree !== t.verifiedTree) {
+        this.transition('quick-verify');
+        return 'changed';
       }
-      lines.push('');
-      lines.push(`Resume after fixing with: node scripts/coordinate-tickets.mjs --resume`);
-      lines.push(`Inspect with: node scripts/coordinator-status.mjs --ticket ${s.blocked.ticket}`);
-    } else if (event === 'done') {
-      lines.push('');
-      lines.push(`All queued tickets accepted. Nothing left to do.`);
+      const messageFile = path.join(this.ticketDir(), 'commit-message.txt');
+      fs.writeFileSync(messageFile, `Implement #${t.number}: ${t.title}\n`);
+      // Commit exactly the verified tree. No shell interpolation, live-index
+      // staging, or hooks that can modify the candidate after its review.
+      cp.commit = await this.git(['commit-tree', candidate.tree, '-p', t.base, '-F', messageFile]);
+      this.saveState();
+      this.event('committed', { commit: cp.commit, candidateId: candidate.tree });
     }
-    const summaryFile = path.join(this.runDir, `NOTIFY-${event}.txt`);
-    writeAtomic(summaryFile, lines.join('\n') + '\n');
-    return { summaryFile, text: lines.join('\n'), ...extra };
+    // Reconcile each side effect with Git on resume, including a crash between
+    // the operation and its state write. Anchor the commit before integration.
+    await this.git(['update-ref', `refs/coordinator/${this.state.runId}/${t.number}`, cp.commit]);
+    const workerHead = await this.git(['rev-parse', 'HEAD']);
+    if (workerHead !== t.base && workerHead !== cp.commit) return this.block('integrity', 'Worker HEAD diverged before publication');
+    const current = await snapshot(this.deps.run, this.workDir, path.join(this.ticketDir(), 'snapshots'), t.base);
+    if (current.tree !== t.verifiedTree) return this.block('integrity', 'Worktree changed after commit checkpoint');
+    if (workerHead !== cp.commit) {
+      await this.git(['update-ref', 'HEAD', cp.commit, t.base]);
+    }
+    // A crash can happen after moving HEAD but before synchronizing the index.
+    await this.git(['read-tree', cp.commit]);
+    if (!cp.integrated) {
+      if (await this.git(['rev-parse', '--abbrev-ref', 'HEAD'], this.root) !== this.config.branch) return this.block('integration', 'Launch checkout is on another branch');
+      if (await this.git(['status', '--porcelain', '--untracked-files=all'], this.root)) return this.block('integration', 'Launch checkout has user changes; clean or preserve them before resume');
+      const head = await this.git(['rev-parse', 'HEAD'], this.root);
+      if (head !== cp.commit) {
+        if (head !== t.base) return this.block('integration', 'Launch branch moved; reconcile it with the retained coordinator commit before resume');
+        await this.git(['-c', 'core.hooksPath=/dev/null', 'merge', '--ff-only', cp.commit], this.root);
+      }
+      cp.integrated = true;
+      this.saveState();
+      this.event('integrated', { commit: cp.commit });
+    }
+    if (this.state.push && !cp.pushed) {
+      const result = await this.command(['git', 'push', 'origin', `${cp.commit}:refs/heads/${this.config.branch}`]);
+      if (result.code) return this.block('publication', `Push failed: ${result.combined}`);
+      cp.pushed = true;
+      this.saveState();
+      this.event('pushed', { commit: cp.commit });
+    }
+    if (this.state.push && !cp.closed) {
+      const issue = await this.command(['gh', 'issue', 'view', String(t.number), '--json', 'state']);
+      if (issue.code) return this.block('publication', `Cannot inspect issue before close: ${issue.combined}`);
+      if (JSON.parse(issue.stdout).state !== 'CLOSED') {
+        const result = await this.command(['gh', 'issue', 'close', String(t.number), '--comment', `Implemented and verified by coordinator (${cp.commit}). Evidence: run ${this.state.runId}.`]);
+        if (result.code) return this.block('publication', `Issue close failed: ${result.combined}`);
+      }
+      cp.closed = true;
+      this.saveState();
+      this.event('issue_closed');
+    }
+    if (!this.state.accepted.includes(t.number)) this.state.accepted.push(t.number);
+    this.state.blocked = null;
+    this.transition('accepted');
+    this.closeSessions();
+    return 'accepted';
   }
 
-  notify(event) {
-    const cfg = this.config.notify || {};
-    const on = cfg.on || ['blocked', 'done'];
-    if (!on.includes(event)) return;
-    const { summaryFile, text } = this.writeSummary(event);
-    if (!cfg.command) {
-      this.logStage(`(notify:${event}) summary written to ${summaryFile}; no notify.command configured`);
-      return;
-    }
-    // The command is run once, with context in the environment. It can email,
-    // curl a webhook, or wake a Shelley conversation — the coordinator does not
-    // care which.
-    const env = {
-      COORD_EVENT: event,
-      COORD_RUN_ID: this.state.runId,
-      COORD_RUN_DIR: this.runDir,
-      COORD_SUMMARY_FILE: summaryFile,
-      COORD_SUMMARY: text,
-      COORD_BLOCKED_TICKET: this.state.blocked ? String(this.state.blocked.ticket) : '',
-      COORD_ACCEPTED: this.state.accepted.join(','),
-    };
-    const r = this.deps.run(cfg.command, { cwd: this.root, env });
-    if (r.code !== 0) this.logStage(`(notify:${event}) command failed (exit ${r.code}): ${truncate(r.combined, 500)}`);
-    else this.logStage(`(notify:${event}) sent`);
-  }
-
-  block(number, reason) {
-    this.state.blocked = { ticket: number, reason, at: new Date().toISOString() };
-    this.transition('blocked');
-    this.logStage(`[#${number}] BLOCKED: ${reason}`);
-    this.logStage(`  artifacts: ${this.ticketDir(number)}`);
-    this.notify('blocked');
+  async block(kind, reason) {
+    this.state.blocked = { ticket: this.state.currentTicket, kind, reason, phase: this.state.ticketState?.phase, at: new Date().toISOString() };
+    this.state.state = 'blocked';
+    this.saveState();
+    this.event('blocked', this.state.blocked);
+    this.deps.log(`BLOCKED #${this.state.currentTicket} [${kind}]: ${reason}`);
+    this.closeSessions();
+    await this.notify('blocked');
     return 'blocked';
   }
 
-  // Clear a prior block record once the run makes forward progress again, so
-  // state.json (and every status readout) reflects reality instead of a stale
-  // BLOCKED banner from a ticket that has since recovered.
-  clearBlocked() {
-    if (this.state.blocked) this.state.blocked = null;
+  async notify(event) {
+    const summary = { event, runId: this.state.runId, accepted: this.state.accepted, blocked: this.state.blocked,
+      workDir: this.workDir, ticketDir: this.ticketDir(), sessionFiles: this.state.ticketState && {
+        implementation: this.state.ticketState.implementationSession, review: this.state.ticketState.reviewSession },
+      findings: this.state.ticketState?.ledger.filter(f => f.status === 'open') || [] };
+    const summaryFile = path.join(this.runDir, `NOTIFY-${event}.txt`);
+    fs.writeFileSync(summaryFile, JSON.stringify(summary, null, 2) + '\n');
+    const cfg = this.config.notify;
+    if (!cfg?.command || !(cfg.on || ['blocked', 'done']).includes(event)) return;
+    const result = await this.command(cfg.command, { cwd: this.root, timeoutMs: 30_000, env: {
+      COORD_EVENT: event, COORD_RUN_ID: this.state.runId, COORD_RUN_DIR: this.runDir,
+      COORD_SUMMARY_FILE: summaryFile, COORD_SUMMARY: JSON.stringify(summary),
+      COORD_BLOCKED_TICKET: this.state.blocked ? String(this.state.currentTicket) : '', COORD_ACCEPTED: this.state.accepted.join(','),
+    } });
+    this.event('notification', { event, code: result.code });
+    if (result.code) this.deps.log(`Notification failed; summary retained at ${summaryFile}`);
   }
 
   async run() {
-    const queue = this.state.tickets;
-    const start = queue.indexOf(this.state.currentTicket);
-    for (let i = Math.max(0, start); i < queue.length; i++) {
-      const n = queue[i];
-      if (this.state.accepted.includes(n)) continue;
-      const outcome = await this.runTicket(n);
-      if (outcome === 'blocked' || this.state.state === 'blocked') {
-        this.logStage(`Run halted at ticket #${n}. Fix and re-run with --resume.`);
-        return;
+    const heartbeat = setInterval(() => writeJson(path.join(this.runDir, 'heartbeat.json'), {
+      pid: process.pid, at: new Date().toISOString(), state: this.state.state, ticket: this.state.currentTicket,
+    }), 15_000);
+    try {
+      await this.ensureWorktree();
+      for (const number of this.state.tickets) {
+        if (this.state.accepted.includes(number)) continue;
+        if (this.state.ticketState?.number !== number) await this.prepareTicket(number);
+        if (await this.runTicket() === 'blocked') return 'blocked';
       }
+      this.state.state = 'done';
+      this.state.blocked = null;
+      this.saveState();
+      this.event('done');
+      if (!this.state.doneNotified) {
+        await this.notify('done');
+        this.state.doneNotified = true;
+        this.saveState();
+      }
+      return 'done';
+    } catch (error) {
+      return await this.block('coordinator', error.message);
+    } finally {
+      clearInterval(heartbeat);
+      this.closeSessions();
     }
-    this.logStage(`All tickets accepted: ${this.state.accepted.join(', ')}`);
-    this.state.state = 'done';
-    this.saveState();
-    this.notify('done');
   }
 }
 
-// ---------- CLI ----------
-
 export function parseArgs(argv) {
-  const opts = { tickets: null, resume: false, push: false };
+  const options = { tickets: null, resume: false, push: false };
   for (let i = 0; i < argv.length; i++) {
-    const a = argv[i];
-    if (a === '--tickets') opts.tickets = argv[++i].split(',').map((s) => parseInt(s.trim(), 10));
-    else if (a === '--resume') opts.resume = true;
-    else if (a === '--push') opts.push = true;
-    else throw new Error(`unknown argument: ${a}`);
+    if (argv[i] === '--tickets') {
+      const value = argv[++i];
+      if (!value || !/^\d+(,\d+)*$/.test(value)) throw new Error('--tickets requires comma-separated positive integers');
+      options.tickets = value.split(',').map(Number);
+      if (options.tickets.some(n => !Number.isSafeInteger(n) || n <= 0) || new Set(options.tickets).size !== options.tickets.length) throw new Error('Tickets must be unique positive integers');
+    } else if (argv[i] === '--resume') options.resume = true;
+    else if (argv[i] === '--push') options.push = true;
+    else if (argv[i] === '--help') options.help = true;
+    else throw new Error(`Unknown argument: ${argv[i]}`);
   }
-  return opts;
+  if (!options.help && (options.resume === !!options.tickets)) throw new Error('Provide either --tickets a,b or --resume');
+  return options;
 }
 
 async function main() {
-  const root = process.cwd();
-  const deps = makeDefaultDeps();
   const options = parseArgs(process.argv.slice(2));
-  const configPath = path.join(root, 'coordinator.config.json');
-  const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-  const coord = new Coordinator({ deps, config, options, root });
-
-  // graceful interruption
-  let interrupted = false;
-  process.on('SIGINT', () => {
-    if (interrupted) process.exit(130);
-    interrupted = true;
-    deps.log('\nInterrupted. State preserved; re-run with --resume.');
-    try { coord.saveState(); } catch { /* ignore */ }
-    process.exit(130);
-  });
-
-  if (options.resume) {
-    coord.loadRun();
-    // A ticket caught mid-flight during an unclean shutdown is not safe to auto-continue.
-    if (['implementing', 'repairing', 'reviewing', 'verifying'].includes(coord.state.state)) {
-      coord.logStage(`Resuming: ticket #${coord.state.currentTicket} was '${coord.state.state}' at shutdown; marking blocked for human review.`);
-      coord.block(coord.state.currentTicket, `unclean shutdown while '${coord.state.state}'`);
-      return;
-    }
-    if (options.push) coord.state.push = true;
-    await coord.run();
+  if (options.help) {
+    console.log('Usage: node scripts/coordinate-tickets.mjs (--tickets 1,2 | --resume) [--push]\nCreates a retained isolated worktree. --push also pushes accepted commits and closes tickets.\nInspect with node scripts/coordinator-status.mjs. Config is frozen per run.');
     return;
   }
-
-  if (!options.tickets || !options.tickets.length) {
-    throw new Error('provide --tickets a,b,c or --resume');
+  const root = process.cwd();
+  const coordinator = new Coordinator({ root, options, config: options.resume ? undefined : readJson(path.join(root, 'coordinator.config.json')) });
+  const release = acquireLock(path.join(root, '.coordinator'));
+  const signal = () => {
+    coordinator.closeSessions();
+    stopCommands();
+    // Keep the lock on interruption: a command child may still be shutting down.
+    // The operator checks the retained PID/workers before explicit recovery.
+    process.exit(130);
+  };
+  process.once('SIGINT', signal);
+  process.once('SIGTERM', signal);
+  try {
+    if (options.resume) coordinator.loadRun();
+    else { await coordinator.checkPreconditions(options.tickets); await coordinator.startRun(options.tickets); }
+    if (await coordinator.run() === 'blocked') process.exitCode = 1;
+  } finally {
+    coordinator.closeSessions();
+    process.removeListener('SIGINT', signal);
+    process.removeListener('SIGTERM', signal);
+    release();
   }
-  const problems = coord.checkPreconditions(options.tickets);
-  if (problems.length) {
-    deps.log('Preconditions failed:\n- ' + problems.join('\n- '));
-    process.exit(1);
-  }
-  coord.startRun(options.tickets);
-  await coord.run();
 }
 
-// Only run main when executed directly (not when imported by tests).
-const isMain = process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname);
-if (isMain) {
-  main().catch((e) => { console.error(e.stack || String(e)); process.exit(1); });
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main().catch(error => { console.error(error.stack || error.message); process.exitCode = 1; });
 }

@@ -1,0 +1,3 @@
+interface:
+  display_name: "Orchestrate Tickets"
+  short_description: "Run the repository ticket coordinator"

@@ -34,7 +34,7 @@ printf '%s\n' "${COORD_SUMMARY}" > "${INBOX}/latest.txt"
 
 # Compose the wake message.
 if [ "${COORD_EVENT}" = "blocked" ]; then
-  MSG="The ticket coordinator (run ${COORD_RUN_ID}) is BLOCKED on ticket #${COORD_BLOCKED_TICKET} and needs a human. Read ${COORD_RUN_DIR} (state.json and tickets/${COORD_BLOCKED_TICKET}/, including any review response.txt), then in a few sentences tell me what got done, why it's blocked, and the single next action. Accepted so far: ${COORD_ACCEPTED:-none}. To continue after the fix: node scripts/coordinate-tickets.mjs --resume"
+  MSG="The ticket coordinator (run ${COORD_RUN_ID}) is BLOCKED on ticket #${COORD_BLOCKED_TICKET}. Read ${COORD_RUN_DIR}/state.json, events.jsonl, the ticket attempts/ and findings.json, and scripts/COORDINATOR.md. Classify the blocker and inspect the preserved worktree/session/checkpoints. Within the user's existing task authorization, resolve an infrastructure problem and resume the recorded phase when its bounded policy permits; preserve budgets and the original scope. If a product decision or exhausted budget needs the user, summarize what shipped, the evidence, and the single decision needed. Accepted: ${COORD_ACCEPTED:-none}. Resume command: node scripts/coordinate-tickets.mjs --resume"
 else
   MSG="The ticket coordinator (run ${COORD_RUN_ID}) FINISHED — all queued tickets accepted (${COORD_ACCEPTED:-none}). Read ${COORD_RUN_DIR} and give me a short wrap-up of what shipped."
 fi
@@ -61,9 +61,11 @@ if [ -z "${CONV_ID}" ] && [ -f "${PIN_FILE}" ]; then
 fi
 
 if [ -n "${CONV_ID}" ]; then
-  shelley client chat -c "${CONV_ID}" -p "${MSG}" >/dev/null 2>&1 || \
+  if shelley client chat -c "${CONV_ID}" -p "${MSG}" >/dev/null 2>&1; then
+    echo "woke Shelley conversation ${CONV_ID} (${COORD_EVENT})"
+  else
     echo "warn: could not reach conversation ${CONV_ID}; summary is in ${INBOX}/"
-  echo "woke Shelley conversation ${CONV_ID} (${COORD_EVENT})"
+  fi
 else
   # Create a fresh, separate conversation and remember its id for this run.
   NEW_ID="$(shelley client chat -disable-notifications=false -p "${MSG}" 2>/dev/null | jq -r '.conversation_id // empty' || true)"

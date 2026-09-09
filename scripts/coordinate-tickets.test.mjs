@@ -1,463 +1,364 @@
-// Tests for the coordinator. Uses node:test with fully injected deps: no real
-// pi/git/gh calls, no GitHub mutation, no commits, no model calls.
-//
-//   node --test scripts/coordinate-tickets.test.mjs
-
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { EventEmitter } from 'node:events';
+import { fileURLToPath } from 'node:url';
 
-import {
-  Coordinator, parseReviewVerdict, parseArgs,
-  buildImplementationPrompt, buildReviewPrompt, buildRepairFromReview,
-} from './coordinate-tickets.mjs';
+import { Coordinator } from './coordinate-tickets.mjs';
+import { runCommand } from './coordinator-runtime.mjs';
 
-// ---- a fake `pi --mode rpc` child driven by a scripted responder ----
-// The responder is a function(promptText, callIndex) -> { assistantText, settle }.
-function makeFakeSpawn(scripts) {
-  // scripts: array consumed in the order sessions are started; each element is
-  // a responder function. We track which session we are on via a counter.
-  let sessionIndex = -1;
-  return function fakeSpawn(_cmd, _args) {
-    sessionIndex += 1;
-    const responder = scripts[sessionIndex] || (() => ({ assistantText: '{"verdict":"accept","findings":[]}', settle: true }));
-    let callIndex = -1;
-    const child = new EventEmitter();
-    child.stdout = new EventEmitter();
-    child.stderr = new EventEmitter();
-    child.killed = false;
-    child.stdin = {
-      write(line) {
-        const cmd = JSON.parse(line.trim());
-        if (cmd.type !== 'prompt') return;
-        callIndex += 1;
-        const out = responder(cmd.message, callIndex, child);
-        // emit assistant message_end then agent_settled (async, next tick)
-        setImmediate(() => {
-          if (out.assistantText != null) {
-            child.stdout.emit('data', JSON.stringify({
-              type: 'message_end',
-              message: { role: 'assistant', content: [{ type: 'text', text: out.assistantText }] },
-            }) + '\n');
-          }
-          if (out.settle) child.stdout.emit('data', JSON.stringify({ type: 'agent_settled' }) + '\n');
-          else { child.emit('exit', 1); }
-        });
-      },
-      end() {},
-    };
-    child.kill = () => { child.killed = true; child.emit('exit', 0); };
-    return child;
-  };
+const INITIAL_ISSUE = {
+  number: 7,
+  title: 'Implement the isolated feature',
+  body: 'Add the feature and preserve the public behavior.',
+  comments: [],
+};
+
+const ok = (stdout = '') => ({ code: 0, stdout, stderr: '', combined: stdout, timedOut: false, durationMs: 0 });
+const fail = (output) => ({ code: 1, stdout: '', stderr: output, combined: output, timedOut: false, durationMs: 0 });
+
+async function git(cwd, ...args) {
+  const result = await runCommand(['git', ...args], { cwd });
+  if (result.code) throw new Error(`git ${args.join(' ')} failed: ${result.combined}`);
+  return result.stdout.trim();
 }
 
-// ---- a fake shell runner for git/gh/verify ----
-function makeFakeRun(handlers) {
-  return function run(cmd) {
-    for (const [re, fn] of handlers) {
-      if (re.test(cmd)) return fn(cmd);
-    }
-    return { code: 0, stdout: '', stderr: '', combined: '' };
-  };
+async function makeRepository() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'coordinator-workflow-'));
+  await git(root, 'init', '-b', 'dev');
+  await git(root, 'config', 'user.email', 'coordinator-test@example.invalid');
+  await git(root, 'config', 'user.name', 'Coordinator Test');
+  fs.writeFileSync(path.join(root, '.gitignore'), '.coordinator/\n');
+  fs.writeFileSync(path.join(root, 'README.md'), 'fixture\n');
+  await git(root, 'add', '.gitignore', 'README.md');
+  await git(root, 'commit', '-m', 'initial');
+  return root;
 }
 
-function ok(stdout = '') { return { code: 0, stdout, stderr: '', combined: stdout }; }
-function fail(out = '', code = 1) { return { code, stdout: '', stderr: out, combined: out }; }
-
-function tmpRoot() {
-  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'coord-'));
-  fs.writeFileSync(path.join(d, 'coordinator.config.json'), '{}');
-  return d;
+function writeCounterScript(directory) {
+  const script = path.join(directory, 'count-check.mjs');
+  fs.writeFileSync(script, `
+import fs from 'node:fs';
+import path from 'node:path';
+const [counterFile, kind, mode] = process.argv.slice(2);
+const counts = fs.existsSync(counterFile) ? JSON.parse(fs.readFileSync(counterFile, 'utf8')) : {};
+counts[kind] = (counts[kind] || 0) + 1;
+fs.writeFileSync(counterFile, JSON.stringify(counts));
+if (!fs.existsSync(path.join(process.cwd(), 'feature.txt'))) {
+  console.error('feature.txt is missing');
+  process.exit(1);
+}
+if ((mode === 'fail-full-once' && kind === 'full' && counts[kind] === 1) ||
+    (mode === 'fail-quick-once' && kind === 'quick' && counts[kind] === 1)) {
+  console.error('scripted verification failure');
+  process.exit(1);
+}
+`);
+  return script;
 }
 
-function baseConfig(overrides = {}) {
+function readCounts(file) {
+  return fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : {};
+}
+
+function readEvents(runDir) {
+  const file = path.join(runDir, 'events.jsonl');
+  return fs.readFileSync(file, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse);
+}
+
+function implementationResult(summary = 'Implemented the feature.') {
+  return JSON.stringify({
+    status: 'complete',
+    summary,
+    tests: [{ command: 'targeted check', result: 'passed' }],
+    testQuality: 'The changed public behavior has a regression assertion.',
+  });
+}
+
+function finding() {
   return {
+    id: 'F1',
+    title: 'The candidate needs the requested behavior',
+    evidence: 'The captured candidate does not yet prove the criterion.',
+    requiredChange: 'Implement the criterion and keep its targeted assertion.',
+    severity: 'high',
+    criterion: 'The public feature behavior is implemented.',
+  };
+}
+
+function responseForReview(message, response) {
+  const candidateId = message.match(/Candidate identity: ([^.\s]+)\./)?.[1];
+  assert.ok(candidateId, 'review prompt must carry a candidate identity');
+  if (response === 'reject') {
+    return JSON.stringify({ candidateId, verdict: 'reject', findings: [finding()], resolvedFindingIds: [] });
+  }
+  if (response === 'accept-resolved') {
+    return JSON.stringify({ candidateId, verdict: 'accept', findings: [], resolvedFindingIds: ['F1'] });
+  }
+  return JSON.stringify({ candidateId, verdict: 'accept', findings: [], resolvedFindingIds: [] });
+}
+
+function makeHarness({ reviewResponses = ['accept'], implementationResponses = [], verifyMode = 'pass', pushFailures = 0 } = {}) {
+  const scenarioRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'coordinator-fixture-'));
+  const counterFile = path.join(scenarioRoot, 'counts.json');
+  const counterScript = writeCounterScript(scenarioRoot);
+  const sessions = [];
+  const calls = { implementation: 0, review: 0, gh: [], pushes: 0, real: [] };
+  const issue = { ...INITIAL_ISSUE };
+  let currentPushFailures = pushFailures;
+
+  const quick = ['node', counterScript, counterFile, 'quick', verifyMode];
+  const full = ['node', counterScript, counterFile, 'full', verifyMode];
+  const config = {
     branch: 'dev',
-    verify: ['npm test'],
-    maxRepairCycles: 2,
-    implementation: { provider: 'p', model: 'm', thinking: 'high' },
-    review: { provider: 'p', model: 'm', thinking: 'high' },
-    ...overrides,
+    setup: [],
+    verification: {
+      quick: [quick],
+      full: [full],
+      affected: [{ match: '^feature\\.txt$', commands: [] }],
+      required: [],
+    },
+    maxRepairCycles: 5,
+    maxAgentTurns: 20,
+    maxProtocolErrors: 2,
+    maxEnvironmentRetries: 1,
+    implementation: { provider: 'fake', model: 'fake' },
+    review: { provider: 'fake', model: 'fake' },
+    skills: {},
   };
-}
 
-// A git/gh handler set that emulates a clean repo with a mutable diff hash.
-function gitGhHandlers(state) {
-  state.diff = state.diff || 'seed';
-  return [
-    [/^gh issue view (\d+) --json number,state,title/, (c) => {
-      const n = c.match(/view (\d+)/)[1];
-      return ok(JSON.stringify({ number: +n, state: 'OPEN', title: `Ticket ${n}` }));
-    }],
-    [/^gh issue view (\d+) --json number,title,body,comments/, (c) => {
-      const n = c.match(/view (\d+)/)[1];
-      return ok(JSON.stringify({ number: +n, title: `Ticket ${n}`, body: 'do it', comments: [] }));
-    }],
-    [/^gh auth status/, () => ok('logged in')],
-    [/^gh issue close/, () => ok('')],
-    [/^git rev-parse --abbrev-ref HEAD/, () => ok('dev\n')],
-    [/^git rev-parse HEAD/, () => ok('abc1234567\n')],
-    [/^git status --porcelain/, () => ok('')],
-    [/^git check-ignore/, () => ok('.coordinator\n')],
-    [/^git diff HEAD/, () => ok(state.diff)],
-    [/^git diff --stat/, () => ok('stat')],
-    [/^git diff /, () => ok('the diff')],
-    [/^git add/, () => ok('')],
-    [/^git commit/, () => ok('')],
-    [/^git push/, () => ok('')],
-    [/^command -v/, () => ok('/usr/bin/x')],
-  ];
-}
-
-function makeCoord(root, config, deps, options = {}) {
-  const logs = [];
-  const fullDeps = { log: (l) => logs.push(l), now: () => 'RUNID', ...deps };
-  const coord = new Coordinator({ deps: fullDeps, config, options, root });
-  coord._logs = logs;
-  return coord;
-}
-
-// ============ unit tests ============
-
-test('parseReviewVerdict accepts plain JSON', () => {
-  const r = parseReviewVerdict('{"verdict":"accept","findings":[]}');
-  assert.equal(r.ok, true); assert.equal(r.verdict, 'accept');
-});
-
-test('parseReviewVerdict handles fenced JSON and trailing prose', () => {
-  const r = parseReviewVerdict('Here you go:\n```json\n{"verdict":"reject","findings":[{"title":"x"}]}\n```');
-  assert.equal(r.ok, true); assert.equal(r.verdict, 'reject'); assert.equal(r.findings.length, 1);
-});
-
-test('parseReviewVerdict rejects invalid JSON', () => {
-  assert.equal(parseReviewVerdict('not json at all').ok, false);
-  assert.equal(parseReviewVerdict('{"verdict":"maybe"}').ok, false);
-});
-
-test('parseReviewVerdict ignores prose braces and takes the final verdict line', () => {
-  const report = [
-    'A stored entry such as `{ choiceOrder: { q1: 5 } }` passes validation.',
-    'Another example object {foo: bar} appears mid-report.',
-    '',
-    '{"verdict":"reject","findings":[{"title":"stale order","evidence":"e","requiredChange":"c"}]}',
-  ].join('\n');
-  const r = parseReviewVerdict(report);
-  assert.equal(r.ok, true);
-  assert.equal(r.verdict, 'reject');
-  assert.equal(r.findings.length, 1);
-});
-
-test('parseReviewVerdict tolerates braces inside JSON string values', () => {
-  const r = parseReviewVerdict('{"verdict":"reject","findings":[{"title":"has } brace","evidence":"{not json}"}]}');
-  assert.equal(r.ok, true);
-  assert.equal(r.verdict, 'reject');
-  assert.equal(r.findings.length, 1);
-});
-
-test('parseArgs parses tickets/resume/push', () => {
-  assert.deepEqual(parseArgs(['--tickets', '6,7,8']).tickets, [6, 7, 8]);
-  assert.equal(parseArgs(['--resume']).resume, true);
-  assert.equal(parseArgs(['--tickets', '6', '--push']).push, true);
-});
-
-test('prompts invoke the Matt Pocock skills and carry the coordinator contract', () => {
-  const p = buildImplementationPrompt({ number: 6, issueFile: '/x/issue.txt' });
-  assert.match(p, /\/skill:implement/);
-  assert.match(p, /ticket #6/);
-  assert.match(p, /do NOT commit|Do NOT commit|do not commit/i);
-  const rp = buildReviewPrompt({ number: 6, issueFile: 'i', baseCommit: 'abc1234' });
-  assert.match(rp, /\/skill:code-review/);
-  assert.match(rp, /abc1234\.\.\.HEAD/);
-  assert.match(rp, /do NOT edit|MUST NOT edit|do not edit/i);
-  assert.match(rp, /"verdict"/);
-});
-
-// ============ AC1: happy path, two tickets ============
-
-test('AC1: two tickets accept immediately, commit, advance', async () => {
-  const root = tmpRoot();
-  const state = { diff: 'seed' };
-  // sessions started in order: impl#6, review#6, impl#7, review#7
-  const spawn = makeFakeSpawn([
-    () => ({ assistantText: 'done', settle: true }),                             // impl 6
-    () => ({ assistantText: '{"verdict":"accept","findings":[]}', settle: true }), // review 6
-    () => ({ assistantText: 'done', settle: true }),                             // impl 7
-    () => ({ assistantText: '{"verdict":"accept","findings":[]}', settle: true }), // review 7
-  ]);
-  const run = makeFakeRun(gitGhHandlers(state));
-  const coord = makeCoord(root, baseConfig(), { run, spawn }, { push: false });
-  coord.startRun([6, 7]);
-  await coord.run();
-  assert.deepEqual(coord.state.accepted, [6, 7]);
-  assert.equal(coord.state.state, 'done');
-  assert.ok(coord._logs.some((l) => /#6\] committed/.test(l)));
-  assert.ok(coord._logs.some((l) => /#7\] committed/.test(l)));
-});
-
-// ============ AC2: verify fails -> repair same session, no reviewer yet ============
-
-test('AC2: failed verify repairs impl session without a reviewer', async () => {
-  const root = tmpRoot();
-  const state = { diff: 'seed' };
-  let reviewerStarted = 0;
-  let verifyCalls = 0;
-  const spawn = makeFakeSpawn([
-    // impl session handles both the initial prompt and the repair prompt
-    (msg, callIndex) => ({ assistantText: `impl call ${callIndex}`, settle: true }),
-    // any later session would be the reviewer
-    () => { reviewerStarted += 1; return { assistantText: '{"verdict":"accept","findings":[]}', settle: true }; },
-  ]);
-  const handlers = gitGhHandlers(state);
-  handlers.unshift([/^npm test/, () => {
-    verifyCalls += 1;
-    return verifyCalls === 1 ? fail('boom') : ok('pass');
-  }]);
-  const run = makeFakeRun(handlers);
-  const coord = makeCoord(root, baseConfig(), { run, spawn });
-  coord.startRun([6]);
-  await coord.run();
-  assert.equal(coord.state.accepted.includes(6), true);
-  assert.equal(reviewerStarted, 1, 'reviewer runs only after verify passes');
-  assert.ok(coord.state.repairCycles >= 1);
-});
-
-// ============ AC3/AC4: reject -> resume impl, fresh reviewer, then accept ============
-
-test('AC3/AC4: rejected review resumes impl and reuses ONE persistent reviewer, then accepts', async () => {
-  const root = tmpRoot();
-  const state = { diff: 'seed' };
-  let implCalls = 0;
-  let reviewerSpawns = 0;
-  let reviewPrompts = 0;
-  const spawn = makeFakeSpawn([
-    (msg, ci) => { implCalls += 1; return { assistantText: `impl ${ci}`, settle: true }; }, // impl (reused across repair)
-    (msg, ci) => {
-      // ONE persistent reviewer session, prompted once per cycle. It carries
-      // memory, so it rejects the first revision then accepts the fix.
-      if (ci === 0) reviewerSpawns += 1; // count the session on its first prompt
-      reviewPrompts += 1;
-      return ci === 0
-        ? { assistantText: '{"verdict":"reject","findings":[{"title":"fix"}]}', settle: true }
-        : { assistantText: '{"verdict":"accept","findings":[]}', settle: true };
-    },
-  ]);
-  const run = makeFakeRun(gitGhHandlers(state));
-  const coord = makeCoord(root, baseConfig(), { run, spawn });
-  coord.startRun([6]);
-  await coord.run();
-  assert.equal(implCalls, 2, 'impl session reused for repair');
-  assert.equal(reviewerSpawns, 1, 'exactly one reviewer session for the ticket');
-  assert.equal(reviewPrompts, 2, 'the same reviewer is re-prompted each cycle');
-  assert.equal(coord.state.accepted.includes(6), true);
-});
-
-// ============ AC5: exceeding repair cycles blocks ============
-
-test('AC5: more than maxRepairCycles blocks the run', async () => {
-  const root = tmpRoot();
-  const state = { diff: 'seed' };
-  const spawn = makeFakeSpawn([
-    () => ({ assistantText: 'impl', settle: true }), // impl reused
-    () => ({ assistantText: '{"verdict":"reject","findings":[{"title":"a"}]}', settle: true }),
-    () => ({ assistantText: '{"verdict":"reject","findings":[{"title":"b"}]}', settle: true }),
-    () => ({ assistantText: '{"verdict":"reject","findings":[{"title":"c"}]}', settle: true }),
-  ]);
-  const run = makeFakeRun(gitGhHandlers(state));
-  const coord = makeCoord(root, baseConfig({ maxRepairCycles: 2 }), { run, spawn });
-  coord.startRun([6]);
-  await coord.run();
-  assert.equal(coord.state.state, 'blocked');
-  assert.match(coord.state.blocked.reason, /maxRepairCycles/);
-});
-
-// ============ AC6: invalid reviewer JSON blocks ============
-
-test('AC6: invalid reviewer JSON blocks the run', async () => {
-  const root = tmpRoot();
-  const state = { diff: 'seed' };
-  const spawn = makeFakeSpawn([
-    () => ({ assistantText: 'impl', settle: true }),
-    () => ({ assistantText: 'I think it looks fine honestly', settle: true }),
-  ]);
-  const run = makeFakeRun(gitGhHandlers(state));
-  const coord = makeCoord(root, baseConfig(), { run, spawn });
-  coord.startRun([6]);
-  await coord.run();
-  assert.equal(coord.state.state, 'blocked');
-  assert.match(coord.state.blocked.reason, /invalid verdict/);
-});
-
-// ============ AC7: reviewer edits detected ============
-
-test('AC7: reviewer edits to tracked files block the run', async () => {
-  const root = tmpRoot();
-  const state = { diff: 'seed' };
-  const spawn = makeFakeSpawn([
-    () => ({ assistantText: 'impl', settle: true }),
-    (msg, ci, child) => {
-      // simulate the reviewer mutating tracked files mid-review
-      state.diff = 'reviewer changed this';
-      return { assistantText: '{"verdict":"accept","findings":[]}', settle: true };
-    },
-  ]);
-  const run = makeFakeRun(gitGhHandlers(state));
-  const coord = makeCoord(root, baseConfig(), { run, spawn });
-  coord.startRun([6]);
-  await coord.run();
-  assert.equal(coord.state.state, 'blocked');
-  assert.match(coord.state.blocked.reason, /reviewer modified/);
-});
-
-// ============ AC: pi exits without settling -> blocked ============
-
-test('impl that exits without agent_settled blocks', async () => {
-  const root = tmpRoot();
-  const state = { diff: 'seed' };
-  const spawn = makeFakeSpawn([
-    () => ({ assistantText: null, settle: false }), // dies without settling
-  ]);
-  const run = makeFakeRun(gitGhHandlers(state));
-  const coord = makeCoord(root, baseConfig(), { run, spawn });
-  coord.startRun([6]);
-  await coord.run();
-  assert.equal(coord.state.state, 'blocked');
-  assert.match(coord.state.blocked.reason, /agent_settled/);
-});
-
-// ============ preconditions ============
-
-test('preconditions fail on wrong branch and dirty tree', () => {
-  const root = tmpRoot();
-  const handlers = [
-    [/^command -v/, () => ok('/x')],
-    [/^git rev-parse --abbrev-ref HEAD/, () => ok('feature\n')],
-    [/^git status --porcelain/, () => ok(' M src/x.ts\n')],
-    [/^gh auth status/, () => ok('')],
-    [/^gh issue view/, () => ok(JSON.stringify({ number: 6, state: 'OPEN', title: 't' }))],
-    [/^git check-ignore/, () => ok('')],
-  ];
-  const coord = makeCoord(root, baseConfig(), { run: makeFakeRun(handlers), spawn: () => {} });
-  const problems = coord.checkPreconditions([6]);
-  assert.ok(problems.some((p) => /branch/.test(p)));
-  assert.ok(problems.some((p) => /modified/.test(p)));
-});
-
-test('preconditions fail when issue is closed', () => {
-  const root = tmpRoot();
-  const handlers = gitGhHandlers({ diff: 'seed' }).slice();
-  handlers.unshift([/^gh issue view (\d+) --json number,state,title/, () => ok(JSON.stringify({ number: 6, state: 'CLOSED', title: 't' }))]);
-  const coord = makeCoord(root, baseConfig(), { run: makeFakeRun(handlers), spawn: () => {} });
-  const problems = coord.checkPreconditions([6]);
-  assert.ok(problems.some((p) => /not open/.test(p)));
-});
-
-// ============ AC10: interrupted run resumes to a safe boundary ============
-
-test('AC10: state persisted after transitions and reload works', async () => {
-  const root = tmpRoot();
-  const state = { diff: 'seed' };
-  const spawn = makeFakeSpawn([
-    () => ({ assistantText: 'done', settle: true }),
-    () => ({ assistantText: '{"verdict":"accept","findings":[]}', settle: true }),
-  ]);
-  const run = makeFakeRun(gitGhHandlers(state));
-  const coord = makeCoord(root, baseConfig(), { run, spawn });
-  coord.startRun([6, 7]);
-  await coord.runTicket(6);
-  // reload from disk into a fresh coordinator
-  const coord2 = makeCoord(root, baseConfig(), { run, spawn });
-  coord2.loadRun();
-  assert.equal(coord2.state.accepted.includes(6), true);
-  assert.ok(fs.existsSync(path.join(coord2.runDir, 'state.json')));
-});
-
-test('test-change-request file blocks the ticket', async () => {
-  const root = tmpRoot();
-  const state = { diff: 'seed' };
-  const spawn = makeFakeSpawn([
-    (msg, ci, child) => {
-      fs.mkdirSync(path.join(root, '.coordinator'), { recursive: true });
-      fs.writeFileSync(path.join(root, '.coordinator', 'test-change-request.json'), '{"why":"conflict"}');
-      return { assistantText: 'raised a request', settle: true };
-    },
-  ]);
-  const run = makeFakeRun(gitGhHandlers(state));
-  const coord = makeCoord(root, baseConfig(), { run, spawn });
-  coord.startRun([6]);
-  await coord.run();
-  assert.equal(coord.state.state, 'blocked');
-  assert.match(coord.state.blocked.reason, /test-change-request/);
-});
-test('notify fires once on block and once on done, no polling', async () => {
-  const root = tmpRoot();
-  const state = { diff: 'seed' };
-  const notifications = [];
-  const spawn = makeFakeSpawn([
-    () => ({ assistantText: 'done', settle: true }),
-    () => ({ assistantText: '{"verdict":"accept","findings":[]}', settle: true }),
-  ]);
-  const handlers = gitGhHandlers(state);
-  const baseRun = makeFakeRun(handlers);
-  // wrap run to capture the notify command invocation
-  const run = (cmd, opts) => {
-    if (opts && opts.env && opts.env.COORD_EVENT) {
-      notifications.push({ event: opts.env.COORD_EVENT, ticket: opts.env.COORD_BLOCKED_TICKET, cmd });
-      return ok('');
+  async function run(command, options = {}) {
+    const argv = Array.isArray(command) ? command : [command];
+    if (argv[0] === 'gh') {
+      calls.gh.push(argv);
+      if (argv[1] !== 'issue') throw new Error(`unexpected fake gh command: ${argv.join(' ')}`);
+      if (argv[2] === 'view') {
+        if (argv.includes('title,body,comments')) return ok(JSON.stringify(issue));
+        return ok(JSON.stringify({ number: issue.number, state: issue.state || 'OPEN' }));
+      }
+      if (argv[2] === 'close') {
+        issue.state = 'CLOSED';
+        return ok();
+      }
+      throw new Error(`unexpected fake gh command: ${argv.join(' ')}`);
     }
-    return baseRun(cmd, opts);
-  };
-  const cfg = baseConfig({ notify: { on: ['blocked', 'done'], command: 'send-it' } });
-  const coord = makeCoord(root, cfg, { run, spawn });
-  coord.startRun([6]);
-  await coord.run();
-  assert.deepEqual(notifications.map((n) => n.event), ['done']);
-  assert.equal(coord.state.state, 'done');
-  // summary file exists
-  assert.ok(fs.existsSync(path.join(coord.runDir, 'NOTIFY-done.txt')));
-});
-
-test('notify fires on block with the blocked ticket in env', async () => {
-  const root = tmpRoot();
-  const state = { diff: 'seed' };
-  const notifications = [];
-  const spawn = makeFakeSpawn([
-    () => ({ assistantText: 'impl', settle: true }),
-    () => ({ assistantText: 'not json', settle: true }), // invalid verdict -> block
-  ]);
-  const baseRun = makeFakeRun(gitGhHandlers(state));
-  const run = (cmd, opts) => {
-    if (opts && opts.env && opts.env.COORD_EVENT) {
-      notifications.push({ event: opts.env.COORD_EVENT, ticket: opts.env.COORD_BLOCKED_TICKET });
-      return ok('');
+    if (argv[0] === 'git' && argv[1] === 'push') {
+      calls.pushes++;
+      if (currentPushFailures > 0) {
+        currentPushFailures--;
+        return fail('scripted push failure');
+      }
+      return ok();
     }
-    return baseRun(cmd, opts);
+    if (['curl', 'ssh', 'shelley'].includes(argv[0])) throw new Error(`external command escaped fake harness: ${argv.join(' ')}`);
+    calls.real.push(argv);
+    return runCommand(command, options);
+  }
+
+  class ScriptedSession {
+    constructor(_deps, options) {
+      this.cwd = options.cwd;
+      this.role = options.name.startsWith('implementation') ? 'implementation' : 'review';
+      this.prompts = [];
+      this.stopped = false;
+      sessions.push(this);
+    }
+
+    start() {}
+
+    async prompt(message) {
+      this.prompts.push(message);
+      calls[this.role]++;
+      if (this.role === 'implementation') {
+        const response = implementationResponses[calls.implementation - 1] || 'complete';
+        if (response === 'blocked') {
+          return { settled: true, lastAssistantText: JSON.stringify({
+            status: 'blocked', reason: 'The ticket specification is contradictory.', kind: 'spec',
+          }) };
+        }
+        if (response === 'malformed') return { settled: true, lastAssistantText: 'not a typed result' };
+        fs.writeFileSync(path.join(this.cwd, 'feature.txt'), `version-${calls.implementation}\n`);
+        return { settled: true, lastAssistantText: implementationResult() };
+      }
+      const response = reviewResponses[calls.review - 1] || 'accept';
+      if (response === 'malformed') return { settled: true, lastAssistantText: 'review prose without the required JSON result' };
+      return { settled: true, lastAssistantText: responseForReview(message, response) };
+    }
+
+    stop() { this.stopped = true; }
+  }
+
+  return {
+    config,
+    counterFile,
+    calls,
+    sessions,
+    deps: { run, Session: ScriptedSession },
+    cleanup: () => fs.rmSync(scenarioRoot, { recursive: true, force: true }),
   };
-  const cfg = baseConfig({ notify: { on: ['blocked', 'done'], command: 'send-it' } });
-  const coord = makeCoord(root, cfg, { run, spawn });
-  coord.startRun([6]);
-  await coord.run();
-  assert.deepEqual(notifications, [{ event: 'blocked', ticket: '6' }]);
+}
+
+async function startHarness(harness, options = {}) {
+  const root = await makeRepository();
+  const coordinator = new Coordinator({ root, options, config: harness.config, deps: harness.deps });
+  await coordinator.startRun([INITIAL_ISSUE.number]);
+  return { root, coordinator };
+}
+
+async function cleanupRepository(root, harness) {
+  try {
+    const pointer = path.join(root, '.coordinator', 'current-run.json');
+    if (fs.existsSync(pointer)) {
+      const { runId } = JSON.parse(fs.readFileSync(pointer, 'utf8'));
+      const worktree = path.join(root, '.coordinator', 'runs', runId, 'worktree');
+      if (fs.existsSync(worktree)) await runCommand(['git', 'worktree', 'remove', '--force', worktree], { cwd: root });
+    }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+    harness.cleanup();
+  }
+}
+
+test('runs the full suite only after review accepts the captured candidate', async (t) => {
+  const harness = makeHarness();
+  const { root, coordinator } = await startHarness(harness);
+  t.after(() => cleanupRepository(root, harness));
+
+  assert.equal(await coordinator.run(), 'done');
+  const events = readEvents(coordinator.runDir);
+  const reviewIndex = events.findIndex(event => event.type === 'review_verdict' && event.verdict === 'accept');
+  const fullIndex = events.findIndex((event, index) => index > reviewIndex && event.type === 'command_started' && event.stage === 'full');
+  assert.ok(reviewIndex >= 0);
+  assert.ok(fullIndex > reviewIndex, 'full verification starts after review acceptance');
+  assert.deepEqual(readCounts(harness.counterFile), { quick: 2, full: 1 });
+  assert.equal(coordinator.state.state, 'done');
+  assert.deepEqual(coordinator.state.accepted, [7]);
+  assert.equal(harness.calls.gh.length, 1, 'issue read was intercepted and no external GitHub call escaped');
+  assert.ok(harness.calls.real.every(([program]) => !['curl', 'ssh', 'shelley'].includes(program)), 'no unsupported external command escaped');
 });
 
-test('notify respects the `on` allowlist (done disabled)', async () => {
-  const root = tmpRoot();
-  const state = { diff: 'seed' };
-  const notifications = [];
-  const spawn = makeFakeSpawn([
-    () => ({ assistantText: 'done', settle: true }),
-    () => ({ assistantText: '{"verdict":"accept","findings":[]}', settle: true }),
-  ]);
-  const baseRun = makeFakeRun(gitGhHandlers(state));
-  const run = (cmd, opts) => {
-    if (opts && opts.env && opts.env.COORD_EVENT) { notifications.push(opts.env.COORD_EVENT); return ok(''); }
-    return baseRun(cmd, opts);
-  };
-  const cfg = baseConfig({ notify: { on: ['blocked'], command: 'send-it' } });
-  const coord = makeCoord(root, cfg, { run, spawn });
-  coord.startRun([6]);
-  await coord.run();
-  assert.deepEqual(notifications, []); // done not in allowlist, no block happened
+test('repairs a rejected review and resolves the same finding in the persistent ledger', async (t) => {
+  const harness = makeHarness({ reviewResponses: ['reject', 'accept-resolved'] });
+  const { root, coordinator } = await startHarness(harness);
+  t.after(() => cleanupRepository(root, harness));
+
+  assert.equal(await coordinator.run(), 'done');
+  assert.equal(harness.calls.implementation, 2);
+  assert.equal(harness.calls.review, 2);
+  assert.equal(coordinator.state.ticketState.repairCycles, 1);
+  assert.deepEqual(coordinator.state.ticketState.ledger.map(({ id, status }) => ({ id, status })), [{ id: 'F1', status: 'resolved' }]);
+  assert.match(fs.readFileSync(path.join(coordinator.ticketDir(), 'findings.json'), 'utf8'), /F1/);
+});
+
+test('retries malformed implementation schema without running verification first', async (t) => {
+  const harness = makeHarness({ implementationResponses: ['malformed', 'complete'] });
+  const { root, coordinator } = await startHarness(harness);
+  t.after(() => cleanupRepository(root, harness));
+
+  assert.equal(await coordinator.run(), 'done');
+  assert.equal(harness.calls.implementation, 2);
+  const events = readEvents(coordinator.runDir);
+  const firstFinished = events.findIndex(event => event.type === 'agent_finished');
+  const secondStarted = events.findIndex((event, index) => index > firstFinished && event.type === 'agent_started');
+  const firstCommand = events.findIndex(event => event.type === 'command_started');
+  assert.ok(firstCommand > secondStarted, 'verification begins only after a valid implementation result');
+  assert.equal(coordinator.state.ticketState.protocolErrors, 1);
+  assert.deepEqual(readCounts(harness.counterFile), { quick: 2, full: 1 });
+});
+
+test('a blocked implementation stops before verification or review', async (t) => {
+  const harness = makeHarness({ implementationResponses: ['blocked'] });
+  const { root, coordinator } = await startHarness(harness);
+  t.after(() => cleanupRepository(root, harness));
+
+  assert.equal(await coordinator.run(), 'blocked');
+  assert.equal(coordinator.state.blocked.kind, 'spec');
+  assert.equal(harness.calls.implementation, 1);
+  assert.equal(harness.calls.review, 0);
+  assert.deepEqual(readCounts(harness.counterFile), {});
+});
+
+test('push failure resumes publication without new agents or a second commit', async (t) => {
+  const harness = makeHarness({ pushFailures: 1 });
+  const { root, coordinator } = await startHarness(harness, { push: true });
+  t.after(() => cleanupRepository(root, harness));
+
+  assert.equal(await coordinator.run(), 'blocked');
+  assert.equal(coordinator.state.blocked.kind, 'publication');
+  const firstRunDir = coordinator.runDir;
+  const firstCommit = coordinator.state.ticketState.checkpoints.commit;
+  const sessionsBeforeResume = harness.sessions.length;
+  const commitsBeforeResume = readEvents(firstRunDir).filter(event => event.type === 'committed');
+
+  const resumed = new Coordinator({ root, options: { push: true }, config: harness.config, deps: harness.deps });
+  resumed.loadRun();
+  assert.equal(resumed.state.ticketState.agentTurns, coordinator.state.ticketState.agentTurns, 'agent budget survives load');
+  assert.equal(resumed.state.ticketState.repairCycles, coordinator.state.ticketState.repairCycles, 'repair budget survives load');
+  assert.equal(await resumed.run(), 'done');
+  assert.equal(harness.sessions.length, sessionsBeforeResume, 'resume does not create agents');
+  assert.deepEqual(readEvents(firstRunDir).filter(event => event.type === 'committed'), commitsBeforeResume, 'resume does not create a second commit');
+  assert.equal(await git(root, 'rev-parse', 'HEAD'), firstCommit);
+  assert.equal(harness.calls.pushes, 2);
+});
+
+test('full-gate verification failure repairs and re-reviews the candidate', async (t) => {
+  const harness = makeHarness({ verifyMode: 'fail-full-once', reviewResponses: ['accept', 'accept'] });
+  const { root, coordinator } = await startHarness(harness);
+  t.after(() => cleanupRepository(root, harness));
+
+  assert.equal(await coordinator.run(), 'done');
+  assert.equal(harness.calls.implementation, 2);
+  assert.equal(harness.calls.review, 2);
+  assert.deepEqual(readCounts(harness.counterFile), { quick: 4, full: 2 });
+  const events = readEvents(coordinator.runDir);
+  assert.ok(events.some(event => event.type === 'command_finished' && event.stage === 'full' && event.code === 1));
+  assert.equal(events.filter(event => event.type === 'committed').length, 1);
+});
+
+test('a queue integrates each ticket in order and starts separate role sessions for the next ticket', async (t) => {
+  const harness = makeHarness();
+  const { root, coordinator } = await startHarness(harness);
+  t.after(() => cleanupRepository(root, harness));
+  coordinator.state.tickets = [7, 8];
+  coordinator.saveState();
+  assert.equal(await coordinator.run(), 'done');
+  assert.deepEqual(coordinator.state.accepted, [7, 8]);
+  assert.equal(harness.sessions.length, 4);
+  assert.equal(await git(root, 'rev-list', '--count', 'HEAD'), '3');
+  assert.equal(fs.readFileSync(path.join(root, 'feature.txt'), 'utf8'), 'version-2\n');
+});
+
+test('accept cannot silently drop an unresolved finding from the ledger', async (t) => {
+  const harness = makeHarness({ reviewResponses: ['reject', 'accept'] });
+  const { root, coordinator } = await startHarness(harness);
+  t.after(() => cleanupRepository(root, harness));
+  assert.equal(await coordinator.run(), 'blocked');
+  assert.equal(coordinator.state.blocked.kind, 'protocol');
+  assert.equal(await git(root, 'rev-list', '--count', 'HEAD'), '1');
+});
+
+test('an exhausted turn budget survives process recreation and cannot run another agent', async (t) => {
+  const harness = makeHarness();
+  harness.config.maxAgentTurns = 1;
+  const { root, coordinator } = await startHarness(harness);
+  t.after(() => cleanupRepository(root, harness));
+  assert.equal(await coordinator.run(), 'blocked');
+  assert.equal(coordinator.state.blocked.kind, 'budget');
+  const resumed = new Coordinator({ root, deps: harness.deps });
+  resumed.loadRun();
+  assert.equal(await resumed.run(), 'blocked');
+  assert.equal(harness.calls.implementation, 1);
+  assert.equal(harness.calls.review, 0);
+});
+
+test('CLI resumes a completed run from its frozen config even when current config is invalid', async (t) => {
+  const harness = makeHarness();
+  const { root, coordinator } = await startHarness(harness);
+  t.after(() => cleanupRepository(root, harness));
+  assert.equal(await coordinator.run(), 'done');
+  fs.writeFileSync(path.join(root, 'coordinator.config.json'), '{invalid json');
+  const result = await runCommand([process.execPath, fileURLToPath(new URL('./coordinate-tickets.mjs', import.meta.url)), '--resume'], { cwd: root });
+  assert.equal(result.code, 0, result.combined);
+  assert.equal(fs.existsSync(path.join(root, '.coordinator', 'run.lock')), false);
 });
