@@ -34,7 +34,6 @@ async function openWorkspace(page: Page) {
     examDraft: { title: 'Layout', questionIds: ['q1'] },
     dirty: false,
   })
-  await page.goto('/')
   await expect(page.locator('.exam-question[data-question-id]')).toHaveCount(1)
 }
 

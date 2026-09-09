@@ -79,6 +79,8 @@ import {
 import { ContextMenu, type MenuPoint } from './context-menu'
 import { useRoute } from './use-route'
 import { Footer } from './site-chrome'
+import { HomePage } from './home-page'
+import type { ExamWorkspaceService, RecentExam } from './exam-workspaces'
 import {
   HistoricalDocument,
   ReviewHistoricalQuestions,
@@ -611,7 +613,15 @@ function QuestionDialog({
   )
 }
 
-function ExamEditor({ store }: { store: ExamStore }) {
+function ExamEditor({
+  store,
+  onHome,
+  launchError,
+}: {
+  store: ExamStore
+  onHome: () => void
+  launchError: string | null
+}) {
   const state = useSyncExternalStore(store.subscribe, store.getState)
   // What the page renders and what an export publishes: the Question Bank
   // records the Exam Draft references, in Exam Draft order, and nothing else.
@@ -1157,6 +1167,7 @@ function ExamEditor({ store }: { store: ExamStore }) {
 
   return (
     <>
+      {launchError && <p className="home-error editor-launch-error" role="alert">{launchError}</p>}
       <header className="document-bar">
         {/* The mark sits at the far left of the bar with the exam's name beside
             it, the way a document editor puts its logo next to the file name. */}
@@ -1171,6 +1182,7 @@ function ExamEditor({ store }: { store: ExamStore }) {
           />
         </div>
         <div className="header-actions">
+          <button type="button" className="site-link editor-home-link" onClick={onHome}>Home</button>
           <button
             type="button"
             className="toolbar-icon-button"
@@ -1488,9 +1500,42 @@ function ExamEditor({ store }: { store: ExamStore }) {
  * The site's three pages. The editor is the app; About and Privacy are the
  * ordinary pages a public tool is expected to have, reached from the footer.
  */
-export default function App({ store }: { store: ExamStore }) {
+export default function App({
+  store,
+  workspaces,
+  initialExams,
+  initialError,
+}: {
+  store: ExamStore | null
+  workspaces: ExamWorkspaceService
+  initialExams: readonly RecentExam[]
+  initialError: string | null
+}) {
   const route = useRoute()
+  const [exams, setExams] = useState(initialExams)
+  const homeError = initialError
+  useEffect(() => {
+    if (route !== '/') return
+    let current = true
+    void (async () => {
+      await workspaces.cleanupPristine({ includeActive: true })
+      const recent = await workspaces.recent()
+      if (current) setExams(recent)
+    })()
+    return () => { current = false }
+  }, [route, workspaces])
   if (route === '/about') return <AboutPage />
   if (route === '/privacy') return <PrivacyPage />
-  return <ExamEditor store={store} />
+  if (route === '/') return <HomePage
+    exams={exams}
+    error={homeError}
+    onNewExam={() => { void workspaces.create().then((exam) => window.location.assign(`/editor?exam=${exam.id}`)) }}
+    onOpen={(id) => window.location.assign(`/editor?exam=${id}`)}
+  />
+  return store ? <ExamEditor store={store} launchError={initialError} onHome={() => {
+    void workspaces.activeId().then(async (id) => {
+      if (id) await workspaces.removePristine(id)
+      window.location.assign('/')
+    })
+  }} /> : null
 }

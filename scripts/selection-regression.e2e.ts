@@ -27,7 +27,6 @@ async function openSelectedQuestions(page: Page) {
     dirty: false,
   })
 
-  await page.goto('/')
   const questions = page.locator('.exam-question')
   await expect(questions).toHaveCount(2)
   await questions.nth(0).click()

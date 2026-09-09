@@ -118,7 +118,6 @@ async function open(
     })
   }, persistent)
   await seedAuthoringState(page, authoring)
-  await page.goto('/')
   await page.locator('.exam-page').first().waitFor()
 }
 
@@ -134,11 +133,14 @@ async function openDialog(page: Page) {
 
 async function historyOf(page: Page): Promise<PublicationHistory> {
   return page.evaluate(async () => {
-    const modulePath = '/src/indexeddb-authoring.ts'
-    const { createIndexedDBAuthoringBackend } = (await import(
-      /* @vite-ignore */ modulePath
-    )) as typeof import('../src/indexeddb-authoring')
-    return createIndexedDBAuthoringBackend().readPublicationHistory()
+    const workspacePath = '/src/exam-workspaces.ts'
+    const { createExamWorkspaceService } = (await import(
+      /* @vite-ignore */ workspacePath
+    )) as typeof import('../src/exam-workspaces')
+    const workspaces = createExamWorkspaceService()
+    const examId = await workspaces.activeId()
+    if (!examId) throw new Error('No active Exam workspace')
+    return workspaces.backendFor(examId).readPublicationHistory()
   })
 }
 
@@ -848,7 +850,6 @@ test('unresolved required media blocks publication with the affected question', 
     attrs: { src: `/local-images/${'f'.repeat(64)}` },
   } as never)
   await seedAuthoringState(page, broken)
-  await page.goto('/')
   const dialog = await openDialog(page)
   await dialog.getByRole('button', { name: 'Download PDF' }).click()
 
@@ -860,6 +861,7 @@ test('an empty Exam Draft is blocked with an actionable message', async ({
   page,
 }) => {
   await page.goto('/')
+  await page.getByRole('button', { name: 'New Exam' }).first().click()
   const dialog = await openDialog(page)
 
   await expect(dialog.getByRole('alert')).toContainText(

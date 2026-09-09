@@ -1,57 +1,55 @@
-const databaseName = 'test-parrot-version-history-v1'
-const databaseVersion = 3
-const questionBankStore = 'question-bank'
-const authoringStateStore = 'authoring-state'
-const savedAuthoringStore = 'saved-authoring-state'
+const registryDatabaseName = 'test-parrot-exams-v1'
+const databaseVersion = 4
+const workspaceStore = 'exam-workspace'
 const mediaStore = 'media-assets'
-const versionStore = 'versions'
-const questionRevisionStore = 'question-revisions'
-const layoutPlanStore = 'layout-plans'
-
-// The worker can be the first client to open an existing database: a
-// persisted image may be requested before the application starts its normal
-// authoring backend. Its upgrade must therefore establish the complete v3
-// schema, not merely the store it reads.
-function upgradeSchema(database) {
-  if (!database.objectStoreNames.contains(questionBankStore)) {
-    database.createObjectStore(questionBankStore, { keyPath: 'id' })
-  }
-  if (!database.objectStoreNames.contains(authoringStateStore)) {
-    database.createObjectStore(authoringStateStore, { keyPath: 'key' })
-  }
-  if (!database.objectStoreNames.contains(savedAuthoringStore)) {
-    database.createObjectStore(savedAuthoringStore)
-  }
-  if (!database.objectStoreNames.contains(mediaStore)) {
-    database.createObjectStore(mediaStore, { keyPath: 'hash' })
-  }
-  if (!database.objectStoreNames.contains(versionStore)) {
-    database.createObjectStore(versionStore, { keyPath: 'id' })
-  }
-  if (!database.objectStoreNames.contains(questionRevisionStore)) {
-    database.createObjectStore(questionRevisionStore, { keyPath: 'id' })
-  }
-  if (!database.objectStoreNames.contains(layoutPlanStore)) {
-    database.createObjectStore(layoutPlanStore, { keyPath: 'id' })
-  }
-}
 
 self.addEventListener('install', () => self.skipWaiting())
 self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()))
 
-function assetFor(hash) {
+function activeExamDatabaseName() {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open(databaseName, databaseVersion)
+    const request = indexedDB.open(registryDatabaseName, databaseVersion)
     request.onerror = () => reject(request.error)
-    request.onupgradeneeded = () => upgradeSchema(request.result)
     request.onsuccess = () => {
       const database = request.result
-      const transaction = database.transaction(mediaStore, 'readonly')
-      const get = transaction.objectStore(mediaStore).get(hash)
-      get.onsuccess = () => resolve(get.result ?? null)
+      if (!database.objectStoreNames.contains(workspaceStore)) {
+        database.close()
+        resolve(null)
+        return
+      }
+      const transaction = database.transaction(workspaceStore, 'readonly')
+      const get = transaction.objectStore(workspaceStore).get('active')
+      get.onsuccess = () => resolve(
+        typeof get.result?.examId === 'string'
+          ? `${registryDatabaseName}-exam-${get.result.examId}`
+          : null,
+      )
       get.onerror = () => reject(get.error)
       transaction.oncomplete = () => database.close()
     }
+  })
+}
+
+function assetFor(hash) {
+  return activeExamDatabaseName().then((databaseName) => {
+    if (!databaseName) return null
+    return new Promise((resolve, reject) => {
+      const request = indexedDB.open(databaseName, databaseVersion)
+      request.onerror = () => reject(request.error)
+      request.onsuccess = () => {
+        const database = request.result
+        if (!database.objectStoreNames.contains(mediaStore)) {
+          database.close()
+          resolve(null)
+          return
+        }
+        const transaction = database.transaction(mediaStore, 'readonly')
+        const get = transaction.objectStore(mediaStore).get(hash)
+        get.onsuccess = () => resolve(get.result ?? null)
+        get.onerror = () => reject(get.error)
+        transaction.oncomplete = () => database.close()
+      }
+    })
   })
 }
 
@@ -63,13 +61,10 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(new Response('Image not found', { status: 404 }))
     return
   }
-
-  event.respondWith(
-    assetFor(hash).then(
-      (asset) => asset
-        ? new Response(asset.bytes, { headers: { 'Content-Type': asset.mimeType } })
-        : new Response('Image not found', { status: 404 }),
-      () => new Response('Image not found', { status: 404 }),
-    ),
-  )
+  event.respondWith(assetFor(hash).then(
+    (asset) => asset
+      ? new Response(asset.bytes, { headers: { 'Content-Type': asset.mimeType } })
+      : new Response('Image not found', { status: 404 }),
+    () => new Response('Image not found', { status: 404 }),
+  ))
 })

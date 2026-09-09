@@ -31,7 +31,6 @@ test('column formatting applies to a large multi-page selection', async ({ page 
     dirty: false,
   })
 
-  await page.goto('/')
   const questions = page.locator('.exam-question')
   await expect(questions).toHaveCount(ids.length)
   await questions.first().click()

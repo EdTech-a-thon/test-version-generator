@@ -34,6 +34,7 @@ async function writeQuestion(page: Page, stem: string) {
 
 test('the Question Bank opens beside the Exam Draft as the narrower pane', async ({ page }) => {
   await page.goto('/')
+  await page.getByRole('button', { name: 'New Exam' }).first().click()
 
   await expect(bank(page)).toBeVisible()
 
@@ -46,6 +47,7 @@ test('the Question Bank opens beside the Exam Draft as the narrower pane', async
 
 test('a question written in the bank stays off the exam until it is added', async ({ page }) => {
   await page.goto('/')
+  await page.getByRole('button', { name: 'New Exam' }).first().click()
 
   await newBankQuestion(page)
   await writeQuestion(page, 'Which is a mammal?')
@@ -67,6 +69,7 @@ test('a question written in the bank stays off the exam until it is added', asyn
 
 test('the slot that says a question is on the exam is also how it comes off', async ({ page }) => {
   await page.goto('/')
+  await page.getByRole('button', { name: 'New Exam' }).first().click()
 
   await newBankQuestion(page)
   await writeQuestion(page, 'Which is a mammal?')
@@ -86,6 +89,7 @@ test('the slot that says a question is on the exam is also how it comes off', as
 
 test('cancelling the popup leaves the Question Bank and the Exam Draft alone', async ({ page }) => {
   await page.goto('/')
+  await page.getByRole('button', { name: 'New Exam' }).first().click()
 
   await newBankQuestion(page)
   await expect(page.getByRole('dialog', { name: 'Question editor' })).toBeVisible()
@@ -99,6 +103,7 @@ test('cancelling the popup leaves the Question Bank and the Exam Draft alone', a
 
 test('a refresh restores the Question Bank, the Exam Draft and its order', async ({ page }) => {
   await page.goto('/')
+  await page.getByRole('button', { name: 'New Exam' }).first().click()
 
   await page.getByRole('button', { name: 'Insert your first question' }).click()
   await page.getByRole('menuitem', { name: 'Multiple choice' }).click()
@@ -121,6 +126,7 @@ test('a refresh restores the Question Bank, the Exam Draft and its order', async
 
 test('editing canonical Question Content updates the rendered Exam Draft', async ({ page }) => {
   await page.goto('/')
+  await page.getByRole('button', { name: 'New Exam' }).first().click()
 
   await page.getByRole('button', { name: 'Insert your first question' }).click()
   await page.getByRole('menuitem', { name: 'Multiple choice' }).click()

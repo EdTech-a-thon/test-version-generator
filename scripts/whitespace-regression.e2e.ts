@@ -32,7 +32,6 @@ test('the rendered exam preserves authored spaces and blank lines', async ({ pag
   }
   await seedAuthoringState(page, authoring)
 
-  await page.goto('/')
 
   const stem = page.locator('.question-stem')
   await expect(stem.locator('p')).toHaveCount(4)

@@ -94,7 +94,6 @@ async function openBank(page: Page, questionIds: string[] = ['q1', 'q2']) {
     examDraft: { title: 'Biology quiz', questionIds },
     dirty: false,
   })
-  await page.goto('/')
   await expect(rows(page)).toHaveCount(QUESTIONS.length)
 }
 
@@ -221,6 +220,7 @@ test('browsing the Question Bank is not an authoring action', async ({ page }) =
 
 test('an empty Question Bank reads differently from one nothing matches', async ({ page }) => {
   await page.goto('/')
+  await page.getByRole('button', { name: 'New Exam' }).first().click()
   await expect(bank(page)).toContainText('No questions yet')
 
   await openBank(page)

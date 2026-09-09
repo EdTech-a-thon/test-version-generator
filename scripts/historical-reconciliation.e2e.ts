@@ -69,7 +69,6 @@ test('Review questions exposes authored old-versus-current content, defaults, ca
     examDraft: { title: 'Reconciliation', questionIds: [original.id], choiceOrder: {} },
     dirty: false,
   })
-  await page.goto('/')
   await publish(page)
 
   // Change the live Question Content after publication. The review must expose

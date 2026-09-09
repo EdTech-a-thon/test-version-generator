@@ -68,7 +68,6 @@ async function openWorkspace(
     examDraft: { title: 'Biology quiz', questionIds },
     dirty: false,
   })
-  await page.goto('/')
   await expect(examQuestions(page)).toHaveCount(questionIds.length)
 }
 
@@ -322,7 +321,6 @@ test('a composed question is selected and revealed after repagination', async ({
     },
     dirty: false,
   })
-  await page.goto('/')
   await expect(examQuestions(page)).toHaveCount(14)
 
   // Add the spare question — it lands at the end of its Question Section, past

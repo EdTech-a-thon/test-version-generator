@@ -17,6 +17,8 @@ import type {
   QuestionRevision,
 } from './export-preparation'
 import {
+  EXAM_STORE,
+  EXAM_WORKSPACE_STORE,
   LAYOUT_PLAN_STORE,
   MEDIA_ASSET_STORE,
   QUESTION_REVISION_STORE,
@@ -72,6 +74,12 @@ function openDatabase(databaseName: string): Promise<IDBDatabase> {
       }
       if (!database.objectStoreNames.contains(LAYOUT_PLAN_STORE)) {
         database.createObjectStore(LAYOUT_PLAN_STORE, { keyPath: 'id' })
+      }
+      if (!database.objectStoreNames.contains(EXAM_STORE)) {
+        database.createObjectStore(EXAM_STORE, { keyPath: 'id' })
+      }
+      if (!database.objectStoreNames.contains(EXAM_WORKSPACE_STORE)) {
+        database.createObjectStore(EXAM_WORKSPACE_STORE, { keyPath: 'key' })
       }
     }
     request.onsuccess = () => resolve(request.result)

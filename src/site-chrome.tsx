@@ -38,7 +38,7 @@ export function SiteHeader() {
       </Link>
       <div className="header-actions">
         <Link href="/" className="site-link">
-          ← Back to the editor
+          ← Back to Home
         </Link>
       </div>
     </header>

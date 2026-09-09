@@ -204,16 +204,15 @@ for (const fixture of fixtures) {
     )
 
     await seed(page, fixture)
-    // The application registers its image worker and reloads itself once, so
-    // wait for a rendered page rather than for the first navigation.
-    await page.goto('/')
+    // The active fixture Exam is restored by the bare editor route.
+    await page.goto('/editor')
     await page.locator('.exam-page').first().waitFor()
     // Media Assets own image bytes. Fixture documents are rewritten to the
     // same content-addressed references the application persists before their
     // normalized authoring records are seeded.
     if (imageSourcesOf(plans).length > 0) {
       await seedImages(page, fixture)
-      await page.goto('/')
+      await page.goto('/editor')
       await page.locator('.exam-page').first().waitFor()
     }
     await settle(page)

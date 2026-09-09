@@ -29,6 +29,7 @@ async function newQuestion(page: Page, type = 'Multiple choice') {
 
 test('a question is classified and saved with its Difficulty and Topics', async ({ page }) => {
   await page.goto('/')
+  await page.getByRole('button', { name: 'New Exam' }).first().click()
   await newQuestion(page)
   await page.keyboard.type('Which gas do plants take in?')
 
@@ -63,6 +64,7 @@ test('a question is classified and saved with its Difficulty and Topics', async 
 
 test('typing filters the Topics on offer, and writes one that is not there', async ({ page }) => {
   await page.goto('/')
+  await page.getByRole('button', { name: 'New Exam' }).first().click()
 
   // A first question puts two Topics into the bank for a second one to reuse.
   await newQuestion(page)
@@ -101,6 +103,7 @@ test('typing filters the Topics on offer, and writes one that is not there', asy
 
 test('an unclassified question still saves, stem and all', async ({ page }) => {
   await page.goto('/')
+  await page.getByRole('button', { name: 'New Exam' }).first().click()
 
   // Nothing chosen anywhere: the permissive save behaviour is unchanged by
   // Difficulty and Topics being available.
@@ -113,6 +116,7 @@ test('an unclassified question still saves, stem and all', async ({ page }) => {
 
 test('a question is created as a Short Answer question, and stays one', async ({ page }) => {
   await page.goto('/')
+  await page.getByRole('button', { name: 'New Exam' }).first().click()
   await newQuestion(page, 'Short answer')
 
   // The type is stated rather than offered: it was settled at creation.
@@ -126,6 +130,7 @@ test('a question is created as a Short Answer question, and stays one', async ({
 
 test('Escape closes the front matter first, and then the popup', async ({ page }) => {
   await page.goto('/')
+  await page.getByRole('button', { name: 'New Exam' }).first().click()
   await newQuestion(page)
 
   // Escape belongs to the open row while there is one, and to the popup after.
@@ -147,6 +152,7 @@ test('Escape closes the front matter first, and then the popup', async ({ page }
 
 test('the type is stated in the front matter, above the question it classifies', async ({ page }) => {
   await page.goto('/')
+  await page.getByRole('button', { name: 'New Exam' }).first().click()
   await newQuestion(page, 'Short answer')
 
   // Front matter, not header chrome: the type is the first thing the question
@@ -158,6 +164,7 @@ test('the type is stated in the front matter, above the question it classifies',
 
 test('choosing a Difficulty again clears it, which is what a Clear button was for', async ({ page }) => {
   await page.goto('/')
+  await page.getByRole('button', { name: 'New Exam' }).first().click()
   await newQuestion(page)
 
   await field(page, 'Difficulty').click()
@@ -171,6 +178,7 @@ test('choosing a Difficulty again clears it, which is what a Clear button was fo
 
 test('Escape leaves the Topics list without leaving the popup', async ({ page }) => {
   await page.goto('/')
+  await page.getByRole('button', { name: 'New Exam' }).first().click()
   await newQuestion(page)
 
   await field(page, 'Topics').click()

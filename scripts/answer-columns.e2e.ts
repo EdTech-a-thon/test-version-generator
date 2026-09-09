@@ -37,7 +37,6 @@ async function openExam(page: Page, columns: number) {
     examDraft: { title: 'Answer columns', questionIds: ['q1'] },
     dirty: false,
   })
-  await page.goto('/')
   await expect(page.locator('.exam-question')).toHaveCount(1)
 }
 
@@ -79,7 +78,7 @@ test('a question written below another opens laid out the way that one is', asyn
 
 test('a question with nothing above it opens in two columns', async ({ page }) => {
   await page.goto('/')
-
+  await page.getByRole('button', { name: 'New Exam' }).first().click()
   await page.getByRole('button', { name: 'New question' }).click()
   await page.getByRole('menuitem', { name: 'Multiple choice' }).click()
   await expect(page.getByRole('dialog', { name: 'Question editor' })).toBeVisible()

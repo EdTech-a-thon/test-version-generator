@@ -59,6 +59,7 @@ test('the fresh generation ignores earlier browser authoring data', async ({
   }, legacy)
 
   await page.goto('/')
+  await page.getByRole('button', { name: 'New Exam' }).first().click()
   await page.getByRole('textbox', { name: 'Exam name' }).waitFor()
   await page.evaluate(
     () => (window as unknown as { legacySetup: Promise<unknown> }).legacySetup,
@@ -69,7 +70,7 @@ test('the fresh generation ignores earlier browser authoring data', async ({
   ).toHaveCount(0)
   await expect(page.locator('.exam-question')).toHaveCount(0)
   await expect(page.getByRole('textbox', { name: 'Exam name' })).toHaveValue(
-    'Untitled exam',
+    'Untitled Exam',
   )
   expect(
     await page.evaluate(() => localStorage.getItem('exam-authoring-v2')),
@@ -105,6 +106,7 @@ test('failed normalized write and Save transactions expose no partial state', as
   page,
 }) => {
   await page.goto('/')
+  await page.getByRole('button', { name: 'New Exam' }).first().click()
   await page.getByRole('textbox', { name: 'Exam name' }).waitFor()
   const baseline = legacyAuthoringState()
   baseline.examDraft.title = 'Last complete write'
@@ -157,6 +159,7 @@ test('Question Metadata and bank-only content survive a user-visible reload', as
   page,
 }) => {
   await page.goto('/')
+  await page.getByRole('button', { name: 'New Exam' }).first().click()
   await page.getByRole('button', { name: 'New question' }).click()
   await page.getByRole('menuitem', { name: 'Multiple choice' }).click()
   const dialog = page.getByRole('dialog', { name: 'Question editor' })
@@ -187,6 +190,7 @@ test('publication aborts every store when a required Media Asset is absent', asy
   page,
 }) => {
   await page.goto('/')
+  await page.getByRole('button', { name: 'New Exam' }).first().click()
   // A first visit registers the image service worker, which may reload once
   // before it takes control. Wait for application startup rather than running
   // the IndexedDB probe in the navigation that registration replaces.

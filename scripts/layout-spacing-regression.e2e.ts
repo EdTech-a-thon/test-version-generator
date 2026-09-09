@@ -45,7 +45,6 @@ test('default and authored exam spacing remain distinct', async ({ page }) => {
     dirty: false,
   })
 
-  await page.goto('/')
 
   const renderedQuestions = page.locator('.exam-question')
   await expect(renderedQuestions.nth(0).locator('.question-stem p')).toHaveCount(1)

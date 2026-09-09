@@ -1,4 +1,5 @@
 import {
+  EXAM_WORKSPACE_STORE,
   MEDIA_ASSET_STORE,
   VERSIONED_STORAGE_NAME,
   VERSIONED_STORAGE_VERSION,
@@ -30,9 +31,29 @@ async function imageMetadata(blob: Blob): Promise<Pick<MediaAsset, 'width' | 'he
   }
 }
 
-function openMediaDatabase(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
+async function activeExamDatabaseName(): Promise<string> {
+  const registry = await new Promise<IDBDatabase>((resolve, reject) => {
     const request = indexedDB.open(VERSIONED_STORAGE_NAME, VERSIONED_STORAGE_VERSION)
+    request.onsuccess = () => resolve(request.result)
+    request.onerror = () => reject(request.error ?? new Error('Could not open Exam registry.'))
+  })
+  try {
+    const transaction = registry.transaction(EXAM_WORKSPACE_STORE, 'readonly')
+    const active = await requestOf(
+      transaction.objectStore(EXAM_WORKSPACE_STORE).get('active') as IDBRequest<{ examId?: unknown } | undefined>,
+    )
+    await completed(transaction)
+    if (typeof active?.examId !== 'string') throw new Error('No active Exam workspace.')
+    return `${VERSIONED_STORAGE_NAME}-exam-${active.examId}`
+  } finally {
+    registry.close()
+  }
+}
+
+async function openMediaDatabase(): Promise<IDBDatabase> {
+  const databaseName = await activeExamDatabaseName()
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(databaseName, VERSIONED_STORAGE_VERSION)
     request.onupgradeneeded = () => {
       if (!request.result.objectStoreNames.contains(MEDIA_ASSET_STORE)) {
         request.result.createObjectStore(MEDIA_ASSET_STORE, { keyPath: 'hash' })
