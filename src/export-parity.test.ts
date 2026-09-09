@@ -10,7 +10,8 @@
 // diagnostic; see `docs/export-testing.md`.
 
 import { describe, expect, test } from 'bun:test'
-import { createExamDocx, type MediaLoader } from './docx-export'
+import { createExamDocx } from './docx-export'
+import type { MediaLoader } from './export-media'
 import { docxFingerprint } from './docx-fingerprint'
 import { FIXTURES, PIXEL_PNG, type Fixture } from './export-fixtures'
 import {

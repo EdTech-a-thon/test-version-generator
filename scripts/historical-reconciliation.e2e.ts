@@ -48,7 +48,7 @@ const current = {
 async function publish(page: Page) {
   await page.getByRole('button', { name: 'Export', exact: true }).click()
   const download = page.waitForEvent('download')
-  await page.getByRole('dialog', { name: 'Export DOCX' }).getByRole('button', { name: 'Download DOCX' }).click()
+  await page.getByRole('dialog', { name: 'Export' }).getByRole('button', { name: 'Download PDF' }).click()
   await download
 }
 

@@ -50,6 +50,15 @@ import {
 } from 'docx'
 import { versionRange } from './export-preparation'
 import {
+  browserMedia,
+  imageSourcesOf,
+  loadExportImages,
+  questionNumberForMedia,
+  RequiredMediaError,
+  type ExportImage,
+  type MediaLoader,
+} from './export-media'
+import {
   CHOICE_AREA_WIDTH,
   type AnswerKeyEntryItem,
   type AnswerKeySectionItem,
@@ -86,133 +95,14 @@ function twips(px: number): number {
 // text was.
 const QUESTION_INDENT = twips(92 + 6)
 
-// ---------------------------------------------------------------------------
-// Media
-//
-// The Export Document keeps an image's identity — its source, its alt text, its
-// caption. Actual bytes are output-specific packaging, so they are loaded here
-// and only here, through a dependency the app fills with `fetch` and tests fill
-// with fixtures.
-
-/** One image, decoded far enough to be packaged and sized. */
-export type ExportImage = {
-  data: Uint8Array
-  /** The image kinds Word can hold. */
-  type: 'png' | 'jpg' | 'gif' | 'bmp'
-  /** Intrinsic size in px, before the plan's content width caps it. */
-  width: number
-  height: number
-}
-
-/** Resolves an image source to bytes, or to `null` when it cannot be read. */
-export type MediaLoader = (src: string) => Promise<ExportImage | null>
-
-/** A strict publication failure which the application can present without
- * disguising affected-question guidance as a generic packaging problem. */
-export class RequiredMediaError extends Error {
-  constructor(questionNumber: number | null) {
-    super(
-      `Required media for question ${questionNumber ?? 'unknown'} could not be resolved. `
-      + 'Re-add the image and try again.',
-    )
-    this.name = 'RequiredMediaError'
-  }
-}
-
-export function isRequiredMediaError(error: unknown): error is RequiredMediaError {
-  return error instanceof RequiredMediaError
-}
-
-const IMAGE_TYPES: Record<string, ExportImage['type']> = {
-  'image/png': 'png',
-  'image/jpeg': 'jpg',
-  'image/jpg': 'jpg',
-  'image/gif': 'gif',
-  'image/bmp': 'bmp',
-}
-
-/** Anything the browser can decode but Word cannot hold — a WebP or an AVIF a
- *  teacher uploaded — is re-encoded, so an ordinary upload does not come out of
- *  export as a line of text about a picture. */
-async function asPng(bitmap: ImageBitmap): Promise<Uint8Array | null> {
-  const canvas = document.createElement('canvas')
-  canvas.width = bitmap.width
-  canvas.height = bitmap.height
-  canvas.getContext('2d')?.drawImage(bitmap, 0, 0)
-  const png = await new Promise<Blob | null>((resolve) =>
-    canvas.toBlob(resolve, 'image/png'),
-  )
-  return png ? new Uint8Array(await png.arrayBuffer()) : null
-}
-
-/** The app's loader: the same URL the page's `<img>` resolves, which for a
- *  teacher's own upload is served out of Cache Storage by the image worker. */
-export const browserMedia: MediaLoader = async (src) => {
-  try {
-    const response = await fetch(src)
-    if (!response.ok) return null
-    const blob = await response.blob()
-    const bitmap = await createImageBitmap(blob)
-    const type = IMAGE_TYPES[blob.type.toLowerCase()]
-    const data = type
-      ? new Uint8Array(await blob.arrayBuffer())
-      : await asPng(bitmap)
-    const image = data
-      ? {
-          data,
-          type: type ?? ('png' as const),
-          width: bitmap.width,
-          height: bitmap.height,
-        }
-      : null
-    bitmap.close()
-    return image
-  } catch {
-    return null
-  }
-}
-
-/** Every image source the plans refer to, in first-appearance order. */
-export function imageSourcesOf(plans: readonly LayoutPlan[]): string[] {
-  const sources: string[] = []
-  const seen = new Set<string>()
-  const visit = (node: ProseMirrorJSON) => {
-    if (node.type === 'image' || node.type === 'image-block') {
-      const src = stringOf(attrsOf(node).src)
-      if (src && !seen.has(src)) {
-        seen.add(src)
-        sources.push(src)
-      }
-    }
-    for (const child of childrenOf(node)) visit(child)
-  }
-  for (const plan of plans) {
-    for (const page of plan.pages) {
-      for (const item of page.items) {
-        if (item.kind !== 'question') continue
-        for (const block of item.stem) visit(block)
-        for (const row of item.grid?.cells ?? []) {
-          for (const cell of row) if (cell) visit(cell.node)
-        }
-      }
-    }
-  }
-  return sources
-}
-
-async function loadImages(
-  plans: readonly LayoutPlan[],
-  media: MediaLoader,
-): Promise<Map<string, ExportImage>> {
-  const sources = imageSourcesOf(plans)
-  const loaded = await Promise.all(sources.map((src) => media(src)))
-  return new Map(
-    sources.flatMap((src, index) => {
-      const image = loaded[index]
-      return image ? [[src, image] as const] : []
-    }),
-  )
-}
+export {
+  browserMedia,
+  imageSourcesOf,
+  isRequiredMediaError,
+  RequiredMediaError,
+  type ExportImage,
+  type MediaLoader,
+} from './export-media'
 
 // ---------------------------------------------------------------------------
 // Document node helpers
@@ -1007,7 +897,7 @@ export async function createExamDocx(
   plans: readonly LayoutPlan[],
   media: MediaLoader = browserMedia,
 ): Promise<Blob> {
-  const images = await loadImages(plans, media)
+  const images = await loadExportImages(plans, media)
   const blob = await Packer.toBlob(createExamDocxDocument(plans, images))
   return blob.type === DOCX_MIME ? blob : new Blob([blob], { type: DOCX_MIME })
 }
@@ -1020,37 +910,10 @@ export async function createPublicationDocx(
   plans: readonly LayoutPlan[],
   media: MediaLoader = browserMedia,
 ): Promise<Blob> {
-  const images = await loadImages(plans, media)
+  const images = await loadExportImages(plans, media)
   const missing = imageSourcesOf(plans).find((source) => !images.has(source))
   if (missing) {
-    let questionNumber: number | null = null
-    const contains = (node: ProseMirrorJSON): boolean => {
-      const attrs = attrsOf(node)
-      if (
-        (node.type === 'image' || node.type === 'image-block')
-        && stringOf(attrs.src) === missing
-      ) return true
-      return childrenOf(node).some(contains)
-    }
-    for (const plan of plans) {
-      for (const page of plan.pages) {
-        for (const item of page.items) {
-          if (
-            item.kind === 'question'
-            && (
-              item.stem.some(contains)
-              || (item.grid?.cells.flat().some((cell) => cell && contains(cell.node)) ?? false)
-            )
-          ) {
-            questionNumber = item.question.number
-            break
-          }
-        }
-        if (questionNumber !== null) break
-      }
-      if (questionNumber !== null) break
-    }
-    throw new RequiredMediaError(questionNumber)
+    throw new RequiredMediaError(questionNumberForMedia(plans, missing))
   }
   const blob = await Packer.toBlob(createExamDocxDocument(plans, images))
   return blob.type === DOCX_MIME ? blob : new Blob([blob], { type: DOCX_MIME })

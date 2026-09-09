@@ -123,7 +123,7 @@ async function open(
 }
 
 function dialogOf(page: Page) {
-  return page.getByRole('dialog', { name: 'Export DOCX' })
+  return page.getByRole('dialog', { name: 'Export' })
 }
 
 async function openDialog(page: Page) {
@@ -165,7 +165,7 @@ async function releasePersistentStorage(page: Page) {
   })
 }
 
-test('Export defaults to one complete friendly-named DOCX with a clean preview', async ({
+test('Export defaults to one complete friendly-named PDF with a clean preview', async ({
   page,
 }) => {
   await open(page)
@@ -181,9 +181,10 @@ test('Export defaults to one complete friendly-named DOCX with a clean preview',
     dialog.getByRole('spinbutton', { name: 'Versions' }),
   ).toHaveCount(0)
   await expect(dialog.getByText('Randomize', { exact: false })).toHaveCount(0)
-  await expect(dialog.locator('.export-version-state')).toContainText('New Version')
+  await expect(dialog.locator('.export-version-state')).toContainText('Exporting')
   await expect(dialog.getByText('Amber Badger', { exact: true })).toBeVisible()
-  await expect(dialog.locator('.export-format')).toContainText('FormatDOCX')
+  await expect(dialog.getByRole('radio', { name: 'PDF' })).toBeChecked()
+  await expect(dialog.getByRole('radio', { name: 'DOCX' })).not.toBeChecked()
   const preview = dialog.getByLabel('Export Preview')
   await expect(preview.locator('.exam-page')).toHaveCount(2)
   await expect(preview).toContainText('Which is a mammal?')
@@ -202,9 +203,46 @@ test('Export defaults to one complete friendly-named DOCX with a clean preview',
   await expect(previewQuestion).toHaveCSS('cursor', 'default')
   await expect(previewQuestion).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
   await expect(previewQuestion).toHaveCSS('box-shadow', 'none')
+  const previewGeometry = await preview.evaluate((element) => {
+    const page = element.querySelector<HTMLElement>('.exam-page')!
+    return {
+      pageWidth: page.getBoundingClientRect().width,
+      previewWidth: element.clientWidth,
+      scrollWidth: element.scrollWidth,
+    }
+  })
+  expect(previewGeometry.pageWidth).toBeLessThan(previewGeometry.previewWidth)
+  expect(previewGeometry.scrollWidth).toBeLessThanOrEqual(previewGeometry.previewWidth)
   await expect(
-    dialog.getByRole('button', { name: 'Download DOCX' }),
+    dialog.getByRole('button', { name: 'Download PDF' }),
   ).toBeEnabled()
+})
+
+test('fresh openings reset the format to PDF', async ({ page }) => {
+  await open(page)
+  let dialog = await openDialog(page)
+  await dialog.getByRole('radio', { name: 'DOCX' }).check()
+  await dialog.getByRole('button', { name: 'Cancel' }).click()
+
+  dialog = await openDialog(page)
+  await expect(dialog.getByRole('radio', { name: 'PDF' })).toBeChecked()
+  await expect(dialog.getByRole('radio', { name: 'DOCX' })).not.toBeChecked()
+})
+
+test('Export switches to DOCX while retaining one format and the same preview', async ({ page }) => {
+  await open(page)
+  const dialog = await openDialog(page)
+
+  await dialog.getByRole('radio', { name: 'DOCX' }).check()
+
+  await expect(dialog.getByRole('radio', { name: 'DOCX' })).toBeChecked()
+  await expect(dialog.getByRole('radio', { name: 'PDF' })).not.toBeChecked()
+  await expect(dialog.getByRole('button', { name: 'Download DOCX' })).toBeEnabled()
+  await expect(dialog.getByLabel('Export Preview')).toContainText('Which is a mammal?')
+
+  const download = page.waitForEvent('download')
+  await dialog.getByRole('button', { name: 'Download DOCX' }).click()
+  expect((await download).suggestedFilename()).toBe('Biology Quiz-Amber Badger.docx')
 })
 
 test('Export lays the preview left of the format and content controls on desktop', async ({ page }) => {
@@ -229,7 +267,7 @@ test('Export lays the preview left of the format and content controls on desktop
   expect(geometry.previewLeft).toBeLessThan(geometry.controlsLeft)
   expect(geometry.previewRight).toBeLessThanOrEqual(geometry.controlsLeft + 1)
   expect(geometry.previewTop).toBe(geometry.controlsTop)
-  await expect(dialog.locator('.export-format')).toContainText('FormatDOCX')
+  await expect(dialog.getByRole('radio', { name: 'PDF' })).toBeChecked()
 })
 
 test('Export keeps its preview available in a narrow stacked layout', async ({ page }) => {
@@ -251,12 +289,13 @@ test('Export keeps its preview available in a narrow stacked layout', async ({ p
   expect(geometry.previewTop).toBeLessThan(geometry.controlsTop)
 })
 
-test('test-only, key-only, and both remain selectable', async ({ page }) => {
+test('test-only, key-only, and both remain selectable without resizing the dialog', async ({ page }) => {
   await open(page)
   const dialog = await openDialog(page)
   const testBox = dialog.getByRole('checkbox', { name: 'Student test' })
   const keyBox = dialog.getByRole('checkbox', { name: 'Answer key' })
   const preview = dialog.getByLabel('Export Preview').locator('.exam-page')
+  const initialHeight = await dialog.evaluate((element) => element.getBoundingClientRect().height)
 
   await keyBox.uncheck()
   await expect(preview).toHaveCount(1)
@@ -264,26 +303,52 @@ test('test-only, key-only, and both remain selectable', async ({ page }) => {
   await expect(dialog.getByRole('alert')).toContainText(
     'Choose the student test',
   )
+  await expect(dialog.locator('.export-version-state')).toContainText(
+    'ExportingAmber Badger',
+  )
   await expect(
-    dialog.getByRole('button', { name: 'Download DOCX' }),
+    dialog.getByRole('button', { name: 'Download PDF' }),
   ).toBeDisabled()
+  expect(await dialog.evaluate((element) => element.getBoundingClientRect().height)).toBe(initialHeight)
   await keyBox.check()
   await expect(preview).toHaveCount(1)
   await expect(
-    dialog.getByRole('button', { name: 'Download DOCX' }),
+    dialog.getByRole('button', { name: 'Download PDF' }),
   ).toBeEnabled()
 })
 
-test('publication commits once, reuses its identity, and leaves the Exam Draft unchanged', async ({
+test('the Export dialog locks background scrolling while its Preview remains scrollable', async ({ page }) => {
+  await open(page)
+  await page.evaluate(() => window.scrollTo(0, 300))
+  const dialog = await openDialog(page)
+  const preview = dialog.getByLabel('Export Preview')
+  const bounds = await preview.boundingBox()
+  expect(bounds).not.toBeNull()
+  const before = await page.evaluate(() => window.scrollY)
+
+  await page.mouse.move(bounds!.x + 30, bounds!.y + 30)
+  await page.mouse.wheel(0, 600)
+
+  await expect.poll(() => preview.evaluate((element) => element.scrollTop)).toBeGreaterThan(0)
+  expect(await page.evaluate(() => window.scrollY)).toBe(before)
+
+  const controls = await dialog.locator('.export-controls').boundingBox()
+  expect(controls).not.toBeNull()
+  await page.mouse.move(controls!.x + 20, controls!.y + 20)
+  await page.mouse.wheel(0, 600)
+  expect(await page.evaluate(() => window.scrollY)).toBe(before)
+})
+
+test('publication commits once, reuses its identity across formats, and leaves the Exam Draft unchanged', async ({
   page,
 }) => {
   await open(page)
   let dialog = await openDialog(page)
 
   const firstDownload = page.waitForEvent('download')
-  await dialog.getByRole('button', { name: 'Download DOCX' }).click()
+  await dialog.getByRole('button', { name: 'Download PDF' }).click()
   expect((await firstDownload).suggestedFilename()).toBe(
-    'Biology Quiz-Amber Badger.docx',
+    'Biology Quiz-Amber Badger.pdf',
   )
   await expect(dialogOf(page)).toBeHidden()
 
@@ -307,8 +372,15 @@ test('publication commits once, reuses its identity, and leaves the Exam Draft u
   )
 
   dialog = await openDialog(page)
-  await expect(dialog.getByText('Re-export existing Version')).toBeVisible()
+  await expect(dialog.getByText('Re-exporting')).toBeVisible()
   await expect(dialog.getByText('Amber Badger', { exact: true })).toBeVisible()
+  await dialog.getByRole('radio', { name: 'DOCX' }).check()
+  await dialog.getByRole('checkbox', { name: 'Student test' }).uncheck()
+  await dialog.getByRole('checkbox', { name: 'Answer key' }).uncheck()
+  await expect(dialog.locator('.export-version-state')).toContainText(
+    'Re-exportingAmber Badger',
+  )
+  await dialog.getByRole('checkbox', { name: 'Student test' }).check()
   const secondDownload = page.waitForEvent('download')
   await dialog.getByRole('button', { name: 'Download DOCX' }).click()
   expect((await secondDownload).suggestedFilename()).toBe(
@@ -333,13 +405,13 @@ test('Version History browses newest stored plans and re-exports without changin
 
   let dialog = await openDialog(page)
   let download = page.waitForEvent('download')
-  await dialog.getByRole('button', { name: 'Download DOCX' }).click()
+  await dialog.getByRole('button', { name: 'Download PDF' }).click()
   await download
 
   await page.getByRole('textbox', { name: 'Exam name' }).fill('Second Biology Quiz')
   dialog = await openDialog(page)
   download = page.waitForEvent('download')
-  await dialog.getByRole('button', { name: 'Download DOCX' }).click()
+  await dialog.getByRole('button', { name: 'Download PDF' }).click()
   await download
 
   const historyBeforeReExport = structuredClone(await historyOf(page))
@@ -421,10 +493,10 @@ test('Version History browses newest stored plans and re-exports without changin
   await page.getByRole('button', { name: 'Historical Export', exact: true }).click()
   dialog = dialogOf(page)
   await expect(dialog).toBeVisible()
-  await expect(dialog.getByText('Re-export existing Version')).toBeVisible()
+  await expect(dialog.getByText('Re-exporting')).toBeVisible()
   await expect(dialog.getByText('Amber Falcon', { exact: true })).toBeVisible()
   download = page.waitForEvent('download')
-  await dialog.getByRole('button', { name: 'Download DOCX' }).click()
+  await dialog.getByRole('button', { name: 'Download PDF' }).click()
   await download
   // Historical export is read-only: no Version, revision, plan, metadata, or
   // order changes while its DOCX is assembled from stored records.
@@ -438,11 +510,24 @@ test('Version History browses newest stored plans and re-exports without changin
   await expect(page.locator('.draft-document:not([hidden]) .exam-question')).toHaveCount(0)
 })
 
+test('Escape closes Version History and restores focus to its opener', async ({ page }) => {
+  await open(page)
+  const historyButton = page.getByRole('button', { name: 'Version History' })
+  await historyButton.click()
+  const history = page.getByRole('complementary', { name: 'Version History' })
+  await expect(history).toBeVisible()
+
+  await page.keyboard.press('Escape')
+
+  await expect(history).toBeHidden()
+  await expect(historyButton).toBeFocused()
+})
+
 test('Use as draft confirms replacement, preserves Cancel, and restores the historical arrangement', async ({ page }) => {
   await open(page)
   const dialog = await openDialog(page)
   const download = page.waitForEvent('download')
-  await dialog.getByRole('button', { name: 'Download DOCX' }).click()
+  await dialog.getByRole('button', { name: 'Download PDF' }).click()
   await download
 
   const questions = page.locator('.draft-document:not([hidden]) .exam-question')
@@ -498,7 +583,7 @@ test('Use as draft exports the live draft without replacing the selected Version
   await open(page)
   const initialDialog = await openDialog(page)
   const firstDownload = page.waitForEvent('download')
-  await initialDialog.getByRole('button', { name: 'Download DOCX' }).click()
+  await initialDialog.getByRole('button', { name: 'Download PDF' }).click()
   await firstDownload
 
   await page.getByRole('textbox', { name: 'Exam name' }).fill('Current draft export')
@@ -517,9 +602,9 @@ test('Use as draft exports the live draft without replacing the selected Version
   await page.keyboard.press('Enter')
   const exportDialog = dialogOf(page)
   await expect(exportDialog).toBeVisible()
-  await expect(exportDialog.getByText('New Version')).toBeVisible()
+  await expect(exportDialog.getByText('Exporting')).toBeVisible()
   const download = page.waitForEvent('download')
-  await exportDialog.getByRole('button', { name: 'Download DOCX' }).click()
+  await exportDialog.getByRole('button', { name: 'Download PDF' }).click()
   await download
   await expect(useAsDraft).toBeFocused()
 
@@ -536,23 +621,23 @@ test('Use as draft compares with an older Version that was re-exported last', as
   await open(page)
   let dialog = await openDialog(page)
   let download = page.waitForEvent('download')
-  await dialog.getByRole('button', { name: 'Download DOCX' }).click()
+  await dialog.getByRole('button', { name: 'Download PDF' }).click()
   await download
 
   const title = page.getByRole('textbox', { name: 'Exam name' })
   await title.fill('Newer Version')
   dialog = await openDialog(page)
   download = page.waitForEvent('download')
-  await dialog.getByRole('button', { name: 'Download DOCX' }).click()
+  await dialog.getByRole('button', { name: 'Download PDF' }).click()
   await download
 
   // This reuses the first Version but is still the last successful live-draft
   // export, so it becomes the confirmation comparison point.
   await title.fill('Biology Quiz')
   dialog = await openDialog(page)
-  await expect(dialog.getByText('Re-export existing Version')).toBeVisible()
+  await expect(dialog.getByText('Re-exporting')).toBeVisible()
   download = page.waitForEvent('download')
-  await dialog.getByRole('button', { name: 'Download DOCX' }).click()
+  await dialog.getByRole('button', { name: 'Download PDF' }).click()
   await download
 
   // Return to the newer Version's title. Comparing against append-only history
@@ -577,13 +662,33 @@ test('Use as draft compares with an older Version that was re-exported last', as
   await expect(page.getByRole('dialog', { name: 'Replace current draft?' })).toBeVisible()
 })
 
+test('persistent-storage notice is bottom-centered and dismissible', async ({ page }) => {
+  await open(page)
+  const dialog = await openDialog(page)
+  const download = page.waitForEvent('download')
+  await dialog.getByRole('button', { name: 'Download PDF' }).click()
+  await download
+
+  const notice = page.locator('.storage-notice')
+  await expect(notice).toContainText('persistent storage enabled')
+  const placement = await notice.evaluate((element) => {
+    const bounds = element.getBoundingClientRect()
+    return { center: bounds.left + bounds.width / 2, bottom: bounds.bottom }
+  })
+  const viewport = page.viewportSize()!
+  expect(placement.center).toBeCloseTo(viewport.width / 2, 0)
+  expect(placement.bottom).toBeLessThan(viewport.height)
+  await notice.getByRole('button', { name: 'Dismiss storage notice' }).click()
+  await expect(notice).toBeHidden()
+})
+
 test('persistent-storage denial is explained separately from publication failure', async ({
   page,
 }) => {
   await open(page, false)
   const dialog = await openDialog(page)
   const download = page.waitForEvent('download')
-  await dialog.getByRole('button', { name: 'Download DOCX' }).click()
+  await dialog.getByRole('button', { name: 'Download PDF' }).click()
   await download
 
   await expect(page.getByRole('status')).toContainText(
@@ -604,9 +709,9 @@ test('preparation locks dismissal and controls while announcing progress accessi
   // Preview content represents paper rather than offering an alternate
   // navigation surface, so even authored links cannot interrupt publication.
   await expect(previewLink).toHaveCount(1)
-  await expect(dialog.locator('.export-preview')).toHaveAttribute('inert', '')
+  await expect(previewLink.locator('xpath=ancestor::*[@inert][1]')).toHaveCount(1)
 
-  await dialog.getByRole('button', { name: 'Download DOCX' }).click()
+  await dialog.getByRole('button', { name: 'Download PDF' }).click()
 
   const status = dialog.getByRole('status', {
     name: 'Export preparation status',
@@ -657,7 +762,7 @@ test('an IndexedDB transaction failure creates neither history nor download', as
   })
   const dialog = await openDialog(page)
   await dialog.getByRole('checkbox', { name: 'Student test' }).uncheck()
-  await dialog.getByRole('button', { name: 'Download DOCX' }).click()
+  await dialog.getByRole('button', { name: 'Download PDF' }).click()
 
   await expect(dialog.getByRole('alert')).toContainText(
     'no download was started',
@@ -676,14 +781,14 @@ test('an IndexedDB transaction failure creates neither history nor download', as
   ).toHaveCount(1)
   // Recovery returns focus to the enabled controls, which keeps both tab
   // directions inside the dialog instead of falling through to its opener.
-  const studentTest = dialog.getByRole('checkbox', { name: 'Student test' })
-  await expect(studentTest).toBeFocused()
+  const pdf = dialog.getByRole('radio', { name: 'PDF' })
+  await expect(pdf).toBeFocused()
   await page.keyboard.press('Shift+Tab')
   await expect(
-    dialog.getByRole('button', { name: 'Download DOCX' }),
+    dialog.getByRole('button', { name: 'Download PDF' }),
   ).toBeFocused()
   await page.keyboard.press('Tab')
-  await expect(studentTest).toBeFocused()
+  await expect(pdf).toBeFocused()
   expect((await historyOf(page)).versions).toHaveLength(0)
 })
 
@@ -704,7 +809,7 @@ test('quota failure is reported separately and creates no Version', async ({
     }
   })
   const dialog = await openDialog(page)
-  await dialog.getByRole('button', { name: 'Download DOCX' }).click()
+  await dialog.getByRole('button', { name: 'Download PDF' }).click()
 
   await expect(dialog.getByRole('alert')).toContainText(
     'Browser storage is full',
@@ -723,7 +828,7 @@ test('unresolved required media blocks publication with the affected question', 
   await seedAuthoringState(page, broken)
   await page.goto('/')
   const dialog = await openDialog(page)
-  await dialog.getByRole('button', { name: 'Download DOCX' }).click()
+  await dialog.getByRole('button', { name: 'Download PDF' }).click()
 
   await expect(dialog.getByRole('alert')).toContainText('question 1')
   expect((await historyOf(page)).versions).toHaveLength(0)
@@ -739,7 +844,7 @@ test('an empty Exam Draft is blocked with an actionable message', async ({
     'Add at least one question',
   )
   await expect(
-    dialog.getByRole('button', { name: 'Download DOCX' }),
+    dialog.getByRole('button', { name: 'Download PDF' }),
   ).toBeDisabled()
 })
 
@@ -757,15 +862,15 @@ test('Cmd/Ctrl+P routes to Export, respects active modals, and restores focus', 
   await expect(dialog).toBeVisible()
   // The dialog starts in its configuration and keeps focus inside it.
   await expect(
-    dialog.getByRole('checkbox', { name: 'Student test' }),
+    dialog.getByRole('radio', { name: 'PDF' }),
   ).toBeFocused()
   await page.keyboard.press('Shift+Tab')
   await expect(
-    dialog.getByRole('button', { name: 'Download DOCX' }),
+    dialog.getByRole('button', { name: 'Download PDF' }),
   ).toBeFocused()
   await page.keyboard.press('Tab')
   await expect(
-    dialog.getByRole('checkbox', { name: 'Student test' }),
+    dialog.getByRole('radio', { name: 'PDF' }),
   ).toBeFocused()
   expect(
     await page.evaluate(
@@ -797,7 +902,7 @@ test('Cmd/Ctrl+P routes to Export, respects active modals, and restores focus', 
   })
   await expect(dialog).toBeVisible()
   await expect(
-    dialog.getByRole('checkbox', { name: 'Student test' }),
+    dialog.getByRole('radio', { name: 'PDF' }),
   ).toBeFocused()
   await page.keyboard.press('Escape')
   await expect(exportButton).toBeFocused()

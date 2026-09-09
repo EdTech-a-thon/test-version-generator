@@ -2,9 +2,9 @@
 
 ## Purpose
 
-The print-reference view is the authoritative presentation of an exam. DOCX
-export must preserve the same semantics and put the same ordered content on the
-same pages without reconstructing an exam independently.
+The print-reference view is the authoritative presentation of an exam. PDF and
+DOCX export must preserve the same semantics and put the same ordered content
+on the same pages without reconstructing an exam independently.
 
 This document describes the implemented architecture and its acceptance path.
 
@@ -25,7 +25,7 @@ Exam Draft + Version History + Content Selection
           Export Document -> Layout Plan
                          /       \
                         v         v
-          print-reference view   DOCX Export Adapter
+          print-reference view   PDF / DOCX Export Adapters
 ```
 
 `prepareExport({ exam, version, configuration, history, measure, createdAt })`
@@ -33,8 +33,9 @@ is the application-level pure seam. It always prepares separate canonical
 student-test and answer-key plans, computes one name-independent Export
 Fingerprint across both, resolves an existing or provisional friendly-named
 Version, and returns the selected plans plus the immutable records required for
-publication. Content Selection changes only which plans enter the DOCX; it does
-not change identity or which plans are retained.
+publication. Content Selection changes only which plans enter the selected
+artifact; format and Content Selection do not change identity or which plans
+are retained.
 
 The current Exam Draft arrangement is the only arrangement publication uses.
 Variation belongs to the authoring commands before export. A matching
@@ -50,10 +51,10 @@ ordered items. Export Adapters never inspect the Exam Draft, measure, or
 repaginate.
 
 The print adapter remains an internal preview/reference path (`ExportPreview`
-in `src/exam-page.tsx`). DOCX is the explicit product artifact. Both consume the
-same selected plans in student-test-then-answer-key order.
+in `src/exam-page.tsx`). PDF and DOCX are explicit product artifacts. All three
+consume the same selected plans in student-test-then-answer-key order.
 
-The browser packages the complete selected DOCX before persistence. It then
+The browser packages the complete selected PDF or DOCX before persistence. It then
 commits the Version (when new), new Question Revisions, both Layout Plans,
 required Media Assets, and current authoring state in one IndexedDB transaction.
 Only a successful transaction is followed by download. Browser cancellation
@@ -105,6 +106,7 @@ includes immutable media hashes while removing the friendly name.
 
 The implementations are:
 
+- `src/pdf-export.ts` — the dedicated local PDF Export Adapter.
 - `src/export-fingerprint.ts` — Export Document and Layout Plan fingerprints.
 - `src/print-fingerprint.ts` — the print-reference adapter's real markup.
 - `src/docx-fingerprint.ts` — a generated DOCX package.
@@ -124,8 +126,10 @@ The implementations are:
   packing, splitting, furniture, streams, and breaks.
 - `src/export-parity.test.ts` — each fixture through the plan, print-reference,
   and DOCX fingerprints, including deliberate degradation checks.
-- `src/docx-export.test.ts` — packaging, page sections, friendly names, answer
-  keys, links, media bytes, lists, and strict unresolved-media rejection.
+- `src/docx-export.test.ts` — DOCX packaging, page sections, friendly names,
+  answer keys, links, media bytes, lists, and strict unresolved-media rejection.
+- `src/pdf-export.test.ts` — PDF pages, metadata, links, media, embedded fonts,
+  unsupported-character rejection, and overflow rejection.
 - `src/doc-view.test.ts` — authored whitespace in the read-only view.
 
 The Playwright suite covers the browser workflow and real IndexedDB behavior:
@@ -143,10 +147,11 @@ and an unchanged Exam Draft.
 3. Seeds the real application, including content-addressed Media Assets.
 4. Drives the real export dialog with both Content Selection streams.
 5. Captures the clean print-reference preview as the Reference PDF.
-6. Downloads the real DOCX through the publication workflow.
-7. Re-exports the media-rich composite from stored history and verifies its
+6. Downloads the dedicated PDF and compares its normalized pages directly.
+7. Downloads the real DOCX through the publication workflow.
+8. Re-exports the media-rich composite from stored history and verifies its
    normalized DOCX structure is unchanged.
-8. Compares structural fingerprints and normalized per-page PDF manifests.
+9. Compares structural fingerprints and normalized per-page PDF manifests.
 
 PDF normalization keeps page boundaries, dimensions, and word order while
 discarding coordinates and renderer-selected line grouping. Ruled blanks and

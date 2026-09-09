@@ -15,7 +15,7 @@ import {
   type Measure,
   type PageItem,
 } from './export-plan'
-import type { ExportImage } from './docx-export'
+import type { ExportImage } from './export-media'
 import type { ProseMirrorJSON } from './question-doc'
 
 export function text(

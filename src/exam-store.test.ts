@@ -999,7 +999,7 @@ describe('the dirty flag and persistence', () => {
     const first = store.selectedExam()
     const published = prepareExport({
       ...first,
-      configuration: { selection: { test: true, answerKey: true } },
+      configuration: { format: 'pdf', selection: { test: true, answerKey: true } },
       history: store.publicationHistory(),
       measure: unmeasured,
       createdAt: '2026-09-04T12:00:00.000Z',
@@ -1018,7 +1018,7 @@ describe('the dirty flag and persistence', () => {
     const historical = prepareHistoricalExport({
       history: store.publicationHistory(),
       version: published.resolution.version,
-      configuration: { selection: { test: true, answerKey: true } },
+      configuration: { format: 'pdf', selection: { test: true, answerKey: true } },
     })
 
     expect(historical.publication.version).toBeNull()

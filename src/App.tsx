@@ -99,6 +99,8 @@ const QUESTION_TYPE_ICONS: Record<QuestionType, ReactNode> = {
   open: <AlignLeft />,
 }
 
+const STORAGE_NOTICE_DURATION = 8_000
+
 /**
  * One line of a question's front matter: an icon and a label on the left, and
  * what has been chosen on the right — or nothing at all, because Difficulty
@@ -695,15 +697,20 @@ function ExamEditor({ store }: { store: ExamStore }) {
       state.questionBank,
     )
     : state.dirty
-  // The Word file is handed to the browser only after its Version transaction
-  // commits. Browser cancellation from that point cannot rewrite history.
+  // The selected artifact is handed to the browser only after its Version
+  // transaction commits. Browser cancellation from that point cannot rewrite history.
   const [handoff, setHandoff] = useState<{
     blob: Blob
     filename: string
+    format: ExportConfiguration['format']
     configuration: ExportConfiguration
     source: 'live-draft' | 'historical-version'
   } | null>(null)
   const [storageNotice, setStorageNotice] = useState<string | null>(null)
+  const closeVersionHistory = useCallback(() => {
+    setHistoryOpen(false)
+    requestAnimationFrame(() => historyButton.current?.focus())
+  }, [])
   // Selection lives here, alongside the store, so page interactions and
   // selection-wide context-menu actions share one source of truth.
   const selection = useSelection()
@@ -744,6 +751,18 @@ function ExamEditor({ store }: { store: ExamStore }) {
     const timer = window.setTimeout(() => setVarySummary(null), 4_000)
     return () => window.clearTimeout(timer)
   }, [varySummary])
+  // Storage durability is useful feedback immediately after first
+  // publication, not a permanent obstruction over the workspace. It can be
+  // dismissed sooner, and otherwise leaves on the same short-lived cadence as
+  // the other notices.
+  useEffect(() => {
+    if (!storageNotice) return
+    const timer = window.setTimeout(
+      () => setStorageNotice(null),
+      STORAGE_NOTICE_DURATION,
+    )
+    return () => window.clearTimeout(timer)
+  }, [storageNotice])
   // A highlighted bank row is a place to read from, not a thing being acted
   // against, so it lasts exactly as long as the teacher is looking at it: the
   // next press anywhere but on a row takes it back, and so does Escape (with
@@ -936,12 +955,17 @@ function ExamEditor({ store }: { store: ExamStore }) {
         return
       }
       if (event.key !== 'Escape') return
+      if (historyOpen) {
+        event.preventDefault()
+        closeVersionHistory()
+        return
+      }
       clearSelection()
       setSelectedBankId(null)
     }
     document.addEventListener('keydown', onKeyDown)
     return () => document.removeEventListener('keydown', onKeyDown)
-  }, [clearSelection, confirmingUseAsDraft, editing, exportDialog, isHistoricalBrowsing, reviewingHistoricalQuestions, selection.selectedIds, store])
+  }, [clearSelection, closeVersionHistory, confirmingUseAsDraft, editing, exportDialog, historyOpen, isHistoricalBrowsing, reviewingHistoricalQuestions, selection.selectedIds, store])
 
   const restoreUseAsDraftFocus = () => {
     requestAnimationFrame(() => useAsDraftButton.current?.focus())
@@ -986,7 +1010,7 @@ function ExamEditor({ store }: { store: ExamStore }) {
   /**
    * One export, from the Export button to the moment the browser takes over.
    *
-   * The selected DOCX is fully packaged first. Only then does one IndexedDB
+   * The selected artifact is fully packaged first. Only then does one IndexedDB
    * transaction commit immutable history, required media, and the current
    * authoring state. The browser receives the download after that commit.
    */
@@ -997,15 +1021,28 @@ function ExamEditor({ store }: { store: ExamStore }) {
   ) => {
     const prepared = prepareForPublication(configuration, source, onProgress)
     let blob: Blob
-    const docx = await import('./docx-export')
     try {
-      blob = await docx.createPublicationDocx(prepared.documents)
-    } catch (error) {
-      console.error('Could not create the DOCX file', error)
-      if (docx.isRequiredMediaError(error)) {
-        throw error
+      if (configuration.format === 'pdf') {
+        const pdf = await import('./pdf-export')
+        blob = pdf.pdfBlob(await pdf.createPublicationPdf(prepared.documents))
+      } else {
+        const docx = await import('./docx-export')
+        blob = await docx.createPublicationDocx(prepared.documents)
       }
-      throw new Error('The Word file could not be created. Please try again.')
+    } catch (error) {
+      console.error(`Could not create the ${configuration.format.toUpperCase()} file`, error)
+      const media = await import('./export-media')
+      const pdf = configuration.format === 'pdf' ? await import('./pdf-export') : null
+      if (
+        media.isRequiredMediaError(error)
+        || pdf?.isPdfUnsupportedCharacterError(error)
+        || pdf?.isPdfLayoutError(error)
+      ) throw error
+      throw new Error(
+        configuration.format === 'pdf'
+          ? 'The PDF file could not be created in this browser. Choose DOCX or try again.'
+          : 'The Word file could not be created. Please try again.',
+      )
     }
 
     let durability: 'granted' | 'denied' | null = null
@@ -1044,7 +1081,13 @@ function ExamEditor({ store }: { store: ExamStore }) {
           : 'Persistent storage was not granted. Version History remains browser-local and may be cleared by the browser; keep an external archival copy.',
       )
     }
-    setHandoff({ blob, filename: prepared.filename, configuration, source })
+    setHandoff({
+      blob,
+      filename: prepared.filename,
+      format: configuration.format,
+      configuration,
+      source,
+    })
   }
 
   /** A native action that never started: reopen the dialog on the same
@@ -1061,14 +1104,17 @@ function ExamEditor({ store }: { store: ExamStore }) {
   // The handoff, once the dialog is out of the way and publication is durable.
   useEffect(() => {
     if (!handoff) return
-    const { blob, filename, configuration, source } = handoff
-    void import('./docx-export')
-      .then(({ saveDocxFile }) => {
-        saveDocxFile(blob, filename)
+    const { blob, filename, format, configuration, source } = handoff
+    const save = format === 'pdf'
+      ? import('./pdf-export').then(({ savePdfFile }) => savePdfFile)
+      : import('./docx-export').then(({ saveDocxFile }) => saveDocxFile)
+    void save
+      .then((saveFile) => {
+        saveFile(blob, filename)
         setHandoff(null)
       })
       .catch((error: unknown) => {
-        console.error('Could not start the DOCX download', error)
+        console.error(`Could not start the ${format.toUpperCase()} download`, error)
         exportFailed(configuration, source, 'The download could not be started. The Version remains in History.')
       })
   }, [handoff])
@@ -1077,7 +1123,20 @@ function ExamEditor({ store }: { store: ExamStore }) {
   let previewError: string | null = null
   if (exportDialog) {
     try {
-      exportPreview = prepareForPublication(exportDialog.configuration, exportDialog.source)
+      const hasNoSelectedContent =
+        !exportDialog.configuration.selection.test
+        && !exportDialog.configuration.selection.answerKey
+      // An invalid empty selection still has a well-defined Version identity.
+      // Prepare both canonical streams just for that identity, then deliberately
+      // show no paper until the teacher chooses content. This keeps the
+      // re-export/new-Version state visible beside its validation message.
+      const previewConfiguration = hasNoSelectedContent
+        ? DEFAULT_EXPORT_CONFIGURATION
+        : exportDialog.configuration
+      const prepared = prepareForPublication(previewConfiguration, exportDialog.source)
+      exportPreview = hasNoSelectedContent
+        ? { ...prepared, documents: [] }
+        : prepared
     } catch (error) {
       previewError = error instanceof Error ? error.message : 'The export cannot be prepared.'
     }
@@ -1181,8 +1240,8 @@ function ExamEditor({ store }: { store: ExamStore }) {
         selectedVersionId={viewingVersion?.id ?? null}
         open={historyOpen}
         onOpenChange={(open) => {
-          setHistoryOpen(open)
-          if (!open) requestAnimationFrame(() => historyButton.current?.focus())
+          if (open) setHistoryOpen(true)
+          else closeVersionHistory()
         }}
         onSelect={(selectedVersion) => {
           setViewingVersionId(selectedVersion.id)
@@ -1321,9 +1380,17 @@ function ExamEditor({ store }: { store: ExamStore }) {
       )}
 
       {storageNotice && (
-        <p className="storage-notice" role="status">
-          {storageNotice}
-        </p>
+        <div className="storage-notice" role="status" aria-live="polite">
+          <p>{storageNotice}</p>
+          <button
+            type="button"
+            className="toolbar-icon-button"
+            aria-label="Dismiss storage notice"
+            onClick={() => setStorageNotice(null)}
+          >
+            ×
+          </button>
+        </div>
       )}
 
       {confirmingUseAsDraft && viewingVersion && (

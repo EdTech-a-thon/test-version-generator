@@ -62,11 +62,28 @@ export function ExportDialog({
   const invalid = selectionError !== null || emptyError !== null || !resolution
 
   const changeSelection = (selection: ExportConfiguration['selection']) =>
-    onConfigurationChange({ selection })
+    onConfigurationChange({ ...configuration, selection })
+
+  const changeFormat = (format: ExportConfiguration['format']) =>
+    onConfigurationChange({ ...configuration, format })
 
   useEffect(() => {
     const [first] = focusableWithin(dialog.current!)
     first?.focus()
+  }, [])
+
+  // A modal owns the viewport, not only its own paper preview. Otherwise a
+  // wheel gesture over its controls or dimmed backdrop scrolls the Exam Draft
+  // underneath, making the apparent modal state and the background drift apart.
+  useEffect(() => {
+    const previousBodyOverflow = document.body.style.overflow
+    const previousRootOverflow = document.documentElement.style.overflow
+    document.body.style.overflow = 'hidden'
+    document.documentElement.style.overflow = 'hidden'
+    return () => {
+      document.body.style.overflow = previousBodyOverflow
+      document.documentElement.style.overflow = previousRootOverflow
+    }
   }, [])
 
   // Preparation disables every dialog control. Keep focus on the dialog itself
@@ -91,7 +108,7 @@ export function ExportDialog({
     if (preparing || invalid) return
     setPreparing(true)
     setError(null)
-    setProgress('Preparing Word document…')
+    setProgress(`Preparing ${configuration.format.toUpperCase()} document…`)
     try {
       await onSubmit(configuration, (update) =>
         setProgress(progressMessage(update)),
@@ -156,20 +173,25 @@ export function ExportDialog({
         tabIndex={-1}
       >
         <header className="dialog-header">
-          <h2 id={`${id}-title`}>Export DOCX</h2>
+          <h2 id={`${id}-title`}>Export</h2>
         </header>
 
         <div className="export-publication-body">
           {/* The preview is output-faithful, not an alternate reading or
               navigation surface. `inert` prevents authored links and any
               future focusable document content from escaping this dialog. */}
-          <div className="export-preview" aria-label="Export Preview" inert>
-            {previewPlans.map((plan, index) => (
-              <ExportPreview
-                key={`${plan.pages[0]?.stream ?? 'empty'}-${index}`}
-                plan={plan}
-              />
-            ))}
+          <div className="export-preview" aria-label="Export Preview">
+            {/* Keep paper content inert while leaving its scroll container live:
+                browsing a long preview must not pass wheel input through to
+                the document under this modal. */}
+            <div inert>
+              {previewPlans.map((plan, index) => (
+                <ExportPreview
+                  key={`${plan.pages[0]?.stream ?? 'empty'}-${index}`}
+                  plan={plan}
+                />
+              ))}
+            </div>
           </div>
 
           <div className="export-controls">
@@ -179,17 +201,34 @@ export function ExportDialog({
                 role="status"
                 aria-live="polite"
               >
-                {resolution.kind === 'existing'
-                  ? 'Re-export existing Version'
-                  : 'New Version'}
+                {resolution.kind === 'existing' ? 'Re-exporting' : 'Exporting'}
                 <strong>{resolution.version.name}</strong>
               </p>
             )}
 
-            <dl className="export-format">
-              <dt>Format</dt>
-              <dd>DOCX</dd>
-            </dl>
+            <fieldset className="export-field" disabled={preparing}>
+              <legend>Format</legend>
+              <label>
+                <input
+                  type="radio"
+                  name={`${id}-format`}
+                  value="pdf"
+                  checked={configuration.format === 'pdf'}
+                  onChange={() => changeFormat('pdf')}
+                />
+                PDF
+              </label>
+              <label>
+                <input
+                  type="radio"
+                  name={`${id}-format`}
+                  value="docx"
+                  checked={configuration.format === 'docx'}
+                  onChange={() => changeFormat('docx')}
+                />
+                DOCX
+              </label>
+            </fieldset>
 
             <fieldset
               className="export-field"
@@ -271,7 +310,9 @@ export function ExportDialog({
             disabled={preparing || invalid}
             onClick={() => void submit()}
           >
-            {preparing ? 'Preparing…' : 'Download DOCX'}
+            {preparing
+              ? 'Preparing…'
+              : `Download ${configuration.format.toUpperCase()}`}
           </button>
         </footer>
       </section>

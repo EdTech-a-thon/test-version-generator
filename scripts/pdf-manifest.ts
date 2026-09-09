@@ -87,6 +87,7 @@ export function normalizeWords(text: string): string[] {
   return normalized
     .split(/\s+/)
     .filter(Boolean)
+    .filter((word) => /[^\u200B-\u200D\uFEFF]/.test(word))
     .filter((word) => !BLANK.test(word))
 }
 
@@ -136,8 +137,14 @@ function around(words: readonly string[], index: number): string {
 export function equationWords(sources: readonly string[]): Set<string> {
   const words = new Set<string>()
   for (const source of sources) {
-    for (const word of source.split(/\s+/).filter(Boolean)) {
+    const rendered = source
+      .replace(/\\frac\{([^{}]*)\}\{([^{}]*)\}/g, '$1⁄$2')
+      .replace(/\\sqrt\{([^{}]*)\}/g, '√$1')
+      .replace(/[_^]\{?([^{}\s])\}?/g, '$1')
+    for (const word of `${source} ${rendered}`.split(/\s+/).filter(Boolean)) {
       words.add(word)
+      words.add(word.replace(/[^A-Za-z0-9]+/g, ''))
+      words.add(word.replace(/[{}\\]/g, ''))
       for (const run of word.match(/[A-Za-z0-9]+/g) ?? []) {
         words.add(run)
         for (const character of run) words.add(character)
@@ -145,6 +152,22 @@ export function equationWords(sources: readonly string[]): Set<string> {
     }
   }
   return words
+}
+
+function withoutIgnoredScripts(
+  words: readonly string[],
+  ignored: ReadonlySet<string>,
+): string[] {
+  const scripts = [...ignored].filter((word) => /^\d+$/.test(word))
+  return words.flatMap((word) => {
+    if (ignored.has(word)) return []
+    for (const script of scripts) {
+      if (word.endsWith(script) && word.length > script.length) {
+        return [word.slice(0, -script.length)]
+      }
+    }
+    return [word]
+  })
 }
 
 export function comparePdfs(
@@ -173,9 +196,8 @@ export function comparePdfs(
         actual: `${actual.width}x${actual.height} pts`,
       })
     }
-    const keep = (word: string) => !ignored.has(word)
-    const expectedWords = expected.words.filter(keep)
-    const actualWords = actual.words.filter(keep)
+    const expectedWords = withoutIgnoredScripts(expected.words, ignored)
+    const actualWords = withoutIgnoredScripts(actual.words, ignored)
     const length = Math.max(expectedWords.length, actualWords.length)
     for (let word = 0; word < length; word += 1) {
       if (expectedWords[word] === actualWords[word]) continue

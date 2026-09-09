@@ -23,12 +23,16 @@ import {
 } from './export-plan'
 import type { ProseMirrorJSON } from './question-doc'
 
+export type ExportFormat = 'pdf' | 'docx'
+
 export type ExportConfiguration = {
+  format: ExportFormat
   selection: ExportContentSelection
 }
 
-/** A fresh export produces the complete assessment package. */
+/** A fresh export produces the complete assessment package as PDF. */
 export const DEFAULT_EXPORT_CONFIGURATION: ExportConfiguration = {
+  format: 'pdf',
   selection: { test: true, answerKey: true },
 }
 
@@ -163,8 +167,20 @@ export function versionRange(labels: readonly string[]): string {
   return labels.length > 1 ? `${first}-${last}` : first
 }
 
+export function exportFilename(
+  title: string,
+  versionName: string,
+  format: ExportFormat,
+): string {
+  return `${sanitizeExamTitle(title)}-${versionName}.${format}`
+}
+
 export function docxFilename(title: string, versionName: string): string {
-  return `${sanitizeExamTitle(title)}-${versionName}.docx`
+  return exportFilename(title, versionName, 'docx')
+}
+
+export function pdfFilename(title: string, versionName: string): string {
+  return exportFilename(title, versionName, 'pdf')
 }
 
 function nextFriendlyName(history: PublicationHistory): string {
@@ -398,7 +414,11 @@ export function prepareHistoricalExport({
     canonicalPlans,
     documents: documentsOf(canonicalPlans, configuration.selection),
     // The title belongs to the stored Layout Plan, never the live Exam Draft.
-    filename: docxFilename(canonicalPlans.test.title, version.name),
+    filename: exportFilename(
+      canonicalPlans.test.title,
+      version.name,
+      configuration.format,
+    ),
     fingerprint: version.fingerprint,
     publication: {
       version: null,
@@ -455,7 +475,7 @@ export function prepareExport({
       resolution: { kind: 'existing', version: existing },
       canonicalPlans,
       documents: documentsOf(canonicalPlans, configuration.selection),
-      filename: docxFilename(exam.title, existing.name),
+      filename: exportFilename(exam.title, existing.name, configuration.format),
       fingerprint,
       publication: {
         exportedVersionId: existing.id,
@@ -510,7 +530,7 @@ export function prepareExport({
     resolution: { kind: 'new', version: published },
     canonicalPlans,
     documents: documentsOf(canonicalPlans, configuration.selection),
-    filename: docxFilename(exam.title, published.name),
+    filename: exportFilename(exam.title, published.name, configuration.format),
     fingerprint,
     publication: {
       exportedVersionId: published.id,

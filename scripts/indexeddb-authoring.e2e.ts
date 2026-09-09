@@ -230,7 +230,7 @@ test('publication aborts every store when a required Media Asset is absent', asy
     }
     const prepared = prepareExport({
       ...selectedExam(state.questionBank, state.examDraft),
-      configuration: { selection: { test: true, answerKey: true } },
+      configuration: { format: 'pdf', selection: { test: true, answerKey: true } },
       history: EMPTY_PUBLICATION_HISTORY,
       measure: unmeasured,
       createdAt: '2026-09-04T12:00:00.000Z',
