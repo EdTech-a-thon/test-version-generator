@@ -91,13 +91,17 @@ button { cursor: pointer; }
   -webkit-user-select: none; user-select: none;
 }
 .document-title {
-  width: min(420px, 55vw); padding: 5px 7px; border: 1px solid transparent;
+  /* Leave the document actions one stable header row at desktop widths. The
+     title remains roomy while Save, Discard and its Working Copy status are
+     present instead of making the sticky bar grow after scrolling begins. */
+  width: min(320px, 40vw); padding: 5px 7px; border: 1px solid transparent;
   border-radius: 4px; color: #332a24; background: transparent; font-size: 18px; outline: none;
 }
 .document-title:hover { border-color: #d8cbbb; }
 .document-title:focus { border-color: #b65f43; box-shadow: inset 0 0 0 1px #b65f43; }
 .header-actions, .dialog-actions { display: flex; align-items: center; gap: 10px; }
 .header-actions { flex-wrap: wrap; justify-content: flex-end; gap: 7px; }
+.working-copy-status { color: #6e5b4d; font-size: 13px; white-space: nowrap; }
 .export-button, .primary-button, .secondary-button {
   min-height: 36px; padding: 8px 14px; border: 1px solid #bda995; border-radius: 8px;
   color: #4e3b2f; background: #f7eee3; font-weight: 600;

@@ -102,9 +102,12 @@ export function createExamWorkspaceService(options: { now?: () => Date; createId
     async create(): Promise<ExamSummary> {
       const timestamp = now().toISOString()
       const exam = { id: createId(), createdAt: timestamp, lastOpenedAt: timestamp }
-      await backendFor(exam.id).write({
+      const initial = {
         questionBank: { questions: [] }, examDraft: createExamDraft('Untitled Exam'), dirty: false,
-      })
+      }
+      // A newly created Exam starts with an explicit empty saved composition,
+      // not merely a clean-looking Working Copy.
+      await backendFor(exam.id).commitSaved(initial)
       await transact([EXAM_STORE, EXAM_WORKSPACE_STORE], 'readwrite', (transaction) => {
         transaction.objectStore(EXAM_STORE).put(exam)
         transaction.objectStore(EXAM_WORKSPACE_STORE).put({ key: 'active', examId: exam.id } satisfies ActiveWorkspace)

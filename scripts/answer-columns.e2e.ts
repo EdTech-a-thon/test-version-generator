@@ -60,8 +60,15 @@ test('the menu offers counts and nothing that decides for itself', async ({ page
   await expect(page.getByRole('menuitemradio', { name: '1 column' })).toHaveCount(0)
 })
 
-test('a question written below another opens laid out the way that one is', async ({ page }) => {
-  await openExam(page, 1)
+test('a question written below another inherits its visible Working Copy layout', async ({ page }) => {
+  // The canonical Question starts in two columns. Change only this Exam's
+  // layout, then verify the new question follows the visible arrangement.
+  await openExam(page, 2)
+
+  await page.locator('.exam-question').first().click({ button: 'right' })
+  await page.getByRole('menuitem', { name: 'Answer columns' }).press('ArrowRight')
+  await page.getByRole('menuitemradio', { name: '1 column' }).click()
+  await expect(page.locator('.choice-grid[data-columns="1"]')).toHaveCount(1)
 
   await page.locator('.exam-question').first().click({ button: 'right' })
   await page.getByRole('menuitem', { name: 'Add question below' }).click()

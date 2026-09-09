@@ -258,20 +258,20 @@ export function createIndexedDBAuthoringBackend(
       return readPublicationHistory(await database)
     },
 
-    commitPublication: async (saved, publication) => {
+    commitPublication: async (working, publication) => {
       await transaction(
         [
           QUESTION_BANK_STORE,
           AUTHORING_STATE_STORE,
-          SAVED_AUTHORING_STORE,
           VERSION_STORE,
           QUESTION_REVISION_STORE,
           LAYOUT_PLAN_STORE,
           MEDIA_ASSET_STORE,
         ],
         (transaction) => {
-          putAuthoringState(transaction, { ...saved, dirty: false })
-          transaction.objectStore(SAVED_AUTHORING_STORE).put(saved, SAVED_AUTHORING_KEY)
+          // Publishing records output and the current Working Copy, but never
+          // changes the separately explicit saved Exam.
+          putAuthoringState(transaction, working)
           if (publication.version) {
             transaction.objectStore(VERSION_STORE).add(publication.version)
             const revisions = transaction.objectStore(QUESTION_REVISION_STORE)

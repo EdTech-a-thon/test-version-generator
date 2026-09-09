@@ -155,6 +155,18 @@ describe('reordering the Exam Draft', () => {
 })
 
 describe('replacing a reference', () => {
+  test('carries the outgoing Exam-owned column layout and clears it on Remove', () => {
+    const draft = {
+      ...draftOf(),
+      columns: { q1: 4 as const, q2: 1 as const },
+    }
+    expect(withReferencesRemoved(draft, ['q1']).columns).toEqual({ q2: 1 })
+    expect(withReferenceReplaced(draft, 'q1', 'q9')).toMatchObject({
+      questionIds: ['q9', 'q2', 'q3'],
+      columns: { q9: 4, q2: 1 },
+    })
+  })
+
   test('puts the incoming question in the outgoing one’s place with its authored answer order', () => {
     const draft = withChoiceOrder(draftOf(), {
       q1: ['a', 'b'], q2: ['c', 'd'], q9: ['e', 'f'],

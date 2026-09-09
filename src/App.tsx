@@ -77,7 +77,7 @@ import {
   Undo2,
 } from 'lucide-react'
 import { ContextMenu, type MenuPoint } from './context-menu'
-import { useRoute } from './use-route'
+import { BEFORE_NAVIGATE_EVENT, useRoute } from './use-route'
 import { Footer } from './site-chrome'
 import { HomePage } from './home-page'
 import type { ExamWorkspaceService, RecentExam } from './exam-workspaces'
@@ -623,6 +623,7 @@ function ExamEditor({
   launchError: string | null
 }) {
   const state = useSyncExternalStore(store.subscribe, store.getState)
+  const backupStatus = useSyncExternalStore(store.subscribe, store.backupStatus)
   // What the page renders and what an export publishes: the Question Bank
   // records the Exam Draft references, in Exam Draft order, and nothing else.
   // The store derives it once per change, so it is a stable dependency.
@@ -707,15 +708,6 @@ function ExamEditor({
       state.questionBank,
     )
     : state.dirty
-  // The selected artifact is handed to the browser only after its Version
-  // transaction commits. Browser cancellation from that point cannot rewrite history.
-  const [handoff, setHandoff] = useState<{
-    blob: Blob
-    filename: string
-    format: ExportConfiguration['format']
-    configuration: ExportConfiguration
-    source: 'live-draft' | 'historical-version'
-  } | null>(null)
   const [storageNotice, setStorageNotice] = useState<string | null>(null)
   const closeVersionHistory = useCallback(() => {
     setHistoryOpen(false)
@@ -815,13 +807,15 @@ function ExamEditor({
   // out in one column lays the next question out that way too, and saying so
   // once is the whole of the setting they should have to touch.
   const columnsForNewQuestion = (afterQuestionId: string | null): ColumnSetting => {
+    // The rendered Exam is the Working Copy's effective arrangement, including
+    // any Exam-only column override; canonical Question Content is only the
+    // fallback for a question not currently composed here.
     const above = afterQuestionId
-      ? bankQuestionById(state.questionBank, afterQuestionId)
+      ? exam.questions.find((question) => question.id === afterQuestionId)
       : undefined
     if (above?.type === 'multiple-choice') return columnsOf(above)
-    const questions = state.questionBank.questions
-    for (let index = questions.length - 1; index >= 0; index -= 1) {
-      const question = questions[index]!
+    for (let index = exam.questions.length - 1; index >= 0; index -= 1) {
+      const question = exam.questions[index]!
       if (question.type === 'multiple-choice') return columnsOf(question)
     }
     return DEFAULT_COLUMNS
@@ -914,6 +908,46 @@ function ExamEditor({
       source,
     })
   }, [viewingVersion])
+
+  useEffect(() => {
+    const onSaveShortcut = (event: KeyboardEvent) => {
+      if (
+        event.key.toLowerCase() === 's'
+        && (event.ctrlKey || event.metaKey)
+        && !event.altKey
+      ) {
+        event.preventDefault()
+        if (!editing && !exportDialog && !confirmingUseAsDraft && !reviewingHistoricalQuestions) {
+          void store.save()
+        }
+      }
+    }
+    document.addEventListener('keydown', onSaveShortcut)
+    return () => document.removeEventListener('keydown', onSaveShortcut)
+  }, [confirmingUseAsDraft, editing, exportDialog, reviewingHistoricalQuestions, store])
+
+  useEffect(() => {
+    const backupNeedsWarning = () => store.backupStatus() !== 'ready'
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (!backupNeedsWarning()) return
+      event.preventDefault()
+      event.returnValue = ''
+    }
+    const onBeforeNavigate = (event: Event) => {
+      if (!backupNeedsWarning()) return
+      // The browser-native beforeunload prompt is unavailable to pushState.
+      // Make the same choice explicit for in-app routes.
+      if (!window.confirm('Your latest Working Copy has not been backed up locally. Leave anyway?')) {
+        event.preventDefault()
+      }
+    }
+    window.addEventListener('beforeunload', onBeforeUnload)
+    window.addEventListener(BEFORE_NAVIGATE_EVENT, onBeforeNavigate)
+    return () => {
+      window.removeEventListener('beforeunload', onBeforeUnload)
+      window.removeEventListener(BEFORE_NAVIGATE_EVENT, onBeforeNavigate)
+    }
+  }, [backupStatus, store])
 
   useEffect(() => {
     const onPrintShortcut = (event: KeyboardEvent) => {
@@ -1104,43 +1138,22 @@ function ExamEditor({
           : 'Persistent storage was not granted. Version History remains browser-local and may be cleared by the browser; keep an external archival copy.',
       )
     }
-    setHandoff({
-      blob,
-      filename: prepared.filename,
-      format: configuration.format,
-      configuration,
-      source,
-    })
+    // Trigger the browser handoff in this completed command rather than a
+    // follow-up React effect. The dialog may now close, but no render timing or
+    // later state update can leave an already durable artifact undispatched.
+    try {
+      if (configuration.format === 'pdf') {
+        const { savePdfFile } = await import('./pdf-export')
+        savePdfFile(blob, prepared.filename)
+      } else {
+        const { saveDocxFile } = await import('./docx-export')
+        saveDocxFile(blob, prepared.filename)
+      }
+    } catch (error) {
+      console.error(`Could not start the ${configuration.format.toUpperCase()} download`, error)
+      throw new Error('The download could not be started. The Version remains in History.')
+    }
   }
-
-  /** A native action that never started: reopen the dialog on the same
-   *  configuration with something the teacher can act on. */
-  const exportFailed = (
-    configuration: ExportConfiguration,
-    source: 'live-draft' | 'historical-version',
-    message: string,
-  ) => {
-    setHandoff(null)
-    setExportDialog({ configuration, source, error: message })
-  }
-
-  // The handoff, once the dialog is out of the way and publication is durable.
-  useEffect(() => {
-    if (!handoff) return
-    const { blob, filename, format, configuration, source } = handoff
-    const save = format === 'pdf'
-      ? import('./pdf-export').then(({ savePdfFile }) => savePdfFile)
-      : import('./docx-export').then(({ saveDocxFile }) => saveDocxFile)
-    void save
-      .then((saveFile) => {
-        saveFile(blob, filename)
-        setHandoff(null)
-      })
-      .catch((error: unknown) => {
-        console.error(`Could not start the ${format.toUpperCase()} download`, error)
-        exportFailed(configuration, source, 'The download could not be started. The Version remains in History.')
-      })
-  }, [handoff])
 
   let exportPreview: PreparedExport | null = null
   let previewError: string | null = null
@@ -1206,6 +1219,37 @@ function ExamEditor({
             }}
           >
             <Redo2 />
+          </button>
+          <span
+            className="working-copy-status"
+            aria-label="Working Copy status"
+            aria-live="polite"
+          >
+            {backupStatus === 'pending'
+              ? 'Backing up…'
+              : backupStatus === 'failed'
+                ? 'Backup failed'
+                : state.dirty
+                  ? 'Unsaved changes · backed up locally'
+                  : 'Saved'}
+          </span>
+          <button
+            type="button"
+            className="secondary-button"
+            aria-label="Discard changes"
+            disabled={!state.dirty}
+            onClick={() => void store.discard()}
+          >
+            Discard
+          </button>
+          <button
+            type="button"
+            className="primary-button"
+            aria-label="Save"
+            disabled={!state.dirty || backupStatus !== 'ready'}
+            onClick={() => void store.save()}
+          >
+            Save
           </button>
           <button
             ref={historyButton}

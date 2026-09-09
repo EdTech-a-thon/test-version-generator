@@ -23,6 +23,9 @@ export type QuestionBank = {
 export type ExamDraft = {
   title: string
   questionIds: string[]
+  /** Answer-column layout is an Exam arrangement, not canonical Question
+   * Content: the same Question may be laid out differently in another Exam. */
+  columns?: Record<string, import('./exam').ColumnSetting>
   /** The Exam Draft's answer arrangement, keyed by Question Bank record id.
    *  Absent means authored order, preserving compatibility with drafts stored
    *  before answer shuffling existed. */
@@ -109,10 +112,19 @@ export function withReferencesRemoved(
   const choiceOrder = draft.choiceOrder
     ? { ...draft.choiceOrder }
     : undefined
-  for (const questionId of removing) delete choiceOrder?.[questionId]
-  return choiceOrder
-    ? { ...draft, questionIds: remaining, choiceOrder }
-    : { ...draft, questionIds: remaining }
+  const columns = draft.columns
+    ? { ...draft.columns }
+    : undefined
+  for (const questionId of removing) {
+    delete choiceOrder?.[questionId]
+    delete columns?.[questionId]
+  }
+  return {
+    ...draft,
+    questionIds: remaining,
+    ...(choiceOrder ? { choiceOrder } : {}),
+    ...(columns ? { columns } : {}),
+  }
 }
 
 /** The Exam Draft's references reordered wholesale — how a move records its
@@ -183,7 +195,17 @@ export function withReferenceReplaced(
     : undefined
   delete choiceOrder?.[outgoingQuestionId]
   delete choiceOrder?.[incomingQuestionId]
-  return choiceOrder
-    ? { ...draft, questionIds, choiceOrder }
-    : { ...draft, questionIds }
+  // The position's layout belongs to this Exam arrangement, so Replace carries
+  // it to the incoming Question while its authored answer order starts fresh.
+  const columns = draft.columns ? { ...draft.columns } : undefined
+  const outgoingColumns = columns?.[outgoingQuestionId]
+  delete columns?.[outgoingQuestionId]
+  delete columns?.[incomingQuestionId]
+  if (outgoingColumns !== undefined) columns![incomingQuestionId] = outgoingColumns
+  return {
+    ...draft,
+    questionIds,
+    ...(choiceOrder ? { choiceOrder } : {}),
+    ...(columns ? { columns } : {}),
+  }
 }

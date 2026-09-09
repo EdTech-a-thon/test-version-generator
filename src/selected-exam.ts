@@ -16,7 +16,7 @@
 // Nothing downstream can tell the difference between this and an edited
 // Version, and nothing here writes anything back.
 
-import { type Exam, type Version } from './exam'
+import { columnsOf, type Exam, type Version } from './exam'
 import { bankQuestionById, type ExamDraft, type QuestionBank } from './question-bank'
 
 /** The `Exam` plus ordering that one Exam Draft currently amounts to. */
@@ -46,7 +46,15 @@ export function selectedExam(
   previous?: SelectedExam | null,
 ): SelectedExam {
   const referenced = new Set(draft.questionIds)
-  const questions = bank.questions.filter((question) => referenced.has(question.id))
+  const bankedQuestions = bank.questions.filter((question) => referenced.has(question.id))
+  // Column layout belongs to this Exam Working Copy. Preserve a canonical
+  // Question's authored/default layout only until this Exam specifies one.
+  const columns = draft.columns ?? {}
+  const questions = bankedQuestions.map((question) =>
+    columns[question.id] === undefined || columns[question.id] === columnsOf(question)
+      ? question
+      : { ...question, columns: columns[question.id]! },
+  )
   const exam: Exam =
     previous
     && previous.exam.title === draft.title

@@ -786,23 +786,25 @@ describe('the dirty flag and persistence', () => {
     expect(renderedIds(reloaded)).toEqual([first.id])
   })
 
-  test('every authoring action raises the dirty flag', async () => {
-    const cases: Array<(store: ExamStore, question: Question) => void> = [
-      (store) => store.setTitle('Chem Unit 3'),
-      (store) => store.createInQuestionBank(createQuestion('open')),
-      (store) => store.createInExamDraft(createQuestion('open')),
-      (store, question) => store.updateInQuestionBank({ ...question, columns: 2 }),
-      (store, question) => store.setQuestionColumns([question.id], 4),
-      (store, question) => store.duplicateInExamDraft(question.id),
-      (store, question) => store.removeFromExamDraft([question.id]),
-    ]
-    for (const act of cases) {
-      const { store, questions } = await withExamDraft(1)
-      await store.save()
-      expect(store.getState().dirty).toBe(false)
-      act(store, questions[0]!)
-      expect(store.getState().dirty).toBe(true)
-    }
+  test('dirty compares the Working Copy composition with the saved Exam', async () => {
+    const { store, questions } = await withExamDraft(1)
+    await store.save()
+
+    // Canonical content stays live but is not the saved Exam composition.
+    store.updateInQuestionBank({ ...questions[0]!, columns: 4 })
+    expect(store.getState().dirty).toBe(false)
+
+    store.setTitle('Chem Unit 3')
+    expect(store.getState().dirty).toBe(true)
+    store.setTitle('Untitled exam')
+    expect(store.getState().dirty).toBe(false)
+
+    // Save retains command history; Undo afterward returns to an unsaved copy.
+    store.setTitle('Saved title')
+    await store.save()
+    store.undo()
+    expect(store.getState().examDraft.title).toBe('Untitled exam')
+    expect(store.getState().dirty).toBe(true)
   })
 
   test('a change that changes nothing costs no undo step, dirty flag, or write', async () => {
@@ -832,9 +834,11 @@ describe('the dirty flag and persistence', () => {
       expect(store.getState().dirty).toBe(false)
       expect(backend.writes).toBe(writes)
 
-      // One undo steps past the real change, not a phantom one.
+      // One undo steps past the real change, not a phantom one. The saved
+      // comparison correctly marks this earlier arrangement as unsaved.
       store.undo()
-      expect(store.getState()).toBe(before)
+      expect(store.getState().examDraft).toEqual(before.examDraft)
+      expect(store.getState().dirty).toBe(true)
     }
   })
 
@@ -993,6 +997,26 @@ describe('the dirty flag and persistence', () => {
     expect(questions).toHaveLength(1)
   })
 
+  test('export records unsaved work without replacing the explicit saved Exam', async () => {
+    const { store, questions } = await withExamDraft(1, 'open')
+    await store.save()
+    store.setTitle('Unsaved export title')
+    const exported = prepareExport({
+      ...store.selectedExam(),
+      configuration: DEFAULT_EXPORT_CONFIGURATION,
+      history: store.publicationHistory(),
+      measure: unmeasured,
+      createdAt: '2026-09-04T12:00:00.000Z',
+    })
+
+    await store.publish(exported.publication)
+
+    expect(store.getState().dirty).toBe(true)
+    await store.discard()
+    expect(store.getState().examDraft.title).toBe('Untitled exam')
+    expect(renderedIds(store)).toEqual([questions[0]!.id])
+  })
+
   test('historical re-export preparation is read-only for current, saved, and dirty authoring state', async () => {
     const { backend, savedBackend, store, questions } = await withExamDraft(1, 'open')
     await store.save()
@@ -1050,7 +1074,9 @@ describe('the dirty flag and persistence', () => {
       bankOnly.id,
     ])
     expect(renderedIds(reloaded)).toEqual([questions[1]!.id, questions[0]!.id])
-    expect(reloaded.getState().dirty).toBe(true)
+    // The recovered Working Copy becomes the initial saved baseline only for
+    // legacy data that predates explicit saved snapshots.
+    expect(reloaded.getState().dirty).toBe(false)
   })
 
   test('bank-only work is durable even though it is on no exam', async () => {
@@ -1090,6 +1116,97 @@ describe('the dirty flag and persistence', () => {
     expect(store.getState().examDraft.title).toBe('Untitled exam')
     expect(renderedIds(store)).toEqual(questions.map((question) => question.id))
     expect(store.getState().dirty).toBe(false)
+  })
+
+  test('Replace preserves an outgoing Question’s inherited and explicit column layout', async () => {
+    const { store } = await freshStore()
+    const inherited = { ...createQuestion('multiple-choice'), columns: 4 as const }
+    const inheritedIncoming = { ...createQuestion('multiple-choice'), columns: 1 as const }
+    const explicit = { ...createQuestion('multiple-choice'), columns: 2 as const }
+    const explicitIncoming = { ...createQuestion('multiple-choice'), columns: 1 as const }
+    const equivalent = {
+      ...createQuestion('multiple-choice'),
+      columns: 4 as const,
+      difficulty: 'hard' as const,
+      topics: ['Geometry'],
+    }
+    const equivalentIncoming = {
+      ...createQuestion('multiple-choice'),
+      columns: 1 as const,
+      difficulty: 'hard' as const,
+      topics: ['Geometry'],
+    }
+    for (const question of [inherited, explicit, equivalent]) store.createInExamDraft(question)
+    for (const question of [inheritedIncoming, explicitIncoming, equivalentIncoming]) {
+      store.createInQuestionBank(question)
+    }
+
+    store.replaceInExamDraft(inherited.id, inheritedIncoming.id)
+    store.setQuestionColumns([explicit.id], 4)
+    store.replaceInExamDraft(explicit.id, explicitIncoming.id)
+    expect(store.replaceWithEquivalentQuestions([equivalent.id])).toEqual({
+      replaced: 1,
+      unmatched: 0,
+    })
+
+    const columns = new Map(
+      store.selectedExam().exam.questions.map((question) => [question.id, question.columns]),
+    )
+    expect(columns.get(inheritedIncoming.id)).toBe(4)
+    expect(columns.get(explicitIncoming.id)).toBe(4)
+    expect(columns.get(equivalentIncoming.id)).toBe(4)
+  })
+
+  test('Discard before the first user Save retains canonical Question Content', async () => {
+    const { store } = await freshStore()
+    const question = createQuestion('open')
+    store.createInExamDraft(question)
+
+    await store.discard()
+
+    expect(bankIds(store)).toEqual([question.id])
+    expect(store.getState().examDraft.questionIds).toEqual([])
+    expect(store.getState().dirty).toBe(false)
+  })
+
+  test('Discard restores the saved arrangement while retaining latest Question Content', async () => {
+    const { store, questions } = await withExamDraft(1, 'open')
+    await store.save()
+    const saved = questions[0]!
+    store.updateInQuestionBank({
+      ...saved,
+      columns: 4,
+      doc: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Latest wording' }] }] },
+    })
+    store.setTitle('Changed title')
+
+    await store.discard()
+
+    expect(store.getState().examDraft.title).toBe('Untitled exam')
+    expect(store.getState().questionBank.questions[0]).toMatchObject({
+      id: saved.id,
+      columns: 4,
+      doc: { content: [{ content: [{ text: 'Latest wording' }] }] },
+    })
+    expect(store.selectedExam().exam.questions[0]!.columns).toBe(saved.columns)
+    expect(store.canUndo()).toBe(false)
+    expect(store.canRedo()).toBe(false)
+  })
+
+  test('reports a failed Working Copy backup without losing the in-memory change', async () => {
+    const backend: Backend<AuthoringState> = {
+      read: async () => null,
+      write: async () => { throw new Error('storage unavailable') },
+    }
+    const store = await loadExamStore(backend)
+
+    store.setTitle('Still in memory')
+    expect(store.backupStatus()).toBe('pending')
+    await store.whenSettled()
+
+    expect(store.backupStatus()).toBe('failed')
+    expect(store.getState().examDraft.title).toBe('Still in memory')
+    expect(store.getState().dirty).toBe(true)
   })
 
   test('subscribers are notified of a change', async () => {

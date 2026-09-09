@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react'
  * navigation — no library, no route table.
  */
 const NAVIGATE_EVENT = 'testparrot:navigate'
+export const BEFORE_NAVIGATE_EVENT = 'testparrot:before-navigate'
 
 function currentPath(): string {
   return window.location.pathname || '/'
@@ -29,6 +30,9 @@ export function useRoute(): string {
 
 export function navigate(to: string): void {
   if (window.location.pathname === to) return
+  // Unlike a full document navigation, pushState never raises beforeunload.
+  // Give editor-owned durability guards the same cancellable boundary first.
+  if (!window.dispatchEvent(new Event(BEFORE_NAVIGATE_EVENT, { cancelable: true }))) return
   window.history.pushState(null, '', to)
   window.dispatchEvent(new Event(NAVIGATE_EVENT))
   window.scrollTo(0, 0)

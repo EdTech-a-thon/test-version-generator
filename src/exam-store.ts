@@ -67,6 +67,10 @@ export type EquivalentReplacementSummary = {
   unmatched: number
 }
 
+/** Browser-local Working Copy durability, separate from whether its Exam has
+ * intentionally been saved. */
+export type BackupStatus = 'ready' | 'pending' | 'failed'
+
 // The whole persistence surface: read the last value written, write a new one.
 // Both are asynchronous so that an IndexedDB implementation fits behind the
 // same interface as a localStorage one.
@@ -81,7 +85,7 @@ export interface DurableAuthoringBackend extends Backend<AuthoringState> {
   readSaved(): Promise<SavedState | null>
   commitSaved(value: SavedState): Promise<void>
   readPublicationHistory(): Promise<PublicationHistory>
-  commitPublication(value: SavedState, publication: PublicationCommit): Promise<void>
+  commitPublication(value: AuthoringState, publication: PublicationCommit): Promise<void>
 }
 
 export type MemoryBackend<T> = Backend<T> & {
@@ -132,6 +136,15 @@ function isChoiceOrder(value: unknown): value is Record<string, string[]> {
   )
 }
 
+function isColumnSettings(value: unknown): value is Record<string, ColumnSetting> {
+  return (
+    typeof value === 'object'
+    && value !== null
+    && !Array.isArray(value)
+    && Object.values(value).every((columns) => columns === 1 || columns === 2 || columns === 4)
+  )
+}
+
 function isExamDraft(value: unknown): value is ExamDraft {
   const draft = value as ExamDraft | null
   return (
@@ -140,6 +153,7 @@ function isExamDraft(value: unknown): value is ExamDraft {
     typeof draft.title === 'string' &&
     Array.isArray(draft.questionIds) &&
     draft.questionIds.every((id) => typeof id === 'string') &&
+    (draft.columns === undefined || isColumnSettings(draft.columns)) &&
     (draft.choiceOrder === undefined || isChoiceOrder(draft.choiceOrder))
   )
 }
@@ -177,6 +191,8 @@ export type ExamStore = {
    *  Question Bank records, in Exam Draft order, and nothing else. */
   selectedExam(): SelectedExam
   subscribe(listener: () => void): () => void
+  /** Whether the newest Working Copy has reached browser-local storage. */
+  backupStatus(): BackupStatus
 
   setTitle(title: string): void
 
@@ -258,8 +274,8 @@ export type ExamStore = {
   undo(): void
   redo(): void
   save(): Promise<void>
-  /** Atomically saves the current authoring state and appends a newly prepared
-   * Version's immutable records. A re-export saves without appending. */
+  /** Atomically records the current Working Copy alongside newly prepared
+   * immutable Export History. It never changes the explicitly saved Exam. */
   publish(publication: PublicationCommit): Promise<void>
   publicationHistory(): PublicationHistory
   discard(): Promise<void>
@@ -278,6 +294,62 @@ function withExamDraft(
   examDraft: ExamDraft,
 ): AuthoringState {
   return examDraft === state.examDraft ? state : { ...state, examDraft }
+}
+
+/** Freeze every referenced Question's current layout into an Exam arrangement.
+ * It is used at save time, where an absent legacy setting must not keep
+ * following a later canonical-content edit. */
+function withResolvedColumns(state: AuthoringState): ExamDraft {
+  const current = state.examDraft.columns ?? {}
+  let changed = false
+  const columns = { ...current }
+  for (const questionId of state.examDraft.questionIds) {
+    if (columns[questionId] !== undefined) continue
+    const question = bankQuestionById(state.questionBank, questionId)
+    if (!question) continue
+    columns[questionId] = question.columns
+    changed = true
+  }
+  return changed ? { ...state.examDraft, columns } : state.examDraft
+}
+
+/** Savedness is a composition comparison. Canonical Question Content is live,
+ * so it intentionally does not participate: only the Exam name, membership,
+ * question order, answer order and column layout are explicitly saved. */
+function sameExamDraft(left: ExamDraft, right: ExamDraft): boolean {
+  const sameEntries = <T>(first: Record<string, T> | undefined, second: Record<string, T> | undefined, equal: (left: T, right: T) => boolean) => {
+    const firstEntries = Object.entries(first ?? {})
+    const secondEntries = second ?? {}
+    return firstEntries.length === Object.keys(secondEntries).length
+      && firstEntries.every(([id, value]) => secondEntries[id] !== undefined && equal(value, secondEntries[id]!))
+  }
+  return left.title === right.title
+    && left.questionIds.length === right.questionIds.length
+    && left.questionIds.every((id, index) => id === right.questionIds[index])
+    && sameEntries(left.columns, right.columns, (first, second) => first === second)
+    && sameEntries(left.choiceOrder, right.choiceOrder, (first, second) =>
+      first.length === second.length && first.every((id, index) => id === second[index]),
+    )
+}
+
+/** Make a referenced Question's current effective layout explicit before an
+ * operation transfers its position to another Question. */
+function withColumnResolved(
+  state: AuthoringState,
+  questionId: string,
+): ExamDraft {
+  if (state.examDraft.columns?.[questionId] !== undefined) return state.examDraft
+  const question = bankQuestionById(state.questionBank, questionId)
+  if (!question) return state.examDraft
+  return {
+    ...state.examDraft,
+    columns: { ...(state.examDraft.columns ?? {}), [questionId]: question.columns },
+  }
+}
+
+function withDirtyFlag(current: AuthoringState, saved: SavedState | null): AuthoringState {
+  const dirty = !saved || !sameExamDraft(current.examDraft, saved.examDraft)
+  return current.dirty === dirty ? current : { ...current, dirty }
 }
 
 function areEquivalentQuestions(left: Question, right: Question): boolean {
@@ -302,8 +374,17 @@ export function createExamStore(options: {
   const durableBackend = 'commitSaved' in backend
     ? (backend as DurableAuthoringBackend)
     : null
-  let state: AuthoringState = options.initial ?? createAuthoringState()
-  let saved: SavedState | null = options.saved ?? null
+  const initialState = options.initial ?? createAuthoringState()
+  // Every Exam has a saved composition. The fallback also gives pre-ticket
+  // records (and narrow in-memory test stores) a stable initial baseline.
+  let saved: SavedState | null = options.saved ?? {
+    questionBank: initialState.questionBank,
+    examDraft: initialState.examDraft,
+    ...(initialState.lastExportedVersionId
+      ? { lastExportedVersionId: initialState.lastExportedVersionId }
+      : {}),
+  }
+  let state: AuthoringState = withDirtyFlag(initialState, saved)
   let publicationHistory = options.publicationHistory ?? EMPTY_PUBLICATION_HISTORY
   // The derived Exam, kept beside the state it was derived from. Deriving it
   // once per change rather than once per read is what lets a consumer treat it
@@ -311,6 +392,8 @@ export function createExamStore(options: {
   let selected: SelectedExam = selectedExam(state.questionBank, state.examDraft)
   const listeners = new Set<() => void>()
   let pending: Promise<void> = Promise.resolve()
+  let backupStatus: BackupStatus = 'ready'
+  let backupRevision = 0
   const undoStack: AuthoringState[] = []
   const redoStack: AuthoringState[] = []
   const HISTORY_LIMIT = 100
@@ -321,30 +404,45 @@ export function createExamStore(options: {
   // Starting them here matters at navigation time: a second authored question
   // must already be inside IndexedDB's durability boundary when Reload begins,
   // not waiting behind a promise for the first transaction.
+  const notify = () => {
+    for (const listener of listeners) listener()
+  }
+
   const mirror = () => {
     const snapshot = state
+    const revision = ++backupRevision
+    backupStatus = 'pending'
     const write = durableBackend
       ? backend.write(snapshot)
       : pending.then(() => backend.write(snapshot))
     pending = Promise.all([pending, write])
-      .then(() => undefined)
+      .then(() => {
+        if (revision === backupRevision) {
+          backupStatus = 'ready'
+          notify()
+        }
+      })
       .catch((error: unknown) => {
         console.error('Could not mirror the authoring state', error)
+        if (revision === backupRevision) {
+          backupStatus = 'failed'
+          notify()
+        }
       })
   }
 
   const settle = (next: AuthoringState) => {
-    state = next
+    state = withDirtyFlag(next, saved)
     selected = selectedExam(state.questionBank, state.examDraft, selected)
     mirror()
-    for (const listener of listeners) listener()
+    notify()
   }
 
   // Every write goes through here: it is the single place the authoring state
   // is mirrored and subscribers are told.
   const apply = (
     next: (state: AuthoringState) => AuthoringState,
-    dirty: boolean,
+    _dirty: boolean,
     recordHistory = false,
   ) => {
     const updated = next(state)
@@ -354,7 +452,7 @@ export function createExamStore(options: {
       if (undoStack.length > HISTORY_LIMIT) undoStack.shift()
       redoStack.length = 0
     }
-    settle(dirty ? { ...updated, dirty: true } : updated)
+    settle(updated)
   }
 
   // One semantic authoring action: the single place the dirty flag is raised,
@@ -386,6 +484,7 @@ export function createExamStore(options: {
   const store: ExamStore = {
     getState: () => state,
     selectedExam: () => selected,
+    backupStatus: () => backupStatus,
     subscribe: (listener) => {
       listeners.add(listener)
       return () => listeners.delete(listener)
@@ -416,23 +515,45 @@ export function createExamStore(options: {
       })),
 
     updateInQuestionBank: (question) =>
-      change((current) => ({
-        ...current,
-        questionBank: withQuestionBanked(current.questionBank, question),
-      })),
+      change((current) => {
+        // A Question Content edit must not silently revise this Exam's answer
+        // layout. Capture its current effective setting before replacing the
+        // canonical record, including for working copies written before the
+        // setting moved onto the Exam Draft.
+        const prior = bankQuestionById(current.questionBank, question.id)
+        const columns = current.examDraft.columns ?? {}
+        const examDraft = current.examDraft.questionIds.includes(question.id)
+          && columns[question.id] === undefined
+          && prior
+          ? {
+              ...current.examDraft,
+              columns: { ...columns, [question.id]: prior.columns },
+            }
+          : current.examDraft
+        return {
+          ...current,
+          questionBank: withQuestionBanked(current.questionBank, question),
+          examDraft,
+        }
+      }),
 
     setQuestionColumns: (questionIds, columns) => {
       const targeted = new Set(questionIds)
       change((current) => {
-        let moved = false
-        const questions = current.questionBank.questions.map((question) => {
-          if (!targeted.has(question.id) || question.columns === columns) {
-            return question
-          }
-          moved = true
-          return { ...question, columns }
-        })
-        return moved ? { ...current, questionBank: { questions } } : current
+        const currentColumns = current.examDraft.columns ?? {}
+        let changed = false
+        const nextColumns = { ...currentColumns }
+        for (const questionId of targeted) {
+          if (!current.examDraft.questionIds.includes(questionId)) continue
+          const effectiveColumns = nextColumns[questionId]
+            ?? bankQuestionById(current.questionBank, questionId)?.columns
+          if (effectiveColumns === columns) continue
+          nextColumns[questionId] = columns
+          changed = true
+        }
+        return changed
+          ? { ...current, examDraft: { ...current.examDraft, columns: nextColumns } }
+          : current
       })
     },
 
@@ -475,14 +596,16 @@ export function createExamStore(options: {
       change((current) => {
         const outgoing = bankQuestionById(current.questionBank, outgoingQuestionId)
         const incoming = bankQuestionById(current.questionBank, incomingQuestionId)
-        if (!outgoing || !incoming || outgoing.type !== incoming.type) return current
+        if (
+          !outgoing
+          || !incoming
+          || outgoing.type !== incoming.type
+          || current.examDraft.questionIds.includes(incomingQuestionId)
+        ) return current
+        const examDraft = withColumnResolved(current, outgoingQuestionId)
         return withExamDraft(
           current,
-          withReferenceReplaced(
-            current.examDraft,
-            outgoingQuestionId,
-            incomingQuestionId,
-          ),
+          withReferenceReplaced(examDraft, outgoingQuestionId, incomingQuestionId),
         )
       }),
 
@@ -511,7 +634,8 @@ export function createExamStore(options: {
             continue
           }
           consumed.add(incoming.id)
-          examDraft = withReferenceReplaced(examDraft, outgoingId, incoming.id)
+          const resolved = withColumnResolved({ ...current, examDraft }, outgoingId)
+          examDraft = withReferenceReplaced(resolved, outgoingId, incoming.id)
           summary.replaced += 1
         }
 
@@ -614,11 +738,12 @@ export function createExamStore(options: {
     redo: () => restoreHistory(redoStack, undoStack),
 
     save: async () => {
+      if (saved && !state.dirty) return
       await pending
       const savingState = state
       const nextSaved: SavedState = {
         questionBank: savingState.questionBank,
-        examDraft: savingState.examDraft,
+        examDraft: withResolvedColumns(savingState),
         ...(savingState.lastExportedVersionId
           ? { lastExportedVersionId: savingState.lastExportedVersionId }
           : {}),
@@ -630,13 +755,16 @@ export function createExamStore(options: {
       // A new authoring action may have happened while durable Save was in
       // flight. It is ordered after the saved transaction and remains dirty;
       // only the exact state that was saved can be marked clean.
-      if (state !== savingState) return
+      if (state !== savingState) {
+        settle(state)
+        return
+      }
       if (durableBackend) {
-        state = { ...savingState, dirty: false }
+        state = withDirtyFlag({ ...state, examDraft: nextSaved.examDraft }, saved)
         selected = selectedExam(state.questionBank, state.examDraft, selected)
-        for (const listener of listeners) listener()
+        notify()
       } else {
-        apply((current) => ({ ...current, dirty: false }), false)
+        settle({ ...state, examDraft: nextSaved.examDraft })
         await pending
       }
     },
@@ -644,9 +772,9 @@ export function createExamStore(options: {
     publish: async (publication) => {
       await pending
       const publishingState = state
-      const nextSaved: SavedState = {
-        questionBank: publishingState.questionBank,
-        examDraft: publishingState.examDraft,
+      const publicationState: AuthoringState = {
+        ...publishingState,
+        examDraft: withResolvedColumns(publishingState),
         ...(publication.exportedVersionId ?? publishingState.lastExportedVersionId
           ? {
               lastExportedVersionId:
@@ -655,11 +783,10 @@ export function createExamStore(options: {
           : {}),
       }
       if (durableBackend) {
-        await durableBackend.commitPublication(nextSaved, publication)
+        await durableBackend.commitPublication(publicationState, publication)
       } else {
-        await savedBackend?.write(nextSaved)
+        await backend.write(publicationState)
       }
-      saved = nextSaved
       if (publication.version) {
         publicationHistory = {
           versions: [...publicationHistory.versions, publication.version],
@@ -672,30 +799,26 @@ export function createExamStore(options: {
       // export resolved; otherwise a later Use as Draft would compare against
       // stale append-only history until reload.
       if (state !== publishingState) {
-        if (
-          publication.exportedVersionId
-          && state.lastExportedVersionId !== publication.exportedVersionId
-        ) {
+        if (publication.exportedVersionId && state.lastExportedVersionId !== publication.exportedVersionId) {
           settle({ ...state, lastExportedVersionId: publication.exportedVersionId })
         }
         return
       }
-      if (durableBackend) {
-        state = { ...nextSaved, dirty: false }
-        selected = selectedExam(state.questionBank, state.examDraft, selected)
-        for (const listener of listeners) listener()
-      } else {
-        apply(() => ({ ...nextSaved, dirty: false }), false)
-        await pending
-      }
+      settle(publicationState)
+      await pending
     },
 
     publicationHistory: () => publicationHistory,
 
     discard: async () => {
-      const restored: AuthoringState = saved
-        ? { ...saved, dirty: false }
-        : createAuthoringState()
+      // Discard restores this Exam's saved composition, but Question Content is
+      // canonical and live. A later typo fix therefore remains visible rather
+      // than being rolled back with this Exam's arrangement.
+      const savedDraft = saved?.examDraft ?? createExamDraft(state.examDraft.title)
+      const restored: AuthoringState = {
+        ...state,
+        examDraft: savedDraft,
+      }
       undoStack.length = 0
       redoStack.length = 0
       apply(() => restored, false)
