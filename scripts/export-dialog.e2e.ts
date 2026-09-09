@@ -440,8 +440,10 @@ test('Version History browses newest stored plans and re-exports without changin
   await page.getByLabel('Version History').locator('.version-history-item').first().focus()
   // The same commands are also suppressed after selection hides the drawer.
   await page.keyboard.press('Enter')
-  const initialBackToDraft = page.getByRole('button', { name: 'Back to draft' })
-  await expect(initialBackToDraft).toBeFocused()
+  const initialReturnToDraft = page.getByRole('button', { name: 'Return to Exam Draft' })
+  await expect(initialReturnToDraft).toBeFocused()
+  await expect(page.getByRole('button', { name: 'Use as draft' })).toHaveClass(/primary-button/)
+  await expect(page.getByText('Viewing immutable Version')).toBeVisible()
   await page.keyboard.press('Delete')
   await expect(page.locator('.draft-document')).toHaveJSProperty('innerHTML', draftBeforeBrowsing)
   await page.keyboard.press('Backspace')
@@ -450,7 +452,7 @@ test('Version History browses newest stored plans and re-exports without changin
   await expect(page.locator('.draft-document')).toHaveJSProperty('innerHTML', draftBeforeBrowsing)
   await page.keyboard.press('Control+Shift+Z')
   await expect(page.locator('.draft-document')).toHaveJSProperty('innerHTML', draftBeforeBrowsing)
-  await initialBackToDraft.click()
+  await initialReturnToDraft.click()
 
   await liveQuestions.nth(0).click()
   await page.keyboard.press('Delete')
@@ -473,9 +475,9 @@ test('Version History browses newest stored plans and re-exports without changin
 
   // Keyboard selection moves focus out of the drawer before that drawer hides.
   await page.keyboard.press('Enter')
-  const backToDraft = page.getByRole('button', { name: 'Back to draft' })
-  await expect(backToDraft).toBeVisible()
-  await expect(backToDraft).toBeFocused()
+  const returnToDraft = page.getByRole('button', { name: 'Return to Exam Draft' })
+  await expect(returnToDraft).toBeVisible()
+  await expect(returnToDraft).toBeFocused()
   await expect(page.locator('.historical-document')).toContainText('Second Biology Quiz')
 
   // The historical document is a clean read-only view; authoring controls,
@@ -488,7 +490,7 @@ test('Version History browses newest stored plans and re-exports without changin
   await page.getByRole('button', { name: 'Version History' }).click()
   await expect(versions.nth(0)).toBeFocused()
   await page.keyboard.press('Enter')
-  await expect(backToDraft).toBeFocused()
+  await expect(returnToDraft).toBeFocused()
 
   await page.getByRole('button', { name: 'Historical Export', exact: true }).click()
   dialog = dialogOf(page)
@@ -502,7 +504,7 @@ test('Version History browses newest stored plans and re-exports without changin
   // order changes while its DOCX is assembled from stored records.
   expect(await historyOf(page)).toEqual(historyBeforeReExport)
 
-  await backToDraft.click()
+  await returnToDraft.click()
   await expect(draftTitle).toHaveValue('Second Biology Quiz')
   await expect(draftTitle).toBeFocused()
   // The same mounted draft document returns; it was not reconstructed from
@@ -521,6 +523,26 @@ test('Escape closes Version History and restores focus to its opener', async ({ 
 
   await expect(history).toBeHidden()
   await expect(historyButton).toBeFocused()
+})
+
+test('Escape returns from a Version to the same Exam Draft focus target', async ({ page }) => {
+  await open(page)
+  const dialog = await openDialog(page)
+  const download = page.waitForEvent('download')
+  await dialog.getByRole('button', { name: 'Download PDF' }).click()
+  await download
+
+  const draftTitle = page.getByRole('textbox', { name: 'Exam name' })
+  await draftTitle.focus()
+  await page.getByRole('button', { name: 'Version History' }).click()
+  await page.getByLabel('Version History').locator('.version-history-item').click()
+  await expect(page.locator('.historical-document')).toBeVisible()
+
+  await page.keyboard.press('Escape')
+
+  await expect(page.locator('.historical-document')).toBeHidden()
+  await expect(page.locator('.draft-document')).toBeVisible()
+  await expect(draftTitle).toBeFocused()
 })
 
 test('Use as draft confirms replacement, preserves Cancel, and restores the historical arrangement', async ({ page }) => {
@@ -558,7 +580,7 @@ test('Use as draft confirms replacement, preserves Cancel, and restores the hist
   await page.keyboard.press('Enter')
   await expect(useAsDraft).toBeFocused()
 
-  await page.getByRole('button', { name: 'Back to draft' }).click()
+  await page.getByRole('button', { name: 'Return to Exam Draft' }).click()
   await expect(page.getByRole('textbox', { name: 'Exam name' })).toHaveValue('Renamed live draft')
   expect(await questions.nth(0).locator('.choice-body').allTextContents()).toEqual(liveAnswers)
   await expect(page.locator('.question-bank-authoring')).toHaveJSProperty('innerHTML', bankBeforeConfirmation)
@@ -572,7 +594,7 @@ test('Use as draft confirms replacement, preserves Cancel, and restores the hist
   await expect(confirmation.getByRole('button', { name: 'Replace anyway' })).toBeFocused()
   await page.keyboard.press('Enter')
   await expect(useAsDraft).toBeFocused()
-  await page.getByRole('button', { name: 'Back to draft' }).click()
+  await page.getByRole('button', { name: 'Return to Exam Draft' }).click()
   expect(await questions.nth(0).locator('.choice-body').allTextContents()).toEqual(historicalAnswers)
   await page.keyboard.press('Control+Z')
   expect(await questions.nth(0).locator('.choice-body').allTextContents()).toEqual(liveAnswers)
@@ -612,7 +634,7 @@ test('Use as draft exports the live draft without replacing the selected Version
   expect(historyAfterExport.versions).toHaveLength(historyBeforeExport.versions.length + 1)
   expect(historyAfterExport.versions[0]).toEqual(historyBeforeExport.versions[0])
   await expect(page.locator('.historical-document')).toBeVisible()
-  await page.getByRole('button', { name: 'Back to draft' }).click()
+  await page.getByRole('button', { name: 'Return to Exam Draft' }).click()
   await expect(page.locator('.draft-document')).toHaveJSProperty('innerHTML', draftBeforeExport)
   await expect(page.locator('.question-bank-authoring')).toHaveJSProperty('innerHTML', bankBeforeExport)
 })
@@ -652,7 +674,7 @@ test('Use as draft compares with an older Version that was re-exported last', as
   // Undo twice returns to Version 2's draft while Version 1 remains the last
   // successful export, so Use as Draft must still demand confirmation.
   await page.keyboard.press('Escape')
-  await page.getByRole('button', { name: 'Back to draft' }).click()
+  await page.getByRole('button', { name: 'Return to Exam Draft' }).click()
   await page.keyboard.press('Control+Z')
   await page.keyboard.press('Control+Z')
   await expect(title).toHaveValue('Newer Version')

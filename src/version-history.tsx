@@ -151,14 +151,14 @@ export function HistoricalDocument({
     >
       <header className="historical-document-bar">
         <div>
-          <p>Viewing Version</p>
+          <p>Viewing immutable Version</p>
           <h2>{version.name}</h2>
         </div>
         <div className="historical-document-actions">
           <button
             ref={useAsDraftButton}
             type="button"
-            className="secondary-button"
+            className="primary-button"
             disabled={!canUseAsDraft}
             title={canUseAsDraft ? undefined : 'This Version no longer matches its current Question Bank records.'}
             onClick={onUseAsDraft}
@@ -166,7 +166,7 @@ export function HistoricalDocument({
             Use as draft
           </button>
           <button ref={back} type="button" className="secondary-button" onClick={onBack}>
-            Back to draft
+            Return to Exam Draft
           </button>
         </div>
       </header>

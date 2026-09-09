@@ -711,6 +711,14 @@ function ExamEditor({ store }: { store: ExamStore }) {
     setHistoryOpen(false)
     requestAnimationFrame(() => historyButton.current?.focus())
   }, [])
+  const returnToExamDraft = useCallback(() => {
+    setViewingVersionId(null)
+    requestAnimationFrame(() => {
+      if (priorDraftFocus.current?.isConnected) {
+        priorDraftFocus.current.focus()
+      }
+    })
+  }, [])
   // Selection lives here, alongside the store, so page interactions and
   // selection-wide context-menu actions share one source of truth.
   const selection = useSelection()
@@ -960,12 +968,17 @@ function ExamEditor({ store }: { store: ExamStore }) {
         closeVersionHistory()
         return
       }
+      if (viewingVersion) {
+        event.preventDefault()
+        returnToExamDraft()
+        return
+      }
       clearSelection()
       setSelectedBankId(null)
     }
     document.addEventListener('keydown', onKeyDown)
     return () => document.removeEventListener('keydown', onKeyDown)
-  }, [clearSelection, closeVersionHistory, confirmingUseAsDraft, editing, exportDialog, historyOpen, isHistoricalBrowsing, reviewingHistoricalQuestions, selection.selectedIds, store])
+  }, [clearSelection, closeVersionHistory, confirmingUseAsDraft, editing, exportDialog, historyOpen, isHistoricalBrowsing, returnToExamDraft, reviewingHistoricalQuestions, selection.selectedIds, store, viewingVersion])
 
   const restoreUseAsDraftFocus = () => {
     requestAnimationFrame(() => useAsDraftButton.current?.focus())
@@ -1190,7 +1203,7 @@ function ExamEditor({ store }: { store: ExamStore }) {
             aria-controls="version-history"
             onPointerDown={() => {
               // Reopening History while inspecting a Version must retain the
-              // original draft target for Back to draft.
+              // original draft target for Return to Exam Draft.
               if (viewingVersion !== null) return
               const active = document.activeElement
               priorDraftFocus.current = active instanceof HTMLElement ? active : null
@@ -1358,14 +1371,7 @@ function ExamEditor({ store }: { store: ExamStore }) {
                     store.useHistoricalVersionAsDraft(viewingVersion.id)
                   }
                 }}
-                onBack={() => {
-                  setViewingVersionId(null)
-                  requestAnimationFrame(() => {
-                    if (priorDraftFocus.current?.isConnected) {
-                      priorDraftFocus.current.focus()
-                    }
-                  })
-                }}
+                onBack={returnToExamDraft}
               />
             )}
             <Footer />

@@ -111,8 +111,8 @@ button { cursor: pointer; }
 .secondary-button:hover { background: #ebddcd; }
 .primary-button { border-color: #9f5037; color: #fffaf3; background: #9f5037; }
 .primary-button:hover { background: #87422e; }
-.secondary-button:disabled { color: #a8988c; background: #f7eee3; cursor: not-allowed; }
-.secondary-button:disabled:hover { background: #f7eee3; }
+.secondary-button:disabled, .primary-button:disabled { color: #a8988c; border-color: #d8c8b8; background: #f7eee3; cursor: not-allowed; }
+.secondary-button:disabled:hover, .primary-button:disabled:hover { background: #f7eee3; }
 .toolbar-icon-button {
   display: inline-flex; align-items: center; justify-content: center;
   width: 36px; height: 36px; padding: 0; border: 1px solid transparent; border-radius: 8px;
