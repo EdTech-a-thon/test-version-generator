@@ -111,8 +111,8 @@ button { cursor: pointer; }
 .secondary-button:hover { background: #ebddcd; }
 .primary-button { border-color: #9f5037; color: #fffaf3; background: #9f5037; }
 .primary-button:hover { background: #87422e; }
-.secondary-button:disabled { color: #a8988c; background: #f7eee3; cursor: not-allowed; }
-.secondary-button:disabled:hover { background: #f7eee3; }
+.secondary-button:disabled, .primary-button:disabled { color: #a8988c; border-color: #d8c8b8; background: #f7eee3; cursor: not-allowed; }
+.secondary-button:disabled:hover, .primary-button:disabled:hover { background: #f7eee3; }
 .toolbar-icon-button {
   display: inline-flex; align-items: center; justify-content: center;
   width: 36px; height: 36px; padding: 0; border: 1px solid transparent; border-radius: 8px;
@@ -129,14 +129,23 @@ button { cursor: pointer; }
   grid-template-rows: auto 1fr auto; overflow: hidden; border-radius: 10px;
   background: #fffaf3; box-shadow: 0 18px 55px rgb(55 42 33 / 30%);
 }
-.export-dialog--publication { width: min(1120px, 100%); }
+/* A stable publication frame prevents validation feedback from making the
+   modal jump when no Content Selection is chosen. */
+.export-dialog--publication { width: min(1120px, 100%); height: min(760px, 94vh); }
 .export-publication-body {
   min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 290px;
   overflow: hidden;
 }
-.export-preview { min-width: 0; padding: 18px; overflow: auto; background: #e9e1d7; }
+.export-preview {
+  min-width: 0; min-height: 0; padding: 18px; overflow: auto;
+  overscroll-behavior: contain; background: #e9e1d7;
+}
+.export-preview .exam-workspace { overscroll-behavior: contain; }
 .export-preview .exam-workspace { min-height: 0; padding: 0; overflow: visible; }
-.export-preview .exam-page { margin: 0 auto 18px; }
+/* The layout plan's sheet stays full-size for publication. Its dialog preview
+   is only a reading surface, so reduce it enough to retain breathing room
+   within the preview lane rather than offering a horizontal scrollbar. */
+.export-preview .exam-page { zoom: 0.92; margin: 0 auto 18px; }
 /* The preview reuses the printed question markup, not the authoring gestures. */
 .export-preview .exam-question,
 .export-preview .exam-question:active { cursor: default; }
@@ -149,18 +158,16 @@ button { cursor: pointer; }
 }
 .export-version-state { display: grid; gap: 4px; margin: 0; color: #6e5b4d; }
 .export-version-state strong { color: #332a24; font-size: 20px; }
-.export-format {
-  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px;
-  margin: 0; padding: 10px 0; border-top: 1px solid #e8dfd2; border-bottom: 1px solid #e8dfd2;
-}
-.export-format dt { font-weight: 700; }
-.export-format dd { margin: 0; color: #6e5b4d; }
 .export-durability-note { margin: 0; color: #6e5b4d; font-size: 13px; line-height: 1.45; }
 .storage-notice {
-  position: fixed; right: 18px; bottom: 18px; z-index: 20; max-width: 420px;
-  margin: 0; padding: 12px 14px; border: 1px solid #cdb9a6; border-radius: 8px;
-  color: #4e3b2f; background: #fffaf3; box-shadow: 0 8px 24px rgb(55 42 33 / 18%);
+  position: fixed; z-index: 40; left: 50%; bottom: 22px; transform: translateX(-50%);
+  display: flex; align-items: flex-start; gap: 8px; width: min(520px, calc(100vw - 32px));
+  margin: 0; padding: 9px 10px 9px 14px; border: 1px solid #d8cab8; border-radius: 8px;
+  color: #46372d; background: #fffaf3; box-shadow: 0 8px 24px rgb(91 68 47 / 18%);
+  font-size: 13px; font-weight: 600;
 }
+.storage-notice p { flex: 1; margin: 0; line-height: 1.45; }
+.storage-notice .toolbar-icon-button { flex: none; width: 26px; height: 26px; margin: -3px -4px -3px 0; }
 .export-dialog-body {
   min-height: 0; padding: 16px 18px; display: grid; gap: 16px; overflow-y: auto;
 }
@@ -224,7 +231,7 @@ button { cursor: pointer; }
 .historical-document { min-height: calc(100vh - 58px); }
 .historical-document-bar {
   position: sticky; top: 58px; z-index: 2; display: flex; align-items: center; justify-content: space-between;
-  gap: 16px; padding: 12px 24px; border-bottom: 1px solid #e0d3c2; background: #fffaf3;
+  gap: 16px; padding: 12px 24px; border-bottom: 1px solid #d5c1ac; background: #f2e6d8;
 }
 .historical-document-bar p { margin: 0 0 2px; color: #6e5b4d; font-size: 13px; }
 .historical-document-bar h2 { margin: 0; font-size: 18px; }

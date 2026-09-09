@@ -48,7 +48,7 @@ const current = {
 async function publish(page: Page) {
   await page.getByRole('button', { name: 'Export', exact: true }).click()
   const download = page.waitForEvent('download')
-  await page.getByRole('dialog', { name: 'Export DOCX' }).getByRole('button', { name: 'Download DOCX' }).click()
+  await page.getByRole('dialog', { name: 'Export' }).getByRole('button', { name: 'Download PDF' }).click()
   await download
 }
 
@@ -105,7 +105,7 @@ test('Review questions exposes authored old-versus-current content, defaults, ca
   await expect(reopened.getByRole('button', { name: 'Use as draft' })).toBeFocused()
   await reopened.getByRole('radio', { name: 'Keep historical as new question' }).check()
   await reopened.getByRole('button', { name: 'Use as draft' }).click()
-  await page.getByRole('button', { name: 'Back to draft' }).click()
+  await page.getByRole('button', { name: 'Return to Exam Draft' }).click()
   await expect(page.locator('.exam-question')).toContainText('Historical stem')
   await page.keyboard.press('Control+Z')
   await expect(page.locator('.exam-question')).toContainText('Current stem')

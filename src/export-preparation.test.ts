@@ -3,6 +3,7 @@ import type { Exam, Question, Version } from './exam'
 import {
   DEFAULT_EXPORT_CONFIGURATION,
   EMPTY_PUBLICATION_HISTORY,
+  exportFilename,
   prepareExport,
   prepareHistoricalExport,
   type PublicationHistory,
@@ -79,7 +80,7 @@ function committed(
 }
 
 describe('one-Version export preparation', () => {
-  test('defaults to one DOCX containing the student test before its answer key', () => {
+  test('defaults to one PDF containing the student test before its answer key', () => {
     const prepared = prepareExport(inputs())
 
     expect(prepared.documents.map((plan) => plan.pages[0]?.stream)).toEqual([
@@ -88,7 +89,7 @@ describe('one-Version export preparation', () => {
     ])
     expect(prepared.resolution.kind).toBe('new')
     expect(prepared.resolution.version.name).toBe('Amber Badger')
-    expect(prepared.filename).toBe('Biology Quiz-Amber Badger.docx')
+    expect(prepared.filename).toBe('Biology Quiz-Amber Badger.pdf')
     for (const plan of prepared.documents) {
       expect(
         plan.pages.every(
@@ -98,10 +99,19 @@ describe('one-Version export preparation', () => {
     }
   })
 
+  test('uses one shared filename stem for PDF and DOCX regardless of Content Selection', () => {
+    expect(exportFilename('Biology/Quiz', 'Amber Badger', 'pdf')).toBe(
+      'Biology-Quiz-Amber Badger.pdf',
+    )
+    expect(exportFilename('Biology/Quiz', 'Amber Badger', 'docx')).toBe(
+      'Biology-Quiz-Amber Badger.docx',
+    )
+  })
+
   test('always prepares both canonical plans when only one is selected', () => {
     const prepared = prepareExport({
       ...inputs(),
-      configuration: { selection: { test: false, answerKey: true } },
+      configuration: { format: 'pdf', selection: { test: false, answerKey: true } },
     })
 
     expect(prepared.canonicalPlans.test.pages[0]?.stream).toBe('test')
@@ -120,11 +130,11 @@ describe('one-Version export preparation', () => {
     const historical = prepareHistoricalExport({
       history,
       version: first.resolution.version,
-      configuration: { selection: { test: false, answerKey: true } },
+      configuration: { format: 'pdf', selection: { test: false, answerKey: true } },
     })
 
     expect(historical.documents).toEqual([first.canonicalPlans.answerKey])
-    expect(historical.filename).toBe('Biology Quiz-Amber Badger.docx')
+    expect(historical.filename).toBe('Biology Quiz-Amber Badger.pdf')
     expect(historical.publication).toEqual({
       version: null,
       revisions: [],
@@ -140,6 +150,7 @@ describe('one-Version export preparation', () => {
     const edited = multipleChoice({ difficulty: 'hard', topics: ['Zoology'] })
     const secondRequest = inputs(edited, history)
     secondRequest.configuration = {
+      format: 'pdf',
       selection: { test: false, answerKey: true },
     }
     secondRequest.createdAt = '2030-01-01T00:00:00.000Z'
