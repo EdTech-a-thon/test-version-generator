@@ -49,13 +49,13 @@ export function Footer() {
   return (
     <footer className="site-footer">
       <a
-        href="https://edtechathon.com"
+        href="https://teacher.dev"
         target="_blank"
         rel="noopener noreferrer"
         className="site-footer-credit"
       >
         <img src="/edtechathon-logo.svg" alt="" width={24} height={24} />
-        Built by the EdTech-a-thon
+        Built by teacher.dev
       </a>
       <Link href="/about" className="site-footer-link">
         about

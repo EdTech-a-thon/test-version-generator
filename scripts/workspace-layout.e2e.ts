@@ -81,6 +81,23 @@ test('scrolling the Exam Draft keeps the Question Bank docked below the document
   expect(bankAfter.height).toBe(bankBefore.height)
 })
 
+test('the footer stays in the Exam Draft lane without dislodging the Question Bank', async ({ page }) => {
+  await openWorkspace(page)
+
+  const bankBefore = (await bank(page).boundingBox())!
+  const footer = page.locator('.site-footer')
+  const footerBounds = (await footer.boundingBox())!
+  expect(footerBounds.x).toBeGreaterThanOrEqual(bankBefore.x + bankBefore.width)
+  await expect(footer.getByRole('link', { name: 'Built by teacher.dev' })).toHaveAttribute(
+    'href',
+    'https://teacher.dev',
+  )
+
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight))
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0)
+  expect((await bank(page).boundingBox())!.y).toBe(bankBefore.y)
+})
+
 test('the divider is resizable from the keyboard', async ({ page }) => {
   await openWorkspace(page)
 

@@ -1309,6 +1309,7 @@ function ExamEditor({ store }: { store: ExamStore }) {
                 }}
               />
             )}
+            <Footer />
           </>
         }
       />
@@ -1324,8 +1325,6 @@ function ExamEditor({ store }: { store: ExamStore }) {
           {storageNotice}
         </p>
       )}
-
-      <Footer />
 
       {confirmingUseAsDraft && viewingVersion && (
         <UseAsDraftConfirmation
