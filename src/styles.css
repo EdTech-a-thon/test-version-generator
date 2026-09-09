@@ -290,8 +290,11 @@ button { cursor: pointer; }
 .workspace-resizer:hover, .workspace-resizer:focus-visible { background: #e3d2bd; }
 .workspace-resizer:focus-visible { outline: 2px solid #8a6a4c; outline-offset: -2px; }
 
-.question-bank {
+.question-bank-authoring {
   position: sticky; top: 58px; align-self: start;
+  min-width: 0; height: calc(100vh - 58px);
+}
+.question-bank {
   display: flex; flex-direction: column; gap: 14px;
   height: calc(100vh - 58px); padding: 18px 16px; overflow-y: auto;
   border-right: 1px solid #e8dfd2; background: #fffaf3;
@@ -1011,8 +1014,9 @@ button { cursor: pointer; }
   .authoring-workspace {
     --bank-divider: 0px; grid-template-columns: 1fr;
   }
+  .question-bank-authoring { position: static; height: auto; }
   .question-bank {
-    position: static; height: auto; max-height: 44vh;
+    height: auto; max-height: 44vh;
     border-right: none; border-bottom: 1px solid #e8dfd2;
   }
   .workspace-resizer { display: none; }

@@ -67,6 +67,20 @@ test('the workspace opens with the bank as the narrower pane, and the divider mo
   expect(Math.round((await sheet(page).boundingBox())!.width)).toBe(PAGE_WIDTH)
 })
 
+test('scrolling the Exam Draft keeps the Question Bank docked below the document bar', async ({ page }) => {
+  await openWorkspace(page)
+
+  const bankBefore = (await bank(page).boundingBox())!
+  const draft = (await page.locator('.exam-workspace').boundingBox())!
+  await page.mouse.move(draft.x + draft.width / 2, draft.y + 200)
+  await page.mouse.wheel(0, 500)
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0)
+
+  const bankAfter = (await bank(page).boundingBox())!
+  expect(bankAfter.y).toBe(bankBefore.y)
+  expect(bankAfter.height).toBe(bankBefore.height)
+})
+
 test('the divider is resizable from the keyboard', async ({ page }) => {
   await openWorkspace(page)
 
