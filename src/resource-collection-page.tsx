@@ -14,12 +14,14 @@ export function ResourceCollectionPage({
   banks,
   onOpenExam,
   onOpenBank,
+  onDeleteBank,
 }: {
   kind: 'exams' | 'question-banks'
   exams: readonly RecentExam[]
   banks: readonly QuestionBankCollectionItem[]
   onOpenExam: (id: string) => void
   onOpenBank: (id: string) => void
+  onDeleteBank?: (bank: QuestionBankCollectionItem) => void
 }) {
   const [query, setQuery] = useState('')
   const shownExams = useMemo(
@@ -95,6 +97,7 @@ export function ResourceCollectionPage({
                     bank={bank}
                     onOpen={onOpenBank}
                     onOpenExam={onOpenExam}
+                    onDelete={onDeleteBank}
                   />
                 ))}
           </section>

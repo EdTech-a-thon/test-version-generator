@@ -3,6 +3,7 @@ import type { ProseMirrorJSON } from './question-doc'
 import type { AuthoringState, SaveAsSnapshot } from './exam-store'
 import { createIndexedDBAuthoringBackend } from './indexeddb-authoring'
 import { withCanonicalQuestionProjection } from './canonical-question-projection'
+import { withoutQuestions } from './question-deletion'
 import { createExamDraft } from './question-bank'
 import {
   CANONICAL_QUESTION_STORE,
@@ -31,6 +32,15 @@ export type QuestionUsage = {
   workingCopy: boolean
 }
 
+export type QuestionDeletionImpact = QuestionUsage & {
+  questionCount: number
+}
+
+export type ForcedDeletionCommit = {
+  rollback(): Promise<void>
+  finalize(): Promise<void>
+}
+
 export function resourceUsageOf(
   exam: ExamSummary,
   working: AuthoringState | null,
@@ -51,13 +61,18 @@ export function resourceUsageOf(
 /** Only the disposable placeholder shape may be collected. Any authored
  * change, including a rename without Questions, makes an Exam durable. */
 export function isPristineExam(
-  state: AuthoringState | null,
+  working: AuthoringState | null,
+  saved: Omit<AuthoringState, 'dirty'> | null,
   history: { versions: readonly unknown[] },
 ): boolean {
   return Boolean(
-    state
-    && state.examDraft.title === 'Untitled Exam'
-    && state.examDraft.questionIds.length === 0
+    working
+    && saved
+    && !working.dirty
+    && working.examDraft.title === 'Untitled Exam'
+    && working.examDraft.questionIds.length === 0
+    && saved.examDraft.title === 'Untitled Exam'
+    && saved.examDraft.questionIds.length === 0
     && history.versions.length === 0,
   )
 }
@@ -245,6 +260,15 @@ export function createExamWorkspaceService(options: { now?: () => Date; createId
       return service.resourceUsage([questionId])
     },
     async resourceUsage(questionIds: readonly string[]): Promise<QuestionUsage[]> {
+      const impact = await service.deletionImpact(questionIds)
+      return impact.map((item) => ({
+        examId: item.examId,
+        title: item.title,
+        saved: item.saved,
+        workingCopy: item.workingCopy,
+      }))
+    },
+    async deletionImpact(questionIds: readonly string[]): Promise<QuestionDeletionImpact[]> {
       const exams = await transact(EXAM_STORE, 'readonly', (transaction) =>
         requestOf(transaction.objectStore(EXAM_STORE).getAll()) as Promise<ExamSummary[]>,
       )
@@ -252,9 +276,56 @@ export function createExamWorkspaceService(options: { now?: () => Date; createId
       const usage = await Promise.all(exams.map(async (exam) => {
         const backend = backendFor(exam.id)
         const [working, saved] = await Promise.all([backend.read(), backend.readSaved()])
-        return resourceUsageOf(exam, working, saved, ids)
+        const item = resourceUsageOf(exam, working, saved, ids)
+        if (!item) return null
+        const referenced = new Set([
+          ...(working?.examDraft.questionIds ?? []),
+          ...(saved?.examDraft.questionIds ?? []),
+        ])
+        return {
+          ...item,
+          questionCount: questionIds.filter((id) => referenced.has(id)).length,
+        }
       }))
-      return usage.filter((item): item is QuestionUsage => item !== null)
+      return usage.filter((item): item is QuestionDeletionImpact => item !== null)
+    },
+    /** Force canonical deletion through saved and Working Copy state. Every
+     * per-Exam write is compensated if any later write fails. Export stores are
+     * deliberately outside these transactions. */
+    async forceDeleteQuestions(questionIds: readonly string[]): Promise<ForcedDeletionCommit> {
+      const exams = await transact(EXAM_STORE, 'readonly', (transaction) =>
+        requestOf(transaction.objectStore(EXAM_STORE).getAll()) as Promise<ExamSummary[]>,
+      )
+      const ids = new Set(questionIds)
+      const snapshots = (await Promise.all(exams.map(async (exam) => {
+        const backend = backendFor(exam.id)
+        const [working, saved] = await Promise.all([backend.read(), backend.readSaved()])
+        if (!working) return null
+        const usage = resourceUsageOf(exam, working, saved, ids)
+        const hasCanonical = working.questionBank.questions.some(({ id }) => ids.has(id))
+          || saved?.questionBank.questions.some(({ id }) => ids.has(id))
+        if (!usage && !hasCanonical) return null
+        return { exam, backend, working, saved }
+      }))).filter((item): item is NonNullable<typeof item> => item !== null)
+      const restore = async () => {
+        await Promise.all(snapshots.map(({ backend, working, saved }) =>
+          backend.commitCanonicalProjection({ working, saved }).catch(() => undefined),
+        ))
+      }
+      try {
+        for (const item of snapshots) {
+          await item.backend.commitCanonicalProjection(withoutQuestions(item.working, item.saved, ids))
+        }
+      } catch (error) {
+        await restore()
+        throw error
+      }
+      return {
+        rollback: restore,
+        finalize: async () => {
+          for (const { exam } of snapshots) await service.removePristine(exam.id)
+        },
+      }
     },
     /** Project a committed canonical record into every referencing Exam. The
      * registry commit happens first; each Exam write is atomic across its saved
@@ -287,9 +358,12 @@ export function createExamWorkspaceService(options: { now?: () => Date; createId
     },
     async removePristine(id: string): Promise<boolean> {
       const backend = backendFor(id)
-      const state = await backend.read()
-      const history = await backend.readPublicationHistory()
-      if (!isPristineExam(state, history)) return false
+      const [state, saved, history] = await Promise.all([
+        backend.read(),
+        backend.readSaved(),
+        backend.readPublicationHistory(),
+      ])
+      if (!isPristineExam(state, saved, history)) return false
       await transact([EXAM_STORE, EXAM_WORKSPACE_STORE], 'readwrite', async (transaction) => {
         transaction.objectStore(EXAM_STORE).delete(id)
         const active = await requestOf(transaction.objectStore(EXAM_WORKSPACE_STORE).get('active')) as ActiveWorkspace | undefined

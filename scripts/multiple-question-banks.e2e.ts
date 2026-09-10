@@ -76,7 +76,10 @@ test('IndexedDB enforces one bank owner and substantive update timestamps', asyn
       doc: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Edited durably' }] }] },
     }
     const edited = await service.commit(first.id, { kind: 'update-question', question: editedQuestion })
-    const deleted = await service.commit(first.id, { kind: 'delete-question', questionId: duplicateId })
+    const deleted = await service.permanentlyDeleteQuestion(first.id, duplicateId, async () => ({
+      rollback: async () => undefined,
+      finalize: async () => undefined,
+    }))
     const renamed = await service.commit(first.id, { kind: 'rename', name: 'Biology' })
     let ownershipError = ''
     try {
@@ -92,7 +95,7 @@ test('IndexedDB enforces one bank owner and substantive update timestamps', asyn
       beforeOpen,
       afterOpen,
       ownershipError,
-      updateTimes: [created.lastUpdatedAt, duplicated.lastUpdatedAt, edited.lastUpdatedAt, deleted.lastUpdatedAt, renamed.lastUpdatedAt],
+      updateTimes: [created.lastUpdatedAt, duplicated.lastUpdatedAt, edited.lastUpdatedAt, deleted!.lastUpdatedAt, renamed.lastUpdatedAt],
       finalName: (await service.read(first.id))!.name,
       finalQuestionText: JSON.stringify((await service.read(first.id))!.questions[0]?.doc),
       recent: (await service.recent()).map((bank) => bank.id),

@@ -33,10 +33,13 @@ test('bank usage merges saved and Working Copy references into one Exam row', ()
 test('only an untouched Untitled Exam without Export Records is disposable', () => {
   const empty = createAuthoringState()
   empty.examDraft.title = 'Untitled Exam'
-  expect(isPristineExam(empty, { versions: [] })).toBe(true)
+  const saved = { questionBank: empty.questionBank, examDraft: empty.examDraft }
+  expect(isPristineExam(empty, saved, { versions: [] })).toBe(true)
 
-  expect(isPristineExam({ ...empty, examDraft: { ...empty.examDraft, title: 'Named Exam' } }, { versions: [] })).toBe(false)
-  expect(isPristineExam({ ...empty, questionBank: { questions: [{} as never] } }, { versions: [] })).toBe(true)
-  expect(isPristineExam(empty, { versions: [{}] })).toBe(false)
-  expect(isPristineExam(null, { versions: [] })).toBe(false)
+  expect(isPristineExam({ ...empty, examDraft: { ...empty.examDraft, title: 'Named Exam' } }, saved, { versions: [] })).toBe(false)
+  expect(isPristineExam({ ...empty, questionBank: { questions: [{} as never] } }, saved, { versions: [] })).toBe(true)
+  expect(isPristineExam(empty, saved, { versions: [{}] })).toBe(false)
+  expect(isPristineExam(null, saved, { versions: [] })).toBe(false)
+  expect(isPristineExam(empty, null, { versions: [] })).toBe(false)
+  expect(isPristineExam({ ...empty, dirty: true }, saved, { versions: [] })).toBe(false)
 })

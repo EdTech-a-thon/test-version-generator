@@ -1287,6 +1287,21 @@ describe('undo and redo', () => {
     expect(backend.value?.examDraft.title).toBe('Untitled Exam')
   })
 
+  test('forced deletion clears history and cannot be restored by Undo or Discard', async () => {
+    const { store, questions } = await withExamDraft(2)
+    await store.save()
+    store.setTitle('Unsaved title')
+    store.acceptForcedDeletion([questions[0]!.id])
+
+    expect(renderedIds(store)).toEqual([questions[1]!.id])
+    expect(store.canUndo()).toBe(false)
+    expect(store.canRedo()).toBe(false)
+
+    await store.discard()
+    expect(renderedIds(store)).toEqual([questions[1]!.id])
+    expect(store.getState().examDraft.title).toBe('Untitled Exam')
+  })
+
   test('an untouched store has nothing to undo or redo', async () => {
     const { store } = await freshStore()
     expect(store.canUndo()).toBe(false)

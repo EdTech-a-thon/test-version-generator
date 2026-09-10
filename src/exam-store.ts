@@ -46,6 +46,7 @@ import {
   type HistoricalQuestionResolution,
 } from './historical-draft'
 import { withCanonicalQuestionProjection } from './canonical-question-projection'
+import { withoutQuestions } from './question-deletion'
 import {
   EMPTY_PUBLICATION_HISTORY,
   type PublicationCommit,
@@ -199,6 +200,10 @@ export type ExamStore = {
   /** Refreshes the canonical Questions projected from open Question Banks.
    * Workspace browsing is not an Exam command and creates no Undo step. */
   syncCanonicalQuestions(questions: readonly Question[]): void
+  /** Accepts a deletion already committed by the cross-resource durability
+   * boundary. It is not an Exam command and clears history rather than writing
+   * an undoable or discardable removal. */
+  acceptForcedDeletion(questionIds: readonly string[]): void
 
   /** Banks canonical Question Content without putting it on the Exam Draft. */
   createInQuestionBank(question: Question): void
@@ -529,6 +534,16 @@ export function createExamStore(options: {
       state = working
       saved = nextSaved
       selected = selectedExam(state.questionBank, state.examDraft, selected)
+      notify()
+    },
+
+    acceptForcedDeletion: (questionIds) => {
+      const deleted = withoutQuestions(state, saved, new Set(questionIds))
+      state = deleted.working
+      saved = deleted.saved
+      selected = selectedExam(state.questionBank, state.examDraft, selected)
+      undoStack.length = 0
+      redoStack.length = 0
       notify()
     },
 

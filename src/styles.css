@@ -1154,6 +1154,14 @@ button { cursor: pointer; }
 .bank-save-status { color: #6e5b4d; font-size: 13px; }
 .bank-name-error { margin: 10px 20px 0; }
 .dialog-save-error { flex: 1; margin: 0; color: var(--paper-danger); font-size: 13px; }
+.danger-button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 34px; padding: 7px 12px; border: 1px solid var(--paper-danger); border-radius: 6px; color: #fff; background: var(--paper-danger); font: inherit; font-weight: 700; }
+.danger-button:disabled { opacity: 0.55; }
+.danger-button svg { width: 16px; height: 16px; }
+.question-delete-button { margin-right: auto; }
+.destructive-dialog { width: min(520px, calc(100vw - 32px)); max-height: calc(100vh - 32px); padding: 22px; overflow: auto; border: 1px solid var(--paper-danger-line); border-radius: 10px; background: #fffaf3; box-shadow: 0 16px 48px rgb(55 42 33 / 26%); }
+.destructive-dialog h2 { margin: 0 0 12px; }
+.destructive-dialog ul { margin: 10px 0; }
+.destructive-dialog-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
 .resource-row { display: flex; gap: 16px; padding: 2px 2px 14px; overflow-x: auto; overscroll-behavior-inline: contain; scroll-snap-type: inline proximity; }
 .resource-row > [role='listitem'] { flex: 0 0 262px; scroll-snap-align: start; }
 .collection-main { flex: 1; width: 100%; max-width: 1120px; margin: 0 auto; padding: 36px 20px 48px; }
@@ -1178,6 +1186,7 @@ button { cursor: pointer; }
 .resource-card time { display: block; margin-top: 8px; color: #866f5e; font-size: 12px; }
 .unsaved-badge { display: inline-block; padding: 2px 7px; border-radius: 999px; color: #8a6320; background: #f8ecd2; font-size: 12px; }
 .topic-summary { min-height: 20px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bank-delete-button { width: 100%; padding: 8px 14px; border: 0; border-top: 1px solid var(--paper-danger-line); color: var(--paper-danger); background: var(--paper-danger-wash); text-align: left; font: inherit; font-size: 12px; font-weight: 700; }
 .bank-usage { border-top: 1px solid #e8dfd2; padding: 10px 14px 12px; font-size: 13px; }
 .bank-usage summary { color: #6e5b4d; cursor: pointer; font-weight: 600; }
 .bank-usage p { margin: 8px 0 0; }

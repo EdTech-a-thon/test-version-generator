@@ -21,7 +21,7 @@ function SectionHeading({ title, description, newLabel, allHref, onNew }: {
   </div>
 }
 
-export function HomePage({ exams, banks, error, persistentStorage, onNewExam, onOpen, onNewBank, onOpenBank }: {
+export function HomePage({ exams, banks, error, persistentStorage, onNewExam, onOpen, onNewBank, onOpenBank, onDeleteBank }: {
   exams: readonly RecentExam[]
   banks: readonly QuestionBankCollectionItem[]
   error: string | null
@@ -30,6 +30,7 @@ export function HomePage({ exams, banks, error, persistentStorage, onNewExam, on
   onOpen: (id: string) => void
   onNewBank: () => void
   onOpenBank: (id: string) => void
+  onDeleteBank: (bank: QuestionBankCollectionItem) => void
 }) {
   const recentExams = homePreview(exams)
   const recentBanks = homePreview(banks)
@@ -58,7 +59,7 @@ export function HomePage({ exams, banks, error, persistentStorage, onNewExam, on
         <SectionHeading title="Recently Updated Question Banks" description="Create reusable Questions without starting an Exam." newLabel="New Question Bank" allHref="/question-banks" onNew={onNewBank} />
         <span id="recent-banks-heading" className="sr-only">Recently Updated Question Banks</span>
         {recentBanks.length === 0 ? <div className="home-empty"><h2>No Question Banks</h2><p>Your Question Banks will appear here after you create one.</p><button type="button" className="primary-button" onClick={onNewBank}>Create your first Question Bank</button></div> :
-          <div className="resource-row" role="list" aria-label="Recently Updated Question Banks">{recentBanks.map((bank) => <div role="listitem" key={bank.id}><QuestionBankCard bank={bank} onOpen={onOpenBank} onOpenExam={onOpen} /></div>)}</div>}
+          <div className="resource-row" role="list" aria-label="Recently Updated Question Banks">{recentBanks.map((bank) => <div role="listitem" key={bank.id}><QuestionBankCard bank={bank} onOpen={onOpenBank} onOpenExam={onOpen} onDelete={onDeleteBank} /></div>)}</div>}
       </section>
     </main>
     <Footer />

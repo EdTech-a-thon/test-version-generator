@@ -76,10 +76,12 @@ export function QuestionBankCard({
   bank,
   onOpen,
   onOpenExam,
+  onDelete,
 }: {
   bank: QuestionBankCollectionItem
   onOpen: (id: string) => void
   onOpenExam?: (id: string) => void
+  onDelete?: (bank: QuestionBankCollectionItem) => void
 }) {
   return (
     <article className="resource-card question-bank-card">
@@ -103,6 +105,7 @@ export function QuestionBankCard({
           {relativeTime('Updated', bank.lastUpdatedAt)}
         </time>
       </button>
+      {onDelete && <button type="button" className="bank-delete-button" aria-label="Delete Question Bank" title={`Delete ${bank.name}`} onClick={() => onDelete(bank)}>Delete Question Bank</button>}
       <details className="bank-usage">
         <summary>
           Used in {bank.usage.length}{' '}

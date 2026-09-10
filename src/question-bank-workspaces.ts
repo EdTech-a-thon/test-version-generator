@@ -27,6 +27,11 @@ export type QuestionBankSummary = Omit<QuestionBankResource, 'questions'> & {
   topics: string[]
 }
 
+export type DeletionCascade = (questionIds: readonly string[]) => Promise<{
+  rollback(): Promise<void>
+  finalize(): Promise<void>
+}>
+
 type StoredBank = Omit<QuestionBankResource, 'questions'> & { questionIds: string[] }
 type StoredQuestion = Question & { bankId: string }
 type BankWorkspace = { key: 'active'; bankId: string }
@@ -122,7 +127,6 @@ export type BankChange =
   | { kind: 'create-question'; question: Question }
   | { kind: 'update-question'; question: Question }
   | { kind: 'duplicate-question'; questionId: string }
-  | { kind: 'delete-question'; questionId: string }
 
 function questionOf(stored: StoredQuestion): Question {
   const question: Question = {
@@ -240,6 +244,32 @@ export function createQuestionBankWorkspaceService(
     const result = workspaceWrites.then(operation)
     workspaceWrites = result.then(() => undefined, () => undefined)
     return result
+  }
+
+  const removeBankFromWorkspaceTransaction = async (
+    transaction: IDBTransaction,
+    bankId: string,
+  ) => {
+    transaction.objectStore(QUESTION_BANK_REGISTRY_STORE).delete(bankId)
+    const workspaces = transaction.objectStore(QUESTION_BANK_WORKSPACE_STORE)
+    const stored = await requestOf(workspaces.getAll()) as (StoredTabsWorkspace | BankWorkspace)[]
+    let bankOnlyFallback: string | null = null
+    for (const record of stored) {
+      if (record.key === 'active') continue
+      const next = closeBankTab(record as StoredTabsWorkspace, bankId)
+      if (record.key === 'bank-only') bankOnlyFallback = next.activeBankId
+      workspaces.put({ ...record, ...next })
+    }
+    const active = stored.find((record) => record.key === 'active') as BankWorkspace | undefined
+    if (active?.bankId === bankId) {
+      if (bankOnlyFallback) workspaces.put({ key: 'active', bankId: bankOnlyFallback } satisfies BankWorkspace)
+      else workspaces.delete('active')
+    }
+    const editors = transaction.objectStore(EDITOR_WORKSPACE_STORE)
+    const editor = await requestOf(editors.get('active')) as EditorWorkspace | undefined
+    if (editor?.mode === 'bank' && editor.resourceId === bankId) {
+      editors.put({ key: 'active', mode: 'bank', resourceId: bankOnlyFallback ?? '' } satisfies EditorWorkspace)
+    }
   }
 
   const mutateWorkspace = (
@@ -433,6 +463,67 @@ export function createQuestionBankWorkspaceService(
       })
       return bank
     },
+    async permanentlyDeleteQuestion(
+      bankId: string,
+      questionId: string,
+      cascade: DeletionCascade,
+    ): Promise<QuestionBankResource | null> {
+      const before = await readBank(await registry, bankId)
+      if (!before) throw new Error('That Question Bank is unavailable on this device.')
+      if (!before.questions.some(({ id }) => id === questionId)) throw new Error('That Question does not belong to this Question Bank.')
+      const exams = await cascade([questionId])
+      const timestamp = now().toISOString()
+      try {
+        const remainingIds = before.questions.map(({ id }) => id).filter((id) => id !== questionId)
+        const removeBank = before.name === UNTITLED_QUESTION_BANK && remainingIds.length === 0
+        await transact(
+          [QUESTION_BANK_REGISTRY_STORE, CANONICAL_QUESTION_STORE, QUESTION_BANK_WORKSPACE_STORE, EDITOR_WORKSPACE_STORE],
+          'readwrite',
+          async (transaction) => {
+            transaction.objectStore(CANONICAL_QUESTION_STORE).delete(questionId)
+            if (!removeBank) {
+              transaction.objectStore(QUESTION_BANK_REGISTRY_STORE).put({
+                id: before.id, name: before.name, createdAt: before.createdAt,
+                lastUpdatedAt: timestamp, questionIds: remainingIds,
+              } satisfies StoredBank)
+              return
+            }
+            await removeBankFromWorkspaceTransaction(transaction, bankId)
+          },
+        )
+        await exams.finalize().catch((error) => console.error('Could not clean up a pristine Exam after deletion', error))
+        void requestPersistentStorage()
+        return removeBank ? null : {
+          ...before,
+          lastUpdatedAt: timestamp,
+          questions: before.questions.filter(({ id }) => id !== questionId),
+        }
+      } catch (error) {
+        await exams.rollback()
+        throw error
+      }
+    },
+    async permanentlyDeleteBank(bankId: string, cascade: DeletionCascade): Promise<void> {
+      const before = await readBank(await registry, bankId)
+      if (!before) throw new Error('That Question Bank is unavailable on this device.')
+      const exams = await cascade(before.questions.map(({ id }) => id))
+      try {
+        await transact(
+          [QUESTION_BANK_REGISTRY_STORE, CANONICAL_QUESTION_STORE, QUESTION_BANK_WORKSPACE_STORE, EDITOR_WORKSPACE_STORE],
+          'readwrite',
+          async (transaction) => {
+            const questions = transaction.objectStore(CANONICAL_QUESTION_STORE)
+            for (const question of before.questions) questions.delete(question.id)
+            await removeBankFromWorkspaceTransaction(transaction, bankId)
+          },
+        )
+        await exams.finalize().catch((error) => console.error('Could not clean up a pristine Exam after deletion', error))
+        void requestPersistentStorage()
+      } catch (error) {
+        await exams.rollback()
+        throw error
+      }
+    },
     async commitCanonicalQuestion(
       id: string,
       question: Question,
@@ -519,9 +610,6 @@ export function createQuestionBankWorkspaceService(
             const questionIds = [...bank.questionIds]
             questionIds.splice(at + 1, 0, copy.id)
             banks.put({ ...bank, questionIds, lastUpdatedAt: timestamp })
-          } else {
-            questions.delete(questionId)
-            banks.put({ ...bank, questionIds: bank.questionIds.filter((candidate) => candidate !== questionId), lastUpdatedAt: timestamp })
           }
         },
       )
@@ -606,7 +694,6 @@ export function createQuestionBankResourceStore(
     createQuestion: (question: Question) => apply({ kind: 'create-question', question }),
     updateQuestion: (question: Question) => apply({ kind: 'update-question', question }),
     duplicateQuestion: (questionId: string) => apply({ kind: 'duplicate-question', questionId }),
-    deleteQuestion: (questionId: string) => apply({ kind: 'delete-question', questionId }),
   }
 }
 

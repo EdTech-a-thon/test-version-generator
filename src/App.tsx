@@ -73,6 +73,7 @@ import {
   Plus,
   Redo2,
   Tags,
+  Trash2,
   Undo2,
   X,
 } from 'lucide-react'
@@ -80,7 +81,7 @@ import { ContextMenu, type MenuPoint } from './context-menu'
 import { BEFORE_NAVIGATE_EVENT, useRoute } from './use-route'
 import { Footer } from './site-chrome'
 import { HomePage } from './home-page'
-import type { ExamWorkspaceService, QuestionUsage, RecentExam } from './exam-workspaces'
+import type { ExamWorkspaceService, QuestionDeletionImpact, QuestionUsage, RecentExam } from './exam-workspaces'
 import {
   type QuestionBankResourceStore,
   type QuestionBankResource,
@@ -470,6 +471,7 @@ function QuestionDialog({
   usage,
   onCancel,
   onSave,
+  onDelete,
 }: {
   question: Question
   isNew: boolean
@@ -480,6 +482,7 @@ function QuestionDialog({
   usage?: readonly QuestionUsage[]
   onCancel: () => void
   onSave: (question: Question) => Promise<void>
+  onDelete?: () => void
 }) {
   // A question's type is settled when it is created, so the dialog reads it
   // and never changes it: there is no switch to make, and nothing to preserve
@@ -647,6 +650,7 @@ function QuestionDialog({
           />
         </div>
         <footer className="dialog-actions">
+          {!isNew && onDelete && <button type="button" className="danger-button question-delete-button" onClick={onDelete}><Trash2 />Delete Question</button>}
           {saveError && <p className="dialog-save-error" role="alert">{saveError}</p>}
           <button type="button" className="secondary-button" onClick={onCancel}>Cancel</button>
           <button
@@ -661,6 +665,107 @@ function QuestionDialog({
       </section>
     </div>
   )
+}
+
+function DestructiveConfirmation({ label, title, children, confirmLabel, onCancel, onConfirm }: {
+  label: string
+  title: string
+  children: ReactNode
+  confirmLabel: string
+  onCancel: () => void
+  onConfirm: () => Promise<void>
+}) {
+  const titleId = useId()
+  const dialog = useRef<HTMLElement>(null)
+  const [deleting, setDeleting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  useEffect(() => {
+    const previous = document.activeElement as HTMLElement | null
+    requestAnimationFrame(() => dialog.current?.querySelector<HTMLElement>('button')?.focus())
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !deleting) onCancel()
+      if (event.key !== 'Tab') return
+      const controls = Array.from(dialog.current?.querySelectorAll<HTMLElement>('button:not(:disabled)') ?? [])
+      if (controls.length === 0) return
+      const first = controls[0]!
+      const last = controls.at(-1)!
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault(); last.focus()
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault(); first.focus()
+      }
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('keydown', onKeyDown)
+      requestAnimationFrame(() => { if (previous?.isConnected) previous.focus() })
+    }
+  }, [deleting, onCancel])
+  return createPortal(<div className="dialog-backdrop" role="presentation" onKeyDown={(event) => {
+    event.stopPropagation()
+    if (event.key === 'Escape' && !deleting) onCancel()
+  }}>
+    <section ref={dialog} className="destructive-dialog" role="dialog" aria-modal="true" aria-label={label} aria-labelledby={titleId}>
+      <h2 id={titleId}>{title}</h2>
+      {children}
+      {error && <p className="dialog-save-error" role="alert">{error}</p>}
+      <footer className="destructive-dialog-actions">
+        <button type="button" className="secondary-button" disabled={deleting} onClick={onCancel}>Cancel</button>
+        <button type="button" className="danger-button" disabled={deleting} onClick={() => {
+          setDeleting(true)
+          setError(null)
+          void onConfirm().catch((reason) => {
+            setError(reason instanceof Error ? reason.message : 'Nothing was deleted. Please try again.')
+            setDeleting(false)
+          })
+        }}>{deleting ? 'Deleting…' : confirmLabel}</button>
+      </footer>
+    </section>
+  </div>, document.body)
+}
+
+function QuestionDeletionConfirmation({ usage, onCancel, onConfirm }: {
+  usage: readonly QuestionUsage[]
+  onCancel: () => void
+  onConfirm: () => Promise<void>
+}) {
+  const count = usage.length
+  return <DestructiveConfirmation
+    label="Permanently delete Question"
+    title="Permanently delete this Question?"
+    confirmLabel={count === 0 ? 'Delete Question' : `Delete and remove from ${count} ${count === 1 ? 'Exam' : 'Exams'}`}
+    onCancel={onCancel}
+    onConfirm={onConfirm}
+  >
+    <p>This cannot be undone.</p>
+    {count === 0 ? <p>This Question is not used in any Exams.</p> : <>
+      <p>This Question will be removed from every saved Exam and Working Copy below:</p>
+      <ul>{usage.map((item) => <li key={item.examId}>{item.title}</li>)}</ul>
+    </>}
+  </DestructiveConfirmation>
+}
+
+function BankDeletionConfirmation({ bank, impact, onCancel, onConfirm }: {
+  bank: QuestionBankCollectionItem
+  impact: readonly QuestionDeletionImpact[]
+  onCancel: () => void
+  onConfirm: () => Promise<void>
+}) {
+  return <DestructiveConfirmation
+    label="Permanently delete Question Bank"
+    title={`Permanently delete “${bank.name}”?`}
+    confirmLabel="Delete Question Bank"
+    onCancel={onCancel}
+    onConfirm={onConfirm}
+  >
+    <p>This cannot be undone.</p>
+    {bank.questionCount === 0 ? <p>This empty Question Bank will be permanently deleted.</p> : <>
+      <p>{bank.questionCount} {bank.questionCount === 1 ? 'Question' : 'Questions'} will be permanently deleted.</p>
+      <p>{impact.length} affected {impact.length === 1 ? 'Exam' : 'Exams'}:</p>
+      {impact.length > 0 && <ul>{impact.map((item) => <li key={item.examId}>{item.title} — {item.questionCount} {item.questionCount === 1 ? 'Question' : 'Questions'} removed</li>)}</ul>}
+      <p><strong>Export History remains unchanged.</strong> Historical exports stay viewable and can be exported again.</p>
+    </>}
+  </DestructiveConfirmation>
 }
 
 function ResourcePicker({
@@ -758,6 +863,7 @@ function QuestionBankTabsPane({
   examsService,
   beforeCanonicalQuestionCommit,
   onCanonicalQuestionCommitted,
+  onQuestionDeleted,
 }: {
   context: BankWorkspaceContext
   service: QuestionBankWorkspaceService
@@ -773,6 +879,7 @@ function QuestionBankTabsPane({
   examsService?: ExamWorkspaceService
   beforeCanonicalQuestionCommit?: () => Promise<void>
   onCanonicalQuestionCommitted?: (question: Question) => void
+  onQuestionDeleted?: (questionId: string) => void
 }) {
   const stableContext = useMemo<BankWorkspaceContext>(
     () => ({ mode: context.mode, resourceId: context.resourceId }),
@@ -795,6 +902,7 @@ function QuestionBankTabsPane({
   const [editing, setEditing] = useState<Question | null>(null)
   const [editingOwner, setEditingOwner] = useState<QuestionBankResource | null>(null)
   const [usage, setUsage] = useState<QuestionUsage[] | undefined>()
+  const [confirmingDeletion, setConfirmingDeletion] = useState(false)
   const unavailableDrag = useWorkspaceDrag(() => undefined)
   const drag = workspaceDrag ?? unavailableDrag
 
@@ -997,6 +1105,7 @@ function QuestionBankTabsPane({
       ownerName={editingOwner?.name ?? active.name}
       usage={usage}
       onCancel={() => setEditing(null)}
+      onDelete={active.questions.some(({ id }) => id === editing.id) ? () => setConfirmingDeletion(true) : undefined}
       onSave={async (question) => {
         const existing = active.questions.some((candidate) => candidate.id === question.id)
         if (existing) await beforeCanonicalQuestionCommit?.()
@@ -1012,6 +1121,33 @@ function QuestionBankTabsPane({
             })
         updateResource(updated)
         if (existing) onCanonicalQuestionCommitted?.(question)
+        setEditing(null)
+      }}
+    />}
+    {confirmingDeletion && editing && editingOwner && <QuestionDeletionConfirmation
+      usage={usage ?? []}
+      onCancel={() => setConfirmingDeletion(false)}
+      onConfirm={async () => {
+        await beforeCanonicalQuestionCommit?.()
+        const updated = await service.permanentlyDeleteQuestion(
+          editingOwner.id,
+          editing.id,
+          (ids) => examsService?.forceDeleteQuestions(ids) ?? Promise.resolve({ rollback: async () => undefined, finalize: async () => undefined }),
+        )
+        if (updated) updateResource(updated)
+        else {
+          const next = await service.closeTab(stableContext, editingOwner.id)
+          setWorkspace(next)
+          setResources((current) => {
+            const remaining = { ...current }
+            delete remaining[editingOwner.id]
+            return remaining
+          })
+        }
+        onQuestionDeleted?.(editing.id)
+        setSelectedQuestionId(null)
+        drag.cancel()
+        setConfirmingDeletion(false)
         setEditing(null)
       }}
     />}
@@ -1204,6 +1340,7 @@ function ExamEditor({
   const [historicalFocusKey, setHistoricalFocusKey] = useState(0)
   const [confirmingUseAsDraft, setConfirmingUseAsDraft] = useState(false)
   const [reviewingHistoricalQuestions, setReviewingHistoricalQuestions] = useState(false)
+  const [confirmingQuestionDeletion, setConfirmingQuestionDeletion] = useState(false)
   const priorDraftFocus = useRef<HTMLElement | null>(null)
   const useAsDraftButton = useRef<HTMLButtonElement>(null)
   const publicationHistory = store.publicationHistory()
@@ -1882,6 +2019,13 @@ function ExamEditor({
             examsService={workspaces}
             beforeCanonicalQuestionCommit={() => store.whenSettled()}
             onCanonicalQuestionCommitted={(question) => store.syncCanonicalQuestions([question])}
+            onQuestionDeleted={(questionId) => {
+              store.acceptForcedDeletion([questionId])
+              clearSelection()
+              setSelectedBankId(null)
+              drag.cancel()
+              setBankRevision((revision) => revision + 1)
+            }}
             fallback={<QuestionBankPane
               bank={state.questionBank}
               examDraftIds={examDraftIds}
@@ -2083,6 +2227,16 @@ function ExamEditor({
           ownerName={editing.owner?.name}
           usage={editing.usage}
           onCancel={() => setEditing(null)}
+          onDelete={bankQuestionById(state.questionBank, editing.question.id) ? () => {
+            void (async () => {
+              const [owner, usage] = await Promise.all([
+                editing.owner ? Promise.resolve(editing.owner) : bankWorkspaces.ownerOfQuestion(editing.question.id),
+                editing.usage ? Promise.resolve(editing.usage) : workspaces.questionUsage(editing.question.id),
+              ])
+              setEditing((current) => current ? { ...current, owner: owner ?? undefined, usage } : current)
+              setConfirmingQuestionDeletion(true)
+            })()
+          } : undefined}
           onSave={async (saved) => {
             // Existing Questions are committed through their owning bank even
             // when this canonical editor was opened from an Exam. Exam state
@@ -2109,6 +2263,26 @@ function ExamEditor({
           }}
         />
       )}
+
+      {confirmingQuestionDeletion && editing && editing.owner && <QuestionDeletionConfirmation
+        usage={editing.usage ?? []}
+        onCancel={() => setConfirmingQuestionDeletion(false)}
+        onConfirm={async () => {
+          await store.whenSettled()
+          await bankWorkspaces.permanentlyDeleteQuestion(
+            editing.owner!.id,
+            editing.question.id,
+            (ids) => workspaces.forceDeleteQuestions(ids),
+          )
+          store.acceptForcedDeletion([editing.question.id])
+          clearSelection()
+          setSelectedBankId(null)
+          drag.cancel()
+          setBankRevision((revision) => revision + 1)
+          setConfirmingQuestionDeletion(false)
+          setEditing(null)
+        }}
+      />}
     </>
   )
 }
@@ -2148,7 +2322,27 @@ export default function App({
   const [editorBankStore] = useState(bankStore)
   const [editorId, setEditorId] = useState(initialEditorId)
   const [editorMode, setEditorMode] = useState(initialEditorMode)
+  const [deletingBank, setDeletingBank] = useState<{ bank: QuestionBankCollectionItem; impact: QuestionDeletionImpact[] } | null>(null)
   const homeError = initialError
+  const requestBankDeletion = useCallback((bank: QuestionBankCollectionItem) => {
+    void bankWorkspaces.read(bank.id).then(async (resource) => {
+      const impact = await workspaces.deletionImpact(resource?.questions.map(({ id }) => id) ?? [])
+      setDeletingBank({ bank, impact })
+    })
+  }, [bankWorkspaces, workspaces])
+  const bankDeletionConfirmation = deletingBank && <BankDeletionConfirmation
+    bank={deletingBank.bank}
+    impact={deletingBank.impact}
+    onCancel={() => setDeletingBank(null)}
+    onConfirm={async () => {
+      const bank = await bankWorkspaces.read(deletingBank.bank.id)
+      if (!bank) throw new Error('That Question Bank is unavailable on this device.')
+      await bankWorkspaces.permanentlyDeleteBank(bank.id, (ids) => workspaces.forceDeleteQuestions(ids))
+      setBankCollection((current) => current.filter(({ id }) => id !== bank.id))
+      setExams(await workspaces.recent())
+      setDeletingBank(null)
+    }}
+  />
   const saveAs = useCallback(async () => {
     if (!editorStore) return
     const sourceId = await workspaces.activeId()
@@ -2196,21 +2390,22 @@ export default function App({
   }, [route, workspaces, bankWorkspaces])
   if (route === '/about') return <AboutPage />
   if (route === '/privacy') return <PrivacyPage />
-  if (route === '/exams') return <ResourceCollectionPage
+  if (route === '/exams') return <><ResourceCollectionPage
     kind="exams"
     exams={exams}
     banks={bankCollection}
     onOpenExam={(id) => window.location.assign(`/editor?exam=${id}`)}
     onOpenBank={(id) => window.location.assign(`/editor?bank=${id}`)}
-  />
-  if (route === '/question-banks') return <ResourceCollectionPage
+  />{bankDeletionConfirmation}</>
+  if (route === '/question-banks') return <><ResourceCollectionPage
     kind="question-banks"
     exams={exams}
     banks={bankCollection}
     onOpenExam={(id) => window.location.assign(`/editor?exam=${id}`)}
     onOpenBank={(id) => window.location.assign(`/editor?bank=${id}`)}
-  />
-  if (route === '/') return <HomePage
+    onDeleteBank={requestBankDeletion}
+  />{bankDeletionConfirmation}</>
+  if (route === '/') return <><HomePage
     exams={exams}
     banks={bankCollection}
     error={homeError}
@@ -2219,7 +2414,8 @@ export default function App({
     onOpen={(id) => window.location.assign(`/editor?exam=${id}`)}
     onNewBank={() => { void bankWorkspaces.create().then((bank) => window.location.assign(`/editor?bank=${bank.id}`)) }}
     onOpenBank={(id) => window.location.assign(`/editor?bank=${id}`)}
-  />
+    onDeleteBank={requestBankDeletion}
+  />{bankDeletionConfirmation}</>
   if (editorMode === 'bank') return <QuestionBankEditor
     initialResource={editorBankStore?.getState()}
     bankWorkspaces={bankWorkspaces}
