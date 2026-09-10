@@ -5,7 +5,7 @@
 // to narrow it by wording, Question Type, Difficulty and Topic. All of that is
 // a *view*: it derives what to show from the bank and the filter, and changes
 // nothing. Search and filter values are transient UI state and never enter the
-// authoring history.
+// authoring history. The editor workspace may persist it independently.
 
 import {
   topicsOf,

@@ -305,6 +305,29 @@ button { cursor: pointer; }
   position: sticky; top: 58px; align-self: start;
   min-width: 0; height: calc(100vh - 58px);
 }
+.bank-tabs-pane { display: flex; flex-direction: column; height: 100%; min-height: 0; background: #fffaf3; }
+.bank-tabs-pane > .question-bank { flex: 1 1 auto; height: auto; min-height: 0; }
+.bank-tabs-bar {
+  display: flex; align-items: center; gap: 8px; padding: 8px 10px 0;
+  border-right: 1px solid #e8dfd2; background: #fffaf3;
+}
+.bank-tabs { display: flex; flex: 1 1 auto; gap: 4px; min-width: 0; overflow-x: auto; }
+.bank-tab {
+  display: flex; flex: none; align-items: center; border: 1px solid #ddcdb9;
+  border-bottom: 0; border-radius: 7px 7px 0 0; background: #f3e9dc;
+}
+.bank-tab[data-active] { background: #fffdf8; box-shadow: inset 0 2px var(--paper-accent); }
+.bank-tab > button { border: 0; color: #5b4839; background: transparent; }
+.bank-tab > button[role='tab'] { max-width: 180px; padding: 8px 5px 8px 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bank-tab > button:last-child { display: inline-flex; padding: 7px 7px 7px 3px; }
+.bank-tab svg { width: 14px; height: 14px; }
+.bank-tab > button:focus-visible, .open-bank-button:focus-visible { outline: 2px solid #8a6a4c; outline-offset: -2px; }
+.open-bank-button {
+  flex: none; padding: 7px 9px; border: 1px solid #ddcdb9; border-radius: 6px;
+  color: #5b4839; background: #fffdf8; font-size: 12px;
+}
+.bank-tabs-error { margin: 8px 10px 0; }
+.question-bank-no-tab { justify-content: center; text-align: center; }
 .question-bank {
   display: flex; flex-direction: column; gap: 14px;
   height: calc(100vh - 58px); padding: 18px 16px; overflow-y: auto;
@@ -1115,6 +1138,7 @@ button { cursor: pointer; }
 .bank-only-empty { display: grid; align-content: center; justify-items: center; padding: 40px; text-align: center; color: #6e5b4d; }
 .bank-only-empty h1 { margin: 0 0 10px; color: #382d26; }
 .bank-only-empty p { margin: 0; max-width: 440px; }
+.bank-only-actions { display: flex; gap: 10px; margin-top: 22px; }
 .bank-save-status { color: #6e5b4d; font-size: 13px; }
 .bank-name-error { margin: 10px 20px 0; }
 .dialog-save-error { flex: 1; margin: 0; color: var(--paper-danger); font-size: 13px; }
@@ -1126,6 +1150,21 @@ button { cursor: pointer; }
 .exam-card-preview { min-height: 20px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .exam-card time { color: #866f5e; font-size: 12px; }
 .editor-home-link { border: 0; background: transparent; }
+.resource-picker {
+  width: min(480px, calc(100vw - 32px)); max-height: min(620px, calc(100vh - 48px));
+  padding: 20px; overflow-y: auto; border-radius: 12px; background: #fffdf8;
+  box-shadow: 0 18px 60px rgb(58 42 30 / 24%);
+}
+.resource-picker-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 14px; }
+.resource-picker-header h2 { margin: 0; font-size: 20px; }
+.resource-picker-list { display: grid; gap: 8px; }
+.resource-picker-list > button {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 12px; border: 1px solid #e0d3c2; border-radius: 8px;
+  color: #382d26; text-align: left; background: #fffaf3;
+}
+.resource-picker-list > button:hover { border-color: #b65f43; }
+.resource-picker-list span { color: #6e5b4d; font-size: 13px; }
 .site-main { flex: 1; width: 100%; max-width: 760px; margin: 0 auto; padding: 26px 20px 40px; }
 .site-main h1 { margin: 0 0 6px; font-size: 26px; }
 .site-lede { margin: 0 0 22px; color: #6e5b4d; font-size: 14px; }

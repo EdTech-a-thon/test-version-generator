@@ -15,8 +15,8 @@
 // Nothing here can Delete Question Content, and nothing here assembles an
 // authoring action out of smaller ones: every action calls exactly one of the
 // store's operations, so it is one undo step however it was reached. Search,
-// filter values and row selection are transient UI state — they are handed in
-// rather than stored, and they never enter the authoring history.
+// Filter values and row selection are handed in rather than stored here. The
+// workspace may persist filters, but neither state enters authoring history.
 
 import {
   useCallback,
@@ -441,6 +441,7 @@ export function QuestionBankPane({
         <ul className="question-bank-list">
           {questions.map((question) => {
             const inExamDraft = examDraftIds.has(question.id)
+            const draggable = !inExamDraft && onAddToExamDraft !== undefined
             const preview = stemPreview(question)
             const name = preview.text || UNTITLED
             const topics = topicsOf(question)
@@ -452,7 +453,7 @@ export function QuestionBankPane({
                 data-in-exam={inExamDraft ? 'true' : undefined}
                 // An unused row is a drag source; a row already on the Exam
                 // Draft is not one, and says so before the gesture starts.
-                data-draggable={inExamDraft ? undefined : 'true'}
+                data-draggable={draggable ? 'true' : undefined}
                 data-dragging={
                   drag.source?.pane === 'question-bank'
                   && drag.source.questionId === question.id
@@ -461,7 +462,7 @@ export function QuestionBankPane({
                 }
                 aria-current={selectedQuestionId === question.id ? 'true' : undefined}
                 tabIndex={0}
-                {...(inExamDraft || !onAddToExamDraft ? {} : dragHandlers(question))}
+                {...(draggable ? dragHandlers(question) : {})}
                 onClick={() => {
                   // The press that has just finished dragging is not a click —
                   // that press, on that row, and no other click anywhere.

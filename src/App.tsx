@@ -1,4 +1,5 @@
-import { Fragment, useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { Fragment, useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { createPortal } from 'react-dom'
 import { Milkdown, useEditor } from '@milkdown/react'
 import { Crepe } from '@milkdown/crepe'
 import { keymapRef } from '@milkdown/crepe/feature/toolbar'
@@ -75,6 +76,7 @@ import {
   Redo2,
   Tags,
   Undo2,
+  X,
 } from 'lucide-react'
 import { ContextMenu, type MenuPoint } from './context-menu'
 import { BEFORE_NAVIGATE_EVENT, useRoute } from './use-route'
@@ -83,7 +85,10 @@ import { HomePage } from './home-page'
 import type { ExamWorkspaceService, RecentExam } from './exam-workspaces'
 import {
   type QuestionBankResourceStore,
+  type QuestionBankResource,
   type QuestionBankSummary,
+  type QuestionBankTabsWorkspace,
+  type BankWorkspaceContext,
   type QuestionBankWorkspaceService,
 } from './question-bank-workspaces'
 import {
@@ -635,82 +640,266 @@ function QuestionDialog({
   )
 }
 
-function QuestionBankEditor({
-  store,
-  onHome,
-  launchError,
+function ResourcePicker({
+  title,
+  closeLabel,
+  emptyMessage,
+  resources,
+  onChoose,
+  onClose,
 }: {
-  store: QuestionBankResourceStore
-  onHome: () => void
-  launchError: string | null
+  title: string
+  closeLabel: string
+  emptyMessage: string
+  resources: readonly { id: string; name: string; questionCount: number }[]
+  onChoose: (id: string) => void
+  onClose: () => void
 }) {
-  const resource = useSyncExternalStore(store.subscribe, store.getState)
-  const [name, setName] = useState(resource.name)
-  const [nameError, setNameError] = useState<string | null>(null)
-  const [filter, setFilter] = useState<QuestionBankFilter>(NO_FILTER)
+  const titleId = useId()
+  const dialog = useRef<HTMLElement>(null)
+  const chosen = useRef(false)
+  const onCloseRef = useRef(onClose)
+  useEffect(() => { onCloseRef.current = onClose }, [onClose])
+  useEffect(() => {
+    const previous = document.activeElement as HTMLElement | null
+    const focusable = () => Array.from(dialog.current?.querySelectorAll<HTMLElement>('button:not(:disabled)') ?? [])
+    requestAnimationFrame(() => focusable()[0]?.focus())
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        onCloseRef.current()
+        return
+      }
+      if (event.key !== 'Tab') return
+      const controls = focusable()
+      if (controls.length === 0) return
+      const first = controls[0]!
+      const last = controls.at(-1)!
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault()
+        first.focus()
+      }
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('keydown', onKeyDown)
+      if (!chosen.current) {
+        requestAnimationFrame(() => { if (previous?.isConnected) previous.focus() })
+      }
+    }
+  }, [])
+
+  return createPortal(<div className="dialog-backdrop" role="presentation" onMouseDown={(event) => {
+    if (event.target === event.currentTarget) onClose()
+  }}>
+    <section
+      ref={dialog}
+      className="resource-picker"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby={titleId}
+    >
+      <header className="resource-picker-header">
+        <h2 id={titleId}>{title}</h2>
+        <button type="button" className="question-bank-action" aria-label={closeLabel} onClick={onClose}><X /></button>
+      </header>
+      {resources.length === 0 ? <p>{emptyMessage}</p> :
+        <div className="resource-picker-list">
+          {resources.map((resource) => <button key={resource.id} type="button" onClick={() => {
+            chosen.current = true
+            onChoose(resource.id)
+          }}>
+            <strong>{resource.name}</strong>
+            <span>{resource.questionCount} {resource.questionCount === 1 ? 'Question' : 'Questions'}</span>
+          </button>)}
+        </div>}
+    </section>
+  </div>, document.body)
+}
+
+function QuestionBankTabsPane({
+  context,
+  service,
+  initialResource,
+  fallback,
+  onActiveResourceChange,
+}: {
+  context: BankWorkspaceContext
+  service: QuestionBankWorkspaceService
+  initialResource?: QuestionBankResource
+  fallback?: ReactNode
+  onActiveResourceChange?: (resource: QuestionBankResource | null) => void
+}) {
+  const stableContext = useMemo<BankWorkspaceContext>(
+    () => ({ mode: context.mode, resourceId: context.resourceId }),
+    [context.mode, context.resourceId],
+  )
+  const [workspace, setWorkspace] = useState<QuestionBankTabsWorkspace>(() => ({
+    openBankIds: initialResource ? [initialResource.id] : [],
+    activeBankId: initialResource?.id ?? null,
+    filters: initialResource ? { [initialResource.id]: NO_FILTER } : {},
+    pane: { bankPercent: 33 },
+  }))
+  const [resources, setResources] = useState<Record<string, QuestionBankResource>>(() =>
+    initialResource ? { [initialResource.id]: initialResource } : {},
+  )
+  const [pickerBanks, setPickerBanks] = useState<QuestionBankSummary[] | null>(null)
+  const [hydrated, setHydrated] = useState(false)
+  const [message, setMessage] = useState<string | null>(null)
   const [selectedQuestionId, setSelectedQuestionId] = useState<string | null>(null)
   const [choosingType, setChoosingType] = useState<MenuPoint | null>(null)
   const [editing, setEditing] = useState<Question | null>(null)
   const drag = useWorkspaceDrag(() => undefined)
-  const bank = { questions: resource.questions }
 
-  useEffect(() => setName(resource.name), [resource.name])
-
-  const commitName = async () => {
-    if (name === resource.name) return
-    setNameError(null)
-    try {
-      await store.rename(name)
-    } catch (error) {
-      setNameError(error instanceof Error ? error.message : 'The Question Bank name could not be saved.')
+  useEffect(() => {
+    if (initialResource) {
+      setResources((current) => ({ ...current, [initialResource.id]: initialResource }))
     }
+  }, [initialResource])
+
+  useEffect(() => {
+    let current = true
+    void (async () => {
+      const saved = await service.workspace(stableContext)
+      const loaded = await Promise.all(saved.openBankIds.map((id) => service.read(id)))
+      if (!current) return
+      const valid = loaded.filter((bank): bank is QuestionBankResource => bank !== null)
+      const validIds = valid.map((bank) => bank.id)
+      const sanitized = validIds.length === saved.openBankIds.length ? saved : {
+        ...saved,
+        openBankIds: validIds,
+        activeBankId: validIds.includes(saved.activeBankId ?? '')
+          ? saved.activeBankId
+          : validIds[0] ?? null,
+        filters: Object.fromEntries(validIds.map((id) => [id, saved.filters[id] ?? NO_FILTER])),
+      }
+      setResources(Object.fromEntries(valid.map((bank) => [bank.id, bank])))
+      setWorkspace(sanitized)
+      if (sanitized !== saved) {
+        setMessage('A Question Bank in this workspace is unavailable on this device.')
+        await service.saveWorkspace(stableContext, sanitized)
+      }
+      setHydrated(true)
+    })()
+    return () => { current = false }
+  }, [service, stableContext])
+
+  const active = workspace.activeBankId ? resources[workspace.activeBankId] : undefined
+  useEffect(() => {
+    if (hydrated) onActiveResourceChange?.(active ?? null)
+  }, [active, hydrated, onActiveResourceChange])
+  const filter = active ? workspace.filters[active.id] ?? NO_FILTER : NO_FILTER
+  const updateResource = (resource: QuestionBankResource) => {
+    setResources((current) => ({ ...current, [resource.id]: resource }))
+  }
+  const openPicker = async () => setPickerBanks(await service.recent())
+  const chooseBank = async (id: string) => {
+    const opened = await service.openTab(stableContext, id)
+    if (!opened) {
+      setMessage('That Question Bank is unavailable on this device.')
+      setPickerBanks(null)
+      return
+    }
+    setWorkspace(opened.workspace)
+    updateResource(opened.bank)
+    setSelectedQuestionId(null)
+    setPickerBanks(null)
+    requestAnimationFrame(() => document.querySelector<HTMLElement>(`[role="tab"][data-bank-id="${CSS.escape(id)}"]`)?.focus())
+  }
+  const activate = async (id: string) => {
+    const opened = await service.openTab(stableContext, id)
+    if (!opened) {
+      setMessage('That Question Bank is unavailable on this device.')
+      return
+    }
+    setWorkspace(opened.workspace)
+    updateResource(opened.bank)
+    setSelectedQuestionId(null)
+  }
+  const close = async (id: string) => {
+    const next = await service.closeTab(stableContext, id)
+    setWorkspace(next)
+    setResources((current) => {
+      const remaining = { ...current }
+      delete remaining[id]
+      return remaining
+    })
+    setSelectedQuestionId(null)
+    requestAnimationFrame(() => {
+      const target = next.activeBankId
+        ? document.querySelector<HTMLElement>(`[role="tab"][data-bank-id="${CSS.escape(next.activeBankId)}"]`)
+        : document.querySelector<HTMLElement>('[aria-label="Open Question Bank"]')
+      target?.focus()
+    })
   }
 
-  return <>
-    {launchError && <p className="home-error editor-launch-error" role="alert">{launchError}</p>}
-    <header className="document-bar">
-      <div className="document-identity">
-        <img className="app-logo" src="/logo.png" alt="Test Parrot" width={36} height={36} />
-        <input
-          aria-label="Question Bank name"
-          className="document-title"
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-          onBlur={() => void commitName()}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') event.currentTarget.blur()
-          }}
-        />
+  return <div className="bank-tabs-pane">
+    {message && <p className="home-error bank-tabs-error" role="alert">{message}</p>}
+    <div className="bank-tabs-bar">
+      <div className="bank-tabs" role="tablist" aria-label="Open Question Banks">
+        {workspace.openBankIds.map((id, index) => {
+          const bank = resources[id]
+          if (!bank) return null
+          return <div className="bank-tab" key={id} data-active={id === workspace.activeBankId ? 'true' : undefined}>
+            <button
+              type="button"
+              role="tab"
+              data-bank-id={id}
+              aria-selected={id === workspace.activeBankId}
+              tabIndex={id === workspace.activeBankId ? 0 : -1}
+              onClick={() => void activate(id)}
+              onKeyDown={(event) => {
+                if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+                event.preventDefault()
+                let next = index
+                if (event.key === 'ArrowLeft') next = (index - 1 + workspace.openBankIds.length) % workspace.openBankIds.length
+                if (event.key === 'ArrowRight') next = (index + 1) % workspace.openBankIds.length
+                if (event.key === 'Home') next = 0
+                if (event.key === 'End') next = workspace.openBankIds.length - 1
+                const nextId = workspace.openBankIds[next]!
+                void activate(nextId).then(() => requestAnimationFrame(() =>
+                  document.querySelector<HTMLElement>(`[role="tab"][data-bank-id="${CSS.escape(nextId)}"]`)?.focus(),
+                ))
+              }}
+            >{bank.name}</button>
+            <button
+              type="button"
+              aria-label={`Close ${bank.name}`}
+              onClick={() => void close(id)}
+            ><X /></button>
+          </div>
+        })}
       </div>
-      <div className="header-actions">
-        <span className="bank-save-status">Changes save immediately</span>
-        <button type="button" className="site-link editor-home-link" onClick={onHome}>Home</button>
-      </div>
-    </header>
-    {nameError && <p className="home-error bank-name-error" role="alert">{nameError}</p>}
-    <div className="bank-only-workspace">
-      <div className="question-bank-authoring">
-        <QuestionBankPane
-          bank={bank}
-          examDraftIds={new Set()}
-          filter={filter}
-          onFilterChange={setFilter}
-          selectedQuestionId={selectedQuestionId}
-          onSelect={setSelectedQuestionId}
-          drag={drag}
-          onCreate={setChoosingType}
-          onEdit={(questionId) => {
-            const question = bankQuestionById(bank, questionId)
-            if (question) setEditing(question)
-          }}
-        />
-      </div>
-      <main className="bank-only-empty" aria-label="Bank-only editor">
-        <h1>{resource.name}</h1>
-        <p>Create and edit reusable Questions here. No Exam is open or changed.</p>
-      </main>
+      <button type="button" className="open-bank-button" aria-label="Open Question Bank" disabled={!hydrated} onClick={() => void openPicker()}>Open Question Bank</button>
     </div>
-    <Footer />
+    {active ? <QuestionBankPane
+      bank={{ questions: active.questions }}
+      examDraftIds={new Set()}
+      filter={filter}
+      onFilterChange={(nextFilter) => {
+        setWorkspace((current) => ({ ...current, filters: { ...current.filters, [active.id]: nextFilter } }))
+        void service.updateFilter(stableContext, active.id, nextFilter)
+      }}
+      selectedQuestionId={selectedQuestionId}
+      onSelect={setSelectedQuestionId}
+      drag={drag}
+      onCreate={setChoosingType}
+      onEdit={(questionId) => {
+        const question = active.questions.find((candidate) => candidate.id === questionId)
+        if (question) setEditing(question)
+      }}
+    /> : fallback ?? <div className="question-bank question-bank-no-tab"><p>No Question Bank is open.</p></div>}
+    {pickerBanks && <ResourcePicker
+      title="Open Question Bank"
+      closeLabel="Close Question Bank picker"
+      emptyMessage="No Question Banks are available on this device."
+      resources={pickerBanks}
+      onChoose={(id) => void chooseBank(id)}
+      onClose={() => setPickerBanks(null)}
+    />}
     {choosingType && <ContextMenu
       point={choosingType}
       ariaLabel="Question type"
@@ -722,27 +911,123 @@ function QuestionBankEditor({
       }))}
       onClose={() => setChoosingType(null)}
     />}
-    {editing && <QuestionDialog
+    {editing && active && <QuestionDialog
       question={editing}
-      isNew={!bankQuestionById(bank, editing.id)}
-      topicSuggestions={topicOptions(bank)}
+      isNew={!active.questions.some((question) => question.id === editing.id)}
+      topicSuggestions={topicOptions({ questions: active.questions })}
       onCancel={() => setEditing(null)}
       onSave={async (question) => {
-        if (bankQuestionById(bank, question.id)) await store.updateQuestion(question)
-        else await store.createQuestion(question)
+        const updated = await service.commit(active.id, {
+          kind: active.questions.some((candidate) => candidate.id === question.id)
+            ? 'update-question'
+            : 'create-question',
+          question,
+        })
+        updateResource(updated)
         setEditing(null)
       }}
+    />}
+  </div>
+}
+
+function QuestionBankEditor({
+  initialResource,
+  bankWorkspaces,
+  exams,
+  onHome,
+  onOpenExam,
+  onNewExam,
+  launchError,
+}: {
+  initialResource?: QuestionBankResource
+  bankWorkspaces: QuestionBankWorkspaceService
+  exams: readonly RecentExam[]
+  onHome: () => void
+  onOpenExam: (id: string) => void
+  onNewExam: () => void
+  launchError: string | null
+}) {
+  const [activeResource, setActiveResource] = useState<QuestionBankResource | null>(initialResource ?? null)
+  const [name, setName] = useState(initialResource?.name ?? '')
+  const [nameError, setNameError] = useState<string | null>(null)
+  const [choosingExam, setChoosingExam] = useState(false)
+
+  useEffect(() => setName(activeResource?.name ?? ''), [activeResource?.name])
+
+  const commitName = async () => {
+    if (!activeResource || name === activeResource.name) return
+    setNameError(null)
+    try {
+      const updated = await bankWorkspaces.commit(activeResource.id, { kind: 'rename', name })
+      setActiveResource(updated)
+    } catch (error) {
+      setNameError(error instanceof Error ? error.message : 'The Question Bank name could not be saved.')
+    }
+  }
+
+  return <>
+    {launchError && <p className="home-error editor-launch-error" role="alert">{launchError}</p>}
+    <header className="document-bar">
+      <div className="document-identity">
+        <img className="app-logo" src="/logo.png" alt="Test Parrot" width={36} height={36} />
+        {activeResource ? <input
+          aria-label="Question Bank name"
+          className="document-title"
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+          onBlur={() => void commitName()}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') event.currentTarget.blur()
+          }}
+        /> : <span className="document-title bank-workspace-title">Question Banks</span>}
+      </div>
+      <div className="header-actions">
+        <span className="bank-save-status">Changes save immediately</span>
+        <button type="button" className="site-link editor-home-link" onClick={onHome}>Home</button>
+      </div>
+    </header>
+    {nameError && <p className="home-error bank-name-error" role="alert">{nameError}</p>}
+    <div className="bank-only-workspace">
+      <div className="question-bank-authoring">
+        <QuestionBankTabsPane
+          context={{ mode: 'bank', resourceId: initialResource?.id ?? '' }}
+          service={bankWorkspaces}
+          initialResource={activeResource ?? undefined}
+          onActiveResourceChange={setActiveResource}
+        />
+      </div>
+      <main className="bank-only-empty" aria-label="Bank-only editor">
+        <h1>No Exam open</h1>
+        <p>Create and edit reusable Questions here without creating or changing an Exam.</p>
+        <div className="bank-only-actions">
+          <button type="button" className="primary-button" onClick={onNewExam}>New Exam</button>
+          <button type="button" className="secondary-button" onClick={() => setChoosingExam(true)}>Open existing Exam</button>
+        </div>
+      </main>
+    </div>
+    <Footer />
+    {choosingExam && <ResourcePicker
+      title="Open Exam"
+      closeLabel="Close Exam picker"
+      emptyMessage="No Exams are available on this device."
+      resources={exams.map((exam) => ({ id: exam.id, name: exam.title, questionCount: exam.questionCount }))}
+      onChoose={onOpenExam}
+      onClose={() => setChoosingExam(false)}
     />}
   </>
 }
 
 function ExamEditor({
   store,
+  examId,
+  bankWorkspaces,
   onHome,
   onSaveAs,
   launchError,
 }: {
   store: ExamStore
+  examId: string
+  bankWorkspaces: QuestionBankWorkspaceService
   onHome: () => void
   onSaveAs: () => Promise<void>
   launchError: string | null
@@ -851,12 +1136,19 @@ function ExamEditor({
   const selection = useSelection()
   const clearSelection = selection.clear
   const selectOnExamDraft = selection.select
-  // How the Question Bank is being browsed, and which of its rows was last
-  // clicked. Both are transient UI state: they live here rather than in the
-  // store, so narrowing the bank or picking a row is never an authoring action,
-  // never dirties the exam and never appears in undo history.
+  // The legacy per-Exam bank fallback keeps its filter here; real bank tabs
+  // persist theirs through the separate workspace service. Neither path is an
+  // authoring action, dirties the Exam, or appears in Undo history.
   const [bankFilter, setBankFilter] = useState<QuestionBankFilter>(NO_FILTER)
   const [selectedBankId, setSelectedBankId] = useState<string | null>(null)
+  const [bankPercent, setBankPercent] = useState(33)
+  useEffect(() => {
+    let current = true
+    void bankWorkspaces.workspace({ mode: 'exam', resourceId: examId }).then((workspace) => {
+      if (current) setBankPercent(workspace.pane.bankPercent)
+    })
+    return () => { current = false }
+  }, [bankWorkspaces, examId])
   // A question an authoring action has just put on the Exam Draft, waiting to be
   // revealed. `ExamPage` clears it once repagination has actually put it on a
   // page, which — for a change of content — is not the same moment.
@@ -1460,36 +1752,43 @@ function ExamEditor({
           Exam Draft. The bank opens as the narrower pane — it is picked from
           rather than read — and the divider moves. */}
       <WorkspaceSplit
+        initialBankPercent={bankPercent}
+        onBankPercentChange={(percent) => {
+          setBankPercent(percent)
+          void bankWorkspaces.updatePane({ mode: 'exam', resourceId: examId }, percent)
+        }}
         bank={
           <div
             className="question-bank-authoring"
             inert={isHistoricalBrowsing || undefined}
             aria-hidden={isHistoricalBrowsing || undefined}
           >
-          <QuestionBankPane
-            bank={state.questionBank}
-            examDraftIds={examDraftIds}
-            filter={bankFilter}
-            onFilterChange={setBankFilter}
-            selectedQuestionId={selectedBankId}
-            onSelect={setSelectedBankId}
-            drag={drag}
-            onCreate={(point) =>
-              setChoosingType({ point, destination: 'question-bank', after: null })
-            }
-            onEdit={(questionId) => {
-              const question = bankQuestionById(state.questionBank, questionId)
-              if (question) {
-                setEditing({ question, destination: 'question-bank', after: null })
+          <QuestionBankTabsPane
+            context={{ mode: 'exam', resourceId: examId }}
+            service={bankWorkspaces}
+            fallback={<QuestionBankPane
+              bank={state.questionBank}
+              examDraftIds={examDraftIds}
+              filter={bankFilter}
+              onFilterChange={setBankFilter}
+              selectedQuestionId={selectedBankId}
+              onSelect={setSelectedBankId}
+              drag={drag}
+              onCreate={(point) =>
+                setChoosingType({ point, destination: 'question-bank', after: null })
               }
-            }}
-            onAddToExamDraft={addToExamDraft}
-            onRemoveFromExamDraft={(questionId) => {
-              store.removeFromExamDraft([questionId])
-              // A selection pointing at a question that is no longer on the
-              // sheet names no position, and only this one has left it.
-              if (selection.isSelected(questionId)) selection.toggle(questionId)
-            }}
+              onEdit={(questionId) => {
+                const question = bankQuestionById(state.questionBank, questionId)
+                if (question) {
+                  setEditing({ question, destination: 'question-bank', after: null })
+                }
+              }}
+              onAddToExamDraft={addToExamDraft}
+              onRemoveFromExamDraft={(questionId) => {
+                store.removeFromExamDraft([questionId])
+                if (selection.isSelected(questionId)) selection.toggle(questionId)
+              }}
+            />}
           />
           </div>
         }
@@ -1688,6 +1987,8 @@ export default function App({
   bankWorkspaces,
   initialExams,
   initialBanks,
+  initialEditorId,
+  initialEditorMode,
   initialError,
 }: {
   store: ExamStore | null
@@ -1696,6 +1997,8 @@ export default function App({
   bankWorkspaces: QuestionBankWorkspaceService
   initialExams: readonly RecentExam[]
   initialBanks: readonly QuestionBankSummary[]
+  initialEditorId: string | null
+  initialEditorMode: 'bank' | 'exam' | null
   initialError: string | null
 }) {
   const route = useRoute()
@@ -1703,6 +2006,7 @@ export default function App({
   const [banks, setBanks] = useState(initialBanks)
   const [editorStore, setEditorStore] = useState(store)
   const [editorBankStore] = useState(bankStore)
+  const [editorId, setEditorId] = useState(initialEditorId)
   const homeError = initialError
   const saveAs = useCallback(async () => {
     if (!editorStore) return
@@ -1725,6 +2029,7 @@ export default function App({
       initial: target,
       initialHistory: session.history,
     }))
+    setEditorId(targetId)
   }, [editorStore, workspaces])
   useEffect(() => {
     if (route !== '/') return
@@ -1754,13 +2059,33 @@ export default function App({
     onNewBank={() => { void bankWorkspaces.create().then((bank) => window.location.assign(`/editor?bank=${bank.id}`)) }}
     onOpenBank={(id) => window.location.assign(`/editor?bank=${id}`)}
   />
-  if (editorBankStore) return <QuestionBankEditor store={editorBankStore} launchError={initialError} onHome={() => {
+  if (initialEditorMode === 'bank') return <QuestionBankEditor
+    initialResource={editorBankStore?.getState()}
+    bankWorkspaces={bankWorkspaces}
+    exams={exams}
+    launchError={initialError}
+    onNewExam={() => {
+      void workspaces.create().then(async (exam) => {
+        await bankWorkspaces.carryWorkspace(
+          { mode: 'bank', resourceId: editorBankStore?.getState().id ?? '' },
+          { mode: 'exam', resourceId: exam.id },
+        )
+        window.location.assign(`/editor?exam=${exam.id}`)
+      })
+    }}
+    onOpenExam={(id) => {
+      void bankWorkspaces.carryWorkspace(
+        { mode: 'bank', resourceId: editorBankStore?.getState().id ?? '' },
+        { mode: 'exam', resourceId: id },
+      ).then(() => window.location.assign(`/editor?exam=${id}`))
+    }}
+    onHome={() => {
     void bankWorkspaces.activeId().then(async (id) => {
       if (id) await bankWorkspaces.removePristine(id)
       window.location.assign('/')
     })
   }} />
-  return editorStore ? <ExamEditor store={editorStore} launchError={initialError} onSaveAs={saveAs} onHome={() => {
+  return editorStore && editorId ? <ExamEditor store={editorStore} examId={editorId} bankWorkspaces={bankWorkspaces} launchError={initialError} onSaveAs={saveAs} onHome={() => {
     void workspaces.activeId().then(async (id) => {
       if (id) await workspaces.removePristine(id)
       window.location.assign('/')

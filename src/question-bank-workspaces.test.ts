@@ -1,9 +1,13 @@
 import { expect, test } from 'bun:test'
 import { createQuestion } from './exam'
 import {
+  DEFAULT_BANK_TABS_WORKSPACE,
   UNTITLED_QUESTION_BANK,
+  closeBankTab,
   createQuestionBankResourceStore,
   isPristineQuestionBank,
+  openBankTab,
+  updateBankTabFilter,
   type QuestionBankResource,
 } from './question-bank-workspaces'
 
@@ -49,4 +53,36 @@ test('a failed Question save leaves canonical visible state unchanged for retry'
   await expect(store.createQuestion(createQuestion('multiple-choice'))).rejects.toThrow('Storage unavailable')
   expect(store.getState()).toBe(initial)
   expect(store.getState().questions).toHaveLength(0)
+})
+
+test('bank tabs retain independent filters and choose an adjacent tab when closed', () => {
+  const first = openBankTab(DEFAULT_BANK_TABS_WORKSPACE, 'bank-a')
+  const second = openBankTab(first, 'bank-b')
+  const filtered = updateBankTabFilter(second, 'bank-a', {
+    search: 'mitosis',
+    types: [],
+    difficulties: ['hard'],
+    topics: ['Biology'],
+  })
+
+  expect(filtered.openBankIds).toEqual(['bank-a', 'bank-b'])
+  expect(filtered.activeBankId).toBe('bank-b')
+  expect(filtered.filters['bank-a']).toEqual({
+    search: 'mitosis',
+    types: [],
+    difficulties: ['hard'],
+    topics: ['Biology'],
+  })
+  expect(filtered.filters['bank-b']).toEqual({
+    search: '', types: [], difficulties: [], topics: [],
+  })
+
+  const focused = openBankTab(filtered, 'bank-a')
+  expect(focused.openBankIds).toEqual(['bank-a', 'bank-b'])
+  expect(focused.activeBankId).toBe('bank-a')
+
+  const closed = closeBankTab(focused, 'bank-a')
+  expect(closed.openBankIds).toEqual(['bank-b'])
+  expect(closed.activeBankId).toBe('bank-b')
+  expect(closed.filters['bank-a']).toBeUndefined()
 })
