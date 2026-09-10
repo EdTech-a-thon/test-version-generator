@@ -12,10 +12,6 @@ Issues live as GitHub issues in `EdTech-a-thon/test-version-generator`, managed 
 
 When adding or reviewing Playwright coverage, read `docs/browser-assertions.md` for the repository's examples of strong user-visible assertions and weak geometry or style-only checks.
 
-### Ticket orchestration
-
-For an explicitly requested ticket queue run, use `.agents/skills/orchestrate-tickets/SKILL.md`; it points to the canonical coordinator scripts and configuration.
-
 ### Triage labels
 
 The five canonical triage roles, each label string equal to its name. See `docs/agents/triage-labels.md`.
