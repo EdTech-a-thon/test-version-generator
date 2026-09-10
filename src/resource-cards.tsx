@@ -1,6 +1,132 @@
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import {
+  ChevronLeft,
+  ChevronRight,
+  EllipsisVertical,
+  FolderOpen,
+  Plus,
+  Trash2,
+  TriangleAlert,
+} from 'lucide-react'
 import type { RecentExam } from './exam-workspaces'
 import type { QuestionBankCollectionItem } from './resource-collections'
+import type { PageFurniture } from './export-plan'
 import { DocView } from './doc-view'
+import { PageHeaderContent } from './page-item-view'
+import { PAGE_GEOMETRY } from './exam-page'
+import { TopicBadge } from './badges'
+import { ContextMenu, type MenuItem, type MenuPoint } from './context-menu'
+
+/** How many Topics a Question Bank card shows before it counts the rest. */
+const SHOWN_TOPICS = 3
+
+/** The sheet clips at one page, so a long Exam's later questions are drawn and
+ *  then thrown away. Stop well past whatever a page can hold instead. */
+const THUMBNAIL_QUESTIONS = 12
+
+/**
+ * The one thing an empty shelf says. The whole box is the button — a dotted
+ * outline over the page's own ground rather than a card, so it reads as the
+ * space a card will occupy rather than as a card that is already there.
+ */
+export function CreateFirstCard({
+  label,
+  onClick,
+}: {
+  label: string
+  onClick: () => void
+}) {
+  return (
+    <button type="button" className="create-first" onClick={onClick}>
+      <span>{label}</span>
+      <Plus aria-hidden="true" />
+    </button>
+  )
+}
+
+/**
+ * A horizontally scrolling shelf of resource cards. The arrows sit in the
+ * shelf's own heading row rather than over the cards, so nothing is ever
+ * covered by a control, and each is present only while that direction has
+ * something left to show.
+ */
+export function ResourceCarousel({
+  label,
+  heading,
+  children,
+}: {
+  label: string
+  heading: ReactNode
+  children: ReactNode
+}) {
+  const track = useRef<HTMLDivElement>(null)
+  const [reach, setReach] = useState({ start: false, end: false })
+  const measure = useCallback(() => {
+    const element = track.current
+    if (!element) return
+    const furthest = element.scrollWidth - element.clientWidth
+    setReach({
+      start: element.scrollLeft > 2,
+      end: element.scrollLeft < furthest - 2,
+    })
+  }, [])
+  useEffect(() => {
+    measure()
+    const element = track.current
+    if (!element) return
+    const observer = new ResizeObserver(measure)
+    observer.observe(element)
+    for (const child of element.children) observer.observe(child)
+    return () => observer.disconnect()
+  }, [measure, children])
+  const step = (direction: 1 | -1) => {
+    const element = track.current
+    if (!element) return
+    element.scrollBy({
+      left: direction * Math.max(180, element.clientWidth * 0.8),
+      behavior: 'smooth',
+    })
+  }
+  const scrollable = reach.start || reach.end
+  return (
+    <div className="resource-carousel">
+      <div className="shelf-bar">
+        {heading}
+        {scrollable && (
+          <div className="carousel-arrows">
+            <button
+              type="button"
+              className="carousel-arrow"
+              aria-label={`Scroll ${label} backward`}
+              disabled={!reach.start}
+              onClick={() => step(-1)}
+            >
+              <ChevronLeft aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              className="carousel-arrow"
+              aria-label={`Scroll ${label} forward`}
+              disabled={!reach.end}
+              onClick={() => step(1)}
+            >
+              <ChevronRight aria-hidden="true" />
+            </button>
+          </div>
+        )}
+      </div>
+      <div
+        className="resource-row"
+        ref={track}
+        role="list"
+        aria-label={label}
+        onScroll={measure}
+      >
+        {children}
+      </div>
+    </div>
+  )
+}
 
 function relativeTime(prefix: string, iso: string) {
   const minutes = Math.max(
@@ -23,66 +149,91 @@ export function ExamCard({
   exam: RecentExam
   onOpen: (id: string) => void
 }) {
+  // The same furniture the first sheet actually prints. The thumbnail is a
+  // real page at real geometry, shrunk — not an approximation of one — so an
+  // Exam is recognised on the shelf by the shape of its own first page.
+  const furniture: PageFurniture = {
+    identityFields: ['Name', 'Class', 'Date'],
+    title: exam.title,
+    arrangementLabel: 'ID: A',
+    pageNumber: 1,
+  }
   return (
     <button
       type="button"
-      className="resource-card exam-card"
+      className="exam-card"
       onClick={() => onOpen(exam.id)}
     >
       <span className="sr-only">Open {exam.title}. </span>
-      <div
-        className="exam-card-page"
-        aria-label={
-          exam.preview
-            ? 'Working Copy first-page preview'
-            : 'Empty page preview'
-        }
-      >
-        {exam.preview ? (
-          <div className="exam-card-preview-content">
-            {exam.preview.map((content, index) => (
-              <section key={index} aria-label={`Question ${index + 1}`}>
-                <DocView content={content} />
-              </section>
-            ))}
+      {/* Decorative: everything it says, the caption and the label above say in
+          a form a screen reader can use, and six miniature pages would
+          otherwise put six `h1`s into the document outline. */}
+      <div className="exam-sheet" aria-hidden="true">
+        <div className="exam-page" style={PAGE_GEOMETRY}>
+          <PageHeaderContent header="first" furniture={furniture} />
+          <div className="page-content">
+            {exam.preview ? (
+              exam.preview.slice(0, THUMBNAIL_QUESTIONS).map((content, index) => (
+                <section className="exam-question" key={index}>
+                  <div className="question-number">
+                    <span className="question-count">{index + 1}.</span>
+                  </div>
+                  <div className="question-body">
+                    <DocView className="question-stem" content={content} />
+                  </div>
+                </section>
+              ))
+            ) : (
+              <p className="empty-page-line">Empty Exam</p>
+            )}
           </div>
-        ) : (
-          <span className="empty-page-line">Empty Exam</span>
-        )}
+          <footer className="page-footer">{furniture.pageNumber}</footer>
+        </div>
       </div>
-      <div className="resource-card-body">
-        <h2>{exam.title}</h2>
-        <p>
-          {exam.questionCount}{' '}
-          {exam.questionCount === 1 ? 'Question' : 'Questions'}
-        </p>
-        {exam.unsaved && (
-          <strong className="unsaved-badge">Unsaved changes</strong>
-        )}
-        <time dateTime={exam.lastOpenedAt}>
-          {relativeTime('Opened', exam.lastOpenedAt)}
-        </time>
+      <div className="exam-card-caption">
+        <span className="exam-card-title" aria-hidden="true">{exam.title}</span>
+        <span className="exam-card-stats">
+          <span>{exam.questionCount} {exam.questionCount === 1 ? 'Q' : 'Qs'}</span>
+          {exam.unsaved && (
+            <span className="unsaved-mark" title="Unsaved changes">
+              <TriangleAlert aria-hidden="true" />
+              <span className="sr-only">Unsaved changes</span>
+            </span>
+          )}
+        </span>
       </div>
     </button>
   )
 }
 
-function usageLabel(item: QuestionBankCollectionItem['usage'][number]) {
-  if (item.saved && item.workingCopy) return 'saved and Working Copy'
-  return item.saved ? 'saved' : 'Working Copy'
-}
-
 export function QuestionBankCard({
   bank,
   onOpen,
-  onOpenExam,
   onDelete,
 }: {
   bank: QuestionBankCollectionItem
   onOpen: (id: string) => void
-  onOpenExam?: (id: string) => void
   onDelete?: (bank: QuestionBankCollectionItem) => void
 }) {
+  // Acting on the bank lives behind one mark rather than being bolted to the
+  // tile — the card's own job is to be the way in, and a full-width red bar on
+  // every tile in a grid says "delete" far louder than a grid should.
+  const [menu, setMenu] = useState<MenuPoint | null>(null)
+  const items: MenuItem[] = [
+    { kind: 'action', label: 'Open', icon: <FolderOpen />, onSelect: () => onOpen(bank.id) },
+    ...(onDelete
+      ? [
+          { kind: 'separator' } as const,
+          {
+            kind: 'action' as const,
+            label: 'Delete',
+            icon: <Trash2 />,
+            destructive: true,
+            onSelect: () => onDelete(bank),
+          },
+        ]
+      : []),
+  ]
   return (
     <article className="resource-card question-bank-card">
       <button
@@ -92,44 +243,55 @@ export function QuestionBankCard({
       >
         <span className="sr-only">Open {bank.name}. </span>
         <h2 aria-hidden="true">{bank.name}</h2>
-        <p>
+        <p className="bank-card-count">
           {bank.questionCount}{' '}
           {bank.questionCount === 1 ? 'Question' : 'Questions'}
         </p>
-        <p className="topic-summary">
-          {bank.topics.length > 0
-            ? bank.topics.slice(0, 3).join(' · ')
-            : 'No Topics'}
+        {/* Topics wear the same tints here as in the bank pane and the question
+            dialog, so one Topic is one colour everywhere it is shown. */}
+        <div className="bank-card-topics">
+          {bank.topics.slice(0, SHOWN_TOPICS).map((topic) => (
+            <TopicBadge key={topic} topic={topic} />
+          ))}
+          {bank.topics.length > SHOWN_TOPICS && (
+            <span className="badge">+{bank.topics.length - SHOWN_TOPICS}</span>
+          )}
+        </div>
+        {/* How load-bearing this bank is, stated as the one fact worth having
+            while scanning a grid. Which Exams they are is a question you ask
+            while changing or deleting the bank, and it is answered there. */}
+        <p className="bank-card-usage">
+          {bank.usage.length === 0
+            ? 'Not used in any Exams'
+            : `Used in ${bank.usage.length} ${bank.usage.length === 1 ? 'Exam' : 'Exams'}`}
         </p>
         <time dateTime={bank.lastUpdatedAt}>
           {relativeTime('Updated', bank.lastUpdatedAt)}
         </time>
       </button>
-      {onDelete && <button type="button" className="bank-delete-button" aria-label="Delete Question Bank" title={`Delete ${bank.name}`} onClick={() => onDelete(bank)}>Delete Question Bank</button>}
-      <details className="bank-usage">
-        <summary>
-          Used in {bank.usage.length}{' '}
-          {bank.usage.length === 1 ? 'Exam' : 'Exams'}
-        </summary>
-        {bank.usage.length === 0 ? (
-          <p>Not used in any Exams.</p>
-        ) : (
-          <ul>
-            {bank.usage.map((item) => (
-              <li key={item.examId}>
-                {onOpenExam ? (
-                  <button type="button" onClick={() => onOpenExam(item.examId)}>
-                    {item.title}
-                  </button>
-                ) : (
-                  <strong>{item.title}</strong>
-                )}
-                <span>{usageLabel(item)}</span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </details>
+      <button
+        type="button"
+        className="bank-card-menu"
+        aria-label={`${bank.name} actions`}
+        aria-haspopup="menu"
+        onClick={(event) => {
+          // Hangs leftwards from the mark's own right edge, so it never covers
+          // the card it acts on.
+          const bounds = event.currentTarget.getBoundingClientRect()
+          setMenu({ x: bounds.right, y: bounds.bottom + 4 })
+        }}
+      >
+        <EllipsisVertical aria-hidden="true" />
+      </button>
+      {menu && (
+        <ContextMenu
+          point={menu}
+          side="left"
+          ariaLabel={`${bank.name} actions`}
+          items={items}
+          onClose={() => setMenu(null)}
+        />
+      )}
     </article>
   )
 }

@@ -24,6 +24,7 @@ import {
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
+  type ReactNode,
 } from 'react'
 import { createPortal } from 'react-dom'
 import { Check, CircleMinus, Download, Pencil, Plus, Search } from 'lucide-react'
@@ -161,9 +162,10 @@ function FilterDropdown<T extends string>({
         {label}
         {selected.length > 0 && <span className="bank-filter-count">{selected.length}</span>}
       </button>
-      {/* Portalled to the body: the bank pane is `position: sticky`, which
-          makes it a stacking context, and a list left inside it is painted
-          under the divider and the sheet however high its `z-index` is. */}
+      {/* Portalled to the body: the bank pane clips what overflows it, so a
+          list left inside is cut off at the pane's own edge — and in the Exam
+          editor it is painted under the divider and the sheet besides,
+          however high its `z-index` is. */}
       {open && anchor && createPortal(
         <div
           className="bank-filter-list"
@@ -219,6 +221,8 @@ const DIFFICULTY_OPTIONS: FilterOption<DifficultyFilter>[] = [
 
 export function QuestionBankPane({
   bank,
+  heading,
+  extraActions,
   workingCopyIds,
   filter,
   onFilterChange,
@@ -233,6 +237,13 @@ export function QuestionBankPane({
   drag,
 }: {
   bank: QuestionBank
+  /** What names the bank above the filters. The Exam editor's pane says which
+   *  pane this is; the Question Bank page hands in its own editable name,
+   *  which is already the page's title and leaves no room for a second one. */
+  heading?: ReactNode
+  /** Actions belonging to the surface the pane is mounted on rather than to
+   *  the bank, laid out ahead of the bank's own. */
+  extraActions?: ReactNode
   /** Which bank records the Working Copy currently references. */
   workingCopyIds: ReadonlySet<string>
   filter: QuestionBankFilter
@@ -256,6 +267,7 @@ export function QuestionBankPane({
    *  a worse way to say so. */
   drag: WorkspaceDrag
 }) {
+  const [scrolled, setScrolled] = useState(false)
   const questions = browseQuestionBank(bank, filter)
   const filtered = isFilterActive(filter)
   // A gesture that has not yet moved far enough to be a drag. One pointer
@@ -363,83 +375,97 @@ export function QuestionBankPane({
   })
 
   return (
-    <section className="question-bank" aria-label="Question Bank">
-      <header className="question-bank-header">
-        <h2>Question Bank</h2>
-        <div className="question-bank-header-actions">
-          {onExport && <button
-            type="button"
-            className="secondary-button"
-            aria-haspopup="dialog"
-            aria-describedby={bank.questions.length === 0 ? 'empty-bank-export-help' : exportBlocked ? 'editing-bank-export-help' : undefined}
-            disabled={bank.questions.length === 0 || exportBlocked}
-            onClick={onExport}
-          >
-            <Download />
-            Share bank PDF
-          </button>}
-          {onCreate && <button
-            type="button"
-            className="secondary-button"
-            aria-haspopup="menu"
-            onClick={(event) => {
-              // Below the button and aligned with it, so the list of types
-              // reads as belonging to the control that asked for it.
-              const bounds = event.currentTarget.getBoundingClientRect()
-              onCreate({ x: bounds.left, y: bounds.bottom + 4 })
-            }}
-          >
-            <Plus />
-            New question
-          </button>}
-          {onExport && bank.questions.length === 0 && <span id="empty-bank-export-help" className="bank-export-help">At least one Question is required.</span>}
-          {onExport && exportBlocked && <span id="editing-bank-export-help" className="bank-export-help">Save or cancel the open Question edit before exporting.</span>}
-        </div>
-      </header>
+    <section
+      className="question-bank"
+      aria-label="Question Bank"
+      // The rule under the toolbar is drawn only while there is something
+      // above it to have scrolled past.
+      data-scrolled={scrolled ? 'true' : undefined}
+    >
+      {/* What the bank is, what you can do to it, and what is currently hidden
+          are all answers to questions you ask while looking at the list, so
+          they stay outside the scroll area rather than sticking to the top of
+          it: the list of questions is the only thing that scrolls, and the
+          scrollbar is as tall as the list rather than as tall as the pane. */}
+      <div className="question-bank-toolbar">
+        <header className="question-bank-header">
+          {heading ?? <h2>Question Bank</h2>}
+          <div className="question-bank-header-actions">
+            {extraActions}
+            {onExport && <button
+              type="button"
+              className="secondary-button"
+              aria-haspopup="dialog"
+              aria-describedby={bank.questions.length === 0 ? 'empty-bank-export-help' : exportBlocked ? 'editing-bank-export-help' : undefined}
+              disabled={bank.questions.length === 0 || exportBlocked}
+              onClick={onExport}
+            >
+              <Download />
+              Share bank PDF
+            </button>}
+            {onCreate && <button
+              type="button"
+              className="secondary-button"
+              aria-haspopup="menu"
+              onClick={(event) => {
+                // Below the button and aligned with it, so the list of types
+                // reads as belonging to the control that asked for it.
+                const bounds = event.currentTarget.getBoundingClientRect()
+                onCreate({ x: bounds.left, y: bounds.bottom + 4 })
+              }}
+            >
+              <Plus />
+              New question
+            </button>}
+            {onExport && bank.questions.length === 0 && <span id="empty-bank-export-help" className="bank-export-help">At least one Question is required.</span>}
+            {onExport && exportBlocked && <span id="editing-bank-export-help" className="bank-export-help">Save or cancel the open Question edit before exporting.</span>}
+          </div>
+        </header>
 
-      <div className="question-bank-filters">
-        <div className="bank-search">
-          <Search aria-hidden="true" />
-          <input
-            type="search"
-            aria-label="Search question stems"
-            placeholder="Search questions"
-            value={filter.search}
-            onChange={(event) => onFilterChange({ ...filter, search: event.target.value })}
+        <div className="question-bank-filters">
+          <div className="bank-search">
+            <Search aria-hidden="true" />
+            <input
+              type="search"
+              aria-label="Search question stems"
+              placeholder="Search questions"
+              value={filter.search}
+              onChange={(event) => onFilterChange({ ...filter, search: event.target.value })}
+            />
+          </div>
+          <FilterDropdown
+            label="Question Type"
+            options={TYPE_OPTIONS}
+            selected={filter.types}
+            emptyMessage="No Question Types"
+            onChange={(types) => onFilterChange({ ...filter, types })}
           />
+          <FilterDropdown
+            label="Difficulty"
+            options={DIFFICULTY_OPTIONS}
+            selected={filter.difficulties}
+            emptyMessage="No Difficulties"
+            onChange={(difficulties) => onFilterChange({ ...filter, difficulties })}
+          />
+          {/* The Topics actually in the bank, exactly as they were typed. There is
+              no vocabulary to offer beyond what the teacher has already used. */}
+          <FilterDropdown
+            label="Topic"
+            options={topicOptions(bank).map((topic) => ({ value: topic, label: topic }))}
+            selected={filter.topics}
+            emptyMessage="No Topics yet"
+            onChange={(topics) => onFilterChange({ ...filter, topics })}
+          />
+          {filtered && (
+            <button
+              type="button"
+              className="bank-filter-clear"
+              onClick={() => onFilterChange(NO_FILTER)}
+            >
+              Clear filters
+            </button>
+          )}
         </div>
-        <FilterDropdown
-          label="Question Type"
-          options={TYPE_OPTIONS}
-          selected={filter.types}
-          emptyMessage="No Question Types"
-          onChange={(types) => onFilterChange({ ...filter, types })}
-        />
-        <FilterDropdown
-          label="Difficulty"
-          options={DIFFICULTY_OPTIONS}
-          selected={filter.difficulties}
-          emptyMessage="No Difficulties"
-          onChange={(difficulties) => onFilterChange({ ...filter, difficulties })}
-        />
-        {/* The Topics actually in the bank, exactly as they were typed. There is
-            no vocabulary to offer beyond what the teacher has already used. */}
-        <FilterDropdown
-          label="Topic"
-          options={topicOptions(bank).map((topic) => ({ value: topic, label: topic }))}
-          selected={filter.topics}
-          emptyMessage="No Topics yet"
-          onChange={(topics) => onFilterChange({ ...filter, topics })}
-        />
-        {filtered && (
-          <button
-            type="button"
-            className="bank-filter-clear"
-            onClick={() => onFilterChange(NO_FILTER)}
-          >
-            Clear filters
-          </button>
-        )}
       </div>
 
       {questions.length === 0 ? (
@@ -457,7 +483,10 @@ export function QuestionBankPane({
           </p>
         )
       ) : (
-        <ul className="question-bank-list">
+        <ul
+          className="question-bank-list"
+          onScroll={(event) => setScrolled(event.currentTarget.scrollTop > 0)}
+        >
           {questions.map((question) => {
             const inExamWorkingCopy = workingCopyIds.has(question.id)
             const draggable = !inExamWorkingCopy && onAddToWorkingCopy !== undefined

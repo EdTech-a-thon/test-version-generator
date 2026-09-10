@@ -25,7 +25,7 @@ A self-contained PDF for sharing one complete Question Bank. Its complete teache
 _Avoid_: Exam export, printable question bank, backup
 
 **Question Bank Record**:
-The versioned, format-owned machine-readable representation embedded in a Question Bank File, containing the complete Question Bank and every Media Asset it needs. Import creates a new independent Question Bank from this record rather than preserving local identities or inferring Question Content from PDF pages.
+The versioned, format-owned machine-readable representation of one complete Question Bank and every Media Asset it needs. It travels either embedded in a Question Bank File or as a standalone JSON file, and is the authoritative source for import either way. Import creates a new independent Question Bank from this record rather than preserving local identities or inferring Question Content from PDF pages.
 _Avoid_: PDF metadata, extracted questions
 
 **Difficulty**:

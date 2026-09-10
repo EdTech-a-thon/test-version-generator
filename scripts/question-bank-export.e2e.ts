@@ -125,7 +125,7 @@ test('teacher exports the complete active Question Bank without Exam or history 
   page,
 }) => {
   const bankId = await seed(page)
-  await page.goto(`/editor?bank=${bankId}`)
+  await page.goto(`/question-bank?id=${bankId}`)
   const before = await counts(page, bankId)
 
   // A visible filter must not change the authoritative stored order or scope.
@@ -159,7 +159,7 @@ test('teacher exports the complete active Question Bank without Exam or history 
 
 test('export dialog traps focus and cancellation produces no download', async ({ page }) => {
   const bankId = await seed(page)
-  await page.goto(`/editor?bank=${bankId}`)
+  await page.goto(`/question-bank?id=${bankId}`)
   const trigger = page.getByRole('button', { name: 'Share bank PDF' })
   await trigger.focus()
   await trigger.click()
@@ -192,14 +192,14 @@ test('empty bank explains why export is unavailable and an open edit must be res
       }).create()
     ).id
   })
-  await page.goto(`/editor?bank=${emptyId}`)
+  await page.goto(`/question-bank?id=${emptyId}`)
   await expect(page.getByRole('button', { name: 'Share bank PDF' })).toBeDisabled()
   await expect(
     page.getByText('At least one Question is required.'),
   ).toBeVisible()
 
   const bankId = await seed(page)
-  await page.goto(`/editor?bank=${bankId}`)
+  await page.goto(`/question-bank?id=${bankId}`)
   await page
     .getByRole('button', { name: /Edit Explain conservation of mass/ })
     .click()
