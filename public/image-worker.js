@@ -1,6 +1,5 @@
 const registryDatabaseName = 'test-parrot-exams-v1'
-const databaseVersion = 6
-const workspaceStore = 'exam-workspace'
+const databaseVersion = 8
 const mediaStore = 'media-assets'
 
 self.addEventListener('install', () => self.skipWaiting())
@@ -29,20 +28,8 @@ async function recordFrom(databaseName, storeName, key) {
   }
 }
 
-async function activeExamDatabaseName() {
-  const active = await recordFrom(registryDatabaseName, workspaceStore, 'active')
-  return typeof active?.examId === 'string'
-    ? `${registryDatabaseName}-exam-${active.examId}`
-    : null
-}
-
 async function assetFor(hash) {
-  // Imported Question Banks own exchange media globally. Existing Exam media
-  // remains in its per-Exam store until the broader media-lifecycle migration.
-  const global = await recordFrom(registryDatabaseName, mediaStore, hash)
-  if (global) return global
-  const databaseName = await activeExamDatabaseName()
-  return databaseName ? recordFrom(databaseName, mediaStore, hash) : null
+  return recordFrom(registryDatabaseName, mediaStore, hash)
 }
 
 self.addEventListener('fetch', (event) => {

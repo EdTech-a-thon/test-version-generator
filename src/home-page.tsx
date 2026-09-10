@@ -43,7 +43,7 @@ export function HomePage({ exams, banks, error, persistentStorage, onNewExam, on
       {error && <p className="home-error" role="alert">{error}</p>}
       <section className="storage-summary" aria-labelledby="storage-heading">
         <h1 id="storage-heading">Your work stays in this browser</h1>
-        <p>Exams, Question Banks, Working Copies, and Export History are stored locally on this device, not in the cloud. Keep external copies of important work.</p>
+        <p>Exams, Question Banks, Working Copies, and Export History are saved in this browser. There is no account, cloud sync, cross-device recovery, or archival guarantee. Export or back up important work externally.</p>
         {persistentStorage === 'denied' && <p className="storage-warning" role="status">Persistent storage was denied. Your browser may clear this local data when space is needed.</p>}
         {persistentStorage === 'granted' && <p className="storage-status">Persistent browser storage is enabled.</p>}
       </section>

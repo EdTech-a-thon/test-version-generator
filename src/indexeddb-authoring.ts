@@ -259,21 +259,25 @@ export function createIndexedDBAuthoringBackend(
     readExportHistory: async () => readExportHistory(await database),
 
     commitExportRecord: async (record) => {
-      await transaction(
-        [EXPORT_RECORD_STORE, MEDIA_ASSET_STORE],
-        (transaction) => {
-          transaction.objectStore(EXPORT_RECORD_STORE).add(record)
-          // Media bytes were ingested while authoring. Verify every reference
-          // in the same transaction so history cannot commit incomplete.
-          const media = transaction.objectStore(MEDIA_ASSET_STORE)
-          for (const hash of record.mediaHashes) {
-            const request = media.get(hash)
-            request.onsuccess = () => {
-              if (request.result === undefined) transaction.abort()
-            }
-          }
-        },
-      )
+      // Assets are globally owned because canonical Questions and history can
+      // outlive any one Exam database. Validate them before opening the atomic
+      // Export Record transaction; a failure can never leave partial history.
+      const mediaDatabase = await openDatabase(VERSIONED_STORAGE_NAME)
+      try {
+        const mediaTransaction = mediaDatabase.transaction(MEDIA_ASSET_STORE, 'readonly')
+        const assets = await Promise.all(record.mediaHashes.map((hash) =>
+          resultOf(mediaTransaction.objectStore(MEDIA_ASSET_STORE).get(hash)),
+        ))
+        await completionOf(mediaTransaction)
+        if (assets.some((asset) => asset === undefined)) {
+          throw new Error('Required media is missing or corrupt. Re-add the affected image and try again.')
+        }
+      } finally {
+        mediaDatabase.close()
+      }
+      await transaction([EXPORT_RECORD_STORE], (transaction) => {
+        transaction.objectStore(EXPORT_RECORD_STORE).add(record)
+      })
     },
   }
 }

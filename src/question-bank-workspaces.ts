@@ -1,5 +1,6 @@
 import { duplicateQuestion, type Question } from './exam'
 import { requestPersistentStorage } from './durable-storage'
+import { collectUnusedMediaAssets } from './local-images'
 import { NO_FILTER, type QuestionBankFilter } from './question-bank-view'
 import {
   CANONICAL_QUESTION_STORE,
@@ -574,6 +575,7 @@ export function createQuestionBankWorkspaceService(
           },
         )
         await exams.finalize().catch((error) => console.error('Could not clean up a pristine Exam after deletion', error))
+        await collectUnusedMediaAssets().catch((error) => console.error('Could not collect unused media', error))
         void requestPersistentStorage()
         return removeBank ? null : {
           ...before,
@@ -600,6 +602,7 @@ export function createQuestionBankWorkspaceService(
           },
         )
         await exams.finalize().catch((error) => console.error('Could not clean up a pristine Exam after deletion', error))
+        await collectUnusedMediaAssets().catch((error) => console.error('Could not collect unused media', error))
         void requestPersistentStorage()
       } catch (error) {
         await exams.rollback()
