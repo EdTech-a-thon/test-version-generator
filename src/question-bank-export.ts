@@ -29,6 +29,10 @@ export type SemanticNode = {
   language?: string
   source?: string
   header?: boolean
+  asset?: string
+  alt?: string
+  caption?: string
+  authoredSize?: number
 }
 
 export type SemanticDocument = { type: 'document'; content: SemanticNode[] }
@@ -50,7 +54,13 @@ export type QuestionBankRecord = {
   requiredFeatures: string[]
   integrity: { algorithm: 'sha-256'; digest: string }
   bank: { name: string; questions: QuestionBankRecordQuestion[] }
-  media: []
+  media: {
+    id: string
+    mimeType: 'image/png' | 'image/jpeg' | 'image/webp'
+    width: number
+    height: number
+    bytes: string
+  }[]
 }
 
 export type PreparedQuestionBankExport = {

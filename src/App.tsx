@@ -108,6 +108,7 @@ import { persistentStorageStatus, requestPersistentStorage, type PersistentStora
 import { ResourceCollectionPage } from './resource-collection-page'
 import { questionBankCollection, type QuestionBankCollectionItem } from './resource-collections'
 import { QuestionBankExportDialog } from './question-bank-export-dialog'
+import { QuestionBankImportDialog } from './question-bank-import-dialog'
 
 /** The mark each Question Section goes by, so a type reads the same wherever
  *  it is named — the picker that chooses one, and the dialog that states it. */
@@ -2356,6 +2357,7 @@ export default function App({
   const [editorId, setEditorId] = useState(initialEditorId)
   const [editorMode, setEditorMode] = useState(initialEditorMode)
   const [deletingBank, setDeletingBank] = useState<{ bank: QuestionBankCollectionItem; impact: QuestionDeletionImpact[] } | null>(null)
+  const [inspectingBankFile, setInspectingBankFile] = useState(false)
   const homeError = initialError
   const requestBankDeletion = useCallback((bank: QuestionBankCollectionItem) => {
     void bankWorkspaces.read(bank.id).then(async (resource) => {
@@ -2437,7 +2439,8 @@ export default function App({
     onOpenExam={(id) => window.location.assign(`/editor?exam=${id}`)}
     onOpenBank={(id) => window.location.assign(`/editor?bank=${id}`)}
     onDeleteBank={requestBankDeletion}
-  />{bankDeletionConfirmation}</>
+    onImportBank={() => setInspectingBankFile(true)}
+  />{bankDeletionConfirmation}{inspectingBankFile && <QuestionBankImportDialog onClose={() => setInspectingBankFile(false)} />}</>
   if (route === '/') return <><HomePage
     exams={exams}
     banks={bankCollection}

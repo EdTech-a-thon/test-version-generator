@@ -15,6 +15,7 @@ export function ResourceCollectionPage({
   onOpenExam,
   onOpenBank,
   onDeleteBank,
+  onImportBank,
 }: {
   kind: 'exams' | 'question-banks'
   exams: readonly RecentExam[]
@@ -22,6 +23,7 @@ export function ResourceCollectionPage({
   onOpenExam: (id: string) => void
   onOpenBank: (id: string) => void
   onDeleteBank?: (bank: QuestionBankCollectionItem) => void
+  onImportBank?: () => void
 }) {
   const [query, setQuery] = useState('')
   const shownExams = useMemo(
@@ -49,16 +51,23 @@ export function ResourceCollectionPage({
                 : 'Find a Question Bank by name or Topic.'}
             </p>
           </div>
-          <label className="collection-search">
-            <span className="sr-only">Search {resourceName}</span>
-            <input
-              type="search"
-              autoFocus
-              placeholder={`Search ${resourceName}`}
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-            />
-          </label>
+          <div className="collection-heading-actions">
+            {!isExams && onImportBank && (
+              <button type="button" className="secondary-button" onClick={onImportBank}>
+                Inspect Question Bank PDF
+              </button>
+            )}
+            <label className="collection-search">
+              <span className="sr-only">Search {resourceName}</span>
+              <input
+                type="search"
+                autoFocus
+                placeholder={`Search ${resourceName}`}
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+              />
+            </label>
+          </div>
         </header>
         <p className="collection-count" role="status" aria-live="polite">
           {resources.length}{' '}
