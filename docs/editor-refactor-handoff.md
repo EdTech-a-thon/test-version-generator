@@ -2,9 +2,9 @@
 
 A working document for the next agent picking up the Test Parrot editor
 conversation. Updated 2026-09-10 on branch `crepe-editor`, after the refactor
-below was built. Everything in "What shipped" is in the working tree and
-uncommitted; the user verifies in the browser and has said not to run
-Playwright on their behalf.
+below was built. Everything in "What shipped" landed together in the editor
+refactor; the user verifies in the browser and has said not to run Playwright
+on their behalf.
 
 ---
 
