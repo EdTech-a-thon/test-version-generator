@@ -121,3 +121,12 @@ The PDF preview is a teacher aid containing answers. It is generated from the re
 The canonical examples cover a minimal Multiple Choice bank, Short Answer with Suggested Answer, every supported rich-text node and mark, provenance and external links, and referenced Media Assets. Their formatting and generator values are deliberately not Test Parrot output requirements.
 
 The invalid fixture manifest records the expected application-level rejection category for unsupported versions and required features, unsafe URLs, malformed Questions, dangling references, integrity mismatch, and invalid Media Assets. Conformance tests validate examples directly with an independent JSON Schema implementation, inspect them through Test Parrot's public import seam, validate Test Parrot-generated records against the published schema, and assert that schema vocabulary, adapters, and examples remain aligned.
+
+
+## Implementation status
+
+The Question Bank File workflow described by ADR-0018 and GitHub issue #55 is
+implemented by the `0.1.0` exporter, importer, public fixtures, and conformance
+tests. Question Bank Files remain a resource-exchange format: they do not use
+Exam Export Documents or Layout Plans and do not create Exam Export Records or
+Question Bank export history.
