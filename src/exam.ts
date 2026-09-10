@@ -59,6 +59,9 @@ export type Question = {
   id: string
   type: QuestionType
   doc: ProseMirrorJSON
+  /** Optional answer material for a Short Answer Question. It is canonical
+   * Question Content, but is never shown on the student Exam stream. */
+  suggestedAnswer?: ProseMirrorJSON
   columns: ColumnSetting
   // Optional classification. Both are absent rather than empty on a question
   // nobody has classified, so an untagged question costs no storage and a
@@ -155,6 +158,9 @@ export function duplicateQuestion(question: Question): Question {
     ...question,
     id: crypto.randomUUID(),
     doc: withFreshChoiceIds(question.doc),
+    ...(question.suggestedAnswer
+      ? { suggestedAnswer: structuredClone(question.suggestedAnswer) }
+      : {}),
   }
   // A list of its own: the copy is a Question Bank record in its own right, and
   // retagging one must never retag the other.

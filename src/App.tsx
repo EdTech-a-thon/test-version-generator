@@ -31,7 +31,7 @@ import {
 } from './script-marks'
 import { leftArrowInputRule, rightArrowInputRule } from './text-arrows'
 import type { ReactNode } from 'react'
-import { cleanDocument } from './question-doc'
+import { cleanDocument, emptyDoc } from './question-doc'
 import type { ProseMirrorJSON } from './question-doc'
 import {
   DIFFICULTIES,
@@ -107,6 +107,7 @@ import { AboutPage, PrivacyPage } from './site-pages'
 import { persistentStorageStatus, requestPersistentStorage, type PersistentStorageStatus } from './durable-storage'
 import { ResourceCollectionPage } from './resource-collection-page'
 import { questionBankCollection, type QuestionBankCollectionItem } from './resource-collections'
+import { QuestionBankExportDialog } from './question-bank-export-dialog'
 
 /** The mark each Question Section goes by, so a type reads the same wherever
  *  it is named — the picker that chooses one, and the dialog that states it. */
@@ -491,8 +492,12 @@ function QuestionDialog({
   const [doc] = useState<ProseMirrorJSON>(question.doc)
   const [difficulty, setDifficulty] = useState<Difficulty | ''>(question.difficulty ?? '')
   const [topics, setTopics] = useState<readonly string[]>(topicsOf(question))
+  const [suggestedAnswer] = useState<ProseMirrorJSON>(question.suggestedAnswer ?? emptyDoc)
+  const [editingSuggestedAnswer, setEditingSuggestedAnswer] = useState(false)
   const latestDoc = useRef(doc)
+  const latestSuggestedAnswer = useRef(suggestedAnswer)
   const readEditorDocument = useRef<(() => ProseMirrorJSON) | null>(null)
+  const readSuggestedAnswer = useRef<(() => ProseMirrorJSON) | null>(null)
   const dialog = useRef<HTMLElement>(null)
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
@@ -529,6 +534,16 @@ function QuestionDialog({
       else delete saved.difficulty
       if (topics.length > 0) saved.topics = [...topics]
       else delete saved.topics
+      if (type === 'open' && editingSuggestedAnswer) {
+        const answer = cleanDocument(readSuggestedAnswer.current?.() ?? latestSuggestedAnswer.current)
+        const content = Array.isArray(answer.content) ? answer.content as ProseMirrorJSON[] : []
+        const visiblyBlank = content.every((node) =>
+          node.type === 'paragraph'
+          && (!Array.isArray(node.content) || node.content.length === 0),
+        )
+        if (visiblyBlank) delete saved.suggestedAnswer
+        else saved.suggestedAnswer = await ownDocumentMedia(answer)
+      }
       await onSave(saved)
     } catch (error) {
       setSaveError(
@@ -649,6 +664,20 @@ function QuestionDialog({
             }}
           />
         </div>
+        {type === 'open' && (editingSuggestedAnswer ? <section className="suggested-answer-editor" aria-label="Suggested Answer">
+          <h3>Suggested Answer <span>(optional)</span></h3>
+          <div className="dialog-editor">
+            <CrepeQuestion
+              value={suggestedAnswer}
+              onReady={(readDocument) => { readSuggestedAnswer.current = readDocument }}
+              onChange={(next) => { latestSuggestedAnswer.current = next }}
+            />
+          </div>
+        </section> : <button
+          type="button"
+          className="secondary-button add-suggested-answer"
+          onClick={() => setEditingSuggestedAnswer(true)}
+        >{question.suggestedAnswer ? 'Edit Suggested Answer' : 'Add Suggested Answer'}</button>)}
         <footer className="dialog-actions">
           {!isNew && onDelete && <button type="button" className="danger-button question-delete-button" onClick={onDelete}><Trash2 />Delete Question</button>}
           {saveError && <p className="dialog-save-error" role="alert">{saveError}</p>}
@@ -903,6 +932,7 @@ function QuestionBankTabsPane({
   const [editingOwner, setEditingOwner] = useState<QuestionBankResource | null>(null)
   const [usage, setUsage] = useState<QuestionUsage[] | undefined>()
   const [confirmingDeletion, setConfirmingDeletion] = useState(false)
+  const [exportingBank, setExportingBank] = useState<QuestionBankResource | null>(null)
   const unavailableDrag = useWorkspaceDrag(() => undefined)
   const drag = workspaceDrag ?? unavailableDrag
 
@@ -1052,6 +1082,8 @@ function QuestionBankTabsPane({
       onSelect={setSelectedQuestionId}
       drag={drag}
       onCreate={setChoosingType}
+      onExport={() => setExportingBank(active)}
+      exportBlocked={editing !== null}
       onEdit={(questionId) => {
         const question = active.questions.find((candidate) => candidate.id === questionId)
         if (!question) return
@@ -1075,6 +1107,7 @@ function QuestionBankTabsPane({
         : undefined}
       onRemoveFromExamDraft={onRemoveFromExam}
     /> : fallback ?? <div className="question-bank question-bank-no-tab"><p>No Question Bank is open.</p></div>}
+    {exportingBank && <QuestionBankExportDialog bank={exportingBank} onClose={() => setExportingBank(null)} />}
     {pickerBanks && <ResourcePicker
       title="Open Question Bank"
       closeLabel="Close Question Bank picker"

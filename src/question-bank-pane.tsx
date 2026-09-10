@@ -26,7 +26,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from 'react'
 import { createPortal } from 'react-dom'
-import { Check, CircleMinus, Pencil, Plus, Search } from 'lucide-react'
+import { Check, CircleMinus, Download, Pencil, Plus, Search } from 'lucide-react'
 import { DifficultyBadge, TopicBadge } from './badges'
 import type { MenuPoint } from './context-menu'
 import { stemPreview, type StemPreviewBadge } from './stem-preview'
@@ -225,6 +225,8 @@ export function QuestionBankPane({
   selectedQuestionId,
   onSelect,
   onCreate,
+  onExport,
+  exportBlocked = false,
   onEdit,
   onAddToExamDraft,
   onRemoveFromExamDraft,
@@ -240,6 +242,10 @@ export function QuestionBankPane({
   selectedQuestionId: string | null
   onSelect: (questionId: string) => void
   onCreate?: (point: MenuPoint) => void
+  /** Exports this complete active bank, never the filtered row projection. */
+  onExport?: () => void
+  /** An open Question editor must be resolved before export can begin. */
+  exportBlocked?: boolean
   onEdit: (questionId: string) => void
   onAddToExamDraft?: (questionId: string) => void
   /** Takes the question back off the Exam Draft, leaving its bank record be. */
@@ -361,6 +367,17 @@ export function QuestionBankPane({
       <header className="question-bank-header">
         <h2>Question Bank</h2>
         <div className="question-bank-header-actions">
+          {onExport && <button
+            type="button"
+            className="secondary-button"
+            aria-haspopup="dialog"
+            aria-describedby={bank.questions.length === 0 ? 'empty-bank-export-help' : exportBlocked ? 'editing-bank-export-help' : undefined}
+            disabled={bank.questions.length === 0 || exportBlocked}
+            onClick={onExport}
+          >
+            <Download />
+            Share bank PDF
+          </button>}
           {onCreate && <button
             type="button"
             className="secondary-button"
@@ -375,6 +392,8 @@ export function QuestionBankPane({
             <Plus />
             New question
           </button>}
+          {onExport && bank.questions.length === 0 && <span id="empty-bank-export-help" className="bank-export-help">At least one Question is required.</span>}
+          {onExport && exportBlocked && <span id="editing-bank-export-help" className="bank-export-help">Save or cancel the open Question edit before exporting.</span>}
         </div>
       </header>
 
