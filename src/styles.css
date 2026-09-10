@@ -1109,6 +1109,15 @@ button { cursor: pointer; }
 .home-empty h2 { margin: 0 0 8px; font-size: 18px; }
 .home-empty p { margin: 0 0 20px; color: #6e5b4d; }
 .home-error { margin: 0 0 18px; padding: 12px 14px; border: 1px solid var(--paper-danger-line); border-radius: 7px; color: var(--paper-danger); background: var(--paper-danger-wash); }
+.home-heading-section { margin-top: 44px; }
+.bank-only-workspace { display: grid; grid-template-columns: minmax(340px, 35%) 1fr; min-height: calc(100vh - 116px); }
+.bank-only-workspace .question-bank-authoring { position: relative; height: calc(100vh - 68px); }
+.bank-only-empty { display: grid; align-content: center; justify-items: center; padding: 40px; text-align: center; color: #6e5b4d; }
+.bank-only-empty h1 { margin: 0 0 10px; color: #382d26; }
+.bank-only-empty p { margin: 0; max-width: 440px; }
+.bank-save-status { color: #6e5b4d; font-size: 13px; }
+.bank-name-error { margin: 10px 20px 0; }
+.dialog-save-error { flex: 1; margin: 0; color: var(--paper-danger); font-size: 13px; }
 .exam-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 16px; }
 .exam-card { min-height: 166px; padding: 18px; border: 1px solid #e0d3c2; border-radius: 9px; color: inherit; text-align: left; background: #fffaf3; }
 .exam-card:hover { border-color: #b65f43; box-shadow: 0 3px 12px rgb(91 68 47 / 12%); }

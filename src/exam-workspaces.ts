@@ -2,8 +2,12 @@ import type { AuthoringState, SaveAsSnapshot } from './exam-store'
 import { createIndexedDBAuthoringBackend } from './indexeddb-authoring'
 import { createExamDraft } from './question-bank'
 import {
+  CANONICAL_QUESTION_STORE,
+  EDITOR_WORKSPACE_STORE,
   EXAM_STORE,
   EXAM_WORKSPACE_STORE,
+  QUESTION_BANK_REGISTRY_STORE,
+  QUESTION_BANK_WORKSPACE_STORE,
   VERSIONED_STORAGE_NAME,
   VERSIONED_STORAGE_VERSION,
 } from './storage-schema'
@@ -51,6 +55,10 @@ function openRegistry(): Promise<IDBDatabase> {
       const database = request.result
       if (!database.objectStoreNames.contains(EXAM_STORE)) database.createObjectStore(EXAM_STORE, { keyPath: 'id' })
       if (!database.objectStoreNames.contains(EXAM_WORKSPACE_STORE)) database.createObjectStore(EXAM_WORKSPACE_STORE, { keyPath: 'key' })
+      if (!database.objectStoreNames.contains(QUESTION_BANK_REGISTRY_STORE)) database.createObjectStore(QUESTION_BANK_REGISTRY_STORE, { keyPath: 'id' })
+      if (!database.objectStoreNames.contains(CANONICAL_QUESTION_STORE)) database.createObjectStore(CANONICAL_QUESTION_STORE, { keyPath: 'id' })
+      if (!database.objectStoreNames.contains(QUESTION_BANK_WORKSPACE_STORE)) database.createObjectStore(QUESTION_BANK_WORKSPACE_STORE, { keyPath: 'key' })
+      if (!database.objectStoreNames.contains(EDITOR_WORKSPACE_STORE)) database.createObjectStore(EDITOR_WORKSPACE_STORE, { keyPath: 'key' })
     }
     request.onsuccess = () => resolve(request.result)
     request.onerror = () => reject(request.error)
@@ -115,9 +123,10 @@ export function createExamWorkspaceService(options: { now?: () => Date; createId
       // A newly created Exam starts with an explicit empty saved composition,
       // not merely a clean-looking Working Copy.
       await backendFor(exam.id).commitSaved(initial)
-      await transact([EXAM_STORE, EXAM_WORKSPACE_STORE], 'readwrite', (transaction) => {
+      await transact([EXAM_STORE, EXAM_WORKSPACE_STORE, EDITOR_WORKSPACE_STORE], 'readwrite', (transaction) => {
         transaction.objectStore(EXAM_STORE).put(exam)
         transaction.objectStore(EXAM_WORKSPACE_STORE).put({ key: 'active', examId: exam.id } satisfies ActiveWorkspace)
+        transaction.objectStore(EDITOR_WORKSPACE_STORE).put({ key: 'active', mode: 'exam', resourceId: exam.id })
       })
       return exam
     },
@@ -126,9 +135,10 @@ export function createExamWorkspaceService(options: { now?: () => Date; createId
         requestOf(transaction.objectStore(EXAM_STORE).get(id)) as Promise<ExamSummary | undefined>,
       )
       if (!exam) return false
-      await transact([EXAM_STORE, EXAM_WORKSPACE_STORE], 'readwrite', (transaction) => {
+      await transact([EXAM_STORE, EXAM_WORKSPACE_STORE, EDITOR_WORKSPACE_STORE], 'readwrite', (transaction) => {
         transaction.objectStore(EXAM_STORE).put({ ...exam, lastOpenedAt: now().toISOString() })
         transaction.objectStore(EXAM_WORKSPACE_STORE).put({ key: 'active', examId: id } satisfies ActiveWorkspace)
+        transaction.objectStore(EDITOR_WORKSPACE_STORE).put({ key: 'active', mode: 'exam', resourceId: id })
       })
       return true
     },
@@ -161,9 +171,10 @@ export function createExamWorkspaceService(options: { now?: () => Date; createId
         })
         await sourceBackend.write(snapshot.sourceRestored)
         sourceWritten = true
-        await transact([EXAM_STORE, EXAM_WORKSPACE_STORE], 'readwrite', (transaction) => {
+        await transact([EXAM_STORE, EXAM_WORKSPACE_STORE, EDITOR_WORKSPACE_STORE], 'readwrite', (transaction) => {
           transaction.objectStore(EXAM_STORE).put(target)
           transaction.objectStore(EXAM_WORKSPACE_STORE).put({ key: 'active', examId: target.id } satisfies ActiveWorkspace)
+          transaction.objectStore(EDITOR_WORKSPACE_STORE).put({ key: 'active', mode: 'exam', resourceId: target.id })
         })
         return target
       } catch (error) {

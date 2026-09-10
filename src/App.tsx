@@ -82,6 +82,11 @@ import { Footer } from './site-chrome'
 import { HomePage } from './home-page'
 import type { ExamWorkspaceService, RecentExam } from './exam-workspaces'
 import {
+  type QuestionBankResourceStore,
+  type QuestionBankSummary,
+  type QuestionBankWorkspaceService,
+} from './question-bank-workspaces'
+import {
   HistoricalDocument,
   ReviewHistoricalQuestions,
   UseAsDraftConfirmation,
@@ -474,6 +479,8 @@ function QuestionDialog({
   const latestDoc = useRef(doc)
   const readEditorDocument = useRef<(() => ProseMirrorJSON) | null>(null)
   const dialog = useRef<HTMLElement>(null)
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
 
   // Escape that lands on nothing: a click on a bare patch of the dialog, or a
   // popup closing under the focus it held, leaves focus on the document body,
@@ -491,19 +498,32 @@ function QuestionDialog({
   }, [onCancel])
 
   const saveQuestion = async () => {
-    await settlePendingMedia()
-    const saved: Question = {
-      ...question,
-      type,
-      doc: await ownDocumentMedia(
-        cleanDocument(readEditorDocument.current?.() ?? latestDoc.current),
-      ),
+    if (saving) return
+    setSaving(true)
+    setSaveError(null)
+    try {
+      await settlePendingMedia()
+      const saved: Question = {
+        ...question,
+        type,
+        doc: await ownDocumentMedia(
+          cleanDocument(readEditorDocument.current?.() ?? latestDoc.current),
+        ),
+      }
+      if (difficulty) saved.difficulty = difficulty
+      else delete saved.difficulty
+      if (topics.length > 0) saved.topics = [...topics]
+      else delete saved.topics
+      await onSave(saved)
+    } catch (error) {
+      setSaveError(
+        error instanceof Error
+          ? error.message
+          : 'The Question could not be saved. Your changes are still here; try again.',
+      )
+    } finally {
+      setSaving(false)
     }
-    if (difficulty) saved.difficulty = difficulty
-    else delete saved.difficulty
-    if (topics.length > 0) saved.topics = [...topics]
-    else delete saved.topics
-    await onSave(saved)
   }
 
   return (
@@ -599,18 +619,121 @@ function QuestionDialog({
           />
         </div>
         <footer className="dialog-actions">
+          {saveError && <p className="dialog-save-error" role="alert">{saveError}</p>}
           <button type="button" className="secondary-button" onClick={onCancel}>Cancel</button>
           <button
             type="button"
             className="primary-button"
+            disabled={saving}
             onClick={() => void saveQuestion()}
           >
-            Save question
+            {saving ? 'Saving…' : 'Save question'}
           </button>
         </footer>
       </section>
     </div>
   )
+}
+
+function QuestionBankEditor({
+  store,
+  onHome,
+  launchError,
+}: {
+  store: QuestionBankResourceStore
+  onHome: () => void
+  launchError: string | null
+}) {
+  const resource = useSyncExternalStore(store.subscribe, store.getState)
+  const [name, setName] = useState(resource.name)
+  const [nameError, setNameError] = useState<string | null>(null)
+  const [filter, setFilter] = useState<QuestionBankFilter>(NO_FILTER)
+  const [selectedQuestionId, setSelectedQuestionId] = useState<string | null>(null)
+  const [choosingType, setChoosingType] = useState<MenuPoint | null>(null)
+  const [editing, setEditing] = useState<Question | null>(null)
+  const drag = useWorkspaceDrag(() => undefined)
+  const bank = { questions: resource.questions }
+
+  useEffect(() => setName(resource.name), [resource.name])
+
+  const commitName = async () => {
+    if (name === resource.name) return
+    setNameError(null)
+    try {
+      await store.rename(name)
+    } catch (error) {
+      setNameError(error instanceof Error ? error.message : 'The Question Bank name could not be saved.')
+    }
+  }
+
+  return <>
+    {launchError && <p className="home-error editor-launch-error" role="alert">{launchError}</p>}
+    <header className="document-bar">
+      <div className="document-identity">
+        <img className="app-logo" src="/logo.png" alt="Test Parrot" width={36} height={36} />
+        <input
+          aria-label="Question Bank name"
+          className="document-title"
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+          onBlur={() => void commitName()}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') event.currentTarget.blur()
+          }}
+        />
+      </div>
+      <div className="header-actions">
+        <span className="bank-save-status">Changes save immediately</span>
+        <button type="button" className="site-link editor-home-link" onClick={onHome}>Home</button>
+      </div>
+    </header>
+    {nameError && <p className="home-error bank-name-error" role="alert">{nameError}</p>}
+    <div className="bank-only-workspace">
+      <div className="question-bank-authoring">
+        <QuestionBankPane
+          bank={bank}
+          examDraftIds={new Set()}
+          filter={filter}
+          onFilterChange={setFilter}
+          selectedQuestionId={selectedQuestionId}
+          onSelect={setSelectedQuestionId}
+          drag={drag}
+          onCreate={setChoosingType}
+          onEdit={(questionId) => {
+            const question = bankQuestionById(bank, questionId)
+            if (question) setEditing(question)
+          }}
+        />
+      </div>
+      <main className="bank-only-empty" aria-label="Bank-only editor">
+        <h1>{resource.name}</h1>
+        <p>Create and edit reusable Questions here. No Exam is open or changed.</p>
+      </main>
+    </div>
+    <Footer />
+    {choosingType && <ContextMenu
+      point={choosingType}
+      ariaLabel="Question type"
+      items={SECTION_ORDER.map((type) => ({
+        kind: 'action' as const,
+        label: SECTION_LABELS[type],
+        icon: QUESTION_TYPE_ICONS[type],
+        onSelect: () => setEditing(createQuestion(type)),
+      }))}
+      onClose={() => setChoosingType(null)}
+    />}
+    {editing && <QuestionDialog
+      question={editing}
+      isNew={!bankQuestionById(bank, editing.id)}
+      topicSuggestions={topicOptions(bank)}
+      onCancel={() => setEditing(null)}
+      onSave={async (question) => {
+        if (bankQuestionById(bank, question.id)) await store.updateQuestion(question)
+        else await store.createQuestion(question)
+        setEditing(null)
+      }}
+    />}
+  </>
 }
 
 function ExamEditor({
@@ -1560,18 +1683,26 @@ function ExamEditor({
  */
 export default function App({
   store,
+  bankStore,
   workspaces,
+  bankWorkspaces,
   initialExams,
+  initialBanks,
   initialError,
 }: {
   store: ExamStore | null
+  bankStore: QuestionBankResourceStore | null
   workspaces: ExamWorkspaceService
+  bankWorkspaces: QuestionBankWorkspaceService
   initialExams: readonly RecentExam[]
+  initialBanks: readonly QuestionBankSummary[]
   initialError: string | null
 }) {
   const route = useRoute()
   const [exams, setExams] = useState(initialExams)
+  const [banks, setBanks] = useState(initialBanks)
   const [editorStore, setEditorStore] = useState(store)
+  const [editorBankStore] = useState(bankStore)
   const homeError = initialError
   const saveAs = useCallback(async () => {
     if (!editorStore) return
@@ -1600,19 +1731,35 @@ export default function App({
     let current = true
     void (async () => {
       await workspaces.cleanupPristine({ includeActive: true })
-      const recent = await workspaces.recent()
-      if (current) setExams(recent)
+      await bankWorkspaces.cleanupPristine({ includeActive: true })
+      const [recent, recentBanks] = await Promise.all([
+        workspaces.recent(),
+        bankWorkspaces.recent(),
+      ])
+      if (current) {
+        setExams(recent)
+        setBanks(recentBanks)
+      }
     })()
     return () => { current = false }
-  }, [route, workspaces])
+  }, [route, workspaces, bankWorkspaces])
   if (route === '/about') return <AboutPage />
   if (route === '/privacy') return <PrivacyPage />
   if (route === '/') return <HomePage
     exams={exams}
+    banks={banks}
     error={homeError}
     onNewExam={() => { void workspaces.create().then((exam) => window.location.assign(`/editor?exam=${exam.id}`)) }}
     onOpen={(id) => window.location.assign(`/editor?exam=${id}`)}
+    onNewBank={() => { void bankWorkspaces.create().then((bank) => window.location.assign(`/editor?bank=${bank.id}`)) }}
+    onOpenBank={(id) => window.location.assign(`/editor?bank=${id}`)}
   />
+  if (editorBankStore) return <QuestionBankEditor store={editorBankStore} launchError={initialError} onHome={() => {
+    void bankWorkspaces.activeId().then(async (id) => {
+      if (id) await bankWorkspaces.removePristine(id)
+      window.location.assign('/')
+    })
+  }} />
   return editorStore ? <ExamEditor store={editorStore} launchError={initialError} onSaveAs={saveAs} onHome={() => {
     void workspaces.activeId().then(async (id) => {
       if (id) await workspaces.removePristine(id)

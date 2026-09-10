@@ -241,9 +241,9 @@ export function QuestionBankPane({
   onSelect: (questionId: string) => void
   onCreate: (point: MenuPoint) => void
   onEdit: (questionId: string) => void
-  onAddToExamDraft: (questionId: string) => void
+  onAddToExamDraft?: (questionId: string) => void
   /** Takes the question back off the Exam Draft, leaving its bank record be. */
-  onRemoveFromExamDraft: (questionId: string) => void
+  onRemoveFromExamDraft?: (questionId: string) => void
   /** The gesture in flight. A row that is not already on the Exam Draft is a
    *  drag source for it; a row that is offers no gesture at all, because a
    *  reference occurs at most once and refusing a drop after the fact would be
@@ -461,7 +461,7 @@ export function QuestionBankPane({
                 }
                 aria-current={selectedQuestionId === question.id ? 'true' : undefined}
                 tabIndex={0}
-                {...(inExamDraft ? {} : dragHandlers(question))}
+                {...(inExamDraft || !onAddToExamDraft ? {} : dragHandlers(question))}
                 onClick={() => {
                   // The press that has just finished dragging is not a click —
                   // that press, on that row, and no other click anywhere.
@@ -529,7 +529,7 @@ export function QuestionBankPane({
                       one thing a teacher could still want from that slot, so
                       under the cursor the tick becomes the minus that takes
                       the question back off the exam. */}
-                  {inExamDraft ? (
+                  {inExamDraft && onRemoveFromExamDraft ? (
                     <button
                       type="button"
                       className="question-bank-action question-bank-included"
@@ -540,7 +540,7 @@ export function QuestionBankPane({
                       <Check className="question-bank-included-resting" />
                       <CircleMinus className="question-bank-included-hover" />
                     </button>
-                  ) : (
+                  ) : onAddToExamDraft ? (
                     <button
                       type="button"
                       className="question-bank-action"
@@ -550,7 +550,7 @@ export function QuestionBankPane({
                     >
                       <Plus />
                     </button>
-                  )}
+                  ) : null}
                 </div>
               </li>
             )

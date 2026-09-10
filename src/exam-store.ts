@@ -768,7 +768,8 @@ export function createExamStore(options: {
       // Question Content remains live when restoring an arrangement: Save As
       // must not roll canonical edits back merely because the source's saved
       // composition predates them.
-      const { lastExportedVersionId: _workingExportedVersionId, ...sourceWithoutCheckpoint } = working
+      const sourceWithoutCheckpoint = { ...working }
+      delete sourceWithoutCheckpoint.lastExportedVersionId
       const sourceRestored: AuthoringState = {
         ...sourceWithoutCheckpoint,
         examDraft: sourceSaved?.examDraft ?? createExamDraft(working.examDraft.title),

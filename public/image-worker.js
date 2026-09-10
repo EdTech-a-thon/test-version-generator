@@ -1,5 +1,5 @@
 const registryDatabaseName = 'test-parrot-exams-v1'
-const databaseVersion = 4
+const databaseVersion = 5
 const workspaceStore = 'exam-workspace'
 const mediaStore = 'media-assets'
 
