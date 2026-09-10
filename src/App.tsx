@@ -89,6 +89,8 @@ import {
   type QuestionBankSummary,
   type QuestionBankTabsWorkspace,
   type BankWorkspaceContext,
+  closeBankTab,
+  openBankTab,
   type QuestionBankWorkspaceService,
 } from './question-bank-workspaces'
 import {
@@ -810,24 +812,32 @@ function QuestionBankTabsPane({
     requestAnimationFrame(() => document.querySelector<HTMLElement>(`[role="tab"][data-bank-id="${CSS.escape(id)}"]`)?.focus())
   }
   const activate = async (id: string) => {
+    const previousActiveBankId = workspace.activeBankId
+    setWorkspace((current) => openBankTab(current, id))
+    setSelectedQuestionId(null)
     const opened = await service.openTab(stableContext, id)
     if (!opened) {
+      setWorkspace((current) => current.activeBankId === id
+        ? { ...current, activeBankId: previousActiveBankId }
+        : current)
       setMessage('That Question Bank is unavailable on this device.')
       return
     }
-    setWorkspace(opened.workspace)
+    // The durable response can finish after the teacher has changed this or
+    // another tab's filters. Keep the newer in-memory workspace instead of
+    // replacing it with the response's earlier snapshot.
     updateResource(opened.bank)
-    setSelectedQuestionId(null)
   }
   const close = async (id: string) => {
-    const next = await service.closeTab(stableContext, id)
-    setWorkspace(next)
+    const next = closeBankTab(workspace, id)
+    setWorkspace((current) => closeBankTab(current, id))
     setResources((current) => {
       const remaining = { ...current }
       delete remaining[id]
       return remaining
     })
     setSelectedQuestionId(null)
+    await service.closeTab(stableContext, id)
     requestAnimationFrame(() => {
       const target = next.activeBankId
         ? document.querySelector<HTMLElement>(`[role="tab"][data-bank-id="${CSS.escape(next.activeBankId)}"]`)

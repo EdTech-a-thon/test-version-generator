@@ -287,6 +287,7 @@ export function createQuestionBankWorkspaceService(
       )
     },
     async workspace(context: BankWorkspaceContext): Promise<QuestionBankTabsWorkspace> {
+      await workspaceWrites
       return transact(QUESTION_BANK_WORKSPACE_STORE, 'readonly', async (transaction) => {
         const stored = await requestOf(
           transaction.objectStore(QUESTION_BANK_WORKSPACE_STORE).get(tabsKey(context)),
@@ -299,46 +300,62 @@ export function createQuestionBankWorkspaceService(
       workspace: QuestionBankTabsWorkspace,
     ): Promise<QuestionBankTabsWorkspace> {
       const saved = copyTabsWorkspace(workspace)
-      await transact(QUESTION_BANK_WORKSPACE_STORE, 'readwrite', (transaction) => {
-        transaction.objectStore(QUESTION_BANK_WORKSPACE_STORE).put({
-          key: tabsKey(context),
-          mode: context.mode,
-          resourceId: context.resourceId,
-          ...saved,
-        } satisfies StoredTabsWorkspace)
+      return queueWorkspaceWrite(async () => {
+        await transact(QUESTION_BANK_WORKSPACE_STORE, 'readwrite', (transaction) => {
+          transaction.objectStore(QUESTION_BANK_WORKSPACE_STORE).put({
+            key: tabsKey(context),
+            mode: context.mode,
+            resourceId: context.resourceId,
+            ...saved,
+          } satisfies StoredTabsWorkspace)
+        })
+        return saved
       })
-      return saved
     },
     async openTab(context: BankWorkspaceContext, bankId: string) {
-      const bank = await readBank(await registry, bankId)
-      if (!bank) return null
-      const next = openBankTab(await service.workspace(context), bankId)
-      await transact(
-        [QUESTION_BANK_WORKSPACE_STORE, EDITOR_WORKSPACE_STORE],
-        'readwrite',
-        (transaction) => {
-          transaction.objectStore(QUESTION_BANK_WORKSPACE_STORE).put({
-            key: tabsKey(context), mode: context.mode, resourceId: context.resourceId, ...next,
-          } satisfies StoredTabsWorkspace)
-          transaction.objectStore(EDITOR_WORKSPACE_STORE).put({
-            key: 'active',
-            mode: context.mode,
-            resourceId: context.mode === 'bank' ? bankId : context.resourceId,
-          } satisfies EditorWorkspace)
-        },
-      )
-      return { bank, workspace: next }
+      return queueWorkspaceWrite(async () => {
+        const bank = await readBank(await registry, bankId)
+        if (!bank) return null
+        const workspace = await transact(
+          [QUESTION_BANK_WORKSPACE_STORE, EDITOR_WORKSPACE_STORE],
+          'readwrite',
+          async (transaction) => {
+            const workspaces = transaction.objectStore(QUESTION_BANK_WORKSPACE_STORE)
+            const stored = await requestOf(workspaces.get(tabsKey(context))) as StoredTabsWorkspace | undefined
+            const next = openBankTab(stored ?? DEFAULT_BANK_TABS_WORKSPACE, bankId)
+            workspaces.put({
+              key: tabsKey(context), mode: context.mode, resourceId: context.resourceId, ...next,
+            } satisfies StoredTabsWorkspace)
+            transaction.objectStore(EDITOR_WORKSPACE_STORE).put({
+              key: 'active',
+              mode: context.mode,
+              resourceId: context.mode === 'bank' ? bankId : context.resourceId,
+            } satisfies EditorWorkspace)
+            return next
+          },
+        )
+        return { bank, workspace }
+      })
     },
     async closeTab(context: BankWorkspaceContext, bankId: string) {
-      const next = await mutateWorkspace(context, (workspace) => closeBankTab(workspace, bankId))
-      if (context.mode === 'bank') {
-        await transact(EDITOR_WORKSPACE_STORE, 'readwrite', (transaction) => {
-          transaction.objectStore(EDITOR_WORKSPACE_STORE).put({
-            key: 'active', mode: 'bank', resourceId: next.activeBankId ?? '',
-          } satisfies EditorWorkspace)
-        })
-      }
-      return next
+      return queueWorkspaceWrite(() => transact(
+        [QUESTION_BANK_WORKSPACE_STORE, EDITOR_WORKSPACE_STORE],
+        'readwrite',
+        async (transaction) => {
+          const workspaces = transaction.objectStore(QUESTION_BANK_WORKSPACE_STORE)
+          const stored = await requestOf(workspaces.get(tabsKey(context))) as StoredTabsWorkspace | undefined
+          const next = closeBankTab(stored ?? DEFAULT_BANK_TABS_WORKSPACE, bankId)
+          workspaces.put({
+            key: tabsKey(context), mode: context.mode, resourceId: context.resourceId, ...next,
+          } satisfies StoredTabsWorkspace)
+          if (context.mode === 'bank') {
+            transaction.objectStore(EDITOR_WORKSPACE_STORE).put({
+              key: 'active', mode: 'bank', resourceId: next.activeBankId ?? '',
+            } satisfies EditorWorkspace)
+          }
+          return next
+        },
+      ))
     },
     async updateFilter(
       context: BankWorkspaceContext,

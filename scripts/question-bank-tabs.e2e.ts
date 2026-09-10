@@ -90,6 +90,7 @@ test('search, difficulty, and topic filters remain independent per bank tab', as
   await page.getByRole('button', { name: 'Open Question Bank' }).click()
   await page.getByRole('dialog', { name: 'Open Question Bank' }).getByRole('button', { name: /Chemistry/ }).click()
   const chemistryTab = page.getByRole('tab', { name: 'Chemistry' })
+  await expect(chemistryTab).toHaveAttribute('aria-selected', 'true')
   await search(page).fill('oxygen')
 
   const biologyTab = page.getByRole('tab', { name: 'Biology' })
@@ -101,6 +102,7 @@ test('search, difficulty, and topic filters remain independent per bank tab', as
   await page.getByRole('group', { name: 'Topic' }).getByText('Cells').click()
 
   await chemistryTab.click()
+  await expect(chemistryTab).toHaveAttribute('aria-selected', 'true')
   await expect(search(page)).toHaveValue('oxygen')
   await biologyTab.click()
   await expect(search(page)).toHaveValue('mitosis')
