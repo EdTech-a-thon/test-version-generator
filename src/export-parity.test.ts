@@ -28,7 +28,7 @@ import {
   type LayoutPlan,
 } from './export-plan'
 import {
-  EMPTY_PUBLICATION_HISTORY,
+  EMPTY_EXPORT_HISTORY,
   plansOf,
   prepareExport,
 } from './export-preparation'
@@ -52,12 +52,13 @@ const pixel: MediaLoader = async () => PIXEL_PNG
 function planOf(fixture: Fixture): LayoutPlan[] {
   return plansOf(
     prepareExport({
+      examId: 'fixture-exam',
       exam: fixture.exam,
-      version: fixture.version,
+      arrangement: fixture.arrangement,
       configuration: {
         selection: { test: true, answerKey: true },
       },
-      history: EMPTY_PUBLICATION_HISTORY,
+      history: EMPTY_EXPORT_HISTORY,
       measure: fixture.measure,
       createdAt: '2026-09-04T12:00:00.000Z',
     }),
@@ -101,9 +102,9 @@ describe('the DOCX Export Adapter carries the planned document', () => {
     )
 
     expect(streams).toEqual(['test', 'answer-key'])
-    expect(plans.map((plan) => plan.version.letter)).toEqual([
-      'Amber Badger',
-      'Amber Badger',
+    expect(plans.map((plan) => plan.arrangement.letter)).toEqual([
+      fixture.arrangement.letter,
+      fixture.arrangement.letter,
     ])
     // Every document starts its own page numbering at one.
     expect(plans.map((plan) => plan.pages[0]!.furniture.pageNumber)).toEqual([
@@ -114,17 +115,17 @@ describe('the DOCX Export Adapter carries the planned document', () => {
     expect(fingerprint.pages.length).toBe(
       plans.reduce((count, plan) => count + plan.pages.length, 0),
     )
-    expect(fingerprint.version).toBe('Amber Badger')
+    expect(fingerprint.arrangement).toBe(fixture.arrangement.letter)
   })
 
-  test('gives every page its friendly Version name, keys included', async () => {
+  test('gives every page its stable output ID, keys included', async () => {
     const fixture = FIXTURES.find(
       (item) => item.name === 'a realistic composite exam',
     )!
     const fingerprint = await docxOf(fixture)
     expect(
       fingerprint.pages.every((page) =>
-        page.header.join(' ').includes('Version: Amber Badger'),
+        page.header.join(' ').includes(`ID: ${fixture.arrangement.letter}`),
       ),
     ).toBe(true)
   })
@@ -220,16 +221,16 @@ describe('the supported document vocabulary', () => {
 describe('the Export Document', () => {
   const [composite] = FIXTURES.filter((item) => item.name.includes('composite'))
 
-  test('derives both documents from one exam version', () => {
+  test('derives both documents from one Exam arrangement', () => {
     const document = buildExportDocument(
       composite!.exam,
-      composite!.version,
+      composite!.arrangement,
       STUDENT_TEST,
       unmeasured,
     )
     const fingerprint = exportDocumentFingerprint(document)
     expect(fingerprint.title).toBe('Chemistry: Unit 3 Review')
-    expect(fingerprint.version).toBe('A')
+    expect(fingerprint.arrangement).toBe('A')
     // The key is derived from the same numbered, lettered questions the test
     // shows, so it can never name a letter the paper does not.
     expect(fingerprint.answerKey).toEqual([
@@ -245,13 +246,13 @@ describe('the Export Document', () => {
   test('is derived whole whichever documents the selection asks for', () => {
     const both = buildExportDocument(
       composite!.exam,
-      composite!.version,
+      composite!.arrangement,
       { test: true, answerKey: true },
       unmeasured,
     )
     const testOnly = buildExportDocument(
       composite!.exam,
-      composite!.version,
+      composite!.arrangement,
       STUDENT_TEST,
       unmeasured,
     )
@@ -266,7 +267,7 @@ describe('the Export Document', () => {
         title: 'One section',
         questions: composite!.exam.questions.slice(0, 1),
       },
-      composite!.version,
+      composite!.arrangement,
       STUDENT_TEST,
       unmeasured,
     )

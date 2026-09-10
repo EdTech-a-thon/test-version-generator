@@ -13,7 +13,7 @@ import type {
   ExamStore,
   SavedState,
 } from './exam-store'
-import { VERSIONED_STORAGE_NAME } from './indexeddb-authoring'
+import { STORAGE_NAME } from './indexeddb-authoring'
 import {
   DEFAULT_EXPORT_CONFIGURATION,
   prepareExport,
@@ -36,58 +36,59 @@ async function freshStore() {
 const bankIds = (store: ExamStore) =>
   store.getState().questionBank.questions.map((question) => question.id)
 
-/** The ids the Exam Draft renders, in the order they appear on the page. */
+/** The ids the Working Copy renders, in the order they appear on the page. */
 const renderedIds = (store: ExamStore) => {
-  const { exam, version } = store.selectedExam()
-  return orderedQuestions(exam, version).map((question) => question.id)
+  const { exam, arrangement } = store.selectedExam()
+  return orderedQuestions(exam, arrangement).map((question) => question.id)
 }
 
-/** A store holding `count` banked questions, all of them on the Exam Draft. */
-async function withExamDraft(count: number, type: Question['type'] = 'multiple-choice') {
+/** A store holding `count` banked questions, all of them on the Working Copy. */
+async function withExamWorkingCopy(count: number, type: Question['type'] = 'multiple-choice') {
   const { backend, savedBackend, store } = await freshStore()
   const questions: Question[] = []
   for (let index = 0; index < count; index += 1) {
     const question = createQuestion(type)
     questions.push(question)
-    store.createInExamDraft(question)
+    store.createInQuestionBank(question)
+    store.addToWorkingCopy(question)
   }
   await store.whenSettled()
   return { backend, savedBackend, store, questions }
 }
 
 describe('a fresh installation', () => {
-  test('starts with an empty Question Bank and an empty Exam Draft', async () => {
+  test('starts with an empty Question Bank and an empty Working Copy', async () => {
     const { store } = await freshStore()
     const state = store.getState()
     expect(state.questionBank.questions).toEqual([])
-    expect(state.examDraft.questionIds).toEqual([])
+    expect(state.workingCopy.questionIds).toEqual([])
     expect(state.dirty).toBe(false)
     expect(store.selectedExam().exam.questions).toEqual([])
   })
 
   test('stores under new identifiers, so the earlier generation is never read', () => {
-    // ADR-0009: Version History is another storage cutover. Data written by
+    // ADR-0009: the historical storage generation is another cutover. Data written by
     // both earlier authoring generations is left where it is and never read.
-    expect(VERSIONED_STORAGE_NAME).not.toBe('exam-authoring-v2')
-    expect(VERSIONED_STORAGE_NAME).not.toBe('exam-saved-v2')
+    expect(STORAGE_NAME).not.toBe('exam-authoring-v2')
+    expect(STORAGE_NAME).not.toBe('exam-saved-v2')
   })
 
   test('ignores state stored in the earlier shape', async () => {
     const earlier = {
       exam: { title: 'Written before the cutover', questions: [createQuestion('open')] },
-      versions: [{ id: 'v1', letter: 'A', questionOrder: [], choiceOrder: {} }],
-      currentVersionId: 'v1',
+      arrangements: [{ id: 'v1', letter: 'A', questionOrder: [], choiceOrder: {} }],
+      currentArrangementId: 'v1',
       dirty: false,
     }
     const store = await loadExamStore(memory(earlier as unknown as AuthoringState))
     expect(store.getState().questionBank.questions).toEqual([])
-    expect(store.getState().examDraft.questionIds).toEqual([])
+    expect(store.getState().workingCopy.questionIds).toEqual([])
   })
 
   test('falls back to an empty exam when the stored state is corrupt', async () => {
     const store = await loadExamStore(memory({ nonsense: true } as unknown as AuthoringState))
     expect(store.getState().questionBank.questions).toEqual([])
-    expect(store.getState().examDraft.questionIds).toEqual([])
+    expect(store.getState().workingCopy.questionIds).toEqual([])
     expect(store.getState().dirty).toBe(false)
   })
 
@@ -99,7 +100,7 @@ describe('a fresh installation', () => {
     ]) {
       const corrupt = {
         questionBank: { questions: [question] },
-        examDraft: {
+        workingCopy: {
           title: 'Corrupt answer order',
           questionIds: [question.id],
           choiceOrder,
@@ -116,32 +117,34 @@ describe('a fresh installation', () => {
 })
 
 describe('creating Question Content', () => {
-  test('banks a question without putting it on the Exam Draft', async () => {
+  test('banks a question without putting it on the Working Copy', async () => {
     const { store } = await freshStore()
     const question = createQuestion('multiple-choice')
 
     store.createInQuestionBank(question)
 
     expect(bankIds(store)).toEqual([question.id])
-    expect(store.getState().examDraft.questionIds).toEqual([])
+    expect(store.getState().workingCopy.questionIds).toEqual([])
     expect(renderedIds(store)).toEqual([])
   })
 
-  test('banks a question and puts it on the Exam Draft in one action', async () => {
+  test('banks a question and puts it on the Working Copy in one action', async () => {
     const { store } = await freshStore()
     const question = createQuestion('open')
 
-    store.createInExamDraft(question)
+    store.createInQuestionBank(question)
+    store.addToWorkingCopy(question)
 
     expect(bankIds(store)).toEqual([question.id])
     expect(renderedIds(store)).toEqual([question.id])
   })
 
   test('places a new question immediately after the one it was added below', async () => {
-    const { store, questions } = await withExamDraft(2)
+    const { store, questions } = await withExamWorkingCopy(2)
     const inserted = createQuestion('multiple-choice')
 
-    store.createInExamDraft(inserted, questions[0]!.id)
+    store.createInQuestionBank(inserted)
+    store.addToWorkingCopy(inserted, questions[0]!.id)
 
     expect(renderedIds(store)).toEqual([
       questions[0]!.id,
@@ -151,26 +154,26 @@ describe('creating Question Content', () => {
   })
 })
 
-describe('the Exam Draft references the Question Bank', () => {
-  test('adds an unused bank question to the Exam Draft', async () => {
+describe('the Working Copy references the Question Bank', () => {
+  test('adds an unused bank question to the Working Copy', async () => {
     const { store } = await freshStore()
     const question = createQuestion('open')
     store.createInQuestionBank(question)
 
-    store.addToExamDraft(question.id)
+    store.addToWorkingCopy(question.id)
 
     expect(renderedIds(store)).toEqual([question.id])
     expect(bankIds(store)).toEqual([question.id])
   })
 
   test('holds a question at most once, however often it is added', async () => {
-    const { store, questions } = await withExamDraft(2)
+    const { store, questions } = await withExamWorkingCopy(2)
     const before = store.getState()
 
-    store.addToExamDraft(questions[0]!.id)
-    store.addToExamDraft(questions[0]!.id, questions[1]!.id)
+    store.addToWorkingCopy(questions[0]!.id)
+    store.addToWorkingCopy(questions[0]!.id, questions[1]!.id)
 
-    expect(store.getState().examDraft.questionIds).toEqual([
+    expect(store.getState().workingCopy.questionIds).toEqual([
       questions[0]!.id,
       questions[1]!.id,
     ])
@@ -181,13 +184,13 @@ describe('the Exam Draft references the Question Bank', () => {
 
   test('refuses a reference to Question Content that is not banked', async () => {
     const { store } = await freshStore()
-    store.addToExamDraft('never-banked')
-    expect(store.getState().examDraft.questionIds).toEqual([])
+    store.addToWorkingCopy('never-banked')
+    expect(store.getState().workingCopy.questionIds).toEqual([])
     expect(store.canUndo()).toBe(false)
   })
 
   test('stores references rather than copies, so an edit reaches the page', async () => {
-    const { store, questions } = await withExamDraft(1, 'open')
+    const { store, questions } = await withExamWorkingCopy(1, 'open')
     const edited = {
       ...questions[0]!,
       doc: { type: 'doc', content: [{ type: 'paragraph' }] },
@@ -199,7 +202,7 @@ describe('the Exam Draft references the Question Bank', () => {
     expect(bankIds(store)).toEqual([questions[0]!.id])
   })
 
-  test('edits a bank-only question without adding it to the Exam Draft', async () => {
+  test('edits a bank-only question without adding it to the Working Copy', async () => {
     const { store } = await freshStore()
     const question = createQuestion('open')
     store.createInQuestionBank(question)
@@ -213,7 +216,7 @@ describe('the Exam Draft references the Question Bank', () => {
       type: 'doc',
       content: [{ type: 'paragraph' }],
     })
-    expect(store.getState().examDraft.questionIds).toEqual([])
+    expect(store.getState().workingCopy.questionIds).toEqual([])
   })
 
   test('banks a question it has never seen, so a save is never lost', async () => {
@@ -223,25 +226,25 @@ describe('the Exam Draft references the Question Bank', () => {
     store.updateInQuestionBank(question)
 
     expect(bankIds(store)).toEqual([question.id])
-    expect(store.getState().examDraft.questionIds).toEqual([])
+    expect(store.getState().workingCopy.questionIds).toEqual([])
   })
 
-  test('renders a referenced question under the Question Section for its own type', async () => {
-    const { store, questions } = await withExamDraft(2)
+  test('refuses to change a Question Type after creation', async () => {
+    const { store, questions } = await withExamWorkingCopy(2)
+    const before = store.getState()
 
     store.updateInQuestionBank({ ...questions[0]!, type: 'open' })
 
-    // The Question Sections are derived, so the question keeps its place on the
-    // Exam Draft and renders under Short Answer instead.
-    expect(renderedIds(store)).toEqual([questions[1]!.id, questions[0]!.id])
+    expect(store.getState()).toBe(before)
+    expect(store.selectedExam().exam.questions[0]!.type).toBe('multiple-choice')
   })
 })
 
 describe('Remove', () => {
-  test('excludes a question from the Exam Draft without deleting it', async () => {
-    const { store, questions } = await withExamDraft(2)
+  test('excludes a question from the Working Copy without deleting it', async () => {
+    const { store, questions } = await withExamWorkingCopy(2)
 
-    store.removeFromExamDraft([questions[0]!.id])
+    store.removeFromWorkingCopy([questions[0]!.id])
 
     expect(renderedIds(store)).toEqual([questions[1]!.id])
     expect(bankIds(store)).toEqual(questions.map((question) => question.id))
@@ -249,9 +252,9 @@ describe('Remove', () => {
   })
 
   test('excludes a whole selection as one action', async () => {
-    const { store, questions } = await withExamDraft(3)
+    const { store, questions } = await withExamWorkingCopy(3)
 
-    store.removeFromExamDraft([questions[0]!.id, questions[2]!.id])
+    store.removeFromWorkingCopy([questions[0]!.id, questions[2]!.id])
 
     expect(renderedIds(store)).toEqual([questions[1]!.id])
     expect(store.canUndo()).toBe(true)
@@ -260,66 +263,96 @@ describe('Remove', () => {
   })
 
   test('leaves a Removed question available to add again', async () => {
-    const { store, questions } = await withExamDraft(1)
-    store.removeFromExamDraft([questions[0]!.id])
+    const { store, questions } = await withExamWorkingCopy(1)
+    store.removeFromWorkingCopy([questions[0]!.id])
 
-    store.addToExamDraft(questions[0]!.id)
+    store.addToWorkingCopy(questions[0]!.id)
 
     expect(renderedIds(store)).toEqual([questions[0]!.id])
   })
 })
 
 describe('Insert and Replace', () => {
-  test('inserts an unused bank question after a chosen Exam Draft question', async () => {
-    const { store, questions } = await withExamDraft(2)
+  test('inserts an unused bank question after a chosen Working Copy question', async () => {
+    const { store, questions } = await withExamWorkingCopy(2)
     const spare = createQuestion('multiple-choice')
     store.createInQuestionBank(spare)
 
-    store.addToExamDraft(spare.id, questions[0]!.id)
+    store.addToWorkingCopy(spare.id, questions[0]!.id)
 
     expect(renderedIds(store)).toEqual([questions[0]!.id, spare.id, questions[1]!.id])
   })
 
-  test('inserts an unused bank question before a chosen Exam Draft question', async () => {
-    const { store, questions } = await withExamDraft(2)
+  test('inserts an unused bank question before a chosen Working Copy question', async () => {
+    const { store, questions } = await withExamWorkingCopy(2)
     const spare = createQuestion('multiple-choice')
     store.createInQuestionBank(spare)
 
-    store.addToExamDraft(spare.id, questions[1]!.id, 'before')
+    store.addToWorkingCopy(spare.id, questions[1]!.id, 'before')
 
     expect(renderedIds(store)).toEqual([questions[0]!.id, spare.id, questions[1]!.id])
+  })
+
+  test('inherits the visual Multiple Choice neighbor layout, using below at the top and one for an empty section', async () => {
+    const { store } = await freshStore()
+    const first = createQuestion('multiple-choice', 2)
+    const second = createQuestion('multiple-choice', 2)
+    const beforeFirst = createQuestion('multiple-choice', 2)
+    const emptySectionFirst = createQuestion('open', 2)
+    store.createInQuestionBank(first)
+    store.addToWorkingCopy(first)
+    store.createInQuestionBank(second)
+    store.addToWorkingCopy(second)
+    store.createInQuestionBank(beforeFirst)
+    store.createInQuestionBank(emptySectionFirst)
+    store.setQuestionColumns([first.id], 4)
+    store.setQuestionColumns([second.id], 1)
+
+    store.addToWorkingCopy(beforeFirst.id, first.id, 'before')
+    store.addToWorkingCopy(emptySectionFirst.id)
+
+    expect(store.getState().workingCopy.columns?.[beforeFirst.id]).toBe(4)
+    expect(store.getState().workingCopy.columns?.[emptySectionFirst.id]).toBeUndefined()
+
+    const lone = createQuestion('multiple-choice', 4)
+    const empty = await freshStore()
+    empty.store.createInQuestionBank(lone)
+    empty.store.addToWorkingCopy(lone.id)
+    expect(empty.store.getState().workingCopy.columns?.[lone.id]).toBe(1)
   })
 
   test('inserts before the first question of a Question Section', async () => {
     // The only placement that cannot be expressed as "after something": the
     // top edge of the first rendered question in its section.
-    const { store, questions } = await withExamDraft(2)
+    const { store, questions } = await withExamWorkingCopy(2)
     const spare = createQuestion('multiple-choice')
     store.createInQuestionBank(spare)
 
-    store.addToExamDraft(spare.id, questions[0]!.id, 'before')
+    store.addToWorkingCopy(spare.id, questions[0]!.id, 'before')
 
     expect(renderedIds(store)).toEqual([spare.id, questions[0]!.id, questions[1]!.id])
   })
 
-  test('inserts before a question whose Exam Draft neighbour is in the other section', async () => {
-    // The Exam Draft's stored order interleaves the sections; the rendered
+  test('inserts before a question whose Working Copy neighbour is in the other section', async () => {
+    // The Working Copy's stored order interleaves the sections; the rendered
     // order groups them. An insertion is placed against the *rendered*
     // neighbour, so the two cannot disagree about where the question landed.
-    const { store, questions } = await withExamDraft(1, 'multiple-choice')
+    const { store, questions } = await withExamWorkingCopy(1, 'multiple-choice')
     const shortAnswer = createQuestion('open')
-    store.createInExamDraft(shortAnswer)
+    store.createInQuestionBank(shortAnswer)
+    store.addToWorkingCopy(shortAnswer)
     const second = createQuestion('multiple-choice')
-    store.createInExamDraft(second)
+    store.createInQuestionBank(second)
+    store.addToWorkingCopy(second)
     const spare = createQuestion('multiple-choice')
     store.createInQuestionBank(spare)
-    expect(store.getState().examDraft.questionIds).toEqual([
+    expect(store.getState().workingCopy.questionIds).toEqual([
       questions[0]!.id,
       shortAnswer.id,
       second.id,
     ])
 
-    store.addToExamDraft(spare.id, second.id, 'before')
+    store.addToWorkingCopy(spare.id, second.id, 'before')
 
     expect(renderedIds(store)).toEqual([
       questions[0]!.id,
@@ -330,74 +363,100 @@ describe('Insert and Replace', () => {
   })
 
   test('refuses to insert before a question in another Question Section', async () => {
-    const { store } = await withExamDraft(1, 'multiple-choice')
+    const { store } = await withExamWorkingCopy(1, 'multiple-choice')
     const shortAnswer = createQuestion('open')
-    store.createInExamDraft(shortAnswer)
+    store.createInQuestionBank(shortAnswer)
+    store.addToWorkingCopy(shortAnswer)
     const spare = createQuestion('multiple-choice')
     store.createInQuestionBank(spare)
     const before = store.getState()
 
-    store.addToExamDraft(spare.id, shortAnswer.id, 'before')
+    store.addToWorkingCopy(spare.id, shortAnswer.id, 'before')
 
     expect(store.getState()).toBe(before)
   })
 
   test('refuses to insert into another Question Section', async () => {
-    const { store, questions } = await withExamDraft(2, 'multiple-choice')
+    const { store, questions } = await withExamWorkingCopy(2, 'multiple-choice')
     const shortAnswer = createQuestion('open')
     store.createInQuestionBank(shortAnswer)
     const before = store.getState()
 
-    store.addToExamDraft(shortAnswer.id, questions[0]!.id)
+    store.addToWorkingCopy(shortAnswer.id, questions[0]!.id)
 
     expect(store.getState()).toBe(before)
   })
 
-  test('replaces one Exam Draft question with an unused bank question in its place', async () => {
-    const { store, questions } = await withExamDraft(3)
+  test('replaces one Working Copy question with an unused bank question in its place', async () => {
+    const { store, questions } = await withExamWorkingCopy(3)
     const spare = createQuestion('multiple-choice')
     store.createInQuestionBank(spare)
 
-    store.replaceInExamDraft(questions[1]!.id, spare.id)
+    store.replaceInWorkingCopy(questions[1]!.id, spare.id)
 
     expect(renderedIds(store)).toEqual([questions[0]!.id, spare.id, questions[2]!.id])
   })
 
   test('leaves the replaced question in the Question Bank, unchanged', async () => {
-    const { store, questions } = await withExamDraft(1)
+    const { store, questions } = await withExamWorkingCopy(1)
     const spare = createQuestion('multiple-choice')
     store.createInQuestionBank(spare)
 
-    store.replaceInExamDraft(questions[0]!.id, spare.id)
+    store.replaceInWorkingCopy(questions[0]!.id, spare.id)
 
     expect(bankIds(store)).toEqual([questions[0]!.id, spare.id])
     expect(store.getState().questionBank.questions[0]).toEqual(questions[0]!)
     // Replaced out, so it is available to compose with again.
-    store.addToExamDraft(questions[0]!.id)
+    store.addToWorkingCopy(questions[0]!.id)
     expect(renderedIds(store)).toEqual([spare.id, questions[0]!.id])
   })
 
   test('refuses a Replace across Question Sections, or one that would duplicate', async () => {
-    const { store, questions } = await withExamDraft(2, 'multiple-choice')
+    const { store, questions } = await withExamWorkingCopy(2, 'multiple-choice')
     const shortAnswer = createQuestion('open')
     store.createInQuestionBank(shortAnswer)
     const before = store.getState()
 
-    store.replaceInExamDraft(questions[0]!.id, shortAnswer.id)
-    store.replaceInExamDraft(questions[0]!.id, questions[1]!.id)
-    store.replaceInExamDraft(questions[0]!.id, 'never-banked')
-    store.replaceInExamDraft('not-on-the-exam', shortAnswer.id)
+    store.replaceInWorkingCopy(questions[0]!.id, shortAnswer.id)
+    store.replaceInWorkingCopy(questions[0]!.id, questions[1]!.id)
+    store.replaceInWorkingCopy(questions[0]!.id, 'never-banked')
+    store.replaceInWorkingCopy('not-on-the-exam', shortAnswer.id)
 
     expect(store.getState()).toBe(before)
     expect(store.canUndo()).toBe(true)
   })
 
+  test('Replace uses the incoming authored answer order and keeps the outgoing position and columns', async () => {
+    const { store } = await freshStore()
+    const before = createQuestion('multiple-choice', 2)
+    const outgoing = createQuestion('multiple-choice', 2)
+    const after = createQuestion('multiple-choice', 2)
+    const incoming = createQuestion('multiple-choice', 1)
+    for (const question of [before, outgoing, after]) {
+      store.createInQuestionBank(question)
+      store.addToWorkingCopy(question)
+    }
+    store.createInQuestionBank(incoming)
+    store.setQuestionColumns([outgoing.id], 4)
+    store.shuffleSelectedAnswers([outgoing.id])
+
+    store.replaceInWorkingCopy(outgoing.id, incoming.id)
+
+    expect(renderedIds(store)).toEqual([before.id, incoming.id, after.id])
+    expect(store.getState().workingCopy.columns?.[incoming.id]).toBe(4)
+    expect(store.getState().workingCopy.choiceOrder?.[incoming.id]).toBeUndefined()
+    expect(orderedChoices(
+      store.selectedExam().exam.questions.find(({ id }) => id === incoming.id)!,
+      store.selectedExam().arrangement,
+    ).map(({ id }) => id)).toEqual(choicesOf(incoming).map(({ id }) => id))
+  })
+
   test('each is exactly one undo step', async () => {
-    const { store, questions } = await withExamDraft(2)
+    const { store, questions } = await withExamWorkingCopy(2)
     const spare = createQuestion('multiple-choice')
     store.createInQuestionBank(spare)
 
-    store.replaceInExamDraft(questions[0]!.id, spare.id)
+    store.replaceInWorkingCopy(questions[0]!.id, spare.id)
     store.undo()
 
     expect(renderedIds(store)).toEqual([questions[0]!.id, questions[1]!.id])
@@ -408,118 +467,9 @@ describe('Insert and Replace', () => {
   })
 })
 
-describe('replacing selected questions with Equivalent Questions', () => {
-  test('replaces exact matches at their occupied positions and reports the batch', async () => {
-    const { store } = await freshStore()
-    const selected = [
-      { ...createQuestion('multiple-choice'), difficulty: 'hard' as const, topics: ['Cells'] },
-      { ...createQuestion('multiple-choice'), difficulty: 'easy' as const, topics: ['Plants'] },
-    ]
-    const equivalent = {
-      ...createQuestion('multiple-choice'),
-      difficulty: 'hard' as const,
-      topics: ['Cells'],
-    }
-    for (const question of selected) store.createInExamDraft(question)
-    store.createInQuestionBank(equivalent)
-
-    const result = store.replaceWithEquivalentQuestions(selected.map(({ id }) => id))
-
-    expect(result).toEqual({ replaced: 1, unmatched: 1 })
-    expect(renderedIds(store)).toEqual([equivalent.id, selected[1]!.id])
-    store.undo()
-    expect(renderedIds(store)).toEqual(selected.map(({ id }) => id))
-  })
-
-  test('uses restrictive exact metadata pools and consumes each candidate once', async () => {
-    const { store } = await freshStore()
-    const algebra = [
-      { ...createQuestion('multiple-choice'), difficulty: 'hard' as const, topics: ['Algebra'] },
-      { ...createQuestion('multiple-choice'), difficulty: 'hard' as const, topics: ['Algebra'] },
-    ]
-    const cells = {
-      ...createQuestion('multiple-choice'),
-      topics: ['Cells', 'Mitosis'],
-    }
-    const untagged = { ...createQuestion('multiple-choice'), difficulty: 'hard' as const }
-    const alreadyInDraft = {
-      ...createQuestion('multiple-choice'),
-      difficulty: 'hard' as const,
-      topics: ['Algebra'],
-    }
-    for (const question of [...algebra, cells, untagged, alreadyInDraft]) {
-      store.createInExamDraft(question)
-    }
-
-    const algebraCandidate = {
-      ...createQuestion('multiple-choice'),
-      difficulty: 'hard' as const,
-      topics: ['Algebra'],
-    }
-    const cellsCandidate = {
-      ...createQuestion('multiple-choice'),
-      topics: ['Mitosis', 'Cells'],
-    }
-    const nearMisses: Question[] = [
-      { ...createQuestion('multiple-choice'), difficulty: 'hard', topics: ['algebra'] },
-      { ...createQuestion('multiple-choice'), difficulty: 'easy', topics: ['Algebra'] },
-      { ...createQuestion('open'), difficulty: 'hard', topics: ['Algebra'] },
-      { ...createQuestion('multiple-choice'), difficulty: 'hard' },
-    ]
-    for (const question of [algebraCandidate, cellsCandidate, ...nearMisses]) {
-      store.createInQuestionBank(question)
-    }
-
-    const result = store.replaceWithEquivalentQuestions([
-      algebra[0]!.id,
-      algebra[1]!.id,
-      cells.id,
-      untagged.id,
-    ])
-
-    expect(result).toEqual({ replaced: 2, unmatched: 2 })
-    expect(renderedIds(store)).toEqual([
-      algebraCandidate.id,
-      algebra[1]!.id,
-      cellsCandidate.id,
-      untagged.id,
-      alreadyInDraft.id,
-    ])
-    expect(new Set(renderedIds(store)).size).toBe(5)
-  })
-
-  test('matches against the latest Question Bank state and leaves outgoing records banked', async () => {
-    const { store } = await freshStore()
-    const outgoing = {
-      ...createQuestion('multiple-choice'),
-      difficulty: 'medium' as const,
-      topics: ['Geometry'],
-    }
-    const candidate = {
-      ...createQuestion('multiple-choice'),
-      difficulty: 'easy' as const,
-      topics: ['Arithmetic'],
-    }
-    store.createInExamDraft(outgoing)
-    store.createInQuestionBank(candidate)
-    store.updateInQuestionBank({
-      ...candidate,
-      difficulty: 'medium',
-      topics: ['Geometry'],
-    })
-
-    expect(store.replaceWithEquivalentQuestions([outgoing.id])).toEqual({
-      replaced: 1,
-      unmatched: 0,
-    })
-    expect(bankIds(store)).toEqual([outgoing.id, candidate.id])
-    expect(store.selectedExam().version.choiceOrder[candidate.id]).toBeUndefined()
-  })
-})
-
 describe('classifying a question', () => {
   test('saves Difficulty and Topics as one authoring action', async () => {
-    const { store, questions, backend } = await withExamDraft(1)
+    const { store, questions, backend } = await withExamWorkingCopy(1)
 
     store.updateInQuestionBank({
       ...questions[0]!,
@@ -538,23 +488,23 @@ describe('classifying a question', () => {
     expect(store.getState().questionBank.questions[0]!.difficulty).toBeUndefined()
   })
 
-  test('classifies a bank-only question without putting it on the Exam Draft', async () => {
+  test('classifies a bank-only question without putting it on the Working Copy', async () => {
     const { store } = await freshStore()
     const question = createQuestion('open')
     store.createInQuestionBank(question)
 
     store.updateInQuestionBank({ ...question, difficulty: 'easy', topics: ['Algebra'] })
 
-    expect(store.getState().examDraft.questionIds).toEqual([])
+    expect(store.getState().workingCopy.questionIds).toEqual([])
     expect(topicsOf(store.getState().questionBank.questions[0]!)).toEqual(['Algebra'])
   })
 })
 
 describe('moving a reference', () => {
-  test('moves one question to an exact position on the Exam Draft', async () => {
-    const { store, questions } = await withExamDraft(3)
+  test('moves one question to an exact position on the Working Copy', async () => {
+    const { store, questions } = await withExamWorkingCopy(3)
 
-    store.moveInExamDraft([questions[2]!.id], questions[0]!.id, 'before')
+    store.moveInWorkingCopy([questions[2]!.id], questions[0]!.id, 'before')
 
     expect(renderedIds(store)).toEqual([
       questions[2]!.id,
@@ -564,9 +514,9 @@ describe('moving a reference', () => {
   })
 
   test('moves a selection as one block, preserving its order', async () => {
-    const { store, questions } = await withExamDraft(4)
+    const { store, questions } = await withExamWorkingCopy(4)
 
-    store.moveInExamDraft(
+    store.moveInWorkingCopy(
       [questions[0]!.id, questions[1]!.id],
       questions[3]!.id,
       'after',
@@ -584,19 +534,21 @@ describe('moving a reference', () => {
     const { store } = await freshStore()
     const multipleChoice = createQuestion('multiple-choice')
     const shortAnswer = createQuestion('open')
-    store.createInExamDraft(multipleChoice)
-    store.createInExamDraft(shortAnswer)
+    store.createInQuestionBank(multipleChoice)
+    store.addToWorkingCopy(multipleChoice)
+    store.createInQuestionBank(shortAnswer)
+    store.addToWorkingCopy(shortAnswer)
 
-    store.moveInExamDraft([shortAnswer.id], multipleChoice.id, 'before')
+    store.moveInWorkingCopy([shortAnswer.id], multipleChoice.id, 'before')
 
     expect(renderedIds(store)).toEqual([multipleChoice.id, shortAnswer.id])
   })
 
   test('a move that changes nothing is not an authoring action', async () => {
-    const { store, questions } = await withExamDraft(2)
+    const { store, questions } = await withExamWorkingCopy(2)
     const before = store.getState()
 
-    store.moveInExamDraft([questions[0]!.id], questions[1]!.id, 'before')
+    store.moveInWorkingCopy([questions[0]!.id], questions[1]!.id, 'before')
 
     expect(store.getState()).toBe(before)
     // Nothing was recorded, so undo reaches past it to the last real action.
@@ -631,36 +583,37 @@ describe('shuffling selected answers', () => {
       },
     }
     for (const question of [first, second, shortAnswer, ineligible]) {
-      store.createInExamDraft(question)
+      store.createInQuestionBank(question)
+      store.addToWorkingCopy(question)
     }
     const beforeFirst = choicesOf(first).map((choice) => choice.id)
     const beforeSecond = choicesOf(second).map((choice) => choice.id)
 
     store.shuffleSelectedAnswers([first.id, second.id, shortAnswer.id, ineligible.id])
 
-    const { exam, version } = store.selectedExam()
+    const { exam, arrangement } = store.selectedExam()
     const renderedFirst = exam.questions.find((question) => question.id === first.id)!
     const renderedSecond = exam.questions.find((question) => question.id === second.id)!
-    expect(version.choiceOrder[first.id]).toHaveLength(beforeFirst.length)
-    expect(version.choiceOrder[second.id]).toHaveLength(beforeSecond.length)
-    expect(version.choiceOrder[first.id]).not.toEqual(beforeFirst)
-    expect(version.choiceOrder[second.id]).not.toEqual(beforeSecond)
-    expect(version.choiceOrder[shortAnswer.id]).toBeUndefined()
-    expect(version.choiceOrder[ineligible.id]).toBeUndefined()
+    expect(arrangement.choiceOrder[first.id]).toHaveLength(beforeFirst.length)
+    expect(arrangement.choiceOrder[second.id]).toHaveLength(beforeSecond.length)
+    expect(arrangement.choiceOrder[first.id]).not.toEqual(beforeFirst)
+    expect(arrangement.choiceOrder[second.id]).not.toEqual(beforeSecond)
+    expect(arrangement.choiceOrder[shortAnswer.id]).toBeUndefined()
+    expect(arrangement.choiceOrder[ineligible.id]).toBeUndefined()
     expect(choicesOf(renderedFirst).map((choice) => choice.id)).toEqual(beforeFirst)
-    expect(orderedChoices(renderedFirst, version).find((choice) => choice.correct)?.id)
+    expect(orderedChoices(renderedFirst, arrangement).find((choice) => choice.correct)?.id)
       .toBe(choicesOf(first).find((choice) => choice.correct)?.id)
     expect(choicesOf(renderedSecond).map((choice) => choice.id)).toEqual(beforeSecond)
 
     store.undo()
-    expect(store.selectedExam().version.choiceOrder).toEqual({})
+    expect(store.selectedExam().arrangement.choiceOrder).toEqual({})
     expect(store.canUndo()).toBe(true)
     store.undo()
     expect(renderedIds(store)).toEqual([first.id, second.id, shortAnswer.id])
   })
 
   test('does not record an answer shuffle when every selection is ineligible', async () => {
-    const { store, questions } = await withExamDraft(1, 'open')
+    const { store, questions } = await withExamWorkingCopy(1, 'open')
     const before = store.getState()
 
     store.shuffleSelectedAnswers([questions[0]!.id])
@@ -685,7 +638,8 @@ describe('shuffling selected questions', () => {
       shortAnswer[1]!,
       multipleChoice[2]!,
     ]) {
-      store.createInExamDraft(question)
+      store.createInQuestionBank(question)
+      store.addToWorkingCopy(question)
     }
 
     store.shuffleSelectedQuestions([
@@ -710,7 +664,7 @@ describe('shuffling selected questions', () => {
   })
 
   test('does not record an action when no section has two selected questions', async () => {
-    const { store, questions } = await withExamDraft(2)
+    const { store, questions } = await withExamWorkingCopy(2)
     const before = store.getState()
 
     store.shuffleSelectedQuestions([questions[0]!.id])
@@ -720,15 +674,29 @@ describe('shuffling selected questions', () => {
 })
 
 describe('duplicating', () => {
-  test('banks a copy and places it after the original', async () => {
-    const { store, questions } = await withExamDraft(2)
+  test('banks a copy after the original with fresh identities and the visible presentation', async () => {
+    const { store, questions } = await withExamWorkingCopy(2)
+    const original = questions[0]!
+    store.setQuestionColumns([original.id], 4)
+    store.shuffleSelectedAnswers([original.id])
+    const visibleOrder = store.selectedExam().arrangement.choiceOrder[original.id]!
 
-    store.duplicateInExamDraft(questions[0]!.id)
+    store.duplicateInWorkingCopy(original.id)
 
     const copyId = renderedIds(store)[1]!
-    expect(copyId).not.toBe(questions[0]!.id)
-    expect(renderedIds(store)).toEqual([questions[0]!.id, copyId, questions[1]!.id])
+    const copy = store.getState().questionBank.questions.find(({ id }) => id === copyId)!
+    const originalChoiceIds = choicesOf(original).map(({ id }) => id)
+    const copiedChoiceIds = choicesOf(copy).map(({ id }) => id)
+    const expectedCopiedOrder = visibleOrder.map((id) => copiedChoiceIds[originalChoiceIds.indexOf(id)]!)
+    expect(copyId).not.toBe(original.id)
+    expect(copiedChoiceIds.every((id) => !originalChoiceIds.includes(id))).toBe(true)
+    expect(renderedIds(store)).toEqual([original.id, copyId, questions[1]!.id])
+    expect(store.getState().workingCopy.columns?.[copyId]).toBe(4)
+    expect(store.getState().workingCopy.choiceOrder?.[copyId]).toEqual(expectedCopiedOrder)
     expect(bankIds(store)).toHaveLength(3)
+
+    store.undo()
+    expect(renderedIds(store)).toEqual(questions.map(({ id }) => id))
   })
 })
 
@@ -747,7 +715,7 @@ describe('the dirty flag and persistence', () => {
     const backend: DurableAuthoringBackend = {
       read: async () => working,
       readSaved: async () => saved,
-      readPublicationHistory: async () => ({ versions: [], revisions: [], plans: [] }),
+      readExportHistory: async () => ({ records: [] }),
       write: (value) =>
         schedule(async () => {
           if (firstWrite) {
@@ -758,21 +726,23 @@ describe('the dirty flag and persistence', () => {
           }
           working = structuredClone(value)
         }),
+      initialize: (value, initialWorking) =>
+        schedule(() => {
+          saved = structuredClone(value)
+          working = structuredClone(initialWorking)
+        }),
       commitSaved: (value) =>
         schedule(() => {
           saved = structuredClone(value)
           working = { ...structuredClone(value), dirty: false }
         }),
-      commitPublication: (value) =>
-        schedule(() => {
-          saved = structuredClone(value)
-          working = { ...structuredClone(value), dirty: false }
-        }),
+      commitExportRecord: async () => undefined,
     }
     const store = await loadExamStore(backend)
     const first = createQuestion('multiple-choice')
     const addedWhileSaving = createQuestion('open')
-    store.createInExamDraft(first)
+    store.createInQuestionBank(first)
+    store.addToWorkingCopy(first)
     await Promise.resolve()
 
     const saving = store.save()
@@ -786,23 +756,25 @@ describe('the dirty flag and persistence', () => {
     expect(renderedIds(reloaded)).toEqual([first.id])
   })
 
-  test('every authoring action raises the dirty flag', async () => {
-    const cases: Array<(store: ExamStore, question: Question) => void> = [
-      (store) => store.setTitle('Chem Unit 3'),
-      (store) => store.createInQuestionBank(createQuestion('open')),
-      (store) => store.createInExamDraft(createQuestion('open')),
-      (store, question) => store.updateInQuestionBank({ ...question, columns: 2 }),
-      (store, question) => store.setQuestionColumns([question.id], 4),
-      (store, question) => store.duplicateInExamDraft(question.id),
-      (store, question) => store.removeFromExamDraft([question.id]),
-    ]
-    for (const act of cases) {
-      const { store, questions } = await withExamDraft(1)
-      await store.save()
-      expect(store.getState().dirty).toBe(false)
-      act(store, questions[0]!)
-      expect(store.getState().dirty).toBe(true)
-    }
+  test('dirty compares the Working Copy composition with the saved Exam', async () => {
+    const { store, questions } = await withExamWorkingCopy(1)
+    await store.save()
+
+    // Canonical content stays live but is not the saved Exam composition.
+    store.updateInQuestionBank({ ...questions[0]!, columns: 4 })
+    expect(store.getState().dirty).toBe(false)
+
+    store.setTitle('Chem Unit 3')
+    expect(store.getState().dirty).toBe(true)
+    store.setTitle('Untitled Exam')
+    expect(store.getState().dirty).toBe(false)
+
+    // Save retains command history; Undo afterward returns to an unsaved copy.
+    store.setTitle('Saved title')
+    await store.save()
+    store.undo()
+    expect(store.getState().workingCopy.title).toBe('Untitled Exam')
+    expect(store.getState().dirty).toBe(true)
   })
 
   test('a change that changes nothing costs no undo step, dirty flag, or write', async () => {
@@ -815,7 +787,7 @@ describe('the dirty flag and persistence', () => {
       (store, question) => store.setQuestionColumns([question.id], 4),
     ]
     for (const act of cases) {
-      const { backend, store, questions } = await withExamDraft(1)
+      const { backend, store, questions } = await withExamWorkingCopy(1)
       await store.save()
       const before = store.getState()
 
@@ -832,225 +804,101 @@ describe('the dirty flag and persistence', () => {
       expect(store.getState().dirty).toBe(false)
       expect(backend.writes).toBe(writes)
 
-      // One undo steps past the real change, not a phantom one.
+      // One undo steps past the real change, not a phantom one. The saved
+      // comparison correctly marks this earlier arrangement as unsaved.
       store.undo()
-      expect(store.getState()).toBe(before)
+      expect(store.getState().workingCopy).toEqual(before.workingCopy)
+      expect(store.getState().dirty).toBe(true)
     }
   })
 
-  test('adding a bank-only question to the Exam Draft raises the dirty flag', async () => {
+  test('adding a bank-only question to the Working Copy raises the dirty flag', async () => {
     const { store } = await freshStore()
     const question = createQuestion('open')
     store.createInQuestionBank(question)
     await store.save()
 
-    store.addToExamDraft(question.id)
+    store.addToWorkingCopy(question.id)
 
     expect(store.getState().dirty).toBe(true)
   })
 
-  test('uses compatible metadata-only current records with historical answer order as one undoable action', async () => {
-    const { store, questions } = await withExamDraft(2)
-    const first = store.selectedExam()
-    const historicalAnswerOrder = [...choicesOf(questions[0]!)].map((choice) => choice.id).reverse()
-    const published = prepareExport({
-      ...first,
-      version: {
-        ...first.version,
-        questionOrder: [questions[1]!.id, questions[0]!.id],
-        choiceOrder: { [questions[0]!.id]: historicalAnswerOrder },
-      },
-      configuration: DEFAULT_EXPORT_CONFIGURATION,
-      history: store.publicationHistory(),
-      measure: unmeasured,
-      createdAt: '2026-09-04T12:00:00.000Z',
-    })
-    await store.publish(published.publication)
-    store.updateInQuestionBank({
-      ...questions[0]!,
-      difficulty: 'hard',
-      topics: ['Changed topic'],
-    })
-    const beforeReplacement = structuredClone(store.getState().examDraft)
-
-    expect(store.useHistoricalVersionAsDraft(published.resolution.version.id)).toBe(true)
-    expect(store.getState().examDraft.questionIds).toEqual([questions[1]!.id, questions[0]!.id])
-    expect(store.getState().examDraft.choiceOrder).toEqual({
-      [questions[0]!.id]: historicalAnswerOrder,
-    })
-    expect(bankIds(store)).toEqual([questions[0]!.id, questions[1]!.id])
-
-    store.undo()
-    expect(store.getState().examDraft).toEqual(beforeReplacement)
-  })
-
-  test('reconciles mixed updated and missing revisions atomically, with overrides and one Undo step', async () => {
-    const { store, questions } = await withExamDraft(2)
-    const first = store.selectedExam()
-    const historicalAnswerOrder = [...choicesOf(questions[0]!)].map((choice) => choice.id).reverse()
-    const published = prepareExport({
-      ...first,
-      version: {
-        ...first.version,
-        choiceOrder: { [questions[0]!.id]: historicalAnswerOrder },
-      },
-      configuration: DEFAULT_EXPORT_CONFIGURATION,
-      history: store.publicationHistory(),
-      measure: unmeasured,
-      createdAt: '2026-09-04T12:00:00.000Z',
-    })
-    await store.publish(published.publication)
-    // A fresh authoring boundary models a deleted historical source: only the
-    // updated current record remains in the Question Bank.
-    const changed = {
-      ...questions[0]!,
-      doc: {
-        ...questions[0]!.doc,
-        content: [
-          { type: 'paragraph', content: [{ type: 'text', text: 'Latest wording' }] },
-          ...questions[0]!.doc.content.slice(1),
-        ],
-      },
-    }
-    const reconciliationStore = createExamStore({
-      backend: memory(),
-      publicationHistory: store.publicationHistory(),
-      initial: {
-        questionBank: { questions: [changed] },
-        examDraft: { title: first.exam.title, questionIds: [changed.id], choiceOrder: {} },
-        dirty: false,
-      },
-    })
-    const before = structuredClone(reconciliationStore.getState())
-    const [updated, missing] = published.publication.revisions
-
-    // An invalid disposition does not partially add the historical updated
-    // question or replace the draft while it discovers the missing-row error.
-    expect(reconciliationStore.reconcileHistoricalVersionAsDraft(published.resolution.version.id, {
-      [updated!.id]: 'keep-historical',
-      [missing!.id]: 'keep-historical',
-    })).toBe(false)
-    expect(reconciliationStore.getState()).toEqual(before)
-
-    expect(reconciliationStore.reconcileHistoricalVersionAsDraft(published.resolution.version.id, {
-      [updated!.id]: 'use-latest',
-      [missing!.id]: 'add-to-question-bank',
-    })).toBe(true)
-    const reconciled = reconciliationStore.getState()
-    expect(reconciled.questionBank.questions).toHaveLength(2)
-    expect(reconciled.questionBank.questions.map((question) => question.id)).not.toContain(questions[1]!.id)
-    expect(reconciled.examDraft.questionIds[0]).toBe(questions[0]!.id)
-    expect(reconciled.examDraft.questionIds).toHaveLength(2)
-    expect(reconciled.examDraft.choiceOrder).toEqual({ [questions[0]!.id]: historicalAnswerOrder })
-
-    reconciliationStore.undo()
-    expect(reconciliationStore.getState()).toEqual(before)
-  })
-
-  test('retains the Version resolved by a re-export as the last export', async () => {
-    const { store, questions } = await withExamDraft(1)
-    const first = prepareExport({
-      ...store.selectedExam(),
-      configuration: DEFAULT_EXPORT_CONFIGURATION,
-      history: store.publicationHistory(),
-      measure: unmeasured,
-      createdAt: '2026-09-04T12:00:00.000Z',
-    })
-    await store.publish(first.publication)
-    store.setTitle('Newer Version')
-    const second = prepareExport({
-      ...store.selectedExam(),
-      configuration: DEFAULT_EXPORT_CONFIGURATION,
-      history: store.publicationHistory(),
-      measure: unmeasured,
-      createdAt: '2026-09-04T12:01:00.000Z',
-    })
-    await store.publish(second.publication)
-
-    store.setTitle('Untitled exam')
-    const reExport = prepareExport({
-      ...store.selectedExam(),
-      configuration: DEFAULT_EXPORT_CONFIGURATION,
-      history: store.publicationHistory(),
-      measure: unmeasured,
-      createdAt: '2026-09-04T12:02:00.000Z',
-    })
-    expect(reExport.resolution.version.id).toBe(first.resolution.version.id)
-    await store.publish(reExport.publication)
-
-    expect(store.getState().lastExportedVersionId).toBe(first.resolution.version.id)
-    expect(store.publicationHistory().versions).toEqual([
-      first.resolution.version,
-      second.resolution.version,
-    ])
-
-    // Publication checkpoints are workflow state, not authoring history. Undo
-    // must restore Version 2's draft without rolling its checkpoint back to
-    // Version 2: Use as Draft must still warn before replacing that draft.
-    store.undo()
-    expect(store.getState().examDraft.title).toBe('Newer Version')
-    expect(store.getState().lastExportedVersionId).toBe(first.resolution.version.id)
-    expect(questions).toHaveLength(1)
-  })
-
-  test('historical re-export preparation is read-only for current, saved, and dirty authoring state', async () => {
-    const { backend, savedBackend, store, questions } = await withExamDraft(1, 'open')
+  test('export records unsaved work without replacing the explicit saved Exam', async () => {
+    const { store, questions } = await withExamWorkingCopy(1, 'open')
     await store.save()
-    const first = store.selectedExam()
-    const published = prepareExport({
-      ...first,
-      configuration: { format: 'pdf', selection: { test: true, answerKey: true } },
-      history: store.publicationHistory(),
+    store.setTitle('Unsaved export title')
+    const selected = store.selectedExam()
+    const exported = prepareExport({
+      examId: 'exam-1',
+      ...selected,
+      configuration: DEFAULT_EXPORT_CONFIGURATION,
+      history: store.exportHistory(),
       measure: unmeasured,
       createdAt: '2026-09-04T12:00:00.000Z',
-    })
-    await store.publish(published.publication)
-
-    // This is unsaved authoring work. Historical re-export must not quietly
-    // commit it, clear its dirty flag, or alter the last saved snapshot.
-    store.setTitle('Unsaved live draft')
-    await store.whenSettled()
-    const beforeState = store.getState()
-    const beforeHistory = structuredClone(store.publicationHistory())
-    const beforeSaved = structuredClone(savedBackend.value)
-    const beforeWrites = backend.writes
-
-    const historical = prepareHistoricalExport({
-      history: store.publicationHistory(),
-      version: published.resolution.version,
-      configuration: { format: 'pdf', selection: { test: true, answerKey: true } },
+      createId: () => 'record-1',
     })
 
-    expect(historical.publication.version).toBeNull()
-    expect(historical.publication.revisions).toEqual([])
-    expect(historical.publication.plans).toEqual([])
-    // Production does not call store.publish for this prepared export.
-    expect(store.getState()).toBe(beforeState)
+    await store.publish(exported.record)
+
+    expect(store.exportHistory().records).toEqual([exported.record])
     expect(store.getState().dirty).toBe(true)
-    expect(store.publicationHistory()).toEqual(beforeHistory)
-    expect(savedBackend.value).toEqual(beforeSaved)
-    expect(backend.writes).toBe(beforeWrites)
+    await store.discard()
+    expect(store.getState().workingCopy.title).toBe('Untitled Exam')
     expect(renderedIds(store)).toEqual([questions[0]!.id])
   })
 
-  test('a refresh restores the Question Bank, the Exam Draft and the dirty flag', async () => {
-    const { backend, store, questions } = await withExamDraft(2)
+  test('historical re-export appends a new event without changing current authoring', async () => {
+    const { backend, savedBackend, store } = await withExamWorkingCopy(1, 'open')
+    await store.save()
+    const prepared = prepareExport({
+      examId: 'exam-1',
+      ...store.selectedExam(),
+      configuration: DEFAULT_EXPORT_CONFIGURATION,
+      history: store.exportHistory(),
+      measure: unmeasured,
+      createdAt: '2026-09-04T12:00:00.000Z',
+      createId: () => 'record-1',
+    })
+    await store.publish(prepared.record)
+    store.setTitle('Unsaved live work')
+    await store.whenSettled()
+    const before = store.getState()
+    const saved = structuredClone(savedBackend.value)
+    const writes = backend.writes
+
+    const historical = prepareHistoricalExport({
+      record: prepared.record,
+      createdAt: '2026-09-04T12:01:00.000Z',
+      createId: () => 'record-2',
+    })
+    await store.publish(historical.record)
+
+    expect(store.exportHistory().records.map(({ id }) => id)).toEqual(['record-1', 'record-2'])
+    expect(store.getState()).toBe(before)
+    expect(savedBackend.value).toEqual(saved)
+    expect(backend.writes).toBe(writes)
+  })
+
+  test('a refresh restores the Question Bank, the Working Copy and the dirty flag', async () => {
+    const { backend, store, questions } = await withExamWorkingCopy(2)
     const bankOnly = createQuestion('open')
     store.createInQuestionBank(bankOnly)
-    store.moveInExamDraft([questions[1]!.id], questions[0]!.id, 'before')
+    store.moveInWorkingCopy([questions[1]!.id], questions[0]!.id, 'before')
     store.setTitle('Chem Unit 3')
     await store.whenSettled()
 
     const reloaded = await loadExamStore(backend)
 
-    expect(reloaded.getState().examDraft.title).toBe('Chem Unit 3')
+    expect(reloaded.getState().workingCopy.title).toBe('Chem Unit 3')
     expect(bankIds(reloaded)).toEqual([
       questions[0]!.id,
       questions[1]!.id,
       bankOnly.id,
     ])
     expect(renderedIds(reloaded)).toEqual([questions[1]!.id, questions[0]!.id])
-    expect(reloaded.getState().dirty).toBe(true)
+    // The recovered Working Copy becomes the initial saved baseline only for
+    // legacy data that predates explicit saved snapshots.
+    expect(reloaded.getState().dirty).toBe(false)
   })
 
   test('bank-only work is durable even though it is on no exam', async () => {
@@ -1062,11 +910,11 @@ describe('the dirty flag and persistence', () => {
     const reloaded = await loadExamStore(backend)
 
     expect(bankIds(reloaded)).toEqual([question.id])
-    expect(reloaded.getState().examDraft.questionIds).toEqual([])
+    expect(reloaded.getState().workingCopy.questionIds).toEqual([])
   })
 
   test('saving clears the dirty flag and reloads without a working draft', async () => {
-    const { savedBackend, store, questions } = await withExamDraft(1)
+    const { savedBackend, store, questions } = await withExamWorkingCopy(1)
     store.setTitle('Persisted')
 
     await store.save()
@@ -1074,22 +922,101 @@ describe('the dirty flag and persistence', () => {
     expect(store.getState().dirty).toBe(false)
     expect(store.hasSavedExam()).toBe(true)
     const reloaded = await loadExamStore(memory(), savedBackend)
-    expect(reloaded.getState().examDraft.title).toBe('Persisted')
+    expect(reloaded.getState().workingCopy.title).toBe('Persisted')
     expect(renderedIds(reloaded)).toEqual([questions[0]!.id])
     expect(reloaded.getState().dirty).toBe(false)
   })
 
-  test('discard restores the last saved Question Bank and Exam Draft', async () => {
-    const { store, questions } = await withExamDraft(2)
+  test('discard restores the last saved Question Bank and Working Copy', async () => {
+    const { store, questions } = await withExamWorkingCopy(2)
     await store.save()
-    store.removeFromExamDraft([questions[0]!.id])
+    store.removeFromWorkingCopy([questions[0]!.id])
     store.setTitle('Changed')
 
     await store.discard()
 
-    expect(store.getState().examDraft.title).toBe('Untitled exam')
+    expect(store.getState().workingCopy.title).toBe('Untitled Exam')
     expect(renderedIds(store)).toEqual(questions.map((question) => question.id))
     expect(store.getState().dirty).toBe(false)
+  })
+
+  test('Replace preserves an outgoing Question’s inherited and explicit column layout', async () => {
+    const { store } = await freshStore()
+    const inherited = { ...createQuestion('multiple-choice'), columns: 4 as const }
+    const inheritedIncoming = { ...createQuestion('multiple-choice'), columns: 1 as const }
+    const explicit = { ...createQuestion('multiple-choice'), columns: 2 as const }
+    const explicitIncoming = { ...createQuestion('multiple-choice'), columns: 1 as const }
+    for (const question of [inherited, explicit]) {
+      store.createInQuestionBank(question)
+      store.addToWorkingCopy(question)
+      store.setQuestionColumns([question.id], question.columns)
+    }
+    for (const question of [inheritedIncoming, explicitIncoming]) {
+      store.createInQuestionBank(question)
+    }
+
+    store.replaceInWorkingCopy(inherited.id, inheritedIncoming.id)
+    store.setQuestionColumns([explicit.id], 4)
+    store.replaceInWorkingCopy(explicit.id, explicitIncoming.id)
+
+    const columns = new Map(
+      store.selectedExam().exam.questions.map((question) => [question.id, question.columns]),
+    )
+    expect(columns.get(inheritedIncoming.id)).toBe(4)
+    expect(columns.get(explicitIncoming.id)).toBe(4)
+  })
+
+  test('Discard before the first user Save retains canonical Question Content', async () => {
+    const { store } = await freshStore()
+    const question = createQuestion('open')
+    store.createInQuestionBank(question)
+    store.addToWorkingCopy(question)
+
+    await store.discard()
+
+    expect(bankIds(store)).toEqual([question.id])
+    expect(store.getState().workingCopy.questionIds).toEqual([])
+    expect(store.getState().dirty).toBe(false)
+  })
+
+  test('Discard restores the saved arrangement while retaining latest Question Content', async () => {
+    const { store, questions } = await withExamWorkingCopy(1, 'open')
+    await store.save()
+    const saved = questions[0]!
+    store.updateInQuestionBank({
+      ...saved,
+      columns: 4,
+      doc: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Latest wording' }] }] },
+    })
+    store.setTitle('Changed title')
+
+    await store.discard()
+
+    expect(store.getState().workingCopy.title).toBe('Untitled Exam')
+    expect(store.getState().questionBank.questions[0]).toMatchObject({
+      id: saved.id,
+      columns: 4,
+      doc: { content: [{ content: [{ text: 'Latest wording' }] }] },
+    })
+    expect(store.selectedExam().exam.questions[0]!.columns).toBe(saved.columns)
+    expect(store.canUndo()).toBe(false)
+    expect(store.canRedo()).toBe(false)
+  })
+
+  test('reports a failed Working Copy backup without losing the in-memory change', async () => {
+    const backend: Backend<AuthoringState> = {
+      read: async () => null,
+      write: async () => { throw new Error('storage unavailable') },
+    }
+    const store = await loadExamStore(backend)
+
+    store.setTitle('Still in memory')
+    expect(store.backupStatus()).toBe('pending')
+    await store.whenSettled()
+
+    expect(store.backupStatus()).toBe('failed')
+    expect(store.getState().workingCopy.title).toBe('Still in memory')
+    expect(store.getState().dirty).toBe(true)
   })
 
   test('subscribers are notified of a change', async () => {
@@ -1106,11 +1033,62 @@ describe('the dirty flag and persistence', () => {
   })
 
   test('snapshots keep stable identities while nothing changes', async () => {
-    const { store } = await withExamDraft(1)
+    const { store } = await withExamWorkingCopy(1)
     const state = store.getState()
     const selected = store.selectedExam()
     expect(store.getState()).toBe(state)
     expect(store.selectedExam()).toBe(selected)
+  })
+})
+
+describe('Save As', () => {
+  test('moves a dirty Working Copy and its Undo history into a separately saved Exam', async () => {
+    const { store, questions } = await withExamWorkingCopy(2)
+    await store.save()
+    store.setTitle('Biology quiz')
+    store.moveInWorkingCopy([questions[1]!.id], questions[0]!.id, 'before')
+    const sourceBefore = structuredClone(store.getState())
+    let copied: import('./exam-store').SaveAsSnapshot | undefined
+
+    const session = await store.saveAs(async (snapshot) => { copied = structuredClone(snapshot) })
+
+    expect(copied?.targetInitial).toMatchObject({
+      dirty: false,
+      workingCopy: { title: 'Biology quiz Copy', questionIds: [questions[1]!.id, questions[0]!.id] },
+    })
+    expect(copied?.targetInitial.questionBank.questions.map(({ id }) => id)).toEqual(
+      sourceBefore.questionBank.questions.map(({ id }) => id),
+    )
+    expect(copied?.sourceRestored.workingCopy).toMatchObject({
+      title: 'Untitled Exam', questionIds: [questions[0]!.id, questions[1]!.id], columns: expect.any(Object),
+    })
+    expect(store.getState().workingCopy.title).toBe('Untitled Exam')
+    expect(renderedIds(store)).toEqual([questions[0]!.id, questions[1]!.id])
+    expect(store.canUndo()).toBe(false)
+    expect(store.canRedo()).toBe(false)
+
+    const target = createExamStore({
+      backend: memory(),
+      saved: copied!.targetInitial,
+      initial: copied!.targetInitial,
+      initialHistory: session.history,
+    })
+    expect(target.getState().dirty).toBe(false)
+    expect(target.canUndo()).toBe(true)
+    target.undo()
+    expect(target.getState().dirty).toBe(true)
+  })
+
+  test('copies a clean Exam and leaves it unchanged if the durable operation fails', async () => {
+    const { store } = await freshStore()
+    await store.save()
+    const before = store.getState()
+
+    await expect(store.saveAs(async () => { throw new Error('disk full') })).rejects.toThrow('disk full')
+
+    expect(store.getState()).toBe(before)
+    expect(store.getState().dirty).toBe(false)
+    expect(store.getState().workingCopy.title).toBe('Untitled Exam')
   })
 })
 
@@ -1120,11 +1098,12 @@ describe('undo and redo', () => {
     const first = createQuestion('multiple-choice')
     const second = createQuestion('multiple-choice')
 
-    store.createInExamDraft(first)
+    store.createInQuestionBank(first)
+    store.addToWorkingCopy(first)
     store.createInQuestionBank(second)
-    store.addToExamDraft(second.id)
-    store.moveInExamDraft([second.id], first.id, 'before')
-    store.removeFromExamDraft([first.id])
+    store.addToWorkingCopy(second.id)
+    store.moveInWorkingCopy([second.id], first.id, 'before')
+    store.removeFromWorkingCopy([first.id])
     expect(renderedIds(store)).toEqual([second.id])
 
     store.undo()
@@ -1137,6 +1116,8 @@ describe('undo and redo', () => {
     store.undo()
     expect(bankIds(store)).toEqual([first.id])
     store.undo()
+    expect(renderedIds(store)).toEqual([])
+    store.undo()
     expect(bankIds(store)).toEqual([])
     expect(store.canUndo()).toBe(false)
 
@@ -1146,14 +1127,15 @@ describe('undo and redo', () => {
     store.redo()
     store.redo()
     store.redo()
+    store.redo()
     expect(renderedIds(store)).toEqual([second.id])
     expect(store.canRedo()).toBe(false)
   })
 
   test('undoing a Remove puts the reference back where it was', async () => {
-    const { store, questions } = await withExamDraft(3)
+    const { store, questions } = await withExamWorkingCopy(3)
 
-    store.removeFromExamDraft([questions[1]!.id])
+    store.removeFromWorkingCopy([questions[1]!.id])
     store.undo()
 
     expect(renderedIds(store)).toEqual(questions.map((question) => question.id))
@@ -1166,7 +1148,7 @@ describe('undo and redo', () => {
     store.setTitle('Second')
 
     expect(store.canRedo()).toBe(false)
-    expect(store.getState().examDraft.title).toBe('Second')
+    expect(store.getState().workingCopy.title).toBe('Second')
   })
 
   test('restored history is mirrored, so a refresh agrees with the screen', async () => {
@@ -1175,7 +1157,22 @@ describe('undo and redo', () => {
     store.undo()
     await store.whenSettled()
 
-    expect(backend.value?.examDraft.title).toBe('Untitled exam')
+    expect(backend.value?.workingCopy.title).toBe('Untitled Exam')
+  })
+
+  test('forced deletion clears history and cannot be restored by Undo or Discard', async () => {
+    const { store, questions } = await withExamWorkingCopy(2)
+    await store.save()
+    store.setTitle('Unsaved title')
+    store.acceptForcedDeletion([questions[0]!.id])
+
+    expect(renderedIds(store)).toEqual([questions[1]!.id])
+    expect(store.canUndo()).toBe(false)
+    expect(store.canRedo()).toBe(false)
+
+    await store.discard()
+    expect(renderedIds(store)).toEqual([questions[1]!.id])
+    expect(store.getState().workingCopy.title).toBe('Untitled Exam')
   })
 
   test('an untouched store has nothing to undo or redo', async () => {

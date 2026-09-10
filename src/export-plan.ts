@@ -1,16 +1,16 @@
 // Export planning: one Export Document, one Layout Plan.
 //
-// This is the single module that decides what an exam version *says* and how it
+// This is the single module that decides what an exam arrangement *says* and how it
 // *falls onto pages*. Both Export Adapters — the React/HTML print path and the
 // DOCX writer — consume the Layout Plan it returns. Neither walks an `Exam`
 // itself, so a content or pagination rule is implemented and fixed once.
 //
-// The interface callers and tests use is `planExport`: an exam, one version,
+// The interface callers and tests use is `planExport`: an exam, one arrangement,
 // the requested content selection and a `Measure` in; a complete `LayoutPlan`
 // out. The two stages behind it are internal:
 //
 //   1. Semantic derivation into an `ExportDocument` — sections, continuous
-//      question numbering, this version's choice order and the letters it
+//      question numbering, this arrangement's choice order and the letters it
 //      earns, choice-grid topology, the answer key.
 //   2. Layout resolution into a `LayoutPlan` — page assignment, page furniture,
 //      footer numbering, and the explicit break decisions a serializer needs.
@@ -33,7 +33,7 @@ import {
   type Exam,
   type Question,
   type QuestionType,
-  type Version,
+  type Arrangement,
 } from './exam'
 import { stemNodesOf, type ProseMirrorJSON } from './question-doc'
 
@@ -70,7 +70,7 @@ export const unmeasured: Measure = {
   itemHeight: () => 0,
 }
 
-// A choice as it prints: its letter is its position in this version's ordering,
+// A choice as it prints: its letter is its position in this arrangement's ordering,
 // so it is what the student writes on their paper and what the answer key
 // records.
 export type PlannedChoice = {
@@ -98,7 +98,7 @@ export type PlannedQuestion = {
   answerBlank: boolean
   /** The question document's top-level blocks, without the choice list. */
   stem: ProseMirrorJSON[]
-  /** The answers in this version's order, lettered. Empty for short answer. */
+  /** The answers in this arrangement's order, lettered. Empty for short answer. */
   choices: PlannedChoice[]
   /** How those answers lay out, or `null` when there are none. */
   grid: ChoiceGrid | null
@@ -151,7 +151,7 @@ export type AnswerKeySectionItem = {
 }
 
 // One line of the key: a question's number and, for multiple choice, the
-// correct letter under this version's ordering. `letter` is `null` for a
+// correct letter under this arrangement's ordering. `letter` is `null` for a
 // free-response question — the key still gives it a blank so the numbering
 // lines up with the test.
 export type AnswerKeyEntryItem = {
@@ -171,7 +171,7 @@ export type PageItem =
 // Which furniture a page carries. The first page takes the Name/Class/Date
 // line and the title; later pages take a Name blank alone; the answer key —
 // begun fresh after the last test page, footer restarted at 1 — takes the
-// version ID alone plus the repeated title, and carries no Name line at all.
+// arrangement ID alone plus the repeated title, and carries no Name line at all.
 export type PageHeader = 'first' | 'later' | 'answer-key' | 'answer-key-later'
 
 export function isAnswerKeyHeader(header: PageHeader): boolean {
@@ -208,8 +208,8 @@ export type PageFurniture = {
   identityFields: readonly IdentityField[]
   /** The exam title, on the pages that repeat it; `null` on the rest. */
   title: string | null
-  /** Which version's paper this is — printed on every page, both streams. */
-  versionLabel: string
+  /** Which arrangement's paper this is — printed on every page, both streams. */
+  arrangementLabel: string
   /** What the footer prints. The same number as the page, named separately
    *  because a footer is furniture rather than an item that packs. */
   pageNumber: number
@@ -218,7 +218,7 @@ export type PageFurniture = {
 const IDENTITY_FIELDS: Record<PageHeader, readonly IdentityField[]> = {
   first: ['Name', 'Class', 'Date'],
   later: ['Name'],
-  // The key is the teacher's copy: it carries the version it belongs to and
+  // The key is the teacher's copy: it carries the arrangement it belongs to and
   // nothing for a student to fill in.
   'answer-key': [],
   'answer-key-later': [],
@@ -236,12 +236,12 @@ const REPEATS_TITLE: Record<PageHeader, boolean> = {
 function furnitureOf(
   page: { header: PageHeader; number: number },
   title: string,
-  versionLetter: string,
+  arrangementLetter: string,
 ): PageFurniture {
   return {
     identityFields: IDENTITY_FIELDS[page.header],
     title: REPEATS_TITLE[page.header] ? title : null,
-    versionLabel: `ID: ${versionLetter}`,
+    arrangementLabel: `ID: ${arrangementLetter}`,
     pageNumber: page.number,
   }
 }
@@ -332,10 +332,10 @@ function layOutGrid(
 
 function deriveQuestion(
   question: Question,
-  version: Version,
+  arrangement: Arrangement,
   number: number,
 ): PlannedQuestion {
-  const ordered = orderedChoices(question, version)
+  const ordered = orderedChoices(question, arrangement)
   const choices: PlannedChoice[] = ordered.map((choice, index) => ({
     id: choice.id,
     letter: letterAt(index),
@@ -356,11 +356,11 @@ function deriveQuestion(
 // Sections in fixed order, each omitted entirely when it holds no questions —
 // Empty sections omit their printed heading and instructions. Questions are
 // inserted from the application toolbar, outside the printable document.
-function deriveItems(exam: Exam, version: Version): PageItem[] {
+function deriveItems(exam: Exam, arrangement: Arrangement): PageItem[] {
   const items: PageItem[] = []
   let number = 1
   for (const section of SECTION_ORDER) {
-    const questions = questionsInSection(exam, version, section)
+    const questions = questionsInSection(exam, arrangement, section)
     if (questions.length > 0) {
       items.push({
         kind: 'section-heading',
@@ -371,7 +371,7 @@ function deriveItems(exam: Exam, version: Version): PageItem[] {
       })
     }
     for (const question of questions) {
-      items.push(wholeQuestion(deriveQuestion(question, version, number)))
+      items.push(wholeQuestion(deriveQuestion(question, arrangement, number)))
       number += 1
     }
   }
@@ -437,7 +437,7 @@ function pieceOf(
 // numbers always start at 1 within one call, which is what gives the key its
 // own restarted footer: it is simply a second, independent call.
 // What packing produces: which items landed on which sheet, under which header
-// variant. Furniture needs the document's title and version, which packing has
+// variant. Furniture needs the document's title and arrangement, which packing has
 // no business knowing, so `resolveLayout` is what turns these into
 // `PlannedPage`s.
 type PackedPage = Pick<PlannedPage, 'number' | 'header' | 'stream' | 'items'>
@@ -543,7 +543,7 @@ function paginate(
 }
 
 // Derive the key from the exact rendered questions that students see, so its
-// numbering and version-relative choice letters cannot drift from the test. A
+// numbering and arrangement-relative choice letters cannot drift from the test. A
 // question that later splits across pages still contributes exactly one answer
 // line, because the key is derived before layout and the id set guards repeats.
 function deriveAnswerKey(testItems: readonly PageItem[]): PageItem[] {
@@ -574,12 +574,12 @@ function deriveAnswerKey(testItems: readonly PageItem[]): PageItem[] {
 // ---------------------------------------------------------------------------
 // Stage 1: the Export Document
 //
-// Format-neutral content and presentation intent for one exam version: what the
+// Format-neutral content and presentation intent for one exam arrangement: what the
 // paper says, in what order, under which numbers and letters — and nothing at
 // all about pages. Both streams are always derived; the selection decides which
 // of them the Layout Plan goes on to lay out.
 
-/** Which of an exam version's documents an export covers. */
+/** Which of an exam arrangement's documents an export covers. */
 export type ExportContentSelection = {
   test: boolean
   answerKey: boolean
@@ -590,7 +590,7 @@ export const STUDENT_TEST: ExportContentSelection = { test: true, answerKey: fal
 
 export type ExportDocument = {
   title: string
-  version: { id: string; letter: string }
+  arrangement: { id: string; letter: string }
   selection: ExportContentSelection
   /** The student test's content items, in order, before page assignment. */
   test: PageItem[]
@@ -602,13 +602,13 @@ export type ExportDocument = {
  *  the semantic stage: it is page-free, and takes no `Measure` at all. */
 export function buildExportDocument(
   exam: Exam,
-  version: Version,
+  arrangement: Arrangement,
   selection: ExportContentSelection,
 ): ExportDocument {
-  const test = deriveItems(exam, version)
+  const test = deriveItems(exam, arrangement)
   return {
     title: exam.title,
-    version: { id: version.id, letter: version.letter },
+    arrangement: { id: arrangement.id, letter: arrangement.letter },
     selection,
     test,
     answerKey: deriveAnswerKey(test),
@@ -619,7 +619,7 @@ export function buildExportDocument(
 // Stage 2: the Layout Plan
 //
 // The Export Document resolved onto real sheets. Self-contained on purpose: an
-// adapter that has a plan needs neither the exam, the version, nor a `Measure`.
+// adapter that has a plan needs neither the exam, the arrangement, nor a `Measure`.
 
 export type PageSize = {
   /** CSS pixels at 96dpi — US Letter, the geometry both outputs are cut to. */
@@ -638,7 +638,7 @@ export const US_LETTER: PageSize = {
 
 export type LayoutPlan = {
   title: string
-  version: { id: string; letter: string }
+  arrangement: { id: string; letter: string }
   selection: ExportContentSelection
   pageSize: PageSize
   pages: PlannedPage[]
@@ -646,7 +646,7 @@ export type LayoutPlan = {
 
 export type PlanRequest = {
   exam: Exam
-  version: Version
+  arrangement: Arrangement
   selection: ExportContentSelection
   measure: Measure
 }
@@ -674,7 +674,7 @@ function resolveLayout(
   }
   return {
     title: document.title,
-    version: document.version,
+    arrangement: document.arrangement,
     selection: document.selection,
     pageSize: US_LETTER,
     // Every page but the first of the serialized document is preceded by an
@@ -682,22 +682,22 @@ function resolveLayout(
     // rather than rediscover one of its own.
     pages: pages.map((page, index) => ({
       ...page,
-      furniture: furnitureOf(page, document.title, document.version.letter),
+      furniture: furnitureOf(page, document.title, document.arrangement.letter),
       breakBefore: index > 0,
     })),
   }
 }
 
 /**
- * The whole planning interface, in one pure call: an exam, the version to
+ * The whole planning interface, in one pure call: an exam, the arrangement to
  * export, which of its documents to include, and how to measure. Nothing here
  * reads the DOM, a clock, or a random source.
  */
 export function planExport({
   exam,
-  version,
+  arrangement,
   selection,
   measure,
 }: PlanRequest): LayoutPlan {
-  return resolveLayout(buildExportDocument(exam, version, selection), measure)
+  return resolveLayout(buildExportDocument(exam, arrangement, selection), measure)
 }

@@ -27,11 +27,10 @@ test('column formatting applies to a large multi-page selection', async ({ page 
   const ids = Array.from({ length: 12 }, (_unused, index) => `q${index + 1}`)
   await seedAuthoringState(page, {
     questionBank: { questions: ids.map(question) },
-    examDraft: { title: 'Bulk format repro', questionIds: ids },
+    workingCopy: { title: 'Bulk format repro', questionIds: ids },
     dirty: false,
   })
 
-  await page.goto('/')
   const questions = page.locator('.exam-question')
   await expect(questions).toHaveCount(ids.length)
   await questions.first().click()

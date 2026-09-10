@@ -1,4 +1,4 @@
-// The Question Bank, beside the Exam Draft.
+// The Question Bank, beside the Working Copy.
 //
 // A compact, scannable table of the canonical questions a teacher has written,
 // newest first, with everything needed to find one and put it on the exam: a
@@ -15,8 +15,8 @@
 // Nothing here can Delete Question Content, and nothing here assembles an
 // authoring action out of smaller ones: every action calls exactly one of the
 // store's operations, so it is one undo step however it was reached. Search,
-// filter values and row selection are transient UI state — they are handed in
-// rather than stored, and they never enter the authoring history.
+// Filter values and row selection are handed in rather than stored here. The
+// workspace may persist filters, but neither state enters authoring history.
 
 import {
   useCallback,
@@ -26,7 +26,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from 'react'
 import { createPortal } from 'react-dom'
-import { Check, CircleMinus, Pencil, Plus, Search } from 'lucide-react'
+import { Check, CircleMinus, Download, Pencil, Plus, Search } from 'lucide-react'
 import { DifficultyBadge, TopicBadge } from './badges'
 import type { MenuPoint } from './context-menu'
 import { stemPreview, type StemPreviewBadge } from './stem-preview'
@@ -219,32 +219,38 @@ const DIFFICULTY_OPTIONS: FilterOption<DifficultyFilter>[] = [
 
 export function QuestionBankPane({
   bank,
-  examDraftIds,
+  workingCopyIds,
   filter,
   onFilterChange,
   selectedQuestionId,
   onSelect,
   onCreate,
+  onExport,
+  exportBlocked = false,
   onEdit,
-  onAddToExamDraft,
-  onRemoveFromExamDraft,
+  onAddToWorkingCopy,
+  onRemoveFromWorkingCopy,
   drag,
 }: {
   bank: QuestionBank
-  /** Which bank records the Exam Draft currently references. */
-  examDraftIds: ReadonlySet<string>
+  /** Which bank records the Working Copy currently references. */
+  workingCopyIds: ReadonlySet<string>
   filter: QuestionBankFilter
   onFilterChange: (filter: QuestionBankFilter) => void
   /** The row a teacher has clicked, if any. Transient: selecting is not an
    *  authoring action. */
   selectedQuestionId: string | null
   onSelect: (questionId: string) => void
-  onCreate: (point: MenuPoint) => void
+  onCreate?: (point: MenuPoint) => void
+  /** Exports this complete active bank, never the filtered row projection. */
+  onExport?: () => void
+  /** An open Question editor must be resolved before export can begin. */
+  exportBlocked?: boolean
   onEdit: (questionId: string) => void
-  onAddToExamDraft: (questionId: string) => void
-  /** Takes the question back off the Exam Draft, leaving its bank record be. */
-  onRemoveFromExamDraft: (questionId: string) => void
-  /** The gesture in flight. A row that is not already on the Exam Draft is a
+  onAddToWorkingCopy?: (questionId: string) => void
+  /** Takes the question back off the Working Copy, leaving its bank record be. */
+  onRemoveFromWorkingCopy?: (questionId: string) => void
+  /** The gesture in flight. A row that is not already on the Working Copy is a
    *  drag source for it; a row that is offers no gesture at all, because a
    *  reference occurs at most once and refusing a drop after the fact would be
    *  a worse way to say so. */
@@ -281,7 +287,7 @@ export function QuestionBankPane({
     }
   }
 
-  /** The pointer handlers a row that is not on the Exam Draft carries. A row
+  /** The pointer handlers a row that is not on the Working Copy carries. A row
    *  that is carries none: it has nowhere to be dropped. */
   const dragHandlers = (question: Question) => ({
     onPointerDown: (event: ReactPointerEvent<HTMLElement>) => {
@@ -361,7 +367,18 @@ export function QuestionBankPane({
       <header className="question-bank-header">
         <h2>Question Bank</h2>
         <div className="question-bank-header-actions">
-          <button
+          {onExport && <button
+            type="button"
+            className="secondary-button"
+            aria-haspopup="dialog"
+            aria-describedby={bank.questions.length === 0 ? 'empty-bank-export-help' : exportBlocked ? 'editing-bank-export-help' : undefined}
+            disabled={bank.questions.length === 0 || exportBlocked}
+            onClick={onExport}
+          >
+            <Download />
+            Share bank PDF
+          </button>}
+          {onCreate && <button
             type="button"
             className="secondary-button"
             aria-haspopup="menu"
@@ -374,7 +391,9 @@ export function QuestionBankPane({
           >
             <Plus />
             New question
-          </button>
+          </button>}
+          {onExport && bank.questions.length === 0 && <span id="empty-bank-export-help" className="bank-export-help">At least one Question is required.</span>}
+          {onExport && exportBlocked && <span id="editing-bank-export-help" className="bank-export-help">Save or cancel the open Question edit before exporting.</span>}
         </div>
       </header>
 
@@ -440,7 +459,8 @@ export function QuestionBankPane({
       ) : (
         <ul className="question-bank-list">
           {questions.map((question) => {
-            const inExamDraft = examDraftIds.has(question.id)
+            const inExamWorkingCopy = workingCopyIds.has(question.id)
+            const draggable = !inExamWorkingCopy && onAddToWorkingCopy !== undefined
             const preview = stemPreview(question)
             const name = preview.text || UNTITLED
             const topics = topicsOf(question)
@@ -449,10 +469,10 @@ export function QuestionBankPane({
                 className="question-bank-row"
                 key={question.id}
                 data-question-id={question.id}
-                data-in-exam={inExamDraft ? 'true' : undefined}
+                data-in-exam={inExamWorkingCopy ? 'true' : undefined}
                 // An unused row is a drag source; a row already on the Exam
                 // Draft is not one, and says so before the gesture starts.
-                data-draggable={inExamDraft ? undefined : 'true'}
+                data-draggable={draggable ? 'true' : undefined}
                 data-dragging={
                   drag.source?.pane === 'question-bank'
                   && drag.source.questionId === question.id
@@ -461,7 +481,7 @@ export function QuestionBankPane({
                 }
                 aria-current={selectedQuestionId === question.id ? 'true' : undefined}
                 tabIndex={0}
-                {...(inExamDraft ? {} : dragHandlers(question))}
+                {...(draggable ? dragHandlers(question) : {})}
                 onClick={() => {
                   // The press that has just finished dragging is not a click —
                   // that press, on that row, and no other click anywhere.
@@ -488,7 +508,7 @@ export function QuestionBankPane({
                     {question.difficulty && (
                       <DifficultyBadge difficulty={question.difficulty} />
                     )}
-                    {inExamDraft && (
+                    {inExamWorkingCopy && (
                       <span className="question-bank-row-badge">In exam</span>
                     )}
                   </span>
@@ -522,35 +542,35 @@ export function QuestionBankPane({
                   >
                     <Pencil />
                   </button>
-                  {/* A question already on the Exam Draft offers no way onto it
+                  {/* A question already on the Working Copy offers no way onto it
                       a second time — a reference occurs at most once — so the
                       plus becomes a tick: the same slot answers "can I add
                       this?" and "is it already on?". Reaching for it is the
                       one thing a teacher could still want from that slot, so
                       under the cursor the tick becomes the minus that takes
                       the question back off the exam. */}
-                  {inExamDraft ? (
+                  {inExamWorkingCopy && onRemoveFromWorkingCopy ? (
                     <button
                       type="button"
                       className="question-bank-action question-bank-included"
                       aria-label={`Remove ${name} from the exam`}
                       title="Remove from the exam"
-                      onClick={() => onRemoveFromExamDraft(question.id)}
+                      onClick={() => onRemoveFromWorkingCopy(question.id)}
                     >
                       <Check className="question-bank-included-resting" />
                       <CircleMinus className="question-bank-included-hover" />
                     </button>
-                  ) : (
+                  ) : onAddToWorkingCopy ? (
                     <button
                       type="button"
                       className="question-bank-action"
                       aria-label={`Add ${name} to the exam`}
                       title="Add to the exam"
-                      onClick={() => onAddToExamDraft(question.id)}
+                      onClick={() => onAddToWorkingCopy(question.id)}
                     >
                       <Plus />
                     </button>
-                  )}
+                  ) : null}
                 </div>
               </li>
             )

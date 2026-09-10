@@ -8,11 +8,11 @@
 //
 // The width lives here and nowhere else. It is a view of the workspace, not
 // authoring data: it never reaches the store, never dirties the exam, never
-// enters undo history and is gone on reload — the same rule the bank's search,
-// filters and row selection already follow.
+// enters undo history. Its owner may persist it as editor workspace state.
 
 import {
   useCallback,
+  useEffect,
   useRef,
   useState,
   type CSSProperties,
@@ -33,19 +33,31 @@ const clampPercent = (percent: number) =>
 
 export function WorkspaceSplit({
   bank,
-  examDraft,
+  workingCopy,
+  initialBankPercent = DEFAULT_BANK_PERCENT,
+  onBankPercentChange,
 }: {
   bank: ReactNode
-  examDraft: ReactNode
+  workingCopy: ReactNode
+  initialBankPercent?: number
+  onBankPercentChange?: (percent: number) => void
 }) {
-  const [bankPercent, setBankPercent] = useState(DEFAULT_BANK_PERCENT)
+  const [bankPercent, setBankPercent] = useState(clampPercent(initialBankPercent))
   const container = useRef<HTMLDivElement>(null)
+
+  useEffect(() => setBankPercent(clampPercent(initialBankPercent)), [initialBankPercent])
+
+  const changeBankPercent = useCallback((percent: number) => {
+    const next = clampPercent(percent)
+    setBankPercent(next)
+    onBankPercentChange?.(next)
+  }, [onBankPercentChange])
 
   const resizeTo = useCallback((clientX: number) => {
     const bounds = container.current?.getBoundingClientRect()
     if (!bounds || bounds.width === 0) return
-    setBankPercent(clampPercent(((clientX - bounds.left) / bounds.width) * 100))
-  }, [])
+    changeBankPercent(((clientX - bounds.left) / bounds.width) * 100)
+  }, [changeBankPercent])
 
   const dragging = useRef<number | null>(null)
 
@@ -92,11 +104,11 @@ export function WorkspaceSplit({
           if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
             event.preventDefault()
             const step = event.key === 'ArrowLeft' ? -KEYBOARD_STEP : KEYBOARD_STEP
-            setBankPercent((current) => clampPercent(current + step))
+            changeBankPercent(bankPercent + step)
           }
         }}
       />
-      <div className="editor-output">{examDraft}</div>
+      <div className="editor-output">{workingCopy}</div>
     </div>
   )
 }

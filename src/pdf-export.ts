@@ -636,7 +636,7 @@ function drawFurniture(
   for (const field of furniture.identityFields) {
     pieces.push({ text: `${field}: __________________  `, font: 'regular', size: SMALL_SIZE })
   }
-  pieces.push({ text: furniture.versionLabel, font: 'bold', size: SMALL_SIZE })
+  pieces.push({ text: furniture.arrangementLabel, font: 'bold', size: SMALL_SIZE })
   drawInline(context, pieces, { x: context.x, width: context.width, line: 13 })
   if (furniture.title !== null) {
     const titleContext = { ...context, y: pageTop - 36, bottom: headerBottom }

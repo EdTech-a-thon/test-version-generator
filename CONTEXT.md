@@ -1,24 +1,32 @@
 # Test Parrot
 
-Test Parrot authors and publishes versioned exams while preserving the intended structure and layout across output formats.
+Test Parrot authors reusable questions, saves Exams, and records what teachers export while preserving the intended structure and layout across output formats.
 
 ## Language
 
+**Question**:
+A canonical record owned by exactly one Question Bank and referenced live by any number of Exams. One Question identity may occur at most once in an Exam; Duplicate creates a new Question in the original Question Bank.
+_Avoid_: Exam question, question copy
+
 **Question Content**:
-The rich-text material authored for one question, including its stem and, when present, its answer choices.
+The rich-text material authored for one question, including its stem and, when present, its answer choices or Suggested Answer.
 _Avoid_: Question text, editor content
 
-**Question Revision**:
-An immutable export-time presentation state of one Question Bank record, including its Question Content, correct choice or Suggested Answer, and answer-column layout. Export reuses an exactly matching revision and creates one only for a previously unseen presentation state; Difficulty and Topics do not distinguish revisions.
-_Avoid_: Question copy, historical question
-
 **Question Metadata**:
-Difficulty and Topics used to find and Replace Equivalent Questions while composing an Exam Draft. Question Metadata does not affect Question Revision or Version identity.
-_Avoid_: Question identity, version metadata
+Difficulty and Topics used to organize and find Questions while composing an Exam. Question Metadata does not affect exported output.
+_Avoid_: Question identity, export identity
 
 **Question Bank**:
-A collection of Question Content available while authoring an Exam. The current experience pairs one Question Bank with one Exam, without treating that pairing as permanent ownership.
+An independently reusable, named collection of canonical Questions whose confirmed changes save immediately. It may carry an optional description, author, and license; a new bank is named “Untitled Question Bank” by default. An Exam may reference Questions from any number of banks, and a bank may contribute Questions to any number of Exams.
 _Avoid_: Question library
+
+**Question Bank File**:
+A self-contained PDF for sharing one complete Question Bank. Its complete teacher-readable preview is derived from its embedded Question Bank Record, which is the authoritative source for importing a new independent Question Bank.
+_Avoid_: Exam export, printable question bank, backup
+
+**Question Bank Record**:
+The versioned, format-owned machine-readable representation embedded in a Question Bank File, containing the complete Question Bank and every Media Asset it needs. Import creates a new independent Question Bank from this record rather than preserving local identities or inferring Question Content from PDF pages.
+_Avoid_: PDF metadata, extracted questions
 
 **Difficulty**:
 An optional classification of a question as easy, medium, or hard.
@@ -31,35 +39,35 @@ _Avoid_: Concept
 The width a teacher assigns to a block image relative to its printable container, such as the Question Content lane or an answer-choice cell. It preserves the image's intrinsic aspect ratio.
 _Avoid_: Image ratio, image height
 
-**Version**:
-An immutable, view-only exam artifact with a stable adjective-noun name, identified by a name-independent Export Fingerprint of its format-neutral semantic content and resolved layout. The same words, media, correctness, formatting, order, and page assignment reuse a Version regardless of Question Metadata, how the state was reached, output format, or Content Selection; every Version retains canonical student-test and answer-key Layout Plans for re-export but never becomes editable itself.
-_Avoid_: Editable version, saved draft, revision source
+**Exam**:
+A mutable composition with a stable identity and a name, made from live references to Question Bank records. A new Exam is named “Untitled Exam” by default; Save updates it, while Save As moves the current Working Copy into a separate Exam and restores the source Exam to its last saved state. An untouched, empty Untitled Exam is disposable rather than durable.
+_Avoid_: Exam project, exam family, Version, Draft
 
-**Version History**:
-The append-only collection of immutable Versions previously exported from an Exam Draft. Versions can be viewed and re-exported but not edited or deleted.
-_Avoid_: Export log, version folder
+**Working Copy**:
+The locally backed-up editing state currently open for an Exam. It may differ from the Exam's explicitly saved state and is the state that Save, Save As, and Export act upon.
+_Avoid_: Exam Draft, Draft, autosaved Exam, local save
 
-**Exam Draft**:
-The mutable selection and ordering of current Question Bank records that a teacher is preparing for export. It may be initialized from a historical Version only after every historical Question Revision has been reconciled with the Question Bank.
-_Avoid_: Current version, editable version
+**Export Record**:
+An immutable, undeletable record attached to an Exam and created each time its Working Copy or a previous Export Record is exported. It retains only the exact Content Selection, format, question state, and Layout Plans produced by that event; repeated and historical re-exports produce separate Export Records, and export does not save the Exam.
+_Avoid_: Version, saved Exam, deduplicated export
 
-**Use as Draft**:
-To initialize the Exam Draft from a historical Version after Question Reconciliation, without changing the Version.
-_Avoid_: Import version, edit version, restore version
+**Export Artifact**:
+A PDF or DOCX produced by an export and described by its Export Record.
+_Avoid_: Version, Exam
 
-**Question Reconciliation**:
-The review that resolves source questions against current Question Bank records before they enter the Exam Draft. It chooses complete Question Revisions rather than synthesizing them: an older revision may use the bank's latest state or become a new record, while a historical question not in the Question Bank may become a new record with a fresh identity and its full historical state, or be left out.
-_Avoid_: Question migration, conflict resolution
+**Export History**:
+The permanent chronological collection of an Exam's Export Records. Export History preserves what the teacher produced without making the Exam immutable.
+_Avoid_: Version History, audit log
 
 **Remove**:
-To exclude Question Content from an Exam Draft while leaving it in the Question Bank.
+To exclude Question Content from an Exam while leaving it in its Question Bank.
 
 **Replace**:
-To put one Question Bank record in another's place at a fixed position in an Exam Draft, initially using the incoming question's authored answer order. Neither question's Question Content is copied or deleted, and the replaced question remains in the Question Bank.
+To put one Question Bank record in another's fixed position in an Exam, using the incoming Question's authored answer order and the outgoing reference's answer-column layout. Neither Question is copied or deleted, and the replaced Question remains in its Question Bank.
 _Avoid_: Swap, substitute
 
 **Delete**:
-To permanently remove Question Content from a Question Bank. Deletion is not available from an Exam Draft.
+To permanently remove Question Content from its Question Bank, every Exam that references it, and their Working Copies. Deletion requires showing the affected Exams and explicit confirmation; existing Export Records remain unchanged.
 
 **Short Answer**:
 A Question Type whose response is intentionally brief and does not present answer choices.
@@ -70,27 +78,23 @@ Optional rich-text material authored for a Short Answer question to represent it
 _Avoid_: Correct answer, sample response, rubric
 
 **Question Section**:
-A group of questions of the same type whose boundary remains fixed across Versions, such as Multiple Choice or Short Answer.
+A group of questions of the same type whose boundary remains fixed within an Exam and its exported output, such as Multiple Choice or Short Answer.
 _Avoid_: Question category
 
-**Equivalent Question**:
-A Question Bank record in the same Question Section with the same Difficulty and the same non-empty set of Topics. A missing Difficulty matches only another missing Difficulty; a question without a Topic has no Equivalent Questions.
-_Avoid_: Similar question, interchangeable question
-
 **Vary**:
-A family of Exam Draft actions that shuffle question order, Replace questions with equivalents, or shuffle answer order before a Version is exported.
+A family of Exam actions that shuffle question order or answer order before saving or exporting.
 _Avoid_: Randomization, version generation
 
 **Export Preview**:
-A read-only, output-faithful rendering of the Exam Draft with selection, correctness, and other editor annotations hidden. It is not a separate draft or editing workspace.
+A read-only, output-faithful rendering of the Working Copy with selection, correctness, and other editor annotations hidden. It is not a separate draft or editing workspace.
 _Avoid_: Export workspace, draft version
 
 **Media Asset**:
-Immutable image bytes identified by their content rather than by a mutable location. Question Revisions and Versions retain Media Asset references so historical output does not depend on an external or disposable image URL.
+Immutable image bytes identified by their content rather than by a mutable location. Export Records retain Media Asset references so recorded output does not depend on an external or disposable image URL.
 _Avoid_: Image URL, cached image
 
 **Export Document**:
-The format-neutral semantic content and presentation intent for one exam version and content selection.
+The format-neutral semantic content and presentation intent for one Exam export and Content Selection.
 _Avoid_: Central representation, export model
 
 **Layout Plan**:
@@ -98,7 +102,7 @@ The format-neutral resolution of an Export Document into pages, grids, headers, 
 _Avoid_: Rendered document
 
 **Content Selection**:
-Which of an exam version's documents an export covers — the student test, the answer key, or both.
+Which documents an export covers — the student test, the answer key, or both.
 _Avoid_: Print content, mode
 
 **Export Adapter**:
@@ -114,5 +118,5 @@ External software used during testing to render a DOCX into a PDF whose structur
 _Avoid_: DOCX renderer
 
 **Export Fingerprint**:
-The normalized semantic content, page assignment and structural topology that identify a Version and that a Layout Plan and either Export Adapter's output all reduce to. Includes both student test and answer key; excludes the Version name, output format, Content Selection, package bytes, generated identifiers, coordinates, fonts, raster appearance, and renderer-chosen line wrapping.
-_Avoid_: Snapshot, golden
+The normalized semantic content, page assignment, and structural topology used to compare an Export Document, its Layout Plan, and each Export Adapter's output. It excludes output format, package bytes, generated identifiers, coordinates, fonts, raster appearance, and renderer-chosen line wrapping.
+_Avoid_: Version identity, snapshot, golden

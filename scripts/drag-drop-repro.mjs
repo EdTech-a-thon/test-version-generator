@@ -119,7 +119,7 @@ try {
         columns: 2,
       })),
     },
-    examDraft: { title: 'Drag test', questionIds: ['q1', 'q2'] },
+    workingCopy: { title: 'Drag test', questionIds: ['q1', 'q2'] },
     dirty: false,
   }
   // Driven over CDP rather than Playwright, so this is the one place the

@@ -15,7 +15,7 @@ import {
   createPublicationDocx,
 } from './docx-export'
 import {
-  EMPTY_PUBLICATION_HISTORY,
+  EMPTY_EXPORT_HISTORY,
   docxFilename,
   plansOf,
   prepareExport,
@@ -24,7 +24,7 @@ import { docxFingerprint } from './docx-fingerprint'
 import { parseXml } from './xml'
 import { FIXTURES, PIXEL_PNG, paragraph, text } from './export-fixtures'
 import { planExport, unmeasured, STUDENT_TEST } from './export-plan'
-import type { Exam, Version } from './exam'
+import type { Arrangement, Exam } from './exam'
 
 const exam: Exam = {
   title: 'Chemistry: Unit 3 / Review',
@@ -41,12 +41,12 @@ const exam: Exam = {
   ],
 }
 
-const version: Version = { id: 'v1', letter: 'A', questionOrder: ['q1'], choiceOrder: {} }
+const arrangement: Arrangement = { id: 'v1', letter: 'A', questionOrder: ['q1'], choiceOrder: {} }
 
-function planOf(source: Exam = exam, ordering: Version = version) {
+function planOf(source: Exam = exam, ordering: Arrangement = arrangement) {
   return planExport({
     exam: source,
-    version: ordering,
+    arrangement: ordering,
     selection: STUDENT_TEST,
     measure: unmeasured,
   })
@@ -73,21 +73,17 @@ describe('DOCX packaging', () => {
     expect([...signature]).toEqual([0x50, 0x4b])
   })
 
-  test('names the file after the exam and friendly Version', () => {
-    expect(docxFilename(exam.title, 'Amber Badger')).toBe(
-      'Chemistry- Unit 3 - Review-Amber Badger.docx',
-    )
-    expect(docxFilename('  ...  ', 'Amber Badger')).toBe(
-      'Untitled exam-Amber Badger.docx',
-    )
+  test('names the file after the Exam', () => {
+    expect(docxFilename(exam.title)).toBe('Chemistry- Unit 3 - Review.docx')
+    expect(docxFilename('  ...  ')).toBe('Untitled Exam.docx')
   })
 
-  test('names the document after the exam and the version it exported', async () => {
+  test('names the document after the exam and the arrangement it exported', async () => {
     const fingerprint = await docxFingerprint(
       await (await createExamDocx([planOf()], async () => null)).arrayBuffer(),
     )
     expect(fingerprint.title).toBe('Chemistry: Unit 3 / Review')
-    expect(fingerprint.version).toBe('A')
+    expect(fingerprint.arrangement).toBe('A')
   })
 })
 
@@ -100,18 +96,18 @@ describe('the plan is the adapter’s only document input', () => {
     expect(createExamDocxDocument([plan])).toBeDefined()
   })
 
-  test('the planned title and version letter are what the document carries', async () => {
+  test('the planned title and output ID are what the document carries', async () => {
     const renamed = { ...exam, title: 'Physics Retake' }
     const fingerprint = await docxFingerprint(
       await (
         await createExamDocx(
-          [planOf(renamed, { ...version, letter: 'C' })],
+          [planOf(renamed, { ...arrangement, letter: 'C' })],
           async () => null,
         )
       ).arrayBuffer(),
     )
     expect(fingerprint.title).toBe('Physics Retake')
-    expect(fingerprint.version).toBe('C')
+    expect(fingerprint.arrangement).toBe('C')
   })
 })
 
@@ -132,7 +128,7 @@ describe('the planned sheet', () => {
     const fixture = FIXTURES.find((item) => item.name.includes('split across pages'))!
     const plan = planExport({
       exam: fixture.exam,
-      version: fixture.version,
+      arrangement: fixture.arrangement,
       selection: STUDENT_TEST,
       measure: fixture.measure,
     })
@@ -147,7 +143,7 @@ describe('the planned sheet', () => {
     const fixture = FIXTURES.find((item) => item.name.includes('split across pages'))!
     const plan = planExport({
       exam: fixture.exam,
-      version: fixture.version,
+      arrangement: fixture.arrangement,
       selection: STUDENT_TEST,
       measure: fixture.measure,
     })
@@ -166,7 +162,7 @@ describe('links and pictures', () => {
     const blob = await createExamDocx(
       [planExport({
         exam: fixture.exam,
-        version: fixture.version,
+        arrangement: fixture.arrangement,
         selection: STUDENT_TEST,
         measure: unmeasured,
       })],
@@ -185,7 +181,7 @@ describe('links and pictures', () => {
       await createExamDocx(
         [planExport({
           exam: fixture.exam,
-          version: fixture.version,
+          arrangement: fixture.arrangement,
           selection: STUDENT_TEST,
           measure: unmeasured,
         })],
@@ -208,7 +204,7 @@ describe('links and pictures', () => {
         await createExamDocx(
           [planExport({
             exam: fixture.exam,
-            version: fixture.version,
+            arrangement: fixture.arrangement,
             selection: STUDENT_TEST,
             measure: unmeasured,
           })],
@@ -225,7 +221,7 @@ describe('links and pictures', () => {
     const fixture = FIXTURES.find((item) => item.name.includes('inline and block images'))!
     const plan = planExport({
       exam: fixture.exam,
-      version: fixture.version,
+      arrangement: fixture.arrangement,
       selection: STUDENT_TEST,
       measure: unmeasured,
     })
@@ -243,7 +239,7 @@ describe('lists are numbering, not typed-in markers', () => {
       await createExamDocx(
         [planExport({
           exam: fixture.exam,
-          version: fixture.version,
+          arrangement: fixture.arrangement,
           selection: STUDENT_TEST,
           measure: unmeasured,
         })],
@@ -259,7 +255,7 @@ describe('lists are numbering, not typed-in markers', () => {
   })
 })
 
-describe('one combined package for a published Version', () => {
+describe('one combined package for a Export Artifact', () => {
   const mixed: Exam = {
     title: 'Mixed',
     questions: [
@@ -291,7 +287,7 @@ describe('one combined package for a published Version', () => {
       },
     ],
   }
-  const mixedVersion: Version = {
+  const mixedArrangement: Arrangement = {
     id: 'v1',
     letter: 'A',
     questionOrder: ['m1'],
@@ -301,12 +297,13 @@ describe('one combined package for a published Version', () => {
   function preparedPlans() {
     return plansOf(
       prepareExport({
+        examId: 'fixture-exam',
         exam: mixed,
-        version: mixedVersion,
+        arrangement: mixedArrangement,
         configuration: {
           selection: { test: true, answerKey: true },
         },
-        history: EMPTY_PUBLICATION_HISTORY,
+        history: EMPTY_EXPORT_HISTORY,
         measure: unmeasured,
         createdAt: '2026-09-04T12:00:00.000Z',
       }),
@@ -325,7 +322,7 @@ describe('one combined package for a published Version', () => {
     )
   })
 
-  test('restarts page numbering and carries the friendly name on both documents', async () => {
+  test('restarts page numbering and carries the output ID on both documents', async () => {
     const fingerprint = await docxFingerprint(
       await (await createExamDocx(preparedPlans(), async () => null)).arrayBuffer(),
     )
@@ -336,9 +333,9 @@ describe('one combined package for a published Version', () => {
       ['para 1'],
     ])
     expect(fingerprint.pages.every((page) =>
-      page.header.join(' ').includes('Version: Amber Badger'),
+      page.header.join(' ').includes('ID: A'),
     )).toBe(true)
-    expect(fingerprint.version).toBe('Amber Badger')
+    expect(fingerprint.arrangement).toBe('A')
   })
 
   test('writes an answer key as headings and bold letters, not as a refusal', async () => {

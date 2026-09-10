@@ -1,7 +1,7 @@
 // The split authoring workspace, in a real browser.
 //
 // The store's own tests cover what each authoring action does to the Question
-// Bank and the Exam Draft. These cover the things only a browser can show: that
+// Bank and the Working Copy. These cover the things only a browser can show: that
 // the two panes open side by side with the bank the narrower one, that the popup writes into
 // the bank without putting the question on the exam, that cancelling writes
 // nothing at all, and that a refresh brings all of it back.
@@ -13,7 +13,7 @@ const bankRows = (page: Page) => bank(page).getByRole('listitem')
 const addToExam = (page: Page) =>
   page.getByRole('button', { name: /^Add .* to the exam$/ })
 const inExamMarkers = (page: Page) => bank(page).getByText('In exam')
-// The rendered Exam Draft is addressed the way the existing browser tests
+// The rendered Working Copy is addressed the way the existing browser tests
 // address it, so this suite and the interaction regressions stay one harness.
 const examQuestions = (page: Page) => page.locator('.exam-question')
 
@@ -32,8 +32,9 @@ async function writeQuestion(page: Page, stem: string) {
   await expect(page.getByRole('dialog', { name: 'Question editor' })).toBeHidden()
 }
 
-test('the Question Bank opens beside the Exam Draft as the narrower pane', async ({ page }) => {
+test('the Question Bank opens beside the Working Copy as the narrower pane', async ({ page }) => {
   await page.goto('/')
+  await page.getByRole('button', { name: 'New Exam' }).first().click()
 
   await expect(bank(page)).toBeVisible()
 
@@ -46,6 +47,7 @@ test('the Question Bank opens beside the Exam Draft as the narrower pane', async
 
 test('a question written in the bank stays off the exam until it is added', async ({ page }) => {
   await page.goto('/')
+  await page.getByRole('button', { name: 'New Exam' }).first().click()
 
   await newBankQuestion(page)
   await writeQuestion(page, 'Which is a mammal?')
@@ -67,6 +69,7 @@ test('a question written in the bank stays off the exam until it is added', asyn
 
 test('the slot that says a question is on the exam is also how it comes off', async ({ page }) => {
   await page.goto('/')
+  await page.getByRole('button', { name: 'New Exam' }).first().click()
 
   await newBankQuestion(page)
   await writeQuestion(page, 'Which is a mammal?')
@@ -84,8 +87,9 @@ test('the slot that says a question is on the exam is also how it comes off', as
   await expect(addToExam(page)).toHaveCount(1)
 })
 
-test('cancelling the popup leaves the Question Bank and the Exam Draft alone', async ({ page }) => {
+test('cancelling the popup leaves the Question Bank and the Working Copy alone', async ({ page }) => {
   await page.goto('/')
+  await page.getByRole('button', { name: 'New Exam' }).first().click()
 
   await newBankQuestion(page)
   await expect(page.getByRole('dialog', { name: 'Question editor' })).toBeVisible()
@@ -97,8 +101,9 @@ test('cancelling the popup leaves the Question Bank and the Exam Draft alone', a
   await expect(examQuestions(page)).toHaveCount(0)
 })
 
-test('a refresh restores the Question Bank, the Exam Draft and its order', async ({ page }) => {
+test('a refresh restores the Question Bank, the Working Copy and its order', async ({ page }) => {
   await page.goto('/')
+  await page.getByRole('button', { name: 'New Exam' }).first().click()
 
   await page.getByRole('button', { name: 'Insert your first question' }).click()
   await page.getByRole('menuitem', { name: 'Multiple choice' }).click()
@@ -119,8 +124,9 @@ test('a refresh restores the Question Bank, the Exam Draft and its order', async
   await expect(inExamMarkers(page)).toHaveCount(1)
 })
 
-test('editing canonical Question Content updates the rendered Exam Draft', async ({ page }) => {
+test('editing canonical Question Content updates the rendered Working Copy', async ({ page }) => {
   await page.goto('/')
+  await page.getByRole('button', { name: 'New Exam' }).first().click()
 
   await page.getByRole('button', { name: 'Insert your first question' }).click()
   await page.getByRole('menuitem', { name: 'Multiple choice' }).click()

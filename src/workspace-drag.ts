@@ -1,9 +1,9 @@
 // What a drag gesture across the authoring workspace means.
 //
 // One gesture spans two panes, and where it started decides what it can do.
-// A Question Bank question is *composed* onto the Exam Draft: it can be
+// A Question Bank question is *composed* onto the Working Copy: it can be
 // Inserted before or after a rendered question, or Replace one outright. An
-// Exam Draft question is *reordered*: before or after, and nothing else, because
+// Working Copy question is *reordered*: before or after, and nothing else, because
 // the pane a gesture starts in is what gives it its meaning.
 //
 // Both are constrained the same way. A Question Section boundary is fixed, so a
@@ -24,7 +24,7 @@ import type { QuestionPlacement, QuestionType } from './exam'
 export type DragSource =
   | {
       pane: 'question-bank'
-      /** The unused Question Bank record being composed onto the Exam Draft. */
+      /** The unused Question Bank record being composed onto the Working Copy. */
       questionId: string
       type: QuestionType
     }
@@ -102,7 +102,7 @@ export function dropIntent(
 
   if (candidate.kind === 'empty-section') {
     // Reordering cannot reach an empty Question Section: a question that is
-    // already on the Exam Draft is already in its own section, and moving it
+    // already on the Working Copy is already in its own section, and moving it
     // would be a change of type rather than a change of place.
     if (source.pane !== 'question-bank') return null
     return sameSection(source, candidate.section) ? { kind: 'insert-first' } : null

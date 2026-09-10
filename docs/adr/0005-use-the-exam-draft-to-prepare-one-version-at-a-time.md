@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0012
 ---
 
 # Use the Exam Draft to prepare one Version at a time

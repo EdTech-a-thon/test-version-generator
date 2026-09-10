@@ -1,5 +1,17 @@
 import { expect, test, type Locator } from '@playwright/test'
 
+async function activeExamDatabaseName(page: import('@playwright/test').Page) {
+  return page.evaluate(async () => {
+    const { createExamWorkspaceService } = await import(
+      /* @vite-ignore */ '/src/exam-workspaces.ts'
+    ) as typeof import('../src/exam-workspaces')
+    const workspaces = createExamWorkspaceService()
+    const examId = await workspaces.activeId()
+    if (!examId) throw new Error('No active Exam workspace')
+    return `test-parrot-exams-v1-exam-${examId}`
+  })
+}
+
 async function pastePng(target: Locator) {
   await target.evaluate(async (element) => {
     const png = await fetch('/logo.png').then((response) => response.blob())
@@ -57,6 +69,7 @@ test('pasted image files render and persist with a question', async ({
   page,
 }) => {
   await page.goto('/')
+  await page.getByRole('button', { name: 'New Exam' }).first().click()
   await page.getByRole('button', { name: 'Insert your first question' }).click()
   await page.getByRole('menuitem', { name: 'Multiple choice' }).click()
 
@@ -99,6 +112,7 @@ test('pasted image files render and persist with a question', async ({
 
 test('images paste through the native browser clipboard', async ({ page }) => {
   await page.goto('/')
+  await page.getByRole('button', { name: 'New Exam' }).first().click()
   await page.getByRole('button', { name: 'Insert your first question' }).click()
   await page.getByRole('menuitem', { name: 'Multiple choice' }).click()
 
@@ -115,6 +129,7 @@ test('copied web images are captured and persist with a question', async ({
   page,
 }) => {
   await page.goto('/')
+  await page.getByRole('button', { name: 'New Exam' }).first().click()
   await page.getByRole('button', { name: 'Insert your first question' }).click()
   await page.getByRole('menuitem', { name: 'Multiple choice' }).click()
 
@@ -134,10 +149,11 @@ test('copied web images are captured and persist with a question', async ({
 
   // The public media boundary retains hash, bytes, MIME type and dimensions;
   // Question Content retains only the stable internal media reference.
-  const media = await page.evaluate(async (source) => {
+  const databaseName = await activeExamDatabaseName(page)
+  const media = await page.evaluate(async ({ source, databaseName }) => {
     const hash = source.slice('/local-images/'.length)
     const database = await new Promise<IDBDatabase>((resolve, reject) => {
-      const request = indexedDB.open('test-parrot-version-history-v1')
+      const request = indexedDB.open(databaseName)
       request.onsuccess = () => resolve(request.result)
       request.onerror = () => reject(request.error)
     })
@@ -159,7 +175,7 @@ test('copied web images are captured and persist with a question', async ({
     } finally {
       database.close()
     }
-  }, await capturedImage.getAttribute('src'))
+  }, { source: await capturedImage.getAttribute('src'), databaseName })
   expect(media).toMatchObject({
     hash: (await capturedImage.getAttribute('src'))!.slice('/local-images/'.length),
     mimeType: 'image/png',
@@ -194,6 +210,7 @@ test('copied web images are captured and persist with a question', async ({
 
 test('identical image bytes share one Media Asset', async ({ page }) => {
   await page.goto('/')
+  await page.getByRole('button', { name: 'New Exam' }).first().click()
   await page.getByRole('button', { name: 'Insert your first question' }).click()
   await page.getByRole('menuitem', { name: 'Multiple choice' }).click()
 
@@ -203,9 +220,10 @@ test('identical image bytes share one Media Asset', async ({ page }) => {
   await pastePng(editor)
   await expect(editor.locator('img[src^="/local-images/"]')).toHaveCount(2)
 
-  const assetCount = await page.evaluate(async () => {
+  const databaseName = await activeExamDatabaseName(page)
+  const assetCount = await page.evaluate(async (databaseName) => {
     const database = await new Promise<IDBDatabase>((resolve, reject) => {
-      const request = indexedDB.open('test-parrot-version-history-v1')
+      const request = indexedDB.open(databaseName)
       request.onsuccess = () => resolve(request.result)
       request.onerror = () => reject(request.error)
     })
@@ -218,12 +236,13 @@ test('identical image bytes share one Media Asset', async ({ page }) => {
     } finally {
       database.close()
     }
-  })
+  }, databaseName)
   expect(assetCount).toBe(1)
 })
 
 test('an uncapturable pasted image is visibly unresolved', async ({ page }) => {
   await page.goto('/')
+  await page.getByRole('button', { name: 'New Exam' }).first().click()
   await page.getByRole('button', { name: 'Insert your first question' }).click()
   await page.getByRole('menuitem', { name: 'Multiple choice' }).click()
 
@@ -236,6 +255,7 @@ test('an uncapturable pasted image is visibly unresolved', async ({ page }) => {
 
 test('a nonexistent internal media reference is visibly unresolved', async ({ page }) => {
   await page.goto('/')
+  await page.getByRole('button', { name: 'New Exam' }).first().click()
   await page.getByRole('button', { name: 'Insert your first question' }).click()
   await page.getByRole('menuitem', { name: 'Multiple choice' }).click()
 
@@ -252,6 +272,7 @@ test('Save waits for a pending successful image capture', async ({ page }) => {
     await route.fulfill({ path: 'public/logo.png', contentType: 'image/png' })
   })
   await page.goto('/')
+  await page.getByRole('button', { name: 'New Exam' }).first().click()
   await page.getByRole('button', { name: 'Insert your first question' }).click()
   await page.getByRole('menuitem', { name: 'Multiple choice' }).click()
 
@@ -267,6 +288,7 @@ test('Save waits for a pending successful image capture', async ({ page }) => {
 
 test('mixed HTML keeps every image and surrounding text', async ({ page }) => {
   await page.goto('/')
+  await page.getByRole('button', { name: 'New Exam' }).first().click()
   await page.getByRole('button', { name: 'Insert your first question' }).click()
   await page.getByRole('menuitem', { name: 'Multiple choice' }).click()
 
@@ -283,6 +305,7 @@ test('copied web images with a clipboard file use a resizable block', async ({
   page,
 }) => {
   await page.goto('/')
+  await page.getByRole('button', { name: 'New Exam' }).first().click()
   await page.getByRole('button', { name: 'Insert your first question' }).click()
   await page.getByRole('menuitem', { name: 'Multiple choice' }).click()
 
@@ -298,6 +321,7 @@ test('copied web images with a clipboard file use a resizable block', async ({
 
 test('image files paste into answer choices', async ({ page }) => {
   await page.goto('/')
+  await page.getByRole('button', { name: 'New Exam' }).first().click()
   await page.getByRole('button', { name: 'Insert your first question' }).click()
   await page.getByRole('menuitem', { name: 'Multiple choice' }).click()
 

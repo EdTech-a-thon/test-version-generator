@@ -2,12 +2,12 @@
 //
 // The second translator from a Layout Plan into a real output format, beside
 // the print adapter in `exam-page.tsx`. It accepts prepared plans and nothing
-// else: there is no `Exam` and no `Version` in this file, so it cannot
+// else: there is no `Exam` or mutable authoring state in this file, so it cannot
 // rediscover document semantics or pagination of its own. What a plan says is
 // on page three, in what order, under which number and letter, is what that
 // page of the Word document says.
 //
-// An export is the selected canonical documents for one friendly-named Version:
+// An export is the selected canonical documents for one recorded output:
 // the student test before its answer key when both are selected. They are
 // packaged in exactly the order `export-preparation.ts` prepared them. Nothing
 // here reorders them, resolves identity, or decides Content Selection.
@@ -48,7 +48,7 @@ import {
   type ISectionOptions,
   type ParagraphChild,
 } from 'docx'
-import { versionRange } from './export-preparation'
+import { arrangementRange } from './export-preparation'
 import {
   browserMedia,
   imageSourcesOf,
@@ -702,7 +702,7 @@ function questionContent(
 //
 // The key's own heading and its per-section groupings are headings the same way
 // the test's section headings are, and one entry is one line: the question's
-// number, then the letter this Version's ordering earned — in bold, as print
+// number, then the letter this arrangement earned — in bold, as print
 // draws it. The plan decided every one of those; nothing here reads a choice.
 
 const ANSWER_KEY_TITLE = 'Answer Section'
@@ -771,7 +771,7 @@ function itemContent(
 // Page furniture
 //
 // Read straight off the plan, the same as the print adapter reads it: the
-// identity fields the page offers, whether it repeats the title, which version
+// identity fields the page offers, whether it repeats the title, which output ID
 // it names, and what its footer prints. Nothing here decides what a header
 // variant means.
 
@@ -798,7 +798,7 @@ function headerParagraphs(furniture: PageFurniture): Paragraph[] {
     new Paragraph({
       children: [
         ...identity,
-        new TextRun({ text: identity.length > 0 ? `\t${furniture.versionLabel}` : furniture.versionLabel }),
+        new TextRun({ text: identity.length > 0 ? `\t${furniture.arrangementLabel}` : furniture.arrangementLabel }),
       ],
       alignment: identity.length > 0 ? undefined : AlignmentType.RIGHT,
       spacing: { after: 60 },
@@ -882,11 +882,11 @@ export function createExamDocxDocument(
     plan.pages.map((page) => sectionOf(page, plan, build)),
   )
   // Which papers the file holds, from the plans themselves rather than from a
-  // second count of the Versions someone asked for.
-  const labels = [...new Set(plans.map((plan) => plan.version.letter))]
+  // second count of the output IDs someone asked for.
+  const labels = [...new Set(plans.map((plan) => plan.arrangement.letter))]
   return new Document({
     title: first?.title ?? '',
-    description: `${labels.length > 1 ? 'Versions' : 'Version'} ${versionRange(labels)}`,
+    description: `Output ID ${arrangementRange(labels)}`,
     creator: 'Test Parrot',
     numbering: { config: numbering.config },
     sections: sections.length > 0 ? sections : [{ children: [] }],
@@ -902,7 +902,7 @@ export async function createExamDocx(
   return blob.type === DOCX_MIME ? blob : new Blob([blob], { type: DOCX_MIME })
 }
 
-/** Publication packaging is strict: an immutable Version may never be created
+/** Publication packaging is strict: an Export Record may never be created
  * with a text fallback standing in for media it promises to preserve. The
  * lower-level adapter remains tolerant for parity diagnostics and callers that
  * explicitly want its visible fallback behavior. */

@@ -39,8 +39,8 @@ import { buildExportDocument, STUDENT_TEST } from '../src/export-plan'
 import {
   plansOf,
   prepareExport,
-  versionRange,
-  EMPTY_PUBLICATION_HISTORY,
+  arrangementRange,
+  EMPTY_EXPORT_HISTORY,
   type ExportConfiguration,
 } from '../src/export-preparation'
 import {
@@ -176,10 +176,11 @@ for (const fixture of fixtures) {
     const configuration = configurationOf()
     const plans = plansOf(
       prepareExport({
+        examId: 'diagnostic-exam',
         exam: fixture.exam,
-        version: fixture.version,
+        arrangement: fixture.arrangement,
         configuration,
-        history: EMPTY_PUBLICATION_HISTORY,
+        history: EMPTY_EXPORT_HISTORY,
         measure: fixture.measure,
         createdAt: '2026-09-04T12:00:00.000Z',
       }),
@@ -191,7 +192,7 @@ for (const fixture of fixtures) {
       'export-document.json',
       JSON.stringify(
         exportDocumentFingerprint(
-          buildExportDocument(fixture.exam, fixture.version, STUDENT_TEST),
+          buildExportDocument(fixture.exam, fixture.arrangement, STUDENT_TEST),
         ),
         null,
         2,
@@ -204,16 +205,15 @@ for (const fixture of fixtures) {
     )
 
     await seed(page, fixture)
-    // The application registers its image worker and reloads itself once, so
-    // wait for a rendered page rather than for the first navigation.
-    await page.goto('/')
+    // The active fixture Exam is restored by the bare editor route.
+    await page.goto('/editor')
     await page.locator('.exam-page').first().waitFor()
     // Media Assets own image bytes. Fixture documents are rewritten to the
     // same content-addressed references the application persists before their
     // normalized authoring records are seeded.
     if (imageSourcesOf(plans).length > 0) {
       await seedImages(page, fixture)
-      await page.goto('/')
+      await page.goto('/editor')
       await page.locator('.exam-page').first().waitFor()
     }
     await settle(page)
@@ -278,8 +278,8 @@ for (const fixture of fixtures) {
       await download.saveAs(docx)
     }
 
-    // The media-rich composite is downloaded again through Version History,
-    // not the live draft Export action. This exercises the stored-plan path:
+    // The media-rich composite is downloaded again through Export History,
+    // not the live Working Copy action. This exercises the stored-plan path:
     // changing the current layout engine or Question Bank cannot alter it.
     if (fixture.name === 'a realistic composite exam' && docx) {
       // Destroy the live source after publication. A history export which
@@ -292,16 +292,12 @@ for (const fixture of fixtures) {
       }
       await expect(liveQuestions).toHaveCount(0)
 
-      await page.getByRole('button', { name: 'Version History' }).click()
-      const history = page.getByLabel('Version History')
-      await history.locator('.version-history-item').first().click()
-      await page.getByRole('button', { name: 'Historical Export', exact: true }).click()
-      const historicalDialog = page.getByRole('dialog', { name: 'Export' })
-      await historicalDialog.waitFor()
-      await historicalDialog.getByRole('radio', { name: 'DOCX' }).check()
+      await page.getByRole('button', { name: 'Export History' }).click()
+      const history = page.getByLabel('Export History')
+      await history.locator('.arrangement-history-item').first().click()
       const [historicalDownload] = await Promise.all([
         page.waitForEvent('download'),
-        historicalDialog.getByRole('button', { name: 'Download DOCX' }).click(),
+        page.getByRole('button', { name: 'Re-export DOCX', exact: true }).click(),
       ])
       const historical = join(directory, 'historical-export.docx')
       await historicalDownload.saveAs(historical)
@@ -320,7 +316,7 @@ for (const fixture of fixtures) {
     //    for itself. The plan is written out beside it as a diagnostic only.
     const printed = printDocumentFingerprint(printMarkup, {
       title: fixture.exam.title,
-      version: versionRange(plans.map((one) => one.version.letter)),
+      arrangement: arrangementRange(plans.map((one) => one.arrangement.letter)),
       width: pageSize.width,
       height: pageSize.height,
       margin: pageSize.margin,
@@ -423,16 +419,16 @@ async function seedImages(
     })),
   }
   await seedAuthoringState(page, {
-    questionBank: { questions: authoredInVersionOrder({ ...fixture, exam }) },
-    examDraft: {
+    questionBank: { questions: authoredInArrangementOrder({ ...fixture, exam }) },
+    workingCopy: {
       title: exam.title,
-      questionIds: fixture.version.questionOrder,
+      questionIds: fixture.arrangement.questionOrder,
     },
     dirty: false,
   })
 }
 
-/** Drives the real one-Version export dialog to one Content Selection. */
+/** Drives the real one-export dialog to one Content Selection. */
 async function configureExport(
   page: import('@playwright/test').Page,
   configuration: ExportConfiguration,
@@ -451,13 +447,13 @@ async function configureExport(
     .setChecked(configuration.selection.answerKey)
 }
 
-/** The fixture's questions with their answers already in the fixture Version's
- *  order. An Exam Draft records no choice order — answers print in the order
+/** The fixture's questions with their answers already in the fixture arrangement's
+ *  order. A Working Copy records no choice order — answers print in the order
  *  they were authored in — so a fixture that permuted its answers is seeded
  *  with them authored that way, which is the same paper by another route. */
-function authoredInVersionOrder(fixture: Fixture): Question[] {
+function authoredInArrangementOrder(fixture: Fixture): Question[] {
   return fixture.exam.questions.map((question) => {
-    const ordered = orderedChoices(question, fixture.version)
+    const ordered = orderedChoices(question, fixture.arrangement)
     if (ordered.length === 0) return question
     const content = (question.doc.content as ProseMirrorJSON[]).map((node) =>
       node.type === 'multipleChoice'
@@ -474,10 +470,10 @@ async function seed(
   fixture: Fixture,
 ): Promise<void> {
   await seedAuthoringState(page, {
-    questionBank: { questions: authoredInVersionOrder(fixture) },
-    examDraft: {
+    questionBank: { questions: authoredInArrangementOrder(fixture) },
+    workingCopy: {
       title: fixture.exam.title,
-      questionIds: fixture.version.questionOrder,
+      questionIds: fixture.arrangement.questionOrder,
     },
     dirty: false,
   })

@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0012
 ---
 
 # Identify Versions by published content and layout

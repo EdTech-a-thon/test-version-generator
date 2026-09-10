@@ -2,38 +2,38 @@
 // pipeline.
 //
 // Rendering, pagination and export all speak the older vocabulary: an `Exam`
-// holding questions, plus a `Version` holding an ordering. Authoring speaks the
-// newer one: a Question Bank of canonical content, and an Exam Draft of ordered
+// holding questions, plus a `Arrangement` holding an ordering. Authoring speaks the
+// newer one: a Question Bank of canonical content, and a Working Copy of ordered
 // references into it. This module is the whole of the translation, and it is
-// deliberately narrow and disposable — when export-only immutable Versions
+// deliberately narrow and disposable — when export-only immutable Arrangements
 // arrive (ADR-0003), this is the piece that goes, not the model behind it.
 //
 // The split between the two halves is what keeps repagination cheap. The
 // derived `Exam` carries the *content*: the referenced questions in Question
-// Bank order, so its identity survives a pure reordering. The derived `Version`
-// carries the *arrangement*: the Exam Draft's question and recorded answer
+// Bank order, so its identity survives a pure reordering. The derived `Arrangement`
+// carries the *arrangement*: the Working Copy's question and recorded answer
 // orders. An absent answer order means answers print in the authored order.
 // Nothing downstream can tell the difference between this and an edited
-// Version, and nothing here writes anything back.
+// Arrangement, and nothing here writes anything back.
 
-import { type Exam, type Version } from './exam'
-import { bankQuestionById, type ExamDraft, type QuestionBank } from './question-bank'
+import { columnsOf, type Exam, type Arrangement } from './exam'
+import { bankQuestionById, type ExamWorkingCopy, type QuestionBank } from './question-bank'
 
-/** The `Exam` plus ordering that one Exam Draft currently amounts to. */
+/** The `Exam` plus ordering that one Working Copy currently amounts to. */
 export type SelectedExam = {
   exam: Exam
-  version: Version
+  arrangement: Arrangement
 }
 
-/** The Version identity the Exam Draft presents itself under. An Exam Draft is
- *  not a Version, so this is a fixed label rather than a stored one: export
- *  relabels every published Version from A anyway. */
+/** The Arrangement identity the Working Copy presents itself under. A Working Copy is
+ *  not a Arrangement, so this is a fixed label rather than a stored one: export
+ *  relabels every published Arrangement from A anyway. */
 export const EXAM_DRAFT_VERSION_ID = 'exam-draft'
 export const EXAM_DRAFT_VERSION_LETTER = 'A'
 
 /**
- * The Exam Draft as rendering and export see it: the referenced Question Bank
- * records and nothing else, arranged in Exam Draft order.
+ * The Working Copy as rendering and export see it: the referenced Question Bank
+ * records and nothing else, arranged in Working Copy order.
  *
  * `previous` is an optimisation, not a cache with a lifetime: when the derived
  * content or the derived ordering is unchanged, the object from last time is
@@ -42,11 +42,19 @@ export const EXAM_DRAFT_VERSION_LETTER = 'A'
  */
 export function selectedExam(
   bank: QuestionBank,
-  draft: ExamDraft,
+  draft: ExamWorkingCopy,
   previous?: SelectedExam | null,
 ): SelectedExam {
   const referenced = new Set(draft.questionIds)
-  const questions = bank.questions.filter((question) => referenced.has(question.id))
+  const bankedQuestions = bank.questions.filter((question) => referenced.has(question.id))
+  // Column layout belongs to this Exam Working Copy. Preserve a canonical
+  // Question's authored/default layout only until this Exam specifies one.
+  const columns = draft.columns ?? {}
+  const questions = bankedQuestions.map((question) =>
+    columns[question.id] === undefined || columns[question.id] === columnsOf(question)
+      ? question
+      : { ...question, columns: columns[question.id]! },
+  )
   const exam: Exam =
     previous
     && previous.exam.title === draft.title
@@ -56,7 +64,7 @@ export function selectedExam(
       : { title: draft.title, questions }
 
   // Only ids the bank can resolve: an ordering may tolerate a stranger, but an
-  // Exam Draft referencing content that is not there is not something export
+  // Working Copy referencing content that is not there is not something export
   // should have to reason about.
   const questionOrder = draft.questionIds.filter((id) => bankQuestionById(bank, id))
   const choiceOrder = draft.choiceOrder ?? {}
@@ -68,12 +76,12 @@ export function selectedExam(
         && right[questionId].every((choiceId, index) => choiceId === choices[index]),
       )
   }
-  const version: Version =
+  const arrangement: Arrangement =
     previous
-    && previous.version.questionOrder.length === questionOrder.length
-    && previous.version.questionOrder.every((id, index) => id === questionOrder[index])
-    && sameChoiceOrder(previous.version.choiceOrder, choiceOrder)
-      ? previous.version
+    && previous.arrangement.questionOrder.length === questionOrder.length
+    && previous.arrangement.questionOrder.every((id, index) => id === questionOrder[index])
+    && sameChoiceOrder(previous.arrangement.choiceOrder, choiceOrder)
+      ? previous.arrangement
       : {
           id: EXAM_DRAFT_VERSION_ID,
           letter: EXAM_DRAFT_VERSION_LETTER,
@@ -84,7 +92,7 @@ export function selectedExam(
           choiceOrder,
         }
 
-  return previous && exam === previous.exam && version === previous.version
+  return previous && exam === previous.exam && arrangement === previous.arrangement
     ? previous
-    : { exam, version }
+    : { exam, arrangement }
 }

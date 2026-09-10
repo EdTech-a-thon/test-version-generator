@@ -25,7 +25,7 @@ import {
   type Segment,
 } from './export-fingerprint'
 import type { LayoutPlan, PlannedPage } from './export-plan'
-import { versionRange } from './export-preparation'
+import { arrangementRange } from './export-preparation'
 import { PageHeaderContent, PageItemMeasureView } from './page-item-view'
 import { parseXml, type XmlNode } from './xml'
 
@@ -462,7 +462,7 @@ export function printFingerprint(
   )
   return {
     title: plans[0]?.title ?? '',
-    version: versionRange([...new Set(plans.map((plan) => plan.version.letter))]),
+    arrangement: arrangementRange([...new Set(plans.map((plan) => plan.arrangement.letter))]),
     pages,
     media: Array.from({ length: images }, () => 'image'),
   }
@@ -486,7 +486,7 @@ function findAll(node: XmlNode, className: string, found: XmlNode[] = []): XmlNo
 
 export type PrintedDocument = {
   title: string
-  version: string
+  arrangement: string
   width: number
   height: number
   margin: number
@@ -526,7 +526,7 @@ export function printDocumentFingerprint(
   })
   return {
     title: document.title,
-    version: document.version,
+    arrangement: document.arrangement,
     pages,
     media: Array.from({ length: images }, () => 'image'),
   }

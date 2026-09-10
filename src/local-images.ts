@@ -1,7 +1,8 @@
+import { EXAM_STORE } from './storage-schema'
 import {
   MEDIA_ASSET_STORE,
-  VERSIONED_STORAGE_NAME,
-  VERSIONED_STORAGE_VERSION,
+  STORAGE_NAME,
+  STORAGE_VERSION,
 } from './storage-schema'
 import type { ProseMirrorJSON } from './question-doc'
 
@@ -30,9 +31,11 @@ async function imageMetadata(blob: Blob): Promise<Pick<MediaAsset, 'width' | 'he
   }
 }
 
-function openMediaDatabase(): Promise<IDBDatabase> {
+async function openMediaDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open(VERSIONED_STORAGE_NAME, VERSIONED_STORAGE_VERSION)
+    // Media is global: a canonical Question can be used by several Exams and
+    // immutable Export Records must survive deletion of their current source.
+    const request = indexedDB.open(STORAGE_NAME, STORAGE_VERSION)
     request.onupgradeneeded = () => {
       if (!request.result.objectStoreNames.contains(MEDIA_ASSET_STORE)) {
         request.result.createObjectStore(MEDIA_ASSET_STORE, { keyPath: 'hash' })
@@ -138,4 +141,86 @@ export async function ownDocumentMedia(document: ProseMirrorJSON): Promise<Prose
     }
   }
   return own(document)
+}
+
+async function examDatabaseNames(): Promise<{ name: string }[]> {
+  const database = await openMediaDatabase()
+  try {
+    if (!database.objectStoreNames.contains(EXAM_STORE)) return []
+    const transaction = database.transaction(EXAM_STORE, 'readonly')
+    const records = await requestOf(transaction.objectStore(EXAM_STORE).getAll()) as { id?: unknown }[]
+    await completed(transaction)
+    return records.flatMap(({ id }) => typeof id === 'string'
+      ? [{ name: `${STORAGE_NAME}-exam-${id}` }]
+      : [])
+  } finally {
+    database.close()
+  }
+}
+
+/** Collect every immutable asset not referenced by current resources or
+ * historical Export Records. This deliberately scans all Exam databases so
+ * history remains self-contained after current Questions are deleted. */
+export async function collectUnusedMediaAssets(): Promise<string[]> {
+  const referenced = new Set<string>()
+  const owned = /^\/local-images\/([a-f0-9]{64})$/
+  const visit = (value: unknown) => {
+    if (typeof value === 'string') {
+      const match = owned.exec(value)
+      if (match) referenced.add(match[1])
+      return
+    }
+    if (Array.isArray(value)) for (const item of value) visit(item)
+    else if (value && typeof value === 'object') {
+      for (const item of Object.values(value as Record<string, unknown>)) visit(item)
+    }
+  }
+
+  const databases = typeof indexedDB.databases === 'function'
+    ? await indexedDB.databases()
+    : [
+        { name: STORAGE_NAME },
+        ...await examDatabaseNames(),
+      ]
+  for (const info of databases) {
+    const name = info.name
+    if (!name?.startsWith(STORAGE_NAME)) continue
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open(name, STORAGE_VERSION)
+      request.onsuccess = () => resolve(request.result)
+      request.onerror = () => reject(request.error)
+    })
+    try {
+      for (const storeName of [
+        'question-bank', 'authoring-state', 'saved-authoring-state',
+        'export-records', 'canonical-questions',
+      ]) {
+        if (!database.objectStoreNames.contains(storeName)) continue
+        const transaction = database.transaction(storeName, 'readonly')
+        visit(await requestOf(transaction.objectStore(storeName).getAll()))
+        await completed(transaction)
+      }
+    } finally {
+      database.close()
+    }
+  }
+
+  const database = await openMediaDatabase()
+  try {
+    const transaction = database.transaction(MEDIA_ASSET_STORE, 'readwrite')
+    const store = transaction.objectStore(MEDIA_ASSET_STORE)
+    const keys = await requestOf(store.getAllKeys())
+    const removed: string[] = []
+    for (const key of keys) {
+      const hash = String(key)
+      if (!referenced.has(hash)) {
+        store.delete(key)
+        removed.push(hash)
+      }
+    }
+    await completed(transaction)
+    return removed
+  } finally {
+    database.close()
+  }
 }

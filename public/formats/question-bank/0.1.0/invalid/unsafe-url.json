@@ -1,0 +1,81 @@
+{
+  "format": "test-parrot/question-bank",
+  "formatVersion": "0.1.0",
+  "generator": {
+    "name": "Contract Fixture Publisher",
+    "version": "1.0.0"
+  },
+  "requiredFeatures": [],
+  "integrity": {
+    "algorithm": "sha-256",
+    "digest": "79bf2da2127b932298f65d925aebbe03221fa040ec3527b8796e51746667f5d6"
+  },
+  "bank": {
+    "name": "Minimal Multiple Choice",
+    "questions": [
+      {
+        "id": "q1",
+        "type": "multiple-choice",
+        "stem": {
+          "type": "document",
+          "content": [
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Which number is prime?",
+                  "marks": [
+                    {
+                      "type": "link",
+                      "href": "javascript:alert(1)"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        "choices": [
+          {
+            "id": "q1-c1",
+            "content": {
+              "type": "document",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Four"
+                    }
+                  ]
+                }
+              ]
+            },
+            "correct": false
+          },
+          {
+            "id": "q1-c2",
+            "content": {
+              "type": "document",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Five"
+                    }
+                  ]
+                }
+              ]
+            },
+            "correct": true
+          }
+        ]
+      }
+    ]
+  },
+  "media": []
+}

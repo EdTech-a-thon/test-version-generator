@@ -1,4 +1,4 @@
-// Shuffling selected Exam Draft questions from the keyboard-operable context
+// Shuffling selected Working Copy questions from the keyboard-operable context
 // menu. Store tests cover the pure ordering rule; this check proves the menu
 // uses its selected scope and remains reachable without a pointer.
 
@@ -53,7 +53,7 @@ async function seedQuestions(page: Parameters<typeof seedAuthoringState>[0]) {
   const shortAnswer = ["o1", "o2", "o3"].map((id) => question(id, "open"));
   await seedAuthoringState(page, {
     questionBank: { questions: [...multipleChoice, ...shortAnswer] },
-    examDraft: {
+    workingCopy: {
       title: "Shuffle scope",
       questionIds: [...multipleChoice, ...shortAnswer].map(({ id }) => id),
     },

@@ -31,10 +31,9 @@ const divider = (page: Page) => page.getByRole('separator', { name: 'Resize the 
 async function openWorkspace(page: Page) {
   await seedAuthoringState(page, {
     questionBank: { questions: QUESTIONS },
-    examDraft: { title: 'Layout', questionIds: ['q1'] },
+    workingCopy: { title: 'Layout', questionIds: ['q1'] },
     dirty: false,
   })
-  await page.goto('/')
   await expect(page.locator('.exam-question[data-question-id]')).toHaveCount(1)
 }
 
@@ -67,7 +66,7 @@ test('the workspace opens with the bank as the narrower pane, and the divider mo
   expect(Math.round((await sheet(page).boundingBox())!.width)).toBe(PAGE_WIDTH)
 })
 
-test('scrolling the Exam Draft keeps the Question Bank docked below the document bar', async ({ page }) => {
+test('scrolling the Working Copy keeps the Question Bank docked below the document bar', async ({ page }) => {
   await openWorkspace(page)
 
   const bankBefore = (await bank(page).boundingBox())!
@@ -81,7 +80,7 @@ test('scrolling the Exam Draft keeps the Question Bank docked below the document
   expect(bankAfter.height).toBe(bankBefore.height)
 })
 
-test('the footer stays in the Exam Draft lane without dislodging the Question Bank', async ({ page }) => {
+test('the footer stays in the Working Copy lane without dislodging the Question Bank', async ({ page }) => {
   await openWorkspace(page)
 
   const bankBefore = (await bank(page).boundingBox())!
@@ -112,7 +111,7 @@ test('the divider is resizable from the keyboard', async ({ page }) => {
 test('a pane too narrow for the sheet scrolls rather than shrinking it', async ({ page }) => {
   await openWorkspace(page)
 
-  // Give the bank most of the workspace, so the Exam Draft pane is narrower
+  // Give the bank most of the workspace, so the Working Copy pane is narrower
   // than a piece of US Letter paper.
   await divider(page).focus()
   for (let press = 0; press < 8; press += 1) await page.keyboard.press('ArrowRight')
@@ -127,13 +126,16 @@ test('a pane too narrow for the sheet scrolls rather than shrinking it', async (
   expect(transform === 'none' || transform === 'matrix(1, 0, 0, 1, 0, 0)').toBe(true)
 })
 
-test('pane width is transient, not authoring data', async ({ page }) => {
+test('pane width is restorable workspace state, not authoring data', async ({ page }) => {
   await openWorkspace(page)
   const undo = page.getByRole('button', { name: 'Undo' })
   await expect(undo).toBeDisabled()
 
   await divider(page).focus()
+  const initial = await divider(page).getAttribute('aria-valuenow')
   await page.keyboard.press('ArrowLeft')
+  const resized = String(Number(initial) - 4)
+  await expect(divider(page)).toHaveAttribute('aria-valuenow', resized)
 
   // Moving the divider is not a change to the exam, so it is not undoable and
   // it dirties nothing.
@@ -142,8 +144,7 @@ test('pane width is transient, not authoring data', async ({ page }) => {
   await page.reload()
   await expect(page.locator('.exam-question[data-question-id]')).toHaveCount(1)
   await expect(bank(page)).toBeVisible()
-  expect(await bankShare(page)).toBeGreaterThan(0.28)
-  expect(await bankShare(page)).toBeLessThan(0.38)
+  await expect(divider(page)).toHaveAttribute('aria-valuenow', resized!)
 })
 
 test('focus, selection, the modal and the workspace shortcuts survive the split', async ({ page }) => {

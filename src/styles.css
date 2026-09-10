@@ -91,13 +91,17 @@ button { cursor: pointer; }
   -webkit-user-select: none; user-select: none;
 }
 .document-title {
-  width: min(420px, 55vw); padding: 5px 7px; border: 1px solid transparent;
+  /* Leave the document actions one stable header row at desktop widths. The
+     title remains roomy while Save, Discard and its Working Copy status are
+     present instead of making the sticky bar grow after scrolling begins. */
+  width: min(240px, 30vw); padding: 5px 7px; border: 1px solid transparent;
   border-radius: 4px; color: #332a24; background: transparent; font-size: 18px; outline: none;
 }
 .document-title:hover { border-color: #d8cbbb; }
 .document-title:focus { border-color: #b65f43; box-shadow: inset 0 0 0 1px #b65f43; }
 .header-actions, .dialog-actions { display: flex; align-items: center; gap: 10px; }
 .header-actions { flex-wrap: wrap; justify-content: flex-end; gap: 7px; }
+.working-copy-status { color: #6e5b4d; font-size: 13px; white-space: nowrap; }
 .export-button, .primary-button, .secondary-button {
   min-height: 36px; padding: 8px 14px; border: 1px solid #bda995; border-radius: 8px;
   color: #4e3b2f; background: #f7eee3; font-weight: 600;
@@ -156,8 +160,8 @@ button { cursor: pointer; }
   min-width: 0; padding: 18px; display: flex; flex-direction: column; gap: 18px;
   overflow-y: auto; border-left: 1px solid #e0d3c5;
 }
-.export-version-state { display: grid; gap: 4px; margin: 0; color: #6e5b4d; }
-.export-version-state strong { color: #332a24; font-size: 20px; }
+.export-arrangement-state { display: grid; gap: 4px; margin: 0; color: #6e5b4d; }
+.export-arrangement-state strong { color: #332a24; font-size: 20px; }
 .export-durability-note { margin: 0; color: #6e5b4d; font-size: 13px; line-height: 1.45; }
 .storage-notice {
   position: fixed; z-index: 40; left: 50%; bottom: 22px; transform: translateX(-50%);
@@ -210,24 +214,24 @@ button { cursor: pointer; }
 }
 .empty-exam-button svg { width: 17px; height: 17px; stroke-width: 2; }
 
-/* Version History is an inspection drawer, not another editing surface. */
-.version-history-drawer {
+/* Arrangement History is an inspection drawer, not another editing surface. */
+.export-history-drawer {
   position: fixed; z-index: 19; top: 58px; right: 0; bottom: 0; width: min(360px, 100vw);
   padding: 18px; overflow-y: auto; border-left: 1px solid #e0d3c2;
   background: #fffaf3; box-shadow: -8px 0 24px rgb(55 42 33 / 16%);
 }
-.version-history-drawer[hidden] { display: none; }
-.version-history-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
-.version-history-header h2 { margin: 0; font-size: 18px; }
-.version-history-header p, .version-history-empty { margin: 6px 0 0; color: #6e5b4d; font-size: 13px; line-height: 1.45; }
-.version-history-list { display: grid; gap: 8px; margin: 20px 0 0; padding: 0; list-style: none; }
-.version-history-item {
+.export-history-drawer[hidden] { display: none; }
+.export-history-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+.export-history-header h2 { margin: 0; font-size: 18px; }
+.export-history-header p, .export-history-empty { margin: 6px 0 0; color: #6e5b4d; font-size: 13px; line-height: 1.45; }
+.export-history-list { display: grid; gap: 8px; margin: 20px 0 0; padding: 0; list-style: none; }
+.export-history-item {
   display: grid; width: 100%; gap: 4px; padding: 12px; border: 1px solid #e0d3c2;
   border-radius: 8px; color: #4e3b2f; background: #fffdf8; text-align: left;
 }
-.version-history-item:hover, .version-history-item:focus-visible { border-color: #9f5037; background: #f7eee3; }
-.version-history-item[aria-current='page'] { border-color: #9f5037; box-shadow: inset 0 0 0 1px #9f5037; }
-.version-history-item time, .version-history-item span { color: #6e5b4d; font-size: 13px; }
+.export-history-item:hover, .export-history-item:focus-visible { border-color: #9f5037; background: #f7eee3; }
+.export-history-item[aria-current='page'] { border-color: #9f5037; box-shadow: inset 0 0 0 1px #9f5037; }
+.export-history-item time, .export-history-item span { color: #6e5b4d; font-size: 13px; }
 .historical-document { min-height: calc(100vh - 58px); }
 .historical-document-bar {
   position: sticky; top: 58px; z-index: 2; display: flex; align-items: center; justify-content: space-between;
@@ -268,7 +272,7 @@ button { cursor: pointer; }
 /* ---------------------------------------------------------------------------
    The split authoring workspace.
 
-   The Question Bank sits beside the rendered Exam Draft at an even split, so
+   The Question Bank sits beside the rendered Working Copy at an even split, so
    neither side reads as the lesser one, and the divider between them moves.
    The sheet keeps its real geometry — it is a piece of paper, and scaling it to
    fit a pane would show a layout the printer will not produce — so the Exam
@@ -277,7 +281,7 @@ button { cursor: pointer; }
 
    `--bank-column` is the width `workspace-split.tsx` is holding: a percentage
    while the bank is open, the rail's width once it is away. The fixed drop
-   offer at the foot of the Exam Draft pane reads it too, so the two cannot
+   offer at the foot of the Working Copy pane reads it too, so the two cannot
    disagree about where the pane begins. */
 .authoring-workspace {
   --bank-column: 33%;
@@ -301,6 +305,29 @@ button { cursor: pointer; }
   position: sticky; top: 58px; align-self: start;
   min-width: 0; height: calc(100vh - 58px);
 }
+.bank-tabs-pane { display: flex; flex-direction: column; height: 100%; min-height: 0; background: #fffaf3; }
+.bank-tabs-pane > .question-bank { flex: 1 1 auto; height: auto; min-height: 0; }
+.bank-tabs-bar {
+  display: flex; align-items: center; gap: 8px; padding: 8px 10px 0;
+  border-right: 1px solid #e8dfd2; background: #fffaf3;
+}
+.bank-tabs { display: flex; flex: 1 1 auto; gap: 4px; min-width: 0; overflow-x: auto; }
+.bank-tab {
+  display: flex; flex: none; align-items: center; border: 1px solid #ddcdb9;
+  border-bottom: 0; border-radius: 7px 7px 0 0; background: #f3e9dc;
+}
+.bank-tab[data-active] { background: #fffdf8; box-shadow: inset 0 2px var(--paper-accent); }
+.bank-tab > button { border: 0; color: #5b4839; background: transparent; }
+.bank-tab > button[role='tab'] { max-width: 180px; padding: 8px 5px 8px 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bank-tab > button:last-child { display: inline-flex; padding: 7px 7px 7px 3px; }
+.bank-tab svg { width: 14px; height: 14px; }
+.bank-tab > button:focus-visible, .open-bank-button:focus-visible { outline: 2px solid #8a6a4c; outline-offset: -2px; }
+.open-bank-button {
+  flex: none; padding: 7px 9px; border: 1px solid #ddcdb9; border-radius: 6px;
+  color: #5b4839; background: #fffdf8; font-size: 12px;
+}
+.bank-tabs-error { margin: 8px 10px 0; }
+.question-bank-no-tab { justify-content: center; text-align: center; }
 .question-bank {
   display: flex; flex-direction: column; gap: 14px;
   height: calc(100vh - 58px); padding: 18px 16px; overflow-y: auto;
@@ -616,7 +643,7 @@ button { cursor: pointer; }
 
    An empty section is not drawn on the sheet — a section is derived from the
    questions in it — so a composition gesture would have nothing to aim at. This
-   is the offer, pinned to the foot of the Exam Draft pane while a compatible
+   is the offer, pinned to the foot of the Working Copy pane while a compatible
    gesture is in flight: reachable however far the exam has been scrolled, and
    never a pixel taken from the paper's own geometry. */
 .exam-draft-empty-section {
@@ -793,6 +820,11 @@ button { cursor: pointer; }
 .dialog-header, .dialog-actions { padding: 14px 18px; border-bottom: 1px solid #e8dfd2; }
 .dialog-header { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
 .dialog-header h2 { margin: 0; font-size: 18px; }
+.question-owner { margin: 3px 0 0; color: var(--paper-ink-soft); font-size: 12px; }
+.question-usage { max-width: 420px; color: var(--paper-ink-soft); font-size: 13px; }
+.question-usage summary { cursor: pointer; font-weight: 700; }
+.question-usage p, .question-usage ul { margin: 6px 0 0; }
+.question-usage ul { padding-left: 18px; }
 .choice-controls select {
   padding: 7px 30px 7px 9px; border: 1px solid #cdb9a6; border-radius: 6px; background: #fffdf8;
 }
@@ -1067,7 +1099,7 @@ button { cursor: pointer; }
   html[data-export-reference-print] .vary-summary,
   html[data-export-reference-print] .measure-host,
   html[data-export-reference-print] .authoring-workspace,
-  html[data-export-reference-print] .version-history-drawer,
+  html[data-export-reference-print] .export-history-drawer,
   html[data-export-reference-print] .dialog-backdrop { display: none; }
   html[data-export-reference-print] body,
   html[data-export-reference-print] :root { background: #fff; }
@@ -1096,6 +1128,88 @@ button { cursor: pointer; }
 .site-link:hover { color: #9f5037; text-decoration: underline; text-underline-offset: 4px; }
 
 .site-page { display: flex; flex-direction: column; min-height: 100vh; }
+.home-page { display: flex; flex-direction: column; min-height: 100vh; }
+.home-main { flex: 1; width: 100%; max-width: 1120px; margin: 0 auto; padding: 32px 20px 44px; }
+.home-resource-section { margin-top: 42px; }
+.home-heading { display: flex; align-items: end; justify-content: space-between; gap: 20px; margin-bottom: 20px; }
+.home-heading h1 { margin: 0 0 7px; font-size: 28px; }
+.home-heading p { margin: 0; color: #6e5b4d; }
+.home-heading-actions { display: flex; align-items: center; gap: 9px; }
+.home-heading-actions .secondary-button { display: inline-flex; align-items: center; text-decoration: none; }
+.home-empty { padding: 46px 24px; border: 1px dashed #d8cbbb; border-radius: 10px; text-align: center; background: #fffaf3; }
+.home-empty h2 { margin: 0 0 8px; font-size: 18px; }
+.home-empty p { margin: 0 0 20px; color: #6e5b4d; }
+.home-error { margin: 0 0 18px; padding: 12px 14px; border: 1px solid var(--paper-danger-line); border-radius: 7px; color: var(--paper-danger); background: var(--paper-danger-wash); }
+.storage-summary { padding: 18px 20px; border: 1px solid #ddcdb9; border-radius: 10px; background: #f8eee2; }
+.storage-summary h1 { margin: 0 0 7px; font-size: 18px; }
+.storage-summary p { margin: 0; color: #6e5b4d; font-size: 14px; line-height: 1.5; }
+.storage-summary .storage-warning { margin-top: 8px; color: var(--paper-danger); font-weight: 600; }
+.storage-summary .storage-status { margin-top: 8px; color: #3f6b46; font-weight: 600; }
+.bank-only-workspace { display: grid; grid-template-columns: minmax(340px, 35%) 1fr; min-height: calc(100vh - 116px); }
+.bank-only-workspace .question-bank-authoring { position: relative; height: calc(100vh - 68px); }
+.bank-only-empty { display: grid; align-content: center; justify-items: center; padding: 40px; text-align: center; color: #6e5b4d; }
+.bank-only-empty h1 { margin: 0 0 10px; color: #382d26; }
+.bank-only-empty p { margin: 0; max-width: 440px; }
+.bank-only-actions { display: flex; gap: 10px; margin-top: 22px; }
+.bank-save-status { color: #6e5b4d; font-size: 13px; }
+.bank-name-error { margin: 10px 20px 0; }
+.dialog-save-error { flex: 1; margin: 0; color: var(--paper-danger); font-size: 13px; }
+.danger-button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 34px; padding: 7px 12px; border: 1px solid var(--paper-danger); border-radius: 6px; color: #fff; background: var(--paper-danger); font: inherit; font-weight: 700; }
+.danger-button:disabled { opacity: 0.55; }
+.danger-button svg { width: 16px; height: 16px; }
+.question-delete-button { margin-right: auto; }
+.destructive-dialog { width: min(520px, calc(100vw - 32px)); max-height: calc(100vh - 32px); padding: 22px; overflow: auto; border: 1px solid var(--paper-danger-line); border-radius: 10px; background: #fffaf3; box-shadow: 0 16px 48px rgb(55 42 33 / 26%); }
+.destructive-dialog h2 { margin: 0 0 12px; }
+.destructive-dialog ul { margin: 10px 0; }
+.destructive-dialog-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+.resource-row { display: flex; gap: 16px; padding: 2px 2px 14px; overflow-x: auto; overscroll-behavior-inline: contain; scroll-snap-type: inline proximity; }
+.resource-row > [role='listitem'] { flex: 0 0 262px; scroll-snap-align: start; }
+.collection-main { flex: 1; width: 100%; max-width: 1120px; margin: 0 auto; padding: 36px 20px 48px; }
+.collection-heading { display: flex; align-items: end; justify-content: space-between; gap: 24px; }
+.collection-heading h1 { margin: 0 0 7px; font-size: 30px; }
+.collection-heading p, .collection-count { margin: 0; color: #6e5b4d; }
+.collection-search input { width: min(340px, 42vw); padding: 10px 12px; border: 1px solid #cdb9a6; border-radius: 8px; background: #fffdf8; }
+.collection-count { margin: 18px 0 14px; font-size: 14px; }
+.collection-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(245px, 1fr)); gap: 16px; }
+.resource-card { min-height: 190px; border: 1px solid #e0d3c2; border-radius: 9px; color: inherit; text-align: left; background: #fffaf3; overflow: hidden; }
+.resource-card:hover, .resource-card:focus-within { border-color: #b65f43; box-shadow: 0 3px 12px rgb(91 68 47 / 12%); }
+.exam-card { display: grid; grid-template-rows: 92px 1fr; width: 100%; padding: 0; }
+.exam-card-page { margin: 14px 14px 0; padding: 12px; overflow: hidden; border: 1px solid #e8dfd2; background: #fffdf8; box-shadow: 0 1px 3px rgb(91 68 47 / 12%); color: #4e3b2f; font-family: Georgia, serif; font-size: 11px; line-height: 1.4; }
+.exam-card-preview-content { transform: scale(.68); transform-origin: top left; width: 147%; }
+.exam-card-preview-content section { padding-bottom: 8px; border-bottom: 1px solid #e8dfd2; }
+.exam-card-preview-content .doc-content > :first-child { margin-top: 0; }
+.empty-page-line { color: #9b8a7d; font-family: Arial, sans-serif; }
+.resource-card-body, .resource-card-main { padding: 14px; }
+.resource-card-main { display: block; width: 100%; border: 0; color: inherit; text-align: left; background: transparent; }
+.resource-card h2 { margin: 0 0 7px; overflow: hidden; font-size: 18px; text-overflow: ellipsis; white-space: nowrap; }
+.resource-card p { margin: 0 0 9px; color: #6e5b4d; font-size: 14px; }
+.resource-card time { display: block; margin-top: 8px; color: #866f5e; font-size: 12px; }
+.unsaved-badge { display: inline-block; padding: 2px 7px; border-radius: 999px; color: #8a6320; background: #f8ecd2; font-size: 12px; }
+.topic-summary { min-height: 20px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bank-delete-button { width: 100%; padding: 8px 14px; border: 0; border-top: 1px solid var(--paper-danger-line); color: var(--paper-danger); background: var(--paper-danger-wash); text-align: left; font: inherit; font-size: 12px; font-weight: 700; }
+.bank-usage { border-top: 1px solid #e8dfd2; padding: 10px 14px 12px; font-size: 13px; }
+.bank-usage summary { color: #6e5b4d; cursor: pointer; font-weight: 600; }
+.bank-usage p { margin: 8px 0 0; }
+.bank-usage ul { display: grid; gap: 6px; margin: 8px 0 0; padding: 0; list-style: none; }
+.bank-usage li { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.bank-usage li button { padding: 0; border: 0; color: #9f5037; background: transparent; text-align: left; text-decoration: underline; }
+.bank-usage li span { color: #6e5b4d; font-size: 11px; text-align: right; }
+.editor-home-link { border: 0; background: transparent; }
+.resource-picker {
+  width: min(480px, calc(100vw - 32px)); max-height: min(620px, calc(100vh - 48px));
+  padding: 20px; overflow-y: auto; border-radius: 12px; background: #fffdf8;
+  box-shadow: 0 18px 60px rgb(58 42 30 / 24%);
+}
+.resource-picker-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 14px; }
+.resource-picker-header h2 { margin: 0; font-size: 20px; }
+.resource-picker-list { display: grid; gap: 8px; }
+.resource-picker-list > button {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 12px; border: 1px solid #e0d3c2; border-radius: 8px;
+  color: #382d26; text-align: left; background: #fffaf3;
+}
+.resource-picker-list > button:hover { border-color: #b65f43; }
+.resource-picker-list span { color: #6e5b4d; font-size: 13px; }
 .site-main { flex: 1; width: 100%; max-width: 760px; margin: 0 auto; padding: 26px 20px 40px; }
 .site-main h1 { margin: 0 0 6px; font-size: 26px; }
 .site-lede { margin: 0 0 22px; color: #6e5b4d; font-size: 14px; }
@@ -1144,8 +1258,59 @@ button { cursor: pointer; }
   color: #9f5037; text-decoration: underline; text-underline-offset: 4px;
 }
 
+.bank-export-help { align-self: center; max-width: 150px; color: #6e5b4d; font-size: 11px; line-height: 1.2; }
+.question-bank-export-dialog {
+  display: flex; flex-direction: column; width: min(760px, calc(100vw - 32px));
+  max-height: calc(100vh - 40px); padding: 22px; border-radius: 12px;
+  background: #fffdf8; box-shadow: 0 18px 60px rgb(58 42 30 / 24%);
+}
+.question-bank-export-dialog > .dialog-header p { margin: 5px 0 0; color: #6e5b4d; }
+.question-bank-export-preview {
+  flex: 1; min-height: 160px; margin: 14px 0; padding: 24px;
+  overflow: auto; border: 1px solid #e0d3c2; background: white;
+}
+.question-bank-export-preview > h1 { margin-top: 0; }
+.question-bank-export-question { padding: 18px 0; border-top: 1px solid #e0d3c2; }
+.question-bank-export-question dl { display: flex; flex-wrap: wrap; gap: 8px 22px; }
+.question-bank-export-question dl div { display: flex; gap: 5px; }
+.question-bank-export-question dt { font-weight: 700; }
+.question-bank-export-question dd { margin: 0; }
+.question-bank-export-choices { display: grid; gap: 7px; }
+.question-bank-export-choices li { padding-left: 4px; }
+.question-bank-export-choices .doc-content { display: inline; }
+.question-bank-export-choices .doc-content p { display: inline; }
+.question-bank-correct { margin-left: 8px; color: #27643a; font-size: 12px; }
+.bank-import-dialog, .question-bank-details-dialog {
+  width: min(620px, calc(100vw - 32px)); max-height: calc(100vh - 40px);
+  padding: 22px; overflow: auto; border-radius: 12px; background: #fffdf8;
+  box-shadow: 0 18px 60px rgb(58 42 30 / 24%);
+}
+.bank-import-file, .bank-import-name, .question-bank-details-dialog > label {
+  display: grid; gap: 5px; margin: 12px 0; font-weight: 600;
+}
+.bank-import-name input, .question-bank-details-dialog input,
+.question-bank-details-dialog textarea {
+  padding: 9px 10px; border: 1px solid #bcae9c; border-radius: 7px;
+  background: white; color: inherit; font: inherit;
+}
+.question-bank-details-dialog textarea { min-height: 90px; resize: vertical; }
+.bank-import-dialog dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 18px; }
+.bank-import-dialog dl div { display: flex; justify-content: space-between; gap: 12px; }
+.bank-import-dialog dd { margin: 0; text-align: right; }
+.bank-import-announcements:empty { display: none; }
+.suggested-answer-editor { margin: 0 20px 18px; border-top: 1px solid #e0d3c2; }
+.suggested-answer-editor h3 { margin: 14px 0 6px; font-size: 14px; }
+.suggested-answer-editor h3 span { color: #6e5b4d; font-size: 12px; font-weight: 400; }
+.add-suggested-answer { align-self: flex-start; margin: 0 20px 18px; }
+
 /* The footer is chrome, like the document bar: it belongs to the app, not to
    the test, so it never reaches the printer. */
+@media (max-width: 640px) {
+  .home-heading, .collection-heading { align-items: stretch; flex-direction: column; }
+  .home-heading-actions { align-self: flex-start; }
+  .collection-search input { width: 100%; }
+}
+
 @media print {
   .site-footer { display: none; }
 }

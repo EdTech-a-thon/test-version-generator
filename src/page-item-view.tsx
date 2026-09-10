@@ -36,7 +36,7 @@ export function ChoiceGridView({
   showCorrectness = false,
 }: {
   grid: ChoiceGrid
-  /** The Exam Draft alone may reveal correctness; previews and artifacts may not. */
+  /** The Working Copy alone may reveal correctness; previews and artifacts may not. */
   showCorrectness?: boolean
 }) {
   return (
@@ -136,11 +136,11 @@ export function AnswerKeyEntry({ item }: { item: AnswerKeyEntryItem }) {
 // The furniture at the top of a sheet, drawn from the variant packing chose.
 // The first page identifies the paper and names the test; every later page
 // carries just enough to reunite a dropped stack and to stop a student swapping
-// a page in from another version. Neither repeats the section heading — that is
+// a page in from another arrangement. Neither repeats the section heading — that is
 // content, and content is packed, not drawn here.
 //
 // Driven by the plan's own furniture rather than by a switch of its own: the
-// identity fields, the repeated title and the version label are planning
+// identity fields, the repeated title and the arrangement label are planning
 // decisions, so the DOCX adapter prints exactly the same ones. The header
 // variant survives only as a class, because how tall each variant is remains a
 // layout constant that CSS and packing must agree on.
@@ -160,7 +160,7 @@ export function PageHeaderContent({
             <span className="identity-blank" />
           </span>
         ))}
-        <span className="page-id">{furniture.versionLabel}</span>
+        <span className="page-id">{furniture.arrangementLabel}</span>
       </div>
       {furniture.title !== null && (
         <h1 className="exam-title">{furniture.title}</h1>

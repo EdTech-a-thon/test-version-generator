@@ -5,7 +5,7 @@
 // compact row actually says, that a click selects while a double-click or Enter
 // opens the popup, that the filter controls narrow the bank the way the rules
 // say, and that the keyboard composition path puts a bank question onto the
-// Exam Draft through the same authoring operations as everything else.
+// Working Copy through the same authoring operations as everything else.
 
 import { expect, test, type Page } from '@playwright/test'
 import { seedAuthoringState } from './seed-authoring'
@@ -91,10 +91,9 @@ const dialog = (page: Page) => page.getByRole('dialog', { name: 'Question editor
 async function openBank(page: Page, questionIds: string[] = ['q1', 'q2']) {
   await seedAuthoringState(page, {
     questionBank: { questions: QUESTIONS },
-    examDraft: { title: 'Biology quiz', questionIds },
+    workingCopy: { title: 'Biology quiz', questionIds },
     dirty: false,
   })
-  await page.goto('/')
   await expect(rows(page)).toHaveCount(QUESTIONS.length)
 }
 
@@ -221,6 +220,7 @@ test('browsing the Question Bank is not an authoring action', async ({ page }) =
 
 test('an empty Question Bank reads differently from one nothing matches', async ({ page }) => {
   await page.goto('/')
+  await page.getByRole('button', { name: 'New Exam' }).first().click()
   await expect(bank(page)).toContainText('No questions yet')
 
   await openBank(page)

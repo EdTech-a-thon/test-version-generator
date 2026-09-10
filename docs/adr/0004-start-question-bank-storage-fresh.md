@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0015
 ---
 
 # Start Question Bank storage fresh

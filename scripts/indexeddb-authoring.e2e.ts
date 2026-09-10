@@ -1,8 +1,8 @@
-// The fresh Version History storage generation, exercised in a real browser.
+// The fresh Export History storage generation, exercised in a real browser.
 //
 // These tests deliberately cross the public application boundary. IndexedDB
 // is Chromium's implementation, and the assertions observe the Question Bank
-// and Exam Draft the same way a teacher does after startup and reload.
+// and Working Copy the same way a teacher does after startup and reload.
 
 import { expect, test } from '@playwright/test'
 import { createQuestion } from '../src/exam'
@@ -18,7 +18,7 @@ const legacyAuthoringState = (): AuthoringState => {
   ]
   return {
     questionBank: { questions: [question] },
-    examDraft: { title: 'Previous exam', questionIds: [question.id] },
+    workingCopy: { title: 'Previous exam', questionIds: [question.id] },
     dirty: true,
   }
 }
@@ -39,7 +39,7 @@ test('the fresh generation ignores earlier browser authoring data', async ({
         transaction
           .objectStore('state')
           .put(
-            { questionBank: state.questionBank, examDraft: state.examDraft },
+            { questionBank: state.questionBank, workingCopy: state.workingCopy },
             'saved',
           )
         transaction.oncomplete = () => {
@@ -59,6 +59,7 @@ test('the fresh generation ignores earlier browser authoring data', async ({
   }, legacy)
 
   await page.goto('/')
+  await page.getByRole('button', { name: 'New Exam' }).first().click()
   await page.getByRole('textbox', { name: 'Exam name' }).waitFor()
   await page.evaluate(
     () => (window as unknown as { legacySetup: Promise<unknown> }).legacySetup,
@@ -69,7 +70,7 @@ test('the fresh generation ignores earlier browser authoring data', async ({
   ).toHaveCount(0)
   await expect(page.locator('.exam-question')).toHaveCount(0)
   await expect(page.getByRole('textbox', { name: 'Exam name' })).toHaveValue(
-    'Untitled exam',
+    'Untitled Exam',
   )
   expect(
     await page.evaluate(() => localStorage.getItem('exam-authoring-v2')),
@@ -91,7 +92,7 @@ test('the fresh generation ignores earlier browser authoring data', async ({
             .objectStore('state')
             .get('saved')
           request.onsuccess = () =>
-            resolve(request.result.examDraft.title === 'Previous exam')
+            resolve(request.result.workingCopy.title === 'Previous exam')
           request.onerror = () => reject(request.error)
         })
       } finally {
@@ -105,9 +106,10 @@ test('failed normalized write and Save transactions expose no partial state', as
   page,
 }) => {
   await page.goto('/')
+  await page.getByRole('button', { name: 'New Exam' }).first().click()
   await page.getByRole('textbox', { name: 'Exam name' }).waitFor()
   const baseline = legacyAuthoringState()
-  baseline.examDraft.title = 'Last complete write'
+  baseline.workingCopy.title = 'Last complete write'
 
   const restored = await page.evaluate(async (state: AuthoringState) => {
     const modulePath = '/src/indexeddb-authoring.ts'
@@ -118,10 +120,10 @@ test('failed normalized write and Save transactions expose no partial state', as
     await backend.write(state)
 
     const broken = structuredClone(state) as AuthoringState & {
-      examDraft: AuthoringState['examDraft'] & { cannotClone?: () => void }
+      workingCopy: AuthoringState['workingCopy'] & { cannotClone?: () => void }
     }
     broken.questionBank.questions = []
-    broken.examDraft.cannotClone = () => undefined
+    broken.workingCopy.cannotClone = () => undefined
     try {
       await backend.write(broken)
     } catch {
@@ -131,10 +133,10 @@ test('failed normalized write and Save transactions expose no partial state', as
     const afterWriteFailure = await backend.read()
 
     const brokenSave = structuredClone(state) as AuthoringState & {
-      examDraft: AuthoringState['examDraft'] & { cannotClone?: () => void }
+      workingCopy: AuthoringState['workingCopy'] & { cannotClone?: () => void }
     }
     brokenSave.questionBank.questions = []
-    brokenSave.examDraft.cannotClone = () => undefined
+    brokenSave.workingCopy.cannotClone = () => undefined
     try {
       await backend.commitSaved(brokenSave)
     } catch {
@@ -157,7 +159,8 @@ test('Question Metadata and bank-only content survive a user-visible reload', as
   page,
 }) => {
   await page.goto('/')
-  await page.getByRole('button', { name: 'New question' }).click()
+  await page.getByRole('button', { name: 'New Exam' }).first().click()
+  await page.getByRole('button', { name: 'New question', exact: true }).click()
   await page.getByRole('menuitem', { name: 'Multiple choice' }).click()
   const dialog = page.getByRole('dialog', { name: 'Question editor' })
   await dialog.waitFor()
@@ -187,6 +190,7 @@ test('publication aborts every store when a required Media Asset is absent', asy
   page,
 }) => {
   await page.goto('/')
+  await page.getByRole('button', { name: 'New Exam' }).first().click()
   // A first visit registers the image service worker, which may reload once
   // before it takes control. Wait for application startup rather than running
   // the IndexedDB probe in the navigation that registration replaces.
@@ -199,7 +203,7 @@ test('publication aborts every store when a required Media Asset is absent', asy
     const { createIndexedDBAuthoringBackend } = (await import(
       /* @vite-ignore */ authoringPath
     )) as typeof import('../src/indexeddb-authoring')
-    const { prepareExport, EMPTY_PUBLICATION_HISTORY } = (await import(
+    const { prepareExport, EMPTY_EXPORT_HISTORY } = (await import(
       /* @vite-ignore */ preparationPath
     )) as typeof import('../src/export-preparation')
     const { selectedExam } = (await import(
@@ -225,26 +229,24 @@ test('publication aborts every store when a required Media Asset is absent', asy
     }
     const state: AuthoringState = {
       questionBank: { questions: [question] },
-      examDraft: { title: 'Atomic publication', questionIds: ['q1'] },
+      workingCopy: { title: 'Atomic publication', questionIds: ['q1'] },
       dirty: true,
     }
     const prepared = prepareExport({
-      ...selectedExam(state.questionBank, state.examDraft),
+      examId: 'exam-1',
+      ...selectedExam(state.questionBank, state.workingCopy),
       configuration: { format: 'pdf', selection: { test: true, answerKey: true } },
-      history: EMPTY_PUBLICATION_HISTORY,
+      history: EMPTY_EXPORT_HISTORY,
       measure: unmeasured,
       createdAt: '2026-09-04T12:00:00.000Z',
     })
-    prepared.publication.mediaHashes = ['f'.repeat(64)]
+    prepared.record.mediaHashes = ['f'.repeat(64)]
     const backend = createIndexedDBAuthoringBackend(
       'publication-media-abort-test',
     )
     let failed = false
     try {
-      await backend.commitPublication(
-        { questionBank: state.questionBank, examDraft: state.examDraft },
-        prepared.publication,
-      )
+      await backend.commitExportRecord(prepared.record)
     } catch {
       failed = true
     }
@@ -252,12 +254,12 @@ test('publication aborts every store when a required Media Asset is absent', asy
       failed,
       working: await backend.read(),
       saved: await backend.readSaved(),
-      history: await backend.readPublicationHistory(),
+      history: await backend.readExportHistory(),
     }
   })
 
   expect(result.failed).toBe(true)
   expect(result.working).toBeNull()
   expect(result.saved).toBeNull()
-  expect(result.history).toEqual({ versions: [], revisions: [], plans: [] })
+  expect(result.history).toEqual({ records: [] })
 })

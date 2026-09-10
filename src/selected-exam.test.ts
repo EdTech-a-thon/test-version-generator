@@ -7,11 +7,11 @@ import {
   type Question,
 } from './exam'
 import {
-  createExamDraft,
+  createWorkingCopy,
   createQuestionBank,
   withQuestionBanked,
   withReferenceAdded,
-  type ExamDraft,
+  type ExamWorkingCopy,
   type QuestionBank,
 } from './question-bank'
 import { selectedExam } from './selected-exam'
@@ -22,27 +22,27 @@ function banked(...questions: Question[]): QuestionBank {
   return questions.reduce(withQuestionBanked, createQuestionBank())
 }
 
-function drafted(...questionIds: string[]): ExamDraft {
+function drafted(...questionIds: string[]): ExamWorkingCopy {
   return questionIds.reduce(
     (draft, id) => withReferenceAdded(draft, id),
-    createExamDraft('Biology Quiz'),
+    createWorkingCopy('Biology Quiz'),
   )
 }
 
 describe('the Exam rendering and export receive', () => {
-  test('holds only the Question Bank records the Exam Draft references', () => {
+  test('holds only the Question Bank records the Working Copy references', () => {
     const [first, second] = [createQuestion('multiple-choice'), createQuestion('multiple-choice')]
     const { exam } = selectedExam(banked(first!, second!), drafted(first!.id))
     expect(exam.questions.map((question) => question.id)).toEqual([first!.id])
   })
 
-  test('arranges them in Exam Draft order, not Question Bank order', () => {
+  test('arranges them in Working Copy order, not Question Bank order', () => {
     const [first, second] = [createQuestion('open'), createQuestion('open')]
-    const { exam, version } = selectedExam(
+    const { exam, arrangement } = selectedExam(
       banked(first!, second!),
       drafted(second!.id, first!.id),
     )
-    expect(orderedQuestions(exam, version).map((question) => question.id)).toEqual([
+    expect(orderedQuestions(exam, arrangement).map((question) => question.id)).toEqual([
       second!.id,
       first!.id,
     ])
@@ -51,15 +51,15 @@ describe('the Exam rendering and export receive', () => {
   test('keeps the fixed Multiple Choice then Short Answer sections', () => {
     const shortAnswer = createQuestion('open')
     const multipleChoice = createQuestion('multiple-choice')
-    const { exam, version } = selectedExam(
+    const { exam, arrangement } = selectedExam(
       banked(shortAnswer, multipleChoice),
       drafted(shortAnswer.id, multipleChoice.id),
     )
-    expect(orderedQuestions(exam, version).map((question) => question.type)).toEqual([
+    expect(orderedQuestions(exam, arrangement).map((question) => question.type)).toEqual([
       'multiple-choice',
       'open',
     ])
-    expect(questionsInSection(exam, version, 'open').map((question) => question.id)).toEqual([
+    expect(questionsInSection(exam, arrangement, 'open').map((question) => question.id)).toEqual([
       shortAnswer.id,
     ])
   })
@@ -81,23 +81,23 @@ describe('the Exam rendering and export receive', () => {
       banked(question, other),
       { ...question, type: 'open' },
     )
-    const { exam, version } = selectedExam(bank, drafted(question.id, other.id))
-    expect(questionsInSection(exam, version, 'multiple-choice')).toEqual([])
-    expect(questionsInSection(exam, version, 'open').map((item) => item.id)).toEqual([
+    const { exam, arrangement } = selectedExam(bank, drafted(question.id, other.id))
+    expect(questionsInSection(exam, arrangement, 'multiple-choice')).toEqual([])
+    expect(questionsInSection(exam, arrangement, 'open').map((item) => item.id)).toEqual([
       question.id,
       other.id,
     ])
   })
 
-  test('takes the exam name from the Exam Draft', () => {
+  test('takes the exam name from the Working Copy', () => {
     const { exam } = selectedExam(createQuestionBank(), drafted())
     expect(exam.title).toBe('Biology Quiz')
   })
 
   test('answers print in the order they were authored in', () => {
     const question = createQuestion('multiple-choice')
-    const { exam, version } = selectedExam(banked(question), drafted(question.id))
-    expect(version.choiceOrder).toEqual({})
+    const { exam, arrangement } = selectedExam(banked(question), drafted(question.id))
+    expect(arrangement.choiceOrder).toEqual({})
     expect(exam.questions[0]!.doc).toEqual(question.doc)
   })
 
@@ -111,9 +111,9 @@ describe('the Exam rendering and export receive', () => {
       choiceOrder: { [question.id]: [...canonicalIds].reverse() },
     }
 
-    const { exam, version } = selectedExam(banked(question), draft)
+    const { exam, arrangement } = selectedExam(banked(question), draft)
 
-    expect(orderedChoices(exam.questions[0]!, version).map((choice) => choice.id))
+    expect(orderedChoices(exam.questions[0]!, arrangement).map((choice) => choice.id))
       .toEqual([...canonicalIds].reverse())
     expect(orderedChoices(question, {
       id: 'canonical', letter: 'A', questionOrder: [question.id], choiceOrder: {},
@@ -126,10 +126,10 @@ describe('an unused Question Bank question', () => {
   test('never reaches a Layout Plan', () => {
     const used = createQuestion('open')
     const unused = createQuestion('open')
-    const { exam, version } = selectedExam(banked(used, unused), drafted(used.id))
+    const { exam, arrangement } = selectedExam(banked(used, unused), drafted(used.id))
     const plan = planExport({
       exam,
-      version,
+      arrangement,
       selection: { test: true, answerKey: true },
       measure: unmeasured,
     })
@@ -140,17 +140,17 @@ describe('an unused Question Bank question', () => {
     expect(planned).not.toContain(unused.id)
   })
 
-  test('does not renumber the questions that are on the Exam Draft', () => {
+  test('does not renumber the questions that are on the Working Copy', () => {
     const first = createQuestion('open')
     const unused = createQuestion('open')
     const second = createQuestion('open')
-    const { exam, version } = selectedExam(
+    const { exam, arrangement } = selectedExam(
       banked(first, unused, second),
       drafted(first.id, second.id),
     )
     const plan = planExport({
       exam,
-      version,
+      arrangement,
       selection: { test: true, answerKey: false },
       measure: unmeasured,
     })
@@ -170,7 +170,7 @@ describe('the derived identities', () => {
     const before = selectedExam(bank, drafted(first!.id, second!.id))
     const after = selectedExam(bank, drafted(second!.id, first!.id), before)
     expect(after.exam).toBe(before.exam)
-    expect(after.version).not.toBe(before.version)
+    expect(after.arrangement).not.toBe(before.arrangement)
   })
 
   test('survive a derivation that changed nothing at all', () => {
@@ -192,6 +192,6 @@ describe('the derived identities', () => {
       before,
     )
     expect(after.exam).not.toBe(before.exam)
-    expect(after.version).toBe(before.version)
+    expect(after.arrangement).toBe(before.arrangement)
   })
 })

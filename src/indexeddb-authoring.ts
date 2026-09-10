@@ -1,6 +1,6 @@
-// Browser-local persistence for the fresh Version History generation.
+// Browser-local persistence for the fresh Export History generation.
 //
-// The Question Bank records and the Exam Draft/control record are normalized
+// The Question Bank records and the Working Copy/control record are normalized
 // into separate object stores. Every snapshot crosses those stores in one
 // transaction, so a reload sees either the previous authoring state or the
 // complete next one, never a bank and draft from different actions.
@@ -10,35 +10,34 @@ import type {
   DurableAuthoringBackend,
   SavedState,
 } from './exam-store'
-import type {
-  PublicationHistory,
-  PublishedLayoutPlan,
-  PublishedVersion,
-  QuestionRevision,
-} from './export-preparation'
+import type { ExportHistory, ExportRecord } from './export-preparation'
 import {
-  LAYOUT_PLAN_STORE,
+  EXAM_STORE,
+  EXAM_WORKSPACE_STORE,
+  EXPORT_RECORD_STORE,
   MEDIA_ASSET_STORE,
-  QUESTION_REVISION_STORE,
-  VERSION_STORE,
-  VERSIONED_STORAGE_NAME,
-  VERSIONED_STORAGE_VERSION,
+  STORAGE_NAME,
+  STORAGE_VERSION,
 } from './storage-schema'
 
-export { VERSIONED_STORAGE_NAME } from './storage-schema'
+export { STORAGE_NAME } from './storage-schema'
 export const QUESTION_BANK_STORE = 'question-bank'
 export const AUTHORING_STATE_STORE = 'authoring-state'
 export const SAVED_AUTHORING_STORE = 'saved-authoring-state'
 
-const DATABASE_VERSION = VERSIONED_STORAGE_VERSION
+export type CanonicalProjectionSnapshot = {
+  working: AuthoringState
+  saved: SavedState | null
+}
+
+const DATABASE_VERSION = STORAGE_VERSION
 const CURRENT_AUTHORING_KEY = 'current'
 const SAVED_AUTHORING_KEY = 'saved'
 
 type AuthoringControl = {
   key: typeof CURRENT_AUTHORING_KEY
   questionIds: string[]
-  examDraft: AuthoringState['examDraft']
-  lastExportedVersionId?: string
+  workingCopy: AuthoringState['workingCopy']
   dirty: boolean
 }
 
@@ -64,14 +63,14 @@ function openDatabase(databaseName: string): Promise<IDBDatabase> {
       if (!database.objectStoreNames.contains(MEDIA_ASSET_STORE)) {
         database.createObjectStore(MEDIA_ASSET_STORE, { keyPath: 'hash' })
       }
-      if (!database.objectStoreNames.contains(VERSION_STORE)) {
-        database.createObjectStore(VERSION_STORE, { keyPath: 'id' })
+      if (!database.objectStoreNames.contains(EXPORT_RECORD_STORE)) {
+        database.createObjectStore(EXPORT_RECORD_STORE, { keyPath: 'id' })
       }
-      if (!database.objectStoreNames.contains(QUESTION_REVISION_STORE)) {
-        database.createObjectStore(QUESTION_REVISION_STORE, { keyPath: 'id' })
+      if (!database.objectStoreNames.contains(EXAM_STORE)) {
+        database.createObjectStore(EXAM_STORE, { keyPath: 'id' })
       }
-      if (!database.objectStoreNames.contains(LAYOUT_PLAN_STORE)) {
-        database.createObjectStore(LAYOUT_PLAN_STORE, { keyPath: 'id' })
+      if (!database.objectStoreNames.contains(EXAM_WORKSPACE_STORE)) {
+        database.createObjectStore(EXAM_WORKSPACE_STORE, { keyPath: 'key' })
       }
     }
     request.onsuccess = () => resolve(request.result)
@@ -105,10 +104,7 @@ export function indexedDBAuthoringRecordsOf(
     control: {
       key: CURRENT_AUTHORING_KEY,
       questionIds: state.questionBank.questions.map((question) => question.id),
-      examDraft: state.examDraft,
-      ...(state.lastExportedVersionId
-        ? { lastExportedVersionId: state.lastExportedVersionId }
-        : {}),
+      workingCopy: state.workingCopy,
       dirty: state.dirty,
     },
   }
@@ -151,30 +147,20 @@ async function readAuthoringState(database: IDBDatabase): Promise<AuthoringState
         return question ? [question] : []
       }),
     },
-    examDraft: control.examDraft,
-    ...(typeof control.lastExportedVersionId === 'string'
-      ? { lastExportedVersionId: control.lastExportedVersionId }
-      : {}),
+    workingCopy: control.workingCopy,
     dirty: control.dirty,
   }
 }
 
-async function readPublicationHistory(database: IDBDatabase): Promise<PublicationHistory> {
-  const transaction = database.transaction(
-    [VERSION_STORE, QUESTION_REVISION_STORE, LAYOUT_PLAN_STORE],
-    'readonly',
-  )
-  const versionsRequest = transaction.objectStore(VERSION_STORE).getAll()
-  const revisionsRequest = transaction.objectStore(QUESTION_REVISION_STORE).getAll()
-  const plansRequest = transaction.objectStore(LAYOUT_PLAN_STORE).getAll()
-  const [versions, revisions, plans] = await Promise.all([
-    resultOf(versionsRequest) as Promise<PublishedVersion[]>,
-    resultOf(revisionsRequest) as Promise<QuestionRevision[]>,
-    resultOf(plansRequest) as Promise<PublishedLayoutPlan[]>,
+async function readExportHistory(database: IDBDatabase): Promise<ExportHistory> {
+  const transaction = database.transaction(EXPORT_RECORD_STORE, 'readonly')
+  const request = transaction.objectStore(EXPORT_RECORD_STORE).getAll()
+  const [records] = await Promise.all([
+    resultOf(request) as Promise<ExportRecord[]>,
     completionOf(transaction),
   ])
-  versions.sort((left, right) => left.historyPosition - right.historyPosition)
-  return { versions, revisions, plans }
+  records.sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+  return { records }
 }
 
 async function transactionally(
@@ -197,8 +183,10 @@ async function transactionally(
 /** The active authoring backend used by the application. A custom database
  *  name keeps real-browser adapter tests isolated from application state. */
 export function createIndexedDBAuthoringBackend(
-  databaseName = VERSIONED_STORAGE_NAME,
-): DurableAuthoringBackend {
+  databaseName = STORAGE_NAME,
+): DurableAuthoringBackend & {
+  commitCanonicalProjection(snapshot: CanonicalProjectionSnapshot): Promise<void>
+} {
   // Opening is shared for this page lifetime. Once startup has loaded the
   // store, later authoring actions can begin their transaction on the next
   // microtask instead of queuing another database open that a reload can beat.
@@ -236,6 +224,16 @@ export function createIndexedDBAuthoringBackend(
       return saved ?? null
     },
 
+    initialize: async (saved, working) => {
+      await transaction(
+        [QUESTION_BANK_STORE, AUTHORING_STATE_STORE, SAVED_AUTHORING_STORE],
+        (transaction) => {
+          putAuthoringState(transaction, working)
+          transaction.objectStore(SAVED_AUTHORING_STORE).put(saved, SAVED_AUTHORING_KEY)
+        },
+      )
+    },
+
     commitSaved: async (saved) => {
       await transaction(
         [QUESTION_BANK_STORE, AUTHORING_STATE_STORE, SAVED_AUTHORING_STORE],
@@ -246,45 +244,40 @@ export function createIndexedDBAuthoringBackend(
       )
     },
 
-    readPublicationHistory: async () => {
-      return readPublicationHistory(await database)
-    },
-
-    commitPublication: async (saved, publication) => {
+    commitCanonicalProjection: async ({ working, saved }) => {
       await transaction(
-        [
-          QUESTION_BANK_STORE,
-          AUTHORING_STATE_STORE,
-          SAVED_AUTHORING_STORE,
-          VERSION_STORE,
-          QUESTION_REVISION_STORE,
-          LAYOUT_PLAN_STORE,
-          MEDIA_ASSET_STORE,
-        ],
+        [QUESTION_BANK_STORE, AUTHORING_STATE_STORE, SAVED_AUTHORING_STORE],
         (transaction) => {
-          putAuthoringState(transaction, { ...saved, dirty: false })
-          transaction.objectStore(SAVED_AUTHORING_STORE).put(saved, SAVED_AUTHORING_KEY)
-          if (publication.version) {
-            transaction.objectStore(VERSION_STORE).add(publication.version)
-            const revisions = transaction.objectStore(QUESTION_REVISION_STORE)
-            for (const revision of publication.revisions) revisions.add(revision)
-            const plans = transaction.objectStore(LAYOUT_PLAN_STORE)
-            for (const plan of publication.plans) plans.add(plan)
-          }
-
-          // Media is already ingested while authoring. Re-putting the immutable
-          // record inside this transaction both verifies it exists and includes
-          // every required asset in the publication durability boundary.
-          const media = transaction.objectStore(MEDIA_ASSET_STORE)
-          for (const hash of publication.mediaHashes) {
-            const request = media.get(hash)
-            request.onsuccess = () => {
-              if (request.result === undefined) transaction.abort()
-              else media.put(request.result)
-            }
-          }
+          putAuthoringState(transaction, working)
+          const savedStore = transaction.objectStore(SAVED_AUTHORING_STORE)
+          if (saved) savedStore.put(saved, SAVED_AUTHORING_KEY)
+          else savedStore.delete(SAVED_AUTHORING_KEY)
         },
       )
+    },
+
+    readExportHistory: async () => readExportHistory(await database),
+
+    commitExportRecord: async (record) => {
+      // Assets are globally owned because canonical Questions and history can
+      // outlive any one Exam database. Validate them before opening the atomic
+      // Export Record transaction; a failure can never leave partial history.
+      const mediaDatabase = await openDatabase(STORAGE_NAME)
+      try {
+        const mediaTransaction = mediaDatabase.transaction(MEDIA_ASSET_STORE, 'readonly')
+        const assets = await Promise.all(record.mediaHashes.map((hash) =>
+          resultOf(mediaTransaction.objectStore(MEDIA_ASSET_STORE).get(hash)),
+        ))
+        await completionOf(mediaTransaction)
+        if (assets.some((asset) => asset === undefined)) {
+          throw new Error('Required media is missing or corrupt. Re-add the affected image and try again.')
+        }
+      } finally {
+        mediaDatabase.close()
+      }
+      await transaction([EXPORT_RECORD_STORE], (transaction) => {
+        transaction.objectStore(EXPORT_RECORD_STORE).add(record)
+      })
     },
   }
 }

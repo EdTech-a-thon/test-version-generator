@@ -8,7 +8,7 @@
 // asserted through the shared fingerprint, so adding a fixture is cheap and a
 // new parity bug costs one more entry in this file.
 
-import { DEFAULT_COLUMNS, type Exam, type Question, type Version } from './exam'
+import { DEFAULT_COLUMNS, type Exam, type Question, type Arrangement } from './exam'
 import {
   pageContentHeight,
   unmeasured,
@@ -74,11 +74,11 @@ function multipleChoice(
   }
 }
 
-function version(
+function arrangement(
   questionOrder: string[],
   choiceOrder: Record<string, string[]> = {},
   letter = 'A',
-): Version {
+): Arrangement {
   return { id: 'v-fixture', letter, questionOrder, choiceOrder }
 }
 
@@ -111,7 +111,7 @@ export const PIXEL_PNG: ExportImage = {
 export type Fixture = {
   name: string
   exam: Exam
-  version: Version
+  arrangement: Arrangement
   measure: Measure
   /** Every image source in the fixture resolves to the same pixel. */
   images?: boolean
@@ -121,12 +121,12 @@ export type Fixture = {
 const fixture = (
   name: string,
   exam: Exam,
-  questionVersion: Version,
+  questionArrangement: Arrangement,
   extra: Partial<Fixture> = {},
 ): Fixture => ({
   name,
   exam,
-  version: questionVersion,
+  arrangement: questionArrangement,
   measure: unmeasured,
   ...extra,
 })
@@ -134,7 +134,7 @@ const fixture = (
 // ---------------------------------------------------------------------------
 // One fixture per supported feature
 
-// The composite exam, named so the multi-Version fixtures below can publish
+// The composite exam, named so the multi-Arrangement fixtures below can publish
 // the very same Question Content in several arrangements.
 const COMPOSITE_EXAM: Exam = {
   title: 'Chemistry: Unit 3 Review',
@@ -212,7 +212,7 @@ export const FIXTURES: readonly Fixture[] = [
       title: 'Plain',
       questions: [open('o1', paragraph(text('Explain photosynthesis.')))],
     },
-    version(['o1']),
+    arrangement(['o1']),
   ),
 
   fixture(
@@ -239,7 +239,7 @@ export const FIXTURES: readonly Fixture[] = [
         ),
       ],
     },
-    version(['o1']),
+    arrangement(['o1']),
   ),
 
   fixture(
@@ -260,7 +260,7 @@ export const FIXTURES: readonly Fixture[] = [
         ),
       ],
     },
-    version(['o1']),
+    arrangement(['o1']),
   ),
 
   fixture(
@@ -277,7 +277,7 @@ export const FIXTURES: readonly Fixture[] = [
         ),
       ],
     },
-    version(['o1']),
+    arrangement(['o1']),
   ),
 
   fixture(
@@ -302,7 +302,7 @@ export const FIXTURES: readonly Fixture[] = [
         ),
       ],
     },
-    version(['o1']),
+    arrangement(['o1']),
   ),
 
   fixture(
@@ -344,7 +344,7 @@ export const FIXTURES: readonly Fixture[] = [
         ),
       ],
     },
-    version(['o1']),
+    arrangement(['o1']),
   ),
 
   fixture(
@@ -364,7 +364,7 @@ export const FIXTURES: readonly Fixture[] = [
         ),
       ],
     },
-    version(['o1']),
+    arrangement(['o1']),
   ),
 
   fixture(
@@ -400,7 +400,7 @@ export const FIXTURES: readonly Fixture[] = [
         }),
       ],
     },
-    version(['o1']),
+    arrangement(['o1']),
   ),
 
   fixture(
@@ -428,7 +428,7 @@ export const FIXTURES: readonly Fixture[] = [
         ),
       ],
     },
-    version(['o1']),
+    arrangement(['o1']),
     { images: true },
   ),
 
@@ -452,7 +452,7 @@ export const FIXTURES: readonly Fixture[] = [
         ),
       ],
     },
-    version(['o1']),
+    arrangement(['o1']),
   ),
 
   fixture(
@@ -472,7 +472,7 @@ export const FIXTURES: readonly Fixture[] = [
         ),
       ],
     },
-    version(['m1'], { m1: ['c2', 'c1', 'c3'] }),
+    arrangement(['m1'], { m1: ['c2', 'c1', 'c3'] }),
   ),
 
   fixture(
@@ -499,7 +499,7 @@ export const FIXTURES: readonly Fixture[] = [
         ),
       ],
     },
-    version(['m1']),
+    arrangement(['m1']),
   ),
 
   fixture(
@@ -528,7 +528,7 @@ export const FIXTURES: readonly Fixture[] = [
         ),
       ],
     },
-    version(['m1']),
+    arrangement(['m1']),
   ),
 
   fixture(
@@ -548,7 +548,7 @@ export const FIXTURES: readonly Fixture[] = [
         open('o1', paragraph(text('Describe a titration.'))),
       ],
     },
-    version(['o1', 'm1']),
+    arrangement(['o1', 'm1']),
     { answerKey: true },
   ),
 
@@ -561,7 +561,7 @@ export const FIXTURES: readonly Fixture[] = [
         open('o2', paragraph(text('Second question.'))),
       ],
     },
-    version(['o1', 'o2']),
+    arrangement(['o1', 'o2']),
     { measure: stubHeights({ o1: 600, o2: 400 }) },
   ),
 
@@ -578,7 +578,7 @@ export const FIXTURES: readonly Fixture[] = [
         ),
       ],
     },
-    version(['o1']),
+    arrangement(['o1']),
     { measure: stubHeights({ o1: 5000 }) },
   ),
 
@@ -600,7 +600,7 @@ export const FIXTURES: readonly Fixture[] = [
         ),
       ],
     },
-    version(['m1']),
+    arrangement(['m1']),
   ),
 
   fixture(
@@ -612,7 +612,7 @@ export const FIXTURES: readonly Fixture[] = [
         open('o2', paragraph(text('Starts the second.'))),
       ],
     },
-    version(['o1', 'o2']),
+    arrangement(['o1', 'o2']),
     { measure: stubHeights({ o1: FIRST_PAGE_BOX, o2: 100 }) },
   ),
 
@@ -634,7 +634,7 @@ export const FIXTURES: readonly Fixture[] = [
         ),
       ],
     },
-    version(['m1', 'o1']),
+    arrangement(['m1', 'o1']),
     { measure: stubHeights({ m1: 500, o1: 500 }) },
   ),
 
@@ -655,7 +655,7 @@ export const FIXTURES: readonly Fixture[] = [
         open('o1', paragraph(text('The short-answer section starts here.'))),
       ],
     },
-    version(['m1', 'o1']),
+    arrangement(['m1', 'o1']),
     { measure: stubHeights({ m1: FIRST_PAGE_BOX - 20, o1: 200 }) },
   ),
 
@@ -670,14 +670,14 @@ export const FIXTURES: readonly Fixture[] = [
         open('o4', paragraph(text('Four.'))),
       ],
     },
-    version(['o1', 'o2', 'o3', 'o4']),
+    arrangement(['o1', 'o2', 'o3', 'o4']),
     { measure: stubHeights({ o1: 500, o2: 500, o3: 500, o4: 500 }) },
   ),
 
   fixture(
     'a realistic composite exam',
     COMPOSITE_EXAM,
-    version(['m2', 'm1'], { m1: ['c3', 'c1', 'c4', 'c2'] }),
+    arrangement(['m2', 'm1'], { m1: ['c3', 'c1', 'c4', 'c2'] }),
     {
       images: true,
       answerKey: true,

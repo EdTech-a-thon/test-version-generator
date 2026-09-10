@@ -61,6 +61,7 @@ async function pasteContent(
 
 test('authors can apply and persist semantic script formatting', async ({ page }) => {
   await page.goto('/')
+  await page.getByRole('button', { name: 'New Exam' }).first().click()
   await page.getByRole('button', { name: 'Insert your first question' }).click()
   await page.getByRole('menuitem', { name: 'Multiple choice' }).click()
 

@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0015
 ---
 
 # Start versioned export storage fresh

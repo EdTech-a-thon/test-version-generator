@@ -9,7 +9,7 @@ import {
 import { FIXTURES, PIXEL_PNG } from './export-fixtures'
 import {
   DEFAULT_EXPORT_CONFIGURATION,
-  EMPTY_PUBLICATION_HISTORY,
+  EMPTY_EXPORT_HISTORY,
   prepareExport,
 } from './export-preparation'
 
@@ -30,10 +30,11 @@ function plansOf(fixtureName: string) {
   return {
     fixture,
     plans: prepareExport({
+      examId: 'fixture-exam',
       exam: fixture.exam,
-      version: fixture.version,
+      arrangement: fixture.arrangement,
       configuration: DEFAULT_EXPORT_CONFIGURATION,
-      history: EMPTY_PUBLICATION_HISTORY,
+      history: EMPTY_EXPORT_HISTORY,
       measure: fixture.measure,
       createdAt: '2026-09-04T12:00:00.000Z',
     }).documents,

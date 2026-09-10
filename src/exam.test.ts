@@ -5,9 +5,9 @@ import {
   columnsOf,
   createExam,
   createQuestion,
-  createVersion,
+  createArrangement,
   duplicateQuestion,
-  nextVersionLetter,
+  nextArrangementLetter,
   moveQuestion,
   moveQuestions,
   shuffleSelectedAnswers,
@@ -21,7 +21,7 @@ import {
   withQuestionRemoved,
   withTopicAdded,
 } from './exam'
-import type { Exam, Question, Version } from './exam'
+import type { Exam, Question, Arrangement } from './exam'
 import type { ProseMirrorJSON } from './question-doc'
 
 function choice(id: string, correct = false): ProseMirrorJSON {
@@ -58,13 +58,13 @@ function examOf(questions: Question[]): Exam {
   return { title: 'Test', questions }
 }
 
-function versionOf(questionOrder: string[], choiceOrder: Record<string, string[]> = {}): Version {
+function arrangementOf(questionOrder: string[], choiceOrder: Record<string, string[]> = {}): Arrangement {
   return { id: 'v1', letter: 'A', questionOrder, choiceOrder }
 }
 
 const ids = (questions: Question[]) => questions.map((question) => question.id)
 
-describe('question and version construction', () => {
+describe('question and arrangement construction', () => {
   test('a new question falls back to the default answer columns', () => {
     expect(createQuestion('multiple-choice').columns).toBe(DEFAULT_COLUMNS)
     expect(createQuestion('open').columns).toBe(DEFAULT_COLUMNS)
@@ -86,8 +86,8 @@ describe('question and version construction', () => {
   })
 
   test('a new multiple-choice question carries choices, an open one does not', () => {
-    expect(orderedChoices(createQuestion('multiple-choice'), createVersion())).not.toHaveLength(0)
-    expect(orderedChoices(createQuestion('open'), createVersion())).toHaveLength(0)
+    expect(orderedChoices(createQuestion('multiple-choice'), createArrangement())).not.toHaveLength(0)
+    expect(orderedChoices(createQuestion('open'), createArrangement())).toHaveLength(0)
   })
 
   test('a new question carries no Difficulty and no Topics', () => {
@@ -101,40 +101,40 @@ describe('question and version construction', () => {
     expect(createQuestion('open').id).not.toBe(createQuestion('open').id)
   })
 
-  test('version letters are allocated A, B, C', () => {
-    expect(nextVersionLetter([])).toBe('A')
-    expect(nextVersionLetter([createVersion('A')])).toBe('B')
-    expect(nextVersionLetter([createVersion('A'), createVersion('B')])).toBe('C')
+  test('arrangement letters are allocated A, B, C', () => {
+    expect(nextArrangementLetter([])).toBe('A')
+    expect(nextArrangementLetter([createArrangement('A')])).toBe('B')
+    expect(nextArrangementLetter([createArrangement('A'), createArrangement('B')])).toBe('C')
   })
 })
 
 describe('question ordering', () => {
-  test('questions render in the version ordering', () => {
+  test('questions render in the arrangement ordering', () => {
     const exam = examOf([multipleChoice('q1', ['a']), multipleChoice('q2', ['a']), multipleChoice('q3', ['a'])])
-    expect(ids(orderedQuestions(exam, versionOf(['q3', 'q1', 'q2'])))).toEqual(['q3', 'q1', 'q2'])
+    expect(ids(orderedQuestions(exam, arrangementOf(['q3', 'q1', 'q2'])))).toEqual(['q3', 'q1', 'q2'])
   })
 
   test('sections are ordered multiple choice first, then short answer', () => {
     const exam = examOf([open('o1'), multipleChoice('q1', ['a'])])
-    expect(ids(orderedQuestions(exam, versionOf(['o1', 'q1'])))).toEqual(['q1', 'o1'])
+    expect(ids(orderedQuestions(exam, arrangementOf(['o1', 'q1'])))).toEqual(['q1', 'o1'])
   })
 
   test('a question missing from the ordering is appended to the end of its section', () => {
     const exam = examOf([multipleChoice('q1', ['a']), open('o1'), multipleChoice('q2', ['a']), open('o2')])
-    // Only q1 and o1 were in the ordering when this version was saved.
-    expect(ids(orderedQuestions(exam, versionOf(['o1', 'q1'])))).toEqual(['q1', 'q2', 'o1', 'o2'])
+    // Only q1 and o1 were in the ordering when this arrangement was saved.
+    expect(ids(orderedQuestions(exam, arrangementOf(['o1', 'q1'])))).toEqual(['q1', 'q2', 'o1', 'o2'])
   })
 
   test('an ordering id with no matching question is ignored', () => {
     const exam = examOf([multipleChoice('q1', ['a'])])
-    expect(ids(orderedQuestions(exam, versionOf(['gone', 'q1'])))).toEqual(['q1'])
+    expect(ids(orderedQuestions(exam, arrangementOf(['gone', 'q1'])))).toEqual(['q1'])
   })
 
   test('a section holds only the questions of its own type', () => {
     const exam = examOf([multipleChoice('q1', ['a']), open('o1')])
-    const version = versionOf(['q1', 'o1'])
-    expect(ids(questionsInSection(exam, version, 'multiple-choice'))).toEqual(['q1'])
-    expect(ids(questionsInSection(exam, version, 'open'))).toEqual(['o1'])
+    const arrangement = arrangementOf(['q1', 'o1'])
+    expect(ids(questionsInSection(exam, arrangement, 'multiple-choice'))).toEqual(['q1'])
+    expect(ids(questionsInSection(exam, arrangement, 'open'))).toEqual(['o1'])
   })
 
   test('a question is found by id', () => {
@@ -147,32 +147,32 @@ describe('question ordering', () => {
 describe('choice ordering', () => {
   const question = multipleChoice('q1', ['c1', 'c2', 'c3'], 'c1')
 
-  test('choices render in the version ordering', () => {
-    const version = versionOf(['q1'], { q1: ['c3', 'c1', 'c2'] })
-    expect(orderedChoices(question, version).map((c) => c.id)).toEqual(['c3', 'c1', 'c2'])
+  test('choices render in the arrangement ordering', () => {
+    const arrangement = arrangementOf(['q1'], { q1: ['c3', 'c1', 'c2'] })
+    expect(orderedChoices(question, arrangement).map((c) => c.id)).toEqual(['c3', 'c1', 'c2'])
   })
 
   test('with no ordering recorded, choices render in authoring order', () => {
-    expect(orderedChoices(question, versionOf(['q1'])).map((c) => c.id)).toEqual(['c1', 'c2', 'c3'])
+    expect(orderedChoices(question, arrangementOf(['q1'])).map((c) => c.id)).toEqual(['c1', 'c2', 'c3'])
   })
 
   test('a choice missing from the ordering is appended to the end', () => {
-    const version = versionOf(['q1'], { q1: ['c3', 'c1'] })
-    expect(orderedChoices(question, version).map((c) => c.id)).toEqual(['c3', 'c1', 'c2'])
+    const arrangement = arrangementOf(['q1'], { q1: ['c3', 'c1'] })
+    expect(orderedChoices(question, arrangement).map((c) => c.id)).toEqual(['c3', 'c1', 'c2'])
   })
 
   test('an ordering id with no matching choice is ignored', () => {
-    const version = versionOf(['q1'], { q1: ['gone', 'c2', 'c1', 'c3'] })
-    expect(orderedChoices(question, version).map((c) => c.id)).toEqual(['c2', 'c1', 'c3'])
+    const arrangement = arrangementOf(['q1'], { q1: ['gone', 'c2', 'c1', 'c3'] })
+    expect(orderedChoices(question, arrangement).map((c) => c.id)).toEqual(['c2', 'c1', 'c3'])
   })
 
   test('correctness travels with its choice through a reordering', () => {
-    const version = versionOf(['q1'], { q1: ['c2', 'c3', 'c1'] })
-    expect(orderedChoices(question, version).map((c) => c.correct)).toEqual([false, false, true])
+    const arrangement = arrangementOf(['q1'], { q1: ['c2', 'c3', 'c1'] })
+    expect(orderedChoices(question, arrangement).map((c) => c.correct)).toEqual([false, false, true])
   })
 
   test('an open question has no choices even if an ordering survives', () => {
-    expect(orderedChoices(open('o1'), versionOf(['o1'], { o1: ['c1'] }))).toEqual([])
+    expect(orderedChoices(open('o1'), arrangementOf(['o1'], { o1: ['c1'] }))).toEqual([])
   })
 
   test('shuffles every selected eligible question independently without changing canonical choices', () => {
@@ -180,9 +180,9 @@ describe('choice ordering', () => {
     const second = multipleChoice('q2', ['d', 'e'], 'd')
     const shortAnswer = open('o1')
     const exam = examOf([first, second, shortAnswer])
-    const version = versionOf(['q1', 'q2', 'o1'])
+    const arrangement = arrangementOf(['q1', 'q2', 'o1'])
 
-    const shuffled = shuffleSelectedAnswers(exam, version, ['q1', 'q2', 'o1'], () => 0.99)
+    const shuffled = shuffleSelectedAnswers(exam, arrangement, ['q1', 'q2', 'o1'], () => 0.99)
 
     expect(shuffled.choiceOrder).toEqual({ q1: ['b', 'c', 'a'], q2: ['e', 'd'] })
     expect(orderedChoices(first, shuffled).map((item) => item.correct)).toEqual([
@@ -199,16 +199,16 @@ describe('choice ordering', () => {
     const oneChoice = multipleChoice('q2', ['c'])
     const shortAnswer = open('o1')
     const exam = examOf([eligible, oneChoice, shortAnswer])
-    const version = versionOf(['q1', 'q2', 'o1'])
+    const arrangement = arrangementOf(['q1', 'q2', 'o1'])
 
-    expect(shuffleSelectedAnswers(exam, version, ['q1'], () => 0).choiceOrder).toEqual({
+    expect(shuffleSelectedAnswers(exam, arrangement, ['q1'], () => 0).choiceOrder).toEqual({
       q1: ['b', 'a'],
     })
-    expect(shuffleSelectedAnswers(exam, version, ['q2', 'o1'], () => 0)).toBe(version)
+    expect(shuffleSelectedAnswers(exam, arrangement, ['q2', 'o1'], () => 0)).toBe(arrangement)
   })
 })
 
-describe('version ordering edits', () => {
+describe('arrangement ordering edits', () => {
   test('moves a question to a specific position within its derived section', () => {
     const exam = examOf([
       multipleChoice('q1', ['a']),
@@ -216,26 +216,26 @@ describe('version ordering edits', () => {
       multipleChoice('q3', ['a']),
       open('o1'),
     ])
-    const version = versionOf(['q1', 'q2', 'q3', 'o1'])
+    const arrangement = arrangementOf(['q1', 'q2', 'q3', 'o1'])
 
-    const moved = moveQuestion(exam, version, 'q3', 'q1', 'before')
+    const moved = moveQuestion(exam, arrangement, 'q3', 'q1', 'before')
 
     expect(moved.questionOrder).toEqual(['q3', 'q1', 'q2', 'o1'])
   })
 
   test('refuses to move a question into another derived section', () => {
     const exam = examOf([multipleChoice('q1', ['a']), open('o1')])
-    const version = versionOf(['q1', 'o1'])
+    const arrangement = arrangementOf(['q1', 'o1'])
 
-    expect(moveQuestion(exam, version, 'q1', 'o1', 'after')).toBe(version)
+    expect(moveQuestion(exam, arrangement, 'q1', 'o1', 'after')).toBe(arrangement)
   })
 
   test('moves selected questions as one block and preserves their relative order', () => {
     const exam = examOf(['q1', 'q2', 'q3', 'q4'].map((id) => multipleChoice(id, ['a'])))
-    const version = versionOf(['q1', 'q2', 'q3', 'q4'])
+    const arrangement = arrangementOf(['q1', 'q2', 'q3', 'q4'])
 
     expect(
-      moveQuestions(exam, version, ['q2', 'q3'], 'q4', 'after').questionOrder,
+      moveQuestions(exam, arrangement, ['q2', 'q3'], 'q4', 'after').questionOrder,
     ).toEqual(['q1', 'q4', 'q2', 'q3'])
   })
 
@@ -246,10 +246,10 @@ describe('version ordering edits', () => {
       multipleChoice('q3', ['a']),
       open('o1'),
     ])
-    const version = versionOf(['q1', 'q2', 'q3', 'o1'])
+    const arrangement = arrangementOf(['q1', 'q2', 'q3', 'o1'])
 
     expect(
-      moveQuestions(exam, version, ['q1', 'o1'], 'q3', 'after').questionOrder,
+      moveQuestions(exam, arrangement, ['q1', 'o1'], 'q3', 'after').questionOrder,
     ).toEqual(['q2', 'q3', 'q1', 'o1'])
   })
 
@@ -262,11 +262,11 @@ describe('version ordering edits', () => {
       open('o2'),
       open('o3'),
     ])
-    const version = versionOf(['m1', 'm2', 'm3', 'o1', 'o2', 'o3'])
+    const arrangement = arrangementOf(['m1', 'm2', 'm3', 'o1', 'o2', 'o3'])
 
     const shuffled = shuffleSelectedQuestions(
       exam,
-      version,
+      arrangement,
       ['m1', 'm3', 'o1', 'o3'],
       () => 0.99,
     )
@@ -280,32 +280,32 @@ describe('version ordering edits', () => {
       multipleChoice('m2', ['a']),
       open('o1'),
     ])
-    const version = versionOf(['m1', 'm2', 'o1'])
+    const arrangement = arrangementOf(['m1', 'm2', 'o1'])
 
     expect(
-      shuffleSelectedQuestions(exam, version, ['m1', 'm2', 'o1'], () => 0).questionOrder,
+      shuffleSelectedQuestions(exam, arrangement, ['m1', 'm2', 'o1'], () => 0).questionOrder,
     ).toEqual(['m2', 'm1', 'o1'])
-    expect(shuffleSelectedQuestions(exam, version, ['m1', 'o1'], () => 0)).toBe(version)
+    expect(shuffleSelectedQuestions(exam, arrangement, ['m1', 'o1'], () => 0)).toBe(arrangement)
   })
 
   test('appending a question adds it to the end of the ordering, once', () => {
-    const version = withQuestionAppended(versionOf(['q1']), 'q2')
-    expect(version.questionOrder).toEqual(['q1', 'q2'])
-    expect(withQuestionAppended(version, 'q2').questionOrder).toEqual(['q1', 'q2'])
+    const arrangement = withQuestionAppended(arrangementOf(['q1']), 'q2')
+    expect(arrangement.questionOrder).toEqual(['q1', 'q2'])
+    expect(withQuestionAppended(arrangement, 'q2').questionOrder).toEqual(['q1', 'q2'])
   })
 
   test('removing a question drops it from the ordering and its choice ordering', () => {
-    const version = withQuestionRemoved(versionOf(['q1', 'q2'], { q1: ['c1'], q2: ['c2'] }), 'q1')
-    expect(version.questionOrder).toEqual(['q2'])
-    expect(version.choiceOrder).toEqual({ q2: ['c2'] })
+    const arrangement = withQuestionRemoved(arrangementOf(['q1', 'q2'], { q1: ['c1'], q2: ['c2'] }), 'q1')
+    expect(arrangement.questionOrder).toEqual(['q2'])
+    expect(arrangement.choiceOrder).toEqual({ q2: ['c2'] })
   })
 
-  test('ordering edits do not mutate the version they are given', () => {
-    const version = versionOf(['q1'], { q1: ['c1'] })
-    withQuestionAppended(version, 'q2')
-    withQuestionRemoved(version, 'q1')
-    expect(version.questionOrder).toEqual(['q1'])
-    expect(version.choiceOrder).toEqual({ q1: ['c1'] })
+  test('ordering edits do not mutate the arrangement they are given', () => {
+    const arrangement = arrangementOf(['q1'], { q1: ['c1'] })
+    withQuestionAppended(arrangement, 'q2')
+    withQuestionRemoved(arrangement, 'q1')
+    expect(arrangement.questionOrder).toEqual(['q1'])
+    expect(arrangement.choiceOrder).toEqual({ q1: ['c1'] })
   })
 })
 
