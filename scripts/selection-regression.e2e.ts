@@ -23,7 +23,7 @@ const question = (id: string) => ({
 async function openSelectedQuestions(page: Page) {
   await seedAuthoringState(page, {
     questionBank: { questions: [question('q1'), question('q2'), question('q3')] },
-    examDraft: { title: 'Selection repro', questionIds: ['q1', 'q2'] },
+    workingCopy: { title: 'Selection repro', questionIds: ['q1', 'q2'] },
     dirty: false,
   })
 
@@ -42,7 +42,7 @@ test('Shift-selecting questions does not select their text', async ({ page }) =>
   await expect.poll(() => page.evaluate(() => window.getSelection()?.toString() ?? '')).toBe('')
 })
 
-test('Remove takes every selected question off the Exam Draft, not out of the bank', async ({ page }) => {
+test('Remove takes every selected question off the Working Copy, not out of the bank', async ({ page }) => {
   const questions = await openSelectedQuestions(page)
 
   await questions.nth(1).click({ button: 'right' })
@@ -67,7 +67,7 @@ test('Remove takes every selected question off the Exam Draft, not out of the ba
   await expect(bank.getByText('In exam')).toHaveCount(0)
 })
 
-test('Delete and Backspace Remove the selected questions from the Exam Draft', async ({ page }) => {
+test('Delete and Backspace Remove the selected questions from the Working Copy', async ({ page }) => {
   const questions = await openSelectedQuestions(page)
   const bankRows = page.getByRole('region', { name: 'Question Bank' }).getByRole('listitem')
 

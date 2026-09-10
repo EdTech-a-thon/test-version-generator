@@ -28,12 +28,12 @@ test('IndexedDB projection preserves stable arrangements and resets changed choi
       const working = (await backend.read())!
       const arranged = {
         ...working,
-        examDraft: { ...working.examDraft, choiceOrder: { [question.id]: ['c', 'a', 'b'] } },
+        workingCopy: { ...working.workingCopy, choiceOrder: { [question.id]: ['c', 'a', 'b'] } },
         dirty: exam.id === second.id,
       }
-      await backend.commitSaved({ questionBank: arranged.questionBank, examDraft: arranged.examDraft })
+      await backend.commitSaved({ questionBank: arranged.questionBank, workingCopy: arranged.workingCopy })
       await backend.write(exam.id === second.id
-        ? { ...arranged, examDraft: { ...arranged.examDraft, title: 'Unrelated edit' }, dirty: true }
+        ? { ...arranged, workingCopy: { ...arranged.workingCopy, title: 'Unrelated edit' }, dirty: true }
         : { ...arranged, dirty: false })
     }
     const wording = structuredClone(question)
@@ -47,13 +47,13 @@ test('IndexedDB projection preserves stable arrangements and resets changed choi
     return { afterWording, afterChoices }
   }, sharedQuestion)
 
-  expect(result.afterWording.map((state) => state?.examDraft.choiceOrder?.['shared-mc'])).toEqual([
+  expect(result.afterWording.map((state) => state?.workingCopy.choiceOrder?.['shared-mc'])).toEqual([
     ['c', 'a', 'b'], ['c', 'a', 'b'],
   ])
   expect(result.afterWording[0]?.dirty).toBe(false)
-  expect(result.afterWording[1]?.examDraft.title).toBe('Unrelated edit')
+  expect(result.afterWording[1]?.workingCopy.title).toBe('Unrelated edit')
   expect(result.afterWording[1]?.dirty).toBe(true)
-  expect(result.afterChoices.map((state) => state?.examDraft.choiceOrder?.['shared-mc'])).toEqual([undefined, undefined])
+  expect(result.afterChoices.map((state) => state?.workingCopy.choiceOrder?.['shared-mc'])).toEqual([undefined, undefined])
 })
 
 test('a failed cross-resource save restores the canonical Question and every Exam', async ({ page }) => {

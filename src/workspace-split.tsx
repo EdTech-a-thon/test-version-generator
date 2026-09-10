@@ -33,12 +33,12 @@ const clampPercent = (percent: number) =>
 
 export function WorkspaceSplit({
   bank,
-  examDraft,
+  workingCopy,
   initialBankPercent = DEFAULT_BANK_PERCENT,
   onBankPercentChange,
 }: {
   bank: ReactNode
-  examDraft: ReactNode
+  workingCopy: ReactNode
   initialBankPercent?: number
   onBankPercentChange?: (percent: number) => void
 }) {
@@ -108,7 +108,7 @@ export function WorkspaceSplit({
           }
         }}
       />
-      <div className="editor-output">{examDraft}</div>
+      <div className="editor-output">{workingCopy}</div>
     </div>
   )
 }

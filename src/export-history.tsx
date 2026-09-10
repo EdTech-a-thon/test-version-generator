@@ -41,7 +41,7 @@ export function ExportHistoryDrawer({
 
   return (
     <aside
-      className="version-history-drawer"
+      className="export-history-drawer"
       id="export-history"
       aria-label="Export History"
       aria-hidden={!open}
@@ -49,7 +49,7 @@ export function ExportHistoryDrawer({
       ref={drawer}
       tabIndex={-1}
     >
-      <header className="version-history-header">
+      <header className="export-history-header">
         <div>
           <h2>Export History</h2>
           <p>Immutable output events stored in this browser.</p>
@@ -64,14 +64,14 @@ export function ExportHistoryDrawer({
         </button>
       </header>
       {records.length === 0 ? (
-        <p className="version-history-empty">Export this Exam to keep a record here.</p>
+        <p className="export-history-empty">Export this Exam to keep a record here.</p>
       ) : (
-        <ol className="version-history-list">
+        <ol className="export-history-list">
           {[...records].reverse().map((record) => (
             <li key={record.id}>
               <button
                 type="button"
-                className="version-history-item export-history-item"
+                className="export-history-item export-history-item"
                 aria-current={selectedRecordId === record.id ? 'page' : undefined}
                 onClick={() => onSelect(record)}
               >
@@ -129,7 +129,7 @@ export function HistoricalExportRecord({
       <div className="historical-document-pages">
         {record.plans.map((plan, index) => (
           <ExportPreview
-            key={`${plan.version.id}-${plan.pages[0]?.stream}-${index}`}
+            key={`${plan.arrangement.id}-${plan.pages[0]?.stream}-${index}`}
             plan={plan}
           />
         ))}

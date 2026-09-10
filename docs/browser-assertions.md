@@ -22,7 +22,7 @@ expect(await page.locator('.exam-question').boundingBox()).toBeTruthy()
 Use accessible roles and labels for controls, then assert the outcome at the
 boundary the user can observe. For example,
 `question-bank.e2e.ts:47-65` creates a question through the New question menu,
-then checks both the Exam Draft and the Question Bank's visible state. The test
+then checks both the Working Copy and the Question Bank's visible state. The test
 does not depend on a React component name to perform the action.
 
 Use relationships for geometry. `workspace-layout.e2e.ts:48-67` checks the
@@ -32,7 +32,7 @@ test should also exercise the interaction that is supposed to change the
 geometry.
 
 Exercise the scroll container before asserting it. The sticky-bank regression
-at `workspace-layout.e2e.ts:70-82` wheels over the Exam Draft and checks page
+at `workspace-layout.e2e.ts:70-82` wheels over the Working Copy and checks page
 scroll plus the bank's position. If bank scrolling is a separate behavior,
 another test can seed enough rows to overflow the bank, wheel over the bank,
 and check that the bank's `scrollTop` changes while the page scroll position

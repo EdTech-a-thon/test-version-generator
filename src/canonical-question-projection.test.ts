@@ -26,7 +26,7 @@ function multipleChoice(id: string, choiceIds: string[]): Question {
 }
 
 function states(question: Question) {
-  const examDraft = {
+  const workingCopy = {
     title: 'Biology',
     questionIds: [question.id, 'unrelated'],
     columns: { [question.id]: 4 as const },
@@ -34,12 +34,12 @@ function states(question: Question) {
   }
   const working: AuthoringState = {
     questionBank: { questions: [question] },
-    examDraft,
+    workingCopy,
     dirty: true,
   }
   const saved: SavedState = {
     questionBank: { questions: [question] },
-    examDraft: structuredClone(examDraft),
+    workingCopy: structuredClone(workingCopy),
   }
   return { working, saved }
 }
@@ -55,10 +55,10 @@ test('canonical wording and correctness changes preserve Exam presentation and s
   const projected = withCanonicalQuestionProjection(working, saved, edited)
 
   expect(projected.working.questionBank.questions[0]).toEqual(edited)
-  expect(projected.working.examDraft.choiceOrder?.question).toEqual(['c', 'a', 'b'])
-  expect(projected.working.examDraft.columns?.question).toBe(4)
+  expect(projected.working.workingCopy.choiceOrder?.question).toEqual(['c', 'a', 'b'])
+  expect(projected.working.workingCopy.columns?.question).toBe(4)
   expect(projected.working.dirty).toBe(true)
-  expect(projected.saved?.examDraft.choiceOrder?.question).toEqual(['c', 'a', 'b'])
+  expect(projected.saved?.workingCopy.choiceOrder?.question).toEqual(['c', 'a', 'b'])
 })
 
 test('an unrelated Exam Undo cannot restore stale canonical Question Content', () => {
@@ -75,7 +75,7 @@ test('an unrelated Exam Undo cannot restore stale canonical Question Content', (
   store.syncCanonicalQuestions([edited])
   store.undo()
 
-  expect(store.getState().examDraft.title).toBe('Biology')
+  expect(store.getState().workingCopy.title).toBe('Biology')
   expect(store.getState().questionBank.questions[0]).toEqual(edited)
 })
 
@@ -86,9 +86,9 @@ test('a changed stable choice-ID set clears only that Question arrangement every
 
   const projected = withCanonicalQuestionProjection(working, saved, edited)
 
-  expect(projected.working.examDraft.choiceOrder?.question).toBeUndefined()
-  expect(projected.saved?.examDraft.choiceOrder?.question).toBeUndefined()
-  expect(projected.working.examDraft.choiceOrder?.unrelated).toEqual(['u2', 'u1'])
-  expect(projected.working.examDraft.columns?.question).toBe(4)
+  expect(projected.working.workingCopy.choiceOrder?.question).toBeUndefined()
+  expect(projected.saved?.workingCopy.choiceOrder?.question).toBeUndefined()
+  expect(projected.working.workingCopy.choiceOrder?.unrelated).toEqual(['u2', 'u1'])
+  expect(projected.working.workingCopy.columns?.question).toBe(4)
   expect(projected.working.dirty).toBe(true)
 })

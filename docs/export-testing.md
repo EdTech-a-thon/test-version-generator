@@ -26,7 +26,7 @@ Exam Working Copy + Content Selection
         print-reference view   PDF / DOCX Export Adapters
 ```
 
-`prepareExport({ examId, exam, version, configuration, history, measure,
+`prepareExport({ examId, exam, arrangement, configuration, history, measure,
 createdAt })` is the application-level pure seam. It resolves the selected
 student-test and/or answer-key Layout Plans from the visible Working Copy and
 returns a new immutable Export Record plus the selected artifact. Every
@@ -67,10 +67,9 @@ Renderer-selected line wrapping, coordinates, fonts, generated identifiers,
 package metadata, and raster appearance are not compared. Authored line breaks
 remain semantic; explicit page breaks remain structural.
 
-Parity covers the selected plans in order, restarts page numbering per stream,
-and requires the friendly Version name on every page. Version identity is
-always calculated from both canonical plans even when only one stream is
-selected.
+Parity covers the selected plans in order and restarts page numbering per
+stream. Each page carries the output ID resolved from the Working Copy's
+arrangement; it is page furniture, not a persistent identity or history key.
 
 ## Shared fingerprint
 
@@ -89,8 +88,9 @@ cell:<row>,<column>
 ```
 
 Inline content uses plain text, marked spans, links, math source, stable image
-ordinals, and authored-break markers. The Version fingerprint additionally
-includes immutable media hashes while removing the friendly name.
+ordinals, and authored-break markers. Fingerprints are adapter diagnostics only:
+they compare semantic and structural output and never identify, name, reuse, or
+deduplicate Export Records.
 
 The implementations are:
 
@@ -106,9 +106,8 @@ The implementations are:
 
 `bun test` is dependency-free and covers:
 
-- `src/export-preparation.test.ts` — canonical plan retention, stream order,
-  fingerprint inclusions/exclusions, Version and Question Revision reuse,
-  provisional naming, blank keys, validation, and filenames.
+- `src/export-preparation.test.ts` — selected-plan retention, stream order,
+  distinct repeated events, exact historical replay, validation, and filenames.
 - `src/export-plan.test.ts` — semantic derivation, numbering, grids, geometry,
   packing, splitting, furniture, streams, and breaks.
 - `src/export-parity.test.ts` — each fixture through the plan, print-reference,

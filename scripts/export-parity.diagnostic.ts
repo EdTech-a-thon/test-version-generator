@@ -39,7 +39,7 @@ import { buildExportDocument, STUDENT_TEST } from '../src/export-plan'
 import {
   plansOf,
   prepareExport,
-  versionRange,
+  arrangementRange,
   EMPTY_EXPORT_HISTORY,
   type ExportConfiguration,
 } from '../src/export-preparation'
@@ -178,7 +178,7 @@ for (const fixture of fixtures) {
       prepareExport({
         examId: 'diagnostic-exam',
         exam: fixture.exam,
-        version: fixture.version,
+        arrangement: fixture.arrangement,
         configuration,
         history: EMPTY_EXPORT_HISTORY,
         measure: fixture.measure,
@@ -192,7 +192,7 @@ for (const fixture of fixtures) {
       'export-document.json',
       JSON.stringify(
         exportDocumentFingerprint(
-          buildExportDocument(fixture.exam, fixture.version, STUDENT_TEST),
+          buildExportDocument(fixture.exam, fixture.arrangement, STUDENT_TEST),
         ),
         null,
         2,
@@ -294,7 +294,7 @@ for (const fixture of fixtures) {
 
       await page.getByRole('button', { name: 'Export History' }).click()
       const history = page.getByLabel('Export History')
-      await history.locator('.version-history-item').first().click()
+      await history.locator('.arrangement-history-item').first().click()
       const [historicalDownload] = await Promise.all([
         page.waitForEvent('download'),
         page.getByRole('button', { name: 'Re-export DOCX', exact: true }).click(),
@@ -316,7 +316,7 @@ for (const fixture of fixtures) {
     //    for itself. The plan is written out beside it as a diagnostic only.
     const printed = printDocumentFingerprint(printMarkup, {
       title: fixture.exam.title,
-      version: versionRange(plans.map((one) => one.version.letter)),
+      arrangement: arrangementRange(plans.map((one) => one.arrangement.letter)),
       width: pageSize.width,
       height: pageSize.height,
       margin: pageSize.margin,
@@ -419,16 +419,16 @@ async function seedImages(
     })),
   }
   await seedAuthoringState(page, {
-    questionBank: { questions: authoredInVersionOrder({ ...fixture, exam }) },
-    examDraft: {
+    questionBank: { questions: authoredInArrangementOrder({ ...fixture, exam }) },
+    workingCopy: {
       title: exam.title,
-      questionIds: fixture.version.questionOrder,
+      questionIds: fixture.arrangement.questionOrder,
     },
     dirty: false,
   })
 }
 
-/** Drives the real one-Version export dialog to one Content Selection. */
+/** Drives the real one-export dialog to one Content Selection. */
 async function configureExport(
   page: import('@playwright/test').Page,
   configuration: ExportConfiguration,
@@ -447,13 +447,13 @@ async function configureExport(
     .setChecked(configuration.selection.answerKey)
 }
 
-/** The fixture's questions with their answers already in the fixture Version's
- *  order. An Exam Draft records no choice order — answers print in the order
+/** The fixture's questions with their answers already in the fixture arrangement's
+ *  order. A Working Copy records no choice order — answers print in the order
  *  they were authored in — so a fixture that permuted its answers is seeded
  *  with them authored that way, which is the same paper by another route. */
-function authoredInVersionOrder(fixture: Fixture): Question[] {
+function authoredInArrangementOrder(fixture: Fixture): Question[] {
   return fixture.exam.questions.map((question) => {
-    const ordered = orderedChoices(question, fixture.version)
+    const ordered = orderedChoices(question, fixture.arrangement)
     if (ordered.length === 0) return question
     const content = (question.doc.content as ProseMirrorJSON[]).map((node) =>
       node.type === 'multipleChoice'
@@ -470,10 +470,10 @@ async function seed(
   fixture: Fixture,
 ): Promise<void> {
   await seedAuthoringState(page, {
-    questionBank: { questions: authoredInVersionOrder(fixture) },
-    examDraft: {
+    questionBank: { questions: authoredInArrangementOrder(fixture) },
+    workingCopy: {
       title: fixture.exam.title,
-      questionIds: fixture.version.questionOrder,
+      questionIds: fixture.arrangement.questionOrder,
     },
     dirty: false,
   })

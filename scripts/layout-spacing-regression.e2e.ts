@@ -41,7 +41,7 @@ test('default and authored exam spacing remain distinct', async ({ page }) => {
   const ids = questions.map((question) => question.id)
   await seedAuthoringState(page, {
     questionBank: { questions },
-    examDraft: { title: 'Spacing repro', questionIds: ids },
+    workingCopy: { title: 'Spacing repro', questionIds: ids },
     dirty: false,
   })
 

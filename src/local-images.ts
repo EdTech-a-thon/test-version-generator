@@ -1,8 +1,8 @@
 import { EXAM_STORE } from './storage-schema'
 import {
   MEDIA_ASSET_STORE,
-  VERSIONED_STORAGE_NAME,
-  VERSIONED_STORAGE_VERSION,
+  STORAGE_NAME,
+  STORAGE_VERSION,
 } from './storage-schema'
 import type { ProseMirrorJSON } from './question-doc'
 
@@ -35,7 +35,7 @@ async function openMediaDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     // Media is global: a canonical Question can be used by several Exams and
     // immutable Export Records must survive deletion of their current source.
-    const request = indexedDB.open(VERSIONED_STORAGE_NAME, VERSIONED_STORAGE_VERSION)
+    const request = indexedDB.open(STORAGE_NAME, STORAGE_VERSION)
     request.onupgradeneeded = () => {
       if (!request.result.objectStoreNames.contains(MEDIA_ASSET_STORE)) {
         request.result.createObjectStore(MEDIA_ASSET_STORE, { keyPath: 'hash' })
@@ -151,7 +151,7 @@ async function examDatabaseNames(): Promise<{ name: string }[]> {
     const records = await requestOf(transaction.objectStore(EXAM_STORE).getAll()) as { id?: unknown }[]
     await completed(transaction)
     return records.flatMap(({ id }) => typeof id === 'string'
-      ? [{ name: `${VERSIONED_STORAGE_NAME}-exam-${id}` }]
+      ? [{ name: `${STORAGE_NAME}-exam-${id}` }]
       : [])
   } finally {
     database.close()
@@ -179,14 +179,14 @@ export async function collectUnusedMediaAssets(): Promise<string[]> {
   const databases = typeof indexedDB.databases === 'function'
     ? await indexedDB.databases()
     : [
-        { name: VERSIONED_STORAGE_NAME },
+        { name: STORAGE_NAME },
         ...await examDatabaseNames(),
       ]
   for (const info of databases) {
     const name = info.name
-    if (!name?.startsWith(VERSIONED_STORAGE_NAME)) continue
+    if (!name?.startsWith(STORAGE_NAME)) continue
     const database = await new Promise<IDBDatabase>((resolve, reject) => {
-      const request = indexedDB.open(name, VERSIONED_STORAGE_VERSION)
+      const request = indexedDB.open(name, STORAGE_VERSION)
       request.onsuccess = () => resolve(request.result)
       request.onerror = () => reject(request.error)
     })

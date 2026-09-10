@@ -7,7 +7,7 @@ const fromQuestionBank: DragSource = {
   type: 'multiple-choice',
 }
 
-const fromExamDraft: DragSource = {
+const fromExamWorkingCopy: DragSource = {
   pane: 'exam-draft',
   questionIds: ['q2'],
   type: 'multiple-choice',
@@ -93,21 +93,21 @@ describe('a Question Bank question dropped on a rendered question', () => {
   })
 })
 
-describe('an Exam Draft question dragged within the Exam Draft', () => {
+describe('a Working Copy question dragged within the Working Copy', () => {
   test('reorders before or after, and never Replaces', () => {
-    expect(dropIntent(fromExamDraft, rendered(), 110)).toEqual({
+    expect(dropIntent(fromExamWorkingCopy, rendered(), 110)).toEqual({
       kind: 'insert',
       targetQuestionId: 'q1',
       placement: 'before',
     })
     // The centre is a placement too: half the question each way, so there is
     // no dead band and no Replace anywhere on it.
-    expect(dropIntent(fromExamDraft, rendered(), 195)).toEqual({
+    expect(dropIntent(fromExamWorkingCopy, rendered(), 195)).toEqual({
       kind: 'insert',
       targetQuestionId: 'q1',
       placement: 'before',
     })
-    expect(dropIntent(fromExamDraft, rendered(), 205)).toEqual({
+    expect(dropIntent(fromExamWorkingCopy, rendered(), 205)).toEqual({
       kind: 'insert',
       targetQuestionId: 'q1',
       placement: 'after',
@@ -115,11 +115,11 @@ describe('an Exam Draft question dragged within the Exam Draft', () => {
   })
 
   test('offers nothing over a question it is carrying', () => {
-    expect(dropIntent(fromExamDraft, rendered({ questionId: 'q2' }), 110)).toBeNull()
+    expect(dropIntent(fromExamWorkingCopy, rendered({ questionId: 'q2' }), 110)).toBeNull()
   })
 
   test('offers nothing in another Question Section', () => {
-    expect(dropIntent(fromExamDraft, rendered({ type: 'open' }), 110)).toBeNull()
+    expect(dropIntent(fromExamWorkingCopy, rendered({ type: 'open' }), 110)).toBeNull()
   })
 })
 
@@ -136,12 +136,12 @@ describe('the first question of an empty Question Section', () => {
     ).toBeNull()
   })
 
-  test('refuses an Exam Draft question, which can only be reordered', () => {
-    expect(dropIntent(fromExamDraft, emptySection, 0)).toBeNull()
+  test('refuses a Working Copy question, which can only be reordered', () => {
+    expect(dropIntent(fromExamWorkingCopy, emptySection, 0)).toBeNull()
   })
 })
 
 test('nothing under the pointer is no drop at all', () => {
   expect(dropIntent(fromQuestionBank, null, 110)).toBeNull()
-  expect(dropIntent(fromExamDraft, null, 110)).toBeNull()
+  expect(dropIntent(fromExamWorkingCopy, null, 110)).toBeNull()
 })

@@ -46,11 +46,11 @@ async function seedDeletion(page: Page) {
     const exam = await exams.create(shared);
     const backend = exams.backendFor(exam.id);
     const working = (await backend.read())!;
-    working.examDraft.title = "Biology final";
+    working.workingCopy.title = "Biology final";
     await backend.write(working);
     await backend.commitSaved({
       questionBank: working.questionBank,
-      examDraft: working.examDraft,
+      workingCopy: working.workingCopy,
     });
     return { bankId: bank.id, examId: exam.id };
   });
@@ -93,7 +93,7 @@ test("full Question editor discloses impact, cancels safely, and permanently del
   await expect(page.locator(".exam-question")).toHaveCount(0);
 
   await page.getByRole("button", { name: "Export History" }).click();
-  await page.getByLabel("Export History").locator(".version-history-item").click();
+  await page.getByLabel("Export History").locator(".export-history-item").click();
   await expect(page.locator(".historical-document")).toContainText("Shared cell question");
   const historicalDownload = page.waitForEvent("download");
   await page.getByRole("button", { name: "Re-export PDF", exact: true }).click();

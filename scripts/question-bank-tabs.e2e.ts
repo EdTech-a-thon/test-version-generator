@@ -302,11 +302,11 @@ test('a missing bank launch reports the problem and restores the last valid work
   await page.getByRole('dialog', { name: 'Open Question Bank' }).getByRole('button', { name: /Physics/ }).click()
   await expect(page.getByRole('tab', { name: 'Physics' })).toHaveAttribute('aria-selected', 'true')
   await page.evaluate(async (bankId) => {
-    const { QUESTION_BANK_REGISTRY_STORE, VERSIONED_STORAGE_NAME, VERSIONED_STORAGE_VERSION } = await import(
+    const { QUESTION_BANK_REGISTRY_STORE, STORAGE_NAME, STORAGE_VERSION } = await import(
       /* @vite-ignore */ '/src/storage-schema.ts'
     ) as typeof import('../src/storage-schema')
     await new Promise<void>((resolve, reject) => {
-      const request = indexedDB.open(VERSIONED_STORAGE_NAME, VERSIONED_STORAGE_VERSION)
+      const request = indexedDB.open(STORAGE_NAME, STORAGE_VERSION)
       request.onerror = () => reject(request.error)
       request.onsuccess = () => {
         const transaction = request.result.transaction(QUESTION_BANK_REGISTRY_STORE, 'readwrite')

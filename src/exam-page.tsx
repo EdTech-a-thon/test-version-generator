@@ -41,7 +41,7 @@ import {
   type QuestionItem,
   type PlannedQuestion,
 } from './export-plan'
-import { DEFAULT_COLUMNS, columnsOf, type ColumnSetting, type Exam, type Version } from './exam'
+import { DEFAULT_COLUMNS, columnsOf, type ColumnSetting, type Exam, type Arrangement } from './exam'
 import type { Selection } from './use-selection'
 import type { WorkspaceDrag } from './use-workspace-drag'
 import { dropStateOf, type QuestionDropState } from './workspace-drag'
@@ -208,7 +208,7 @@ function questionMenuItems({
       onSelect: () => onShuffleSelected(actedOnIds),
     },
   )
-  // Remove, never Delete: this takes the question off the Exam Draft and leaves
+  // Remove, never Delete: this takes the question off the Working Copy and leaves
   // its Question Bank record alone, so it is neither destructive nor worth a
   // confirmation. Permanent deletion is not offered in this workspace at all.
   items.push(
@@ -570,17 +570,17 @@ const REPAGINATE_DEBOUNCE_MS = 150
 // own result round in a loop.
 function usePaginatedExam(
   exam: Exam,
-  version: Version,
+  arrangement: Arrangement,
   workspace: RefObject<HTMLElement | null>,
   selection: ExportContentSelection,
 ): LayoutPlan {
   const { test, answerKey } = selection
   const [plan, setPlan] = useState<LayoutPlan>(() =>
-    planExport({ exam, version, selection, measure: unmeasured }),
+    planExport({ exam, arrangement, selection, measure: unmeasured }),
   )
   const measured = useRef(false)
   // What the last pagination was for, so this one can tell an edit from a
-  // reorder. A `Version` carries an ordering and nothing else, so a change to
+  // reorder. A `Arrangement` carries an ordering and nothing else, so a change to
   // it alone cannot alter a single item's height.
   const lastExam = useRef(exam)
   // Bumped when a font or an image has settled and the remembered heights have
@@ -594,7 +594,7 @@ function usePaginatedExam(
     const repaginate = () => setPlan(
       planExport({
         exam,
-        version,
+        arrangement,
         selection: { test, answerKey },
         measure: domMeasure,
       }),
@@ -626,10 +626,10 @@ function usePaginatedExam(
       live = false
       clearTimeout(timer)
     }
-  }, [exam, version, workspace, test, answerKey, settled])
+  }, [exam, arrangement, workspace, test, answerKey, settled])
 
   // Assets settling is its own concern, and deliberately keyed on the exam
-  // rather than the version.
+  // rather than the arrangement.
   //
   // `document.fonts.ready` is already resolved once the page has loaded, so a
   // `.then` attached per pagination fires on the very next microtask — every
@@ -666,12 +666,12 @@ function usePaginatedExam(
 // The print Export Adapter's own document.
 //
 // One export is the canonical student test and answer key for one immutable
-// Version. This mounts every planned page in preparation order for the internal
+// Arrangement. This mounts every planned page in preparation order for the internal
 // print-reference and preview paths.
 //
 // It plans nothing. `ExamPage` above paginates what the teacher is editing;
 // this draws plans that were already resolved, which is what lets several
-// Versions print together without any of them being repaginated per format.
+// Arrangements print together without any of them being repaginated per format.
 // Each document is its own workspace, and print CSS breaks a page between them.
 export function ExportPreview({ plan }: { plan: LayoutPlan }) {
   return (
@@ -693,7 +693,7 @@ export function ExportPreview({ plan }: { plan: LayoutPlan }) {
 
 export function ExamPage({
   exam,
-  version,
+  arrangement,
   selection,
   drag,
   revealQuestionId,
@@ -708,11 +708,11 @@ export function ExamPage({
   contentSelection = { test: true, answerKey: true },
 }: {
   exam: Exam
-  version: Version
+  arrangement: Arrangement
   selection: Selection
   /** The gesture in flight, coordinated across both panes of the workspace. */
   drag: WorkspaceDrag
-  /** A question an authoring action has just put on the Exam Draft. It is
+  /** A question an authoring action has just put on the Working Copy. It is
    *  scrolled to and briefly highlighted once repagination has actually put it
    *  on a page — which, for an insertion, is not the same moment. */
   revealQuestionId?: string | null
@@ -728,13 +728,13 @@ export function ExamPage({
 }) {
   const workspace = useRef<HTMLElement | null>(null)
   const blank = exam.questions.length === 0
-  const plan = usePaginatedExam(exam, version, workspace, contentSelection)
+  const plan = usePaginatedExam(exam, arrangement, workspace, contentSelection)
   const pages = plan.pages
   const orderedIds = orderedQuestionIds(pages)
   const columnSettings = columnSettingsOf(exam)
   const clearOnBackground = clearOnBackgroundClick(selection)
   // Dragging is coordinated above this pane, because one gesture spans both of
-  // them: a Question Bank question composed onto the Exam Draft starts in the
+  // them: a Question Bank question composed onto the Working Copy starts in the
   // other pane entirely. What stays here is what only this pane knows — which
   // questions a gesture picks up, and what their markup is — and the pointer
   // capture and page-owned preview that gesture has always used.
@@ -770,7 +770,7 @@ export function ExamPage({
     (questionId: string) => dropStateOf(drag.intent, questionId),
     [drag.intent],
   )
-  // Revealing a question an authoring action has just put on the Exam Draft.
+  // Revealing a question an authoring action has just put on the Working Copy.
   //
   // Insertion and Replace change the exam's *content*, and content changes wait
   // for a pause before the page is measured and packed again. So the question
@@ -824,7 +824,7 @@ export function ExamPage({
   const menuQuestion = menu ? questionsById.get(menu.questionId) : undefined
 
   // The Question Section a gesture in flight could start, if it is one the Exam
-  // Draft has no questions in. A gesture from within the Exam Draft is a
+  // Draft has no questions in. A gesture from within the Working Copy is a
   // reorder and can never reach an empty section, so it is offered nothing.
   const emptySectionOffer =
     drag.source?.pane === 'question-bank'

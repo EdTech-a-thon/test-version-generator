@@ -24,7 +24,7 @@ import {
   type PageItem,
   type QuestionItem,
 } from './export-plan'
-import { versionRange } from './export-preparation'
+import { arrangementRange } from './export-preparation'
 import type { ProseMirrorJSON } from './question-doc'
 
 /** One block of content, normalized. See `blockLine` for the vocabulary. */
@@ -43,7 +43,7 @@ export type PageFingerprint = {
 
 export type ExportFingerprint = {
   title: string
-  version: string
+  arrangement: string
   pages: PageFingerprint[]
   /** Media in document order — sources on the plan side, packaged parts on the
    *  DOCX side. Only how many there are is comparable; which is which is in the
@@ -506,7 +506,7 @@ function furnitureLines(furniture: PageFurniture): {
 } {
   const identity = [
     ...furniture.identityFields.map((field) => `${field}:`),
-    furniture.versionLabel,
+    furniture.arrangementLabel,
   ].join(' ')
   return {
     header: [
@@ -542,7 +542,7 @@ export function layoutFingerprint(
   )
   return {
     title: plans[0]?.title ?? '',
-    version: versionRange([...new Set(plans.map((plan) => plan.version.letter))]),
+    arrangement: arrangementRange([...new Set(plans.map((plan) => plan.arrangement.letter))]),
     pages,
     media: images.list,
   }
@@ -552,13 +552,13 @@ export function layoutFingerprint(
  *  exam says, in order, with no page assignment to hide a content change behind. */
 export function exportDocumentFingerprint(document: ExportDocument): {
   title: string
-  version: string
+  arrangement: string
   test: ContentLine[]
   answerKey: ContentLine[]
 } {
   return {
     title: document.title,
-    version: document.version.letter,
+    arrangement: document.arrangement.letter,
     test: document.test.flatMap((item) => planItemLines(item, new ImageOrdinals())),
     answerKey: document.answerKey.flatMap((item) =>
       planItemLines(item, new ImageOrdinals()),

@@ -10,8 +10,8 @@ import {
   QUESTION_BANK_REGISTRY_STORE,
   QUESTION_BANK_WORKSPACE_STORE,
   MEDIA_ASSET_STORE,
-  VERSIONED_STORAGE_NAME,
-  VERSIONED_STORAGE_VERSION,
+  STORAGE_NAME,
+  STORAGE_VERSION,
 } from './storage-schema'
 
 export const UNTITLED_QUESTION_BANK = 'Untitled Question Bank'
@@ -185,11 +185,11 @@ function createGlobalStores(database: IDBDatabase) {
 
 function openRegistry(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open(VERSIONED_STORAGE_NAME, VERSIONED_STORAGE_VERSION)
+    const request = indexedDB.open(STORAGE_NAME, STORAGE_VERSION)
     request.onupgradeneeded = () => createGlobalStores(request.result)
     request.onsuccess = () => resolve(request.result)
     request.onerror = () => reject(request.error)
-    request.onblocked = () => reject(new Error(`Could not open ${VERSIONED_STORAGE_NAME}`))
+    request.onblocked = () => reject(new Error(`Could not open ${STORAGE_NAME}`))
   })
 }
 

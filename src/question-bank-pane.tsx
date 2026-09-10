@@ -1,4 +1,4 @@
-// The Question Bank, beside the Exam Draft.
+// The Question Bank, beside the Working Copy.
 //
 // A compact, scannable table of the canonical questions a teacher has written,
 // newest first, with everything needed to find one and put it on the exam: a
@@ -219,7 +219,7 @@ const DIFFICULTY_OPTIONS: FilterOption<DifficultyFilter>[] = [
 
 export function QuestionBankPane({
   bank,
-  examDraftIds,
+  workingCopyIds,
   filter,
   onFilterChange,
   selectedQuestionId,
@@ -228,13 +228,13 @@ export function QuestionBankPane({
   onExport,
   exportBlocked = false,
   onEdit,
-  onAddToExamDraft,
-  onRemoveFromExamDraft,
+  onAddToWorkingCopy,
+  onRemoveFromWorkingCopy,
   drag,
 }: {
   bank: QuestionBank
-  /** Which bank records the Exam Draft currently references. */
-  examDraftIds: ReadonlySet<string>
+  /** Which bank records the Working Copy currently references. */
+  workingCopyIds: ReadonlySet<string>
   filter: QuestionBankFilter
   onFilterChange: (filter: QuestionBankFilter) => void
   /** The row a teacher has clicked, if any. Transient: selecting is not an
@@ -247,10 +247,10 @@ export function QuestionBankPane({
   /** An open Question editor must be resolved before export can begin. */
   exportBlocked?: boolean
   onEdit: (questionId: string) => void
-  onAddToExamDraft?: (questionId: string) => void
-  /** Takes the question back off the Exam Draft, leaving its bank record be. */
-  onRemoveFromExamDraft?: (questionId: string) => void
-  /** The gesture in flight. A row that is not already on the Exam Draft is a
+  onAddToWorkingCopy?: (questionId: string) => void
+  /** Takes the question back off the Working Copy, leaving its bank record be. */
+  onRemoveFromWorkingCopy?: (questionId: string) => void
+  /** The gesture in flight. A row that is not already on the Working Copy is a
    *  drag source for it; a row that is offers no gesture at all, because a
    *  reference occurs at most once and refusing a drop after the fact would be
    *  a worse way to say so. */
@@ -287,7 +287,7 @@ export function QuestionBankPane({
     }
   }
 
-  /** The pointer handlers a row that is not on the Exam Draft carries. A row
+  /** The pointer handlers a row that is not on the Working Copy carries. A row
    *  that is carries none: it has nowhere to be dropped. */
   const dragHandlers = (question: Question) => ({
     onPointerDown: (event: ReactPointerEvent<HTMLElement>) => {
@@ -459,8 +459,8 @@ export function QuestionBankPane({
       ) : (
         <ul className="question-bank-list">
           {questions.map((question) => {
-            const inExamDraft = examDraftIds.has(question.id)
-            const draggable = !inExamDraft && onAddToExamDraft !== undefined
+            const inExamWorkingCopy = workingCopyIds.has(question.id)
+            const draggable = !inExamWorkingCopy && onAddToWorkingCopy !== undefined
             const preview = stemPreview(question)
             const name = preview.text || UNTITLED
             const topics = topicsOf(question)
@@ -469,7 +469,7 @@ export function QuestionBankPane({
                 className="question-bank-row"
                 key={question.id}
                 data-question-id={question.id}
-                data-in-exam={inExamDraft ? 'true' : undefined}
+                data-in-exam={inExamWorkingCopy ? 'true' : undefined}
                 // An unused row is a drag source; a row already on the Exam
                 // Draft is not one, and says so before the gesture starts.
                 data-draggable={draggable ? 'true' : undefined}
@@ -508,7 +508,7 @@ export function QuestionBankPane({
                     {question.difficulty && (
                       <DifficultyBadge difficulty={question.difficulty} />
                     )}
-                    {inExamDraft && (
+                    {inExamWorkingCopy && (
                       <span className="question-bank-row-badge">In exam</span>
                     )}
                   </span>
@@ -542,31 +542,31 @@ export function QuestionBankPane({
                   >
                     <Pencil />
                   </button>
-                  {/* A question already on the Exam Draft offers no way onto it
+                  {/* A question already on the Working Copy offers no way onto it
                       a second time — a reference occurs at most once — so the
                       plus becomes a tick: the same slot answers "can I add
                       this?" and "is it already on?". Reaching for it is the
                       one thing a teacher could still want from that slot, so
                       under the cursor the tick becomes the minus that takes
                       the question back off the exam. */}
-                  {inExamDraft && onRemoveFromExamDraft ? (
+                  {inExamWorkingCopy && onRemoveFromWorkingCopy ? (
                     <button
                       type="button"
                       className="question-bank-action question-bank-included"
                       aria-label={`Remove ${name} from the exam`}
                       title="Remove from the exam"
-                      onClick={() => onRemoveFromExamDraft(question.id)}
+                      onClick={() => onRemoveFromWorkingCopy(question.id)}
                     >
                       <Check className="question-bank-included-resting" />
                       <CircleMinus className="question-bank-included-hover" />
                     </button>
-                  ) : onAddToExamDraft ? (
+                  ) : onAddToWorkingCopy ? (
                     <button
                       type="button"
                       className="question-bank-action"
                       aria-label={`Add ${name} to the exam`}
                       title="Add to the exam"
-                      onClick={() => onAddToExamDraft(question.id)}
+                      onClick={() => onAddToWorkingCopy(question.id)}
                     >
                       <Plus />
                     </button>

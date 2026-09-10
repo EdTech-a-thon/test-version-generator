@@ -32,7 +32,7 @@ const EXAM = {
 
 const AUTHORING = {
   questionBank: { questions: EXAM.questions },
-  examDraft: { title: EXAM.title, questionIds: ['m1', 'o1'] },
+  workingCopy: { title: EXAM.title, questionIds: ['m1', 'o1'] },
   dirty: false,
 }
 
@@ -148,7 +148,7 @@ test('Escape closes Export History and restores focus', async ({ page }) => {
 })
 
 test('empty Exams cannot export and Cmd/Ctrl+P opens Export for non-empty Exams', async ({ page }) => {
-  await open(page, { questionBank: { questions: [] }, examDraft: { title: 'Empty', questionIds: [] }, dirty: false })
+  await open(page, { questionBank: { questions: [] }, workingCopy: { title: 'Empty', questionIds: [] }, dirty: false })
   const dialog = await openDialog(page)
   await expect(dialog.getByText('Add at least one question', { exact: false }).first()).toBeVisible()
   await expect(dialog.getByRole('button', { name: 'Download PDF' })).toBeDisabled()

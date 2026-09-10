@@ -2,7 +2,7 @@
 //
 // These tests deliberately cross the public application boundary. IndexedDB
 // is Chromium's implementation, and the assertions observe the Question Bank
-// and Exam Draft the same way a teacher does after startup and reload.
+// and Working Copy the same way a teacher does after startup and reload.
 
 import { expect, test } from '@playwright/test'
 import { createQuestion } from '../src/exam'
@@ -18,7 +18,7 @@ const legacyAuthoringState = (): AuthoringState => {
   ]
   return {
     questionBank: { questions: [question] },
-    examDraft: { title: 'Previous exam', questionIds: [question.id] },
+    workingCopy: { title: 'Previous exam', questionIds: [question.id] },
     dirty: true,
   }
 }
@@ -39,7 +39,7 @@ test('the fresh generation ignores earlier browser authoring data', async ({
         transaction
           .objectStore('state')
           .put(
-            { questionBank: state.questionBank, examDraft: state.examDraft },
+            { questionBank: state.questionBank, workingCopy: state.workingCopy },
             'saved',
           )
         transaction.oncomplete = () => {
@@ -92,7 +92,7 @@ test('the fresh generation ignores earlier browser authoring data', async ({
             .objectStore('state')
             .get('saved')
           request.onsuccess = () =>
-            resolve(request.result.examDraft.title === 'Previous exam')
+            resolve(request.result.workingCopy.title === 'Previous exam')
           request.onerror = () => reject(request.error)
         })
       } finally {
@@ -109,7 +109,7 @@ test('failed normalized write and Save transactions expose no partial state', as
   await page.getByRole('button', { name: 'New Exam' }).first().click()
   await page.getByRole('textbox', { name: 'Exam name' }).waitFor()
   const baseline = legacyAuthoringState()
-  baseline.examDraft.title = 'Last complete write'
+  baseline.workingCopy.title = 'Last complete write'
 
   const restored = await page.evaluate(async (state: AuthoringState) => {
     const modulePath = '/src/indexeddb-authoring.ts'
@@ -120,10 +120,10 @@ test('failed normalized write and Save transactions expose no partial state', as
     await backend.write(state)
 
     const broken = structuredClone(state) as AuthoringState & {
-      examDraft: AuthoringState['examDraft'] & { cannotClone?: () => void }
+      workingCopy: AuthoringState['workingCopy'] & { cannotClone?: () => void }
     }
     broken.questionBank.questions = []
-    broken.examDraft.cannotClone = () => undefined
+    broken.workingCopy.cannotClone = () => undefined
     try {
       await backend.write(broken)
     } catch {
@@ -133,10 +133,10 @@ test('failed normalized write and Save transactions expose no partial state', as
     const afterWriteFailure = await backend.read()
 
     const brokenSave = structuredClone(state) as AuthoringState & {
-      examDraft: AuthoringState['examDraft'] & { cannotClone?: () => void }
+      workingCopy: AuthoringState['workingCopy'] & { cannotClone?: () => void }
     }
     brokenSave.questionBank.questions = []
-    brokenSave.examDraft.cannotClone = () => undefined
+    brokenSave.workingCopy.cannotClone = () => undefined
     try {
       await backend.commitSaved(brokenSave)
     } catch {
@@ -229,12 +229,12 @@ test('publication aborts every store when a required Media Asset is absent', asy
     }
     const state: AuthoringState = {
       questionBank: { questions: [question] },
-      examDraft: { title: 'Atomic publication', questionIds: ['q1'] },
+      workingCopy: { title: 'Atomic publication', questionIds: ['q1'] },
       dirty: true,
     }
     const prepared = prepareExport({
       examId: 'exam-1',
-      ...selectedExam(state.questionBank, state.examDraft),
+      ...selectedExam(state.questionBank, state.workingCopy),
       configuration: { format: 'pdf', selection: { test: true, answerKey: true } },
       history: EMPTY_EXPORT_HISTORY,
       measure: unmeasured,

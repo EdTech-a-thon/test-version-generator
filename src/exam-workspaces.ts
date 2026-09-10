@@ -4,7 +4,7 @@ import type { AuthoringState, SaveAsSnapshot } from './exam-store'
 import { createIndexedDBAuthoringBackend } from './indexeddb-authoring'
 import { withCanonicalQuestionProjection } from './canonical-question-projection'
 import { withoutQuestions } from './question-deletion'
-import { createExamDraft } from './question-bank'
+import { createWorkingCopy } from './question-bank'
 import {
   CANONICAL_QUESTION_STORE,
   EDITOR_WORKSPACE_STORE,
@@ -13,8 +13,8 @@ import {
   QUESTION_BANK_REGISTRY_STORE,
   QUESTION_BANK_WORKSPACE_STORE,
   MEDIA_ASSET_STORE,
-  VERSIONED_STORAGE_NAME,
-  VERSIONED_STORAGE_VERSION,
+  STORAGE_NAME,
+  STORAGE_VERSION,
 } from './storage-schema'
 
 export type ExamSummary = { id: string; createdAt: string; lastOpenedAt: string }
@@ -48,12 +48,12 @@ export function resourceUsageOf(
   saved: Omit<AuthoringState, 'dirty'> | null,
   questionIds: ReadonlySet<string>,
 ): QuestionUsage | null {
-  const inWorkingCopy = working?.examDraft.questionIds.some((id) => questionIds.has(id)) ?? false
-  const inSaved = saved?.examDraft.questionIds.some((id) => questionIds.has(id)) ?? false
+  const inWorkingCopy = working?.workingCopy.questionIds.some((id) => questionIds.has(id)) ?? false
+  const inSaved = saved?.workingCopy.questionIds.some((id) => questionIds.has(id)) ?? false
   if (!inWorkingCopy && !inSaved) return null
   return {
     examId: exam.id,
-    title: working?.examDraft.title ?? saved?.examDraft.title ?? 'Untitled Exam',
+    title: working?.workingCopy.title ?? saved?.workingCopy.title ?? 'Untitled Exam',
     saved: inSaved,
     workingCopy: inWorkingCopy,
   }
@@ -70,10 +70,10 @@ export function isPristineExam(
     working
     && saved
     && !working.dirty
-    && working.examDraft.title === 'Untitled Exam'
-    && working.examDraft.questionIds.length === 0
-    && saved.examDraft.title === 'Untitled Exam'
-    && saved.examDraft.questionIds.length === 0
+    && working.workingCopy.title === 'Untitled Exam'
+    && working.workingCopy.questionIds.length === 0
+    && saved.workingCopy.title === 'Untitled Exam'
+    && saved.workingCopy.questionIds.length === 0
     && history.records.length === 0,
   )
 }
@@ -93,7 +93,7 @@ function complete(transaction: IDBTransaction): Promise<void> {
 }
 function openRegistry(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open(VERSIONED_STORAGE_NAME, VERSIONED_STORAGE_VERSION)
+    const request = indexedDB.open(STORAGE_NAME, STORAGE_VERSION)
     request.onupgradeneeded = () => {
       const database = request.result
       if (!database.objectStoreNames.contains(EXAM_STORE)) database.createObjectStore(EXAM_STORE, { keyPath: 'id' })
@@ -108,10 +108,10 @@ function openRegistry(): Promise<IDBDatabase> {
     request.onerror = () => reject(request.error)
   })
 }
-export function examDatabaseName(id: string) { return `${VERSIONED_STORAGE_NAME}-exam-${id}` }
+export function examDatabaseName(id: string) { return `${STORAGE_NAME}-exam-${id}` }
 function previewOf(state: AuthoringState): readonly (readonly ProseMirrorJSON[])[] | null {
   const byId = new Map(state.questionBank.questions.map((question) => [question.id, question]))
-  const documents = state.examDraft.questionIds.flatMap((id) => {
+  const documents = state.workingCopy.questionIds.flatMap((id) => {
     const content = byId.get(id)?.doc.content
     return Array.isArray(content) ? [content] : []
   })
@@ -155,8 +155,8 @@ export function createExamWorkspaceService(options: { now?: () => Date; createId
       const exam = { id: createId(), createdAt: timestamp, lastOpenedAt: timestamp }
       const initial: AuthoringState = {
         questionBank: { questions: firstQuestion ? [firstQuestion] : [] },
-        examDraft: {
-          ...createExamDraft('Untitled Exam'),
+        workingCopy: {
+          ...createWorkingCopy('Untitled Exam'),
           questionIds: firstQuestion ? [firstQuestion.id] : [],
           ...(firstQuestion?.type === 'multiple-choice'
             ? { columns: { [firstQuestion.id]: 1 as const } }
@@ -170,7 +170,7 @@ export function createExamWorkspaceService(options: { now?: () => Date; createId
       await backend.initialize(
         {
           questionBank: initial.questionBank,
-          examDraft: createExamDraft('Untitled Exam'),
+          workingCopy: createWorkingCopy('Untitled Exam'),
         },
         initial,
       )
@@ -215,7 +215,7 @@ export function createExamWorkspaceService(options: { now?: () => Date; createId
         targetStarted = true
         await targetBackend.commitSaved({
           questionBank: snapshot.targetInitial.questionBank,
-          examDraft: snapshot.targetInitial.examDraft,
+          workingCopy: snapshot.targetInitial.workingCopy,
         })
         await sourceBackend.write(snapshot.sourceRestored)
         sourceWritten = true
@@ -247,8 +247,8 @@ export function createExamWorkspaceService(options: { now?: () => Date; createId
         const state = await backendFor(exam.id).read()
         return {
           ...exam,
-          title: state?.examDraft.title ?? 'Untitled Exam',
-          questionCount: state?.examDraft.questionIds.length ?? 0,
+          title: state?.workingCopy.title ?? 'Untitled Exam',
+          questionCount: state?.workingCopy.questionIds.length ?? 0,
           preview: state ? previewOf(state) : null,
           unsaved: state?.dirty ?? false,
         }
@@ -278,8 +278,8 @@ export function createExamWorkspaceService(options: { now?: () => Date; createId
         const item = resourceUsageOf(exam, working, saved, ids)
         if (!item) return null
         const referenced = new Set([
-          ...(working?.examDraft.questionIds ?? []),
-          ...(saved?.examDraft.questionIds ?? []),
+          ...(working?.workingCopy.questionIds ?? []),
+          ...(saved?.workingCopy.questionIds ?? []),
         ])
         return {
           ...item,
@@ -337,8 +337,8 @@ export function createExamWorkspaceService(options: { now?: () => Date; createId
         const backend = backendFor(exam.id)
         const [working, saved] = await Promise.all([backend.read(), backend.readSaved()])
         if (!working) return null
-        const referenced = working.examDraft.questionIds.includes(question.id)
-          || saved?.examDraft.questionIds.includes(question.id)
+        const referenced = working.workingCopy.questionIds.includes(question.id)
+          || saved?.workingCopy.questionIds.includes(question.id)
         return referenced ? { backend, before: { working, saved } } : null
       }))).filter((item): item is NonNullable<typeof item> => item !== null)
       try {

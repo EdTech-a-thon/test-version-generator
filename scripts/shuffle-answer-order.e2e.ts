@@ -39,7 +39,7 @@ test('keyboard Shuffle answer order varies selected Multiple Choice questions an
   }
   await seedAuthoringState(page, {
     questionBank: { questions: [first, second, shortAnswer] },
-    examDraft: { title: 'Answer shuffle', questionIds: ['m1', 'm2', 'o1'] },
+    workingCopy: { title: 'Answer shuffle', questionIds: ['m1', 'm2', 'o1'] },
     dirty: false,
   })
   await page.reload()

@@ -44,7 +44,7 @@ import {
 } from './exam'
 import type { Difficulty, Question, QuestionPlacement, QuestionType } from './exam'
 import { DifficultyBadge, TopicBadge } from './badges'
-import { bankQuestionById, createExamDraft } from './question-bank'
+import { bankQuestionById, createWorkingCopy } from './question-bank'
 import { createExamStore, loadExamStore, type ExamStore } from './exam-store'
 import { ExamPage } from './exam-page'
 import { QuestionBankPane } from './question-bank-pane'
@@ -97,7 +97,7 @@ import {
 import {
   ExportHistoryDrawer,
   HistoricalExportRecord,
-} from './version-history'
+} from './export-history'
 import { AboutPage, PrivacyPage } from './site-pages'
 import { persistentStorageStatus, requestPersistentStorage, type PersistentStorageStatus } from './durable-storage'
 import { ResourceCollectionPage } from './resource-collection-page'
@@ -878,7 +878,7 @@ function QuestionBankTabsPane({
   service,
   initialResource,
   fallback,
-  examDraftIds = new Set(),
+  workingCopyIds = new Set(),
   onActiveResourceChange,
   onQuestionsChange,
   onAddToExam,
@@ -894,7 +894,7 @@ function QuestionBankTabsPane({
   service: QuestionBankWorkspaceService
   initialResource?: QuestionBankResource
   fallback?: ReactNode
-  examDraftIds?: ReadonlySet<string>
+  workingCopyIds?: ReadonlySet<string>
   onActiveResourceChange?: (resource: QuestionBankResource | null) => void
   onQuestionsChange?: (questions: readonly Question[]) => void
   onAddToExam?: (question: Question) => void
@@ -1068,7 +1068,7 @@ function QuestionBankTabsPane({
     </div>
     {active ? <QuestionBankPane
       bank={{ questions: active.questions }}
-      examDraftIds={examDraftIds}
+      workingCopyIds={workingCopyIds}
       filter={filter}
       onFilterChange={(nextFilter) => {
         setWorkspace((current) => ({ ...current, filters: { ...current.filters, [active.id]: nextFilter } }))
@@ -1095,13 +1095,13 @@ function QuestionBankTabsPane({
           setUsage(questionUsage)
         })
       }}
-      onAddToExamDraft={onAddToExam
+      onAddToWorkingCopy={onAddToExam
         ? (questionId) => {
             const question = active.questions.find(({ id }) => id === questionId)
             if (question) onAddToExam(question)
           }
         : undefined}
-      onRemoveFromExamDraft={onRemoveFromExam}
+      onRemoveFromWorkingCopy={onRemoveFromExam}
     /> : fallback ?? <div className="question-bank question-bank-no-tab"><p>No Question Bank is open.</p></div>}
     {exportingBank && <QuestionBankExportDialog bank={exportingBank} onClose={() => setExportingBank(null)} />}
     {pickerBanks && <ResourcePicker
@@ -1362,36 +1362,23 @@ function ExamEditor({
   const state = useSyncExternalStore(store.subscribe, store.getState)
   const backupStatus = useSyncExternalStore(store.subscribe, store.backupStatus)
   useEffect(() => {
-    if (state.examDraft.title === 'Untitled Exam' && state.examDraft.questionIds.length === 0) return
+    if (state.workingCopy.title === 'Untitled Exam' && state.workingCopy.questionIds.length === 0) return
     let current = true
     void store.whenSettled().then(() => {
       if (current && store.backupStatus() === 'ready') void requestPersistentStorage()
     })
     return () => { current = false }
-  }, [state.examDraft.questionIds.length, state.examDraft.title, store])
+  }, [state.workingCopy.questionIds.length, state.workingCopy.title, store])
   // What the page renders and what an export publishes: the Question Bank
-  // records the Exam Draft references, in Exam Draft order, and nothing else.
+  // records the Working Copy references, in Working Copy order, and nothing else.
   // The store derives it once per change, so it is a stable dependency.
-  const { exam, version } = useSyncExternalStore(store.subscribe, store.selectedExam)
-  const examDraftIds = new Set(state.examDraft.questionIds)
-  // A question being written in the popup, and where saving it should put it.
-  //
-  // `destination` is what the popup was opened from: the Question Bank on its
-  // own, or a place on the Exam Draft — `after` being the question a plus was
-  // clicked beside. Editing an existing question ignores both: the popup only
-  // ever changes canonical Question Content.
-  // Which Question Section a question about to be written belongs to. Asked
-  // only where the position does not already answer it: a question added below
-  // another one takes that one's section, but a bank-only question and the
-  // first question on an empty sheet could be either.
-  const [choosingType, setChoosingType] = useState<{
-    point: MenuPoint
-    destination: 'question-bank' | 'exam-draft'
-    after: string | null
-  } | null>(null)
+  const { exam, arrangement } = useSyncExternalStore(store.subscribe, store.selectedExam)
+  const workingCopyIds = new Set(state.workingCopy.questionIds)
+  // A Question being edited. Creation is owned by the active Question Bank;
+  // the Exam only opens existing canonical Questions for editing.
   const [editing, setEditing] = useState<{
     question: Question
-    destination: 'question-bank' | 'exam-draft'
+    destination: 'question-bank'
     after: string | null
     owner?: QuestionBankResource
     usage?: QuestionUsage[]
@@ -1423,7 +1410,7 @@ function ExamEditor({
   const isHistoricalBrowsing = historyOpen || viewingRecord !== null
   const [storageNotice, setStorageNotice] = useState<string | null>(null)
   const [choosingExam, setChoosingExam] = useState(false)
-  const closeVersionHistory = useCallback(() => {
+  const closeExportHistory = useCallback(() => {
     setHistoryOpen(false)
     requestAnimationFrame(() => historyButton.current?.focus())
   }, [])
@@ -1439,7 +1426,7 @@ function ExamEditor({
   // selection-wide context-menu actions share one source of truth.
   const selection = useSelection()
   const clearSelection = selection.clear
-  const selectOnExamDraft = selection.select
+  const selectOnWorkingCopy = selection.select
   // The legacy per-Exam bank fallback keeps its filter here; real bank tabs
   // persist theirs through the separate workspace service. Neither path is an
   // authoring action, dirties the Exam, or appears in Undo history.
@@ -1454,7 +1441,7 @@ function ExamEditor({
     })
     return () => { current = false }
   }, [bankWorkspaces, examId])
-  // A question an authoring action has just put on the Exam Draft, waiting to be
+  // A question an authoring action has just put on the Working Copy, waiting to be
   // revealed. `ExamPage` clears it once repagination has actually put it on a
   // page, which — for a change of content — is not the same moment.
   const [revealQuestionId, setRevealQuestionId] = useState<string | null>(null)
@@ -1516,29 +1503,29 @@ function ExamEditor({
   // Replace are four ways of saying the same three things, so they say them
   // here: exactly one call to the authoring boundary, then the incoming
   // question becomes the selected one and is queued to be revealed. That is
-  // what makes the paths yield the same Question Bank and Exam Draft state
+  // what makes the paths yield the same Question Bank and Working Copy state
   // rather than merely similar ones — and what stops a question composed one
   // way being findable while the same question composed another way is not.
   const selectAndReveal = (questionId: string) => {
-    selectOnExamDraft(questionId)
+    selectOnWorkingCopy(questionId)
     setRevealQuestionId(questionId)
   }
-  const addToExamDraft = (question: Question) => {
-    store.addToExamDraft(question)
+  const addToWorkingCopy = (question: Question) => {
+    store.addToWorkingCopy(question)
     selectAndReveal(question.id)
   }
-  const insertIntoExamDraft = (
+  const insertIntoWorkingCopy = (
     question: Question,
     targetQuestionId: string,
     placement: QuestionPlacement,
   ) => {
-    store.addToExamDraft(question, targetQuestionId, placement)
+    store.addToWorkingCopy(question, targetQuestionId, placement)
     selectAndReveal(question.id)
   }
-  const replaceInExamDraft = (outgoingQuestionId: string, incoming: Question) => {
-    store.replaceInExamDraft(outgoingQuestionId, incoming)
+  const replaceInWorkingCopy = (outgoingQuestionId: string, incoming: Question) => {
+    store.replaceInWorkingCopy(outgoingQuestionId, incoming)
     // Necessary rather than merely tidy: the outgoing question is off the exam
-    // now, and a selection pointing at it names no position on the Exam Draft.
+    // now, and a selection pointing at it names no position on the Working Copy.
     selectAndReveal(incoming.id)
   }
   const shuffleSelectedQuestions = (questionIds: readonly string[]) => {
@@ -1557,21 +1544,21 @@ function ExamEditor({
   // only ever has to decide *where*, never *whether*.
   const drag = useWorkspaceDrag((source, intent) => {
     if (source.pane === 'exam-draft') {
-      // Dragging inside the Exam Draft reorders and nothing else: the pane a
+      // Dragging inside the Working Copy reorders and nothing else: the pane a
       // gesture starts in is what gives it its meaning.
       if (intent.kind !== 'insert') return
-      store.moveInExamDraft(source.questionIds, intent.targetQuestionId, intent.placement)
+      store.moveInWorkingCopy(source.questionIds, intent.targetQuestionId, intent.placement)
       return
     }
     if (intent.kind === 'insert') {
       const question = bankQuestionById(store.getState().questionBank, source.questionId)
-      if (question) insertIntoExamDraft(question, intent.targetQuestionId, intent.placement)
+      if (question) insertIntoWorkingCopy(question, intent.targetQuestionId, intent.placement)
     } else if (intent.kind === 'replace') {
       const question = bankQuestionById(store.getState().questionBank, source.questionId)
-      if (question) replaceInExamDraft(intent.outgoingQuestionId, question)
+      if (question) replaceInWorkingCopy(intent.outgoingQuestionId, question)
     } else {
       const question = bankQuestionById(store.getState().questionBank, source.questionId)
-      if (question) addToExamDraft(question)
+      if (question) addToWorkingCopy(question)
     }
   })
 
@@ -1681,16 +1668,16 @@ function ExamEditor({
           || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target?.tagName ?? '')
         if (typing || selection.selectedIds.size === 0) return
         event.preventDefault()
-        // Remove, not Delete: the questions come off the Exam Draft and stay in
+        // Remove, not Delete: the questions come off the Working Copy and stay in
         // the Question Bank, which is why this needs no confirmation.
-        store.removeFromExamDraft([...selection.selectedIds])
+        store.removeFromWorkingCopy([...selection.selectedIds])
         clearSelection()
         return
       }
       if (event.key !== 'Escape') return
       if (historyOpen) {
         event.preventDefault()
-        closeVersionHistory()
+        closeExportHistory()
         return
       }
       if (viewingRecord) {
@@ -1703,7 +1690,7 @@ function ExamEditor({
     }
     document.addEventListener('keydown', onKeyDown)
     return () => document.removeEventListener('keydown', onKeyDown)
-  }, [clearSelection, closeVersionHistory, editing, exportDialog, historyOpen, isHistoricalBrowsing, returnToExam, selection.selectedIds, store, viewingRecord])
+  }, [clearSelection, closeExportHistory, editing, exportDialog, historyOpen, isHistoricalBrowsing, returnToExam, selection.selectedIds, store, viewingRecord])
 
   const closeExportDialog = () => {
     const trigger = exportTrigger.current
@@ -1723,7 +1710,7 @@ function ExamEditor({
   ) => prepareExport({
     examId,
     exam,
-    version,
+    arrangement,
     configuration,
     history: exportHistory,
     measure: domMeasure,
@@ -1842,7 +1829,7 @@ function ExamEditor({
           <input
             aria-label="Exam name"
             className="document-title"
-            value={state.examDraft.title}
+            value={state.workingCopy.title}
             disabled={isHistoricalBrowsing}
             onChange={(event) => store.setTitle(event.target.value)}
           />
@@ -1920,7 +1907,7 @@ function ExamEditor({
             type="button"
             className="secondary-button"
             aria-expanded={historyOpen}
-            aria-controls="version-history"
+            aria-controls="export-history"
             onPointerDown={() => {
               // Reopening History while inspecting a record retains the
               // original target for Back to Exam.
@@ -1985,7 +1972,7 @@ function ExamEditor({
         open={historyOpen}
         onOpenChange={(open) => {
           if (open) setHistoryOpen(true)
-          else closeVersionHistory()
+          else closeExportHistory()
         }}
         onSelect={(selectedRecord) => {
           setViewingRecordId(selectedRecord.id)
@@ -1995,7 +1982,7 @@ function ExamEditor({
       />
 
       {/* The split authoring workspace: the Question Bank beside the rendered
-          Exam Draft. The bank opens as the narrower pane — it is picked from
+          Working Copy. The bank opens as the narrower pane — it is picked from
           rather than read — and the divider moves. */}
       <WorkspaceSplit
         initialBankPercent={bankPercent}
@@ -2012,11 +1999,11 @@ function ExamEditor({
           <QuestionBankTabsPane
             context={{ mode: 'exam', resourceId: examId }}
             service={bankWorkspaces}
-            examDraftIds={examDraftIds}
+            workingCopyIds={workingCopyIds}
             onQuestionsChange={store.syncCanonicalQuestions}
-            onAddToExam={addToExamDraft}
+            onAddToExam={addToWorkingCopy}
             onRemoveFromExam={(questionId) => {
-              store.removeFromExamDraft([questionId])
+              store.removeFromWorkingCopy([questionId])
               if (selection.isSelected(questionId)) selection.toggle(questionId)
             }}
             workspaceDrag={drag}
@@ -2033,7 +2020,7 @@ function ExamEditor({
             }}
             fallback={<QuestionBankPane
               bank={state.questionBank}
-              examDraftIds={examDraftIds}
+              workingCopyIds={workingCopyIds}
               filter={bankFilter}
               onFilterChange={setBankFilter}
               selectedQuestionId={selectedBankId}
@@ -2045,19 +2032,19 @@ function ExamEditor({
                   setEditing({ question, destination: 'question-bank', after: null })
                 }
               }}
-              onAddToExamDraft={(questionId) => {
+              onAddToWorkingCopy={(questionId) => {
                 const question = bankQuestionById(state.questionBank, questionId)
-                if (question) addToExamDraft(question)
+                if (question) addToWorkingCopy(question)
               }}
-              onRemoveFromExamDraft={(questionId) => {
-                store.removeFromExamDraft([questionId])
+              onRemoveFromWorkingCopy={(questionId) => {
+                store.removeFromWorkingCopy([questionId])
                 if (selection.isSelected(questionId)) selection.toggle(questionId)
               }}
             />}
           />
           </div>
         }
-        examDraft={
+        workingCopy={
           <>
             <div
               className="draft-document"
@@ -2069,7 +2056,7 @@ function ExamEditor({
             >
               <ExamPage
             exam={exam}
-            version={version}
+            arrangement={arrangement}
             selection={selection}
             drag={drag}
             revealQuestionId={revealQuestionId}
@@ -2081,7 +2068,7 @@ function ExamEditor({
                 bankWorkspaces.ownerOfQuestion(questionId),
                 workspaces.questionUsage(questionId),
               ]).then(([owner, usage]) => {
-                setEditing({ question, destination: 'exam-draft', after: null, owner: owner ?? undefined, usage })
+                setEditing({ question, destination: 'question-bank', after: null, owner: owner ?? undefined, usage })
               })
             }}
             onDuplicate={(questionId) => {
@@ -2090,7 +2077,7 @@ function ExamEditor({
                 if (!original) return
                 const owner = await bankWorkspaces.ownerOfQuestion(questionId)
                 if (!owner) {
-                  store.duplicateInExamDraft(questionId)
+                  store.duplicateInWorkingCopy(questionId)
                   return
                 }
                 const before = new Set(owner.questions.map(({ id }) => id))
@@ -2100,14 +2087,14 @@ function ExamEditor({
                 })
                 const copy = updated.questions.find(({ id }) => !before.has(id))
                 if (!copy) return
-                store.duplicateInExamDraft(questionId, copy)
+                store.duplicateInWorkingCopy(questionId, copy)
                 setBankRevision((revision) => revision + 1)
               })()
             }}
             onShuffleSelected={shuffleSelectedQuestions}
             onShuffleSelectedAnswers={shuffleSelectedAnswers}
             onRemove={(questionIds) => {
-              store.removeFromExamDraft(questionIds)
+              store.removeFromWorkingCopy(questionIds)
               selection.clear()
             }}
             onSetColumns={(questionIds, columns) =>
@@ -2155,28 +2142,6 @@ function ExamEditor({
         </div>
       )}
 
-      {choosingType && (
-        <ContextMenu
-          point={choosingType.point}
-          ariaLabel="Question type"
-          items={SECTION_ORDER.map((type) => ({
-            kind: 'action' as const,
-            label: SECTION_LABELS[type],
-            icon: QUESTION_TYPE_ICONS[type],
-            onSelect: () => {
-              setEditing({
-                question: createQuestion(type),
-                destination: choosingType.destination === 'exam-draft'
-                  ? 'question-bank'
-                  : choosingType.destination,
-                after: choosingType.after,
-              })
-            },
-          }))}
-          onClose={() => setChoosingType(null)}
-        />
-      )}
-
       {editing && (
         <QuestionDialog
           question={editing.question}
@@ -2210,11 +2175,8 @@ function ExamEditor({
               )
               store.syncCanonicalQuestions([saved])
               setBankRevision((revision) => revision + 1)
-            } else if (editing.destination === 'question-bank') {
-              store.createInQuestionBank(saved)
-              await store.whenSettled()
             } else {
-              store.createInExamDraft(saved, editing.after)
+              store.createInQuestionBank(saved)
               await store.whenSettled()
             }
             setEditing(null)
@@ -2325,7 +2287,7 @@ export default function App({
     const target = session.initial
     const saved = {
       questionBank: target.questionBank,
-      examDraft: target.examDraft,
+      workingCopy: target.workingCopy,
     }
     setEditorStore(createExamStore({
       backend: workspaces.backendFor(targetId),
@@ -2414,7 +2376,7 @@ export default function App({
             initialHistory: {
               undo: [{
                 ...initial,
-                examDraft: createExamDraft('Untitled Exam'),
+                workingCopy: createWorkingCopy('Untitled Exam'),
                 dirty: false,
               }],
               redo: [],

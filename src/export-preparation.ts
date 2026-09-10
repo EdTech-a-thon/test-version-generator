@@ -4,7 +4,7 @@
 // Those plans are the self-contained historical presentation: later viewing
 // and re-export never consult canonical Questions or run the layout engine.
 
-import type { Exam, Version } from './exam'
+import type { Exam, Arrangement } from './exam'
 import {
   planExport,
   type ExportContentSelection,
@@ -83,7 +83,7 @@ export type PreparedExport = {
 export type PreparationRequest = {
   examId: string
   exam: Exam
-  version: Version
+  arrangement: Arrangement
   configuration: ExportConfiguration
   history: ExportHistory
   measure: Measure
@@ -118,7 +118,7 @@ export function pdfFilename(title: string): string {
 }
 
 /** Kept for adapter fingerprint compatibility; this is not domain identity. */
-export function versionRange(labels: readonly string[]): string {
+export function arrangementRange(labels: readonly string[]): string {
   const first = labels[0] ?? ''
   const last = labels.at(-1) ?? first
   return labels.length > 1 ? `${first}-${last}` : first
@@ -182,7 +182,7 @@ export function prepareHistoricalExport({
 export function prepareExport({
   examId,
   exam,
-  version,
+  arrangement,
   configuration,
   measure,
   createdAt,
@@ -196,9 +196,9 @@ export function prepareExport({
     throw new Error('Choose the student test, the answer key, or both.')
   }
 
-  const test = planExport({ exam, version, selection: TEST_ONLY, measure })
+  const test = planExport({ exam, arrangement, selection: TEST_ONLY, measure })
   onProgress?.({ stage: 'planning', completed: 1, total: 2 })
-  const answerKey = planExport({ exam, version, selection: KEY_ONLY, measure })
+  const answerKey = planExport({ exam, arrangement, selection: KEY_ONLY, measure })
   onProgress?.({ stage: 'planning', completed: 2, total: 2 })
   const documents = selectedPlans(test, answerKey, configuration.selection)
   onProgress?.({ stage: 'resolving', completed: 1, total: 1 })

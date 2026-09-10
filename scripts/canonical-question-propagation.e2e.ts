@@ -29,27 +29,27 @@ test('a canonical edit propagates to clean and dirty Exams without manufacturing
     const clean = await examService.create(shared)
     const cleanBackend = examService.backendFor(clean.id)
     const cleanWorking = (await cleanBackend.read())!
-    const cleanSaved = { questionBank: cleanWorking.questionBank, examDraft: cleanWorking.examDraft }
+    const cleanSaved = { questionBank: cleanWorking.questionBank, workingCopy: cleanWorking.workingCopy }
     await cleanBackend.commitSaved(cleanSaved)
     const dirty = await examService.create(shared)
     const dirtyBackend = examService.backendFor(dirty.id)
     const dirtyWorking = (await dirtyBackend.read())!
-    await dirtyBackend.commitSaved({ questionBank: dirtyWorking.questionBank, examDraft: dirtyWorking.examDraft })
-    await dirtyBackend.write({ ...dirtyWorking, examDraft: { ...dirtyWorking.examDraft, title: 'My unsaved title' }, dirty: true })
+    await dirtyBackend.commitSaved({ questionBank: dirtyWorking.questionBank, workingCopy: dirtyWorking.workingCopy })
+    await dirtyBackend.write({ ...dirtyWorking, workingCopy: { ...dirtyWorking.workingCopy, title: 'My unsaved title' }, dirty: true })
     const workingOnly = await examService.create(shared)
     const workingOnlyState = (await examService.backendFor(workingOnly.id).read())!
     await examService.backendFor(workingOnly.id).write({
       ...workingOnlyState,
-      examDraft: { ...workingOnlyState.examDraft, title: 'Working only' },
+      workingCopy: { ...workingOnlyState.workingCopy, title: 'Working only' },
       dirty: true,
     })
     const savedOnly = await examService.create(shared)
     const savedOnlyBackend = examService.backendFor(savedOnly.id)
     const savedOnlyState = (await savedOnlyBackend.read())!
-    await savedOnlyBackend.commitSaved({ questionBank: savedOnlyState.questionBank, examDraft: savedOnlyState.examDraft })
+    await savedOnlyBackend.commitSaved({ questionBank: savedOnlyState.questionBank, workingCopy: savedOnlyState.workingCopy })
     await savedOnlyBackend.write({
       ...savedOnlyState,
-      examDraft: { ...savedOnlyState.examDraft, title: 'Saved only', questionIds: [] },
+      workingCopy: { ...savedOnlyState.workingCopy, title: 'Saved only', questionIds: [] },
       dirty: true,
     })
     await bankService.openTab({ mode: 'exam', resourceId: clean.id }, otherBank.id)
@@ -95,7 +95,7 @@ test('a canonical edit propagates to clean and dirty Exams without manufacturing
   }, { cleanId: setup.cleanId, dirtyId: setup.dirtyId, bankId: setup.bankId })
   expect(JSON.stringify(result.clean)).toContain('Edited everywhere')
   expect(JSON.stringify(result.dirty)).toContain('Edited everywhere')
-  expect(result.dirty?.examDraft.title).toBe('My unsaved title')
+  expect(result.dirty?.workingCopy.title).toBe('My unsaved title')
   expect(result.dirty?.dirty).toBe(true)
   expect(result.bankUpdatedAt).not.toBe(setup.bankUpdatedAt)
   expect(result.recent.map(({ id, lastOpenedAt }) => ({ id, lastOpenedAt }))).toEqual(

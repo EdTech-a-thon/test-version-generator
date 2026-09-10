@@ -1,7 +1,7 @@
 import { choiceIdOf, choiceNodesOf } from './question-doc'
 import type { Question } from './exam'
 import type { AuthoringState, SavedState } from './exam-store'
-import type { ExamDraft, QuestionBank } from './question-bank'
+import type { ExamWorkingCopy, QuestionBank } from './question-bank'
 
 function choiceIds(question: Question | undefined): string[] {
   if (!question || question.type !== 'multiple-choice') return []
@@ -21,7 +21,7 @@ function withQuestion(bank: QuestionBank, question: Question): QuestionBank {
   }
 }
 
-function withoutChoiceArrangement(draft: ExamDraft, questionId: string): ExamDraft {
+function withoutChoiceArrangement(draft: ExamWorkingCopy, questionId: string): ExamWorkingCopy {
   if (!draft.choiceOrder?.[questionId]) return draft
   const choiceOrder = { ...draft.choiceOrder }
   delete choiceOrder[questionId]
@@ -46,12 +46,12 @@ export function withCanonicalQuestionProjection(
     working: {
       ...working,
       questionBank: nextWorkingBank,
-      examDraft: stableChoices ? working.examDraft : withoutChoiceArrangement(working.examDraft, question.id),
+      workingCopy: stableChoices ? working.workingCopy : withoutChoiceArrangement(working.workingCopy, question.id),
     },
     saved: saved ? {
       ...saved,
       questionBank: nextSavedBank!,
-      examDraft: stableChoices ? saved.examDraft : withoutChoiceArrangement(saved.examDraft, question.id),
+      workingCopy: stableChoices ? saved.workingCopy : withoutChoiceArrangement(saved.workingCopy, question.id),
     } : null,
   }
 }

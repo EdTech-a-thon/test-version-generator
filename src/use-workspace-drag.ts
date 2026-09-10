@@ -1,6 +1,6 @@
 // One drag gesture, across both panes of the authoring workspace.
 //
-// Dragging spans the Question Bank and the Exam Draft, so the gesture cannot
+// Dragging spans the Question Bank and the Working Copy, so the gesture cannot
 // belong to either of them: this is the coordinator both panes share. A pane
 // says what a gesture is carrying and hands over the elements to draw; this
 // finds what is under the pointer, asks `workspace-drag.ts` what releasing
@@ -10,7 +10,7 @@
 // system cursor and the drag image to the browser, which then ignores even a
 // computed `cursor: grabbing`; a captured pointer plus a page-owned preview
 // keeps the closed hand, the exact source markup and the grab offset. That is
-// the behaviour the Exam Draft already had, and it is preserved here rather
+// the behaviour the Working Copy already had, and it is preserved here rather
 // than replaced.
 
 import { useCallback, useEffect, useRef, useState } from 'react'

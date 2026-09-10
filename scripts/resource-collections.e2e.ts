@@ -52,7 +52,7 @@ async function seedResources(page: Page, count = 8) {
       )
       const backend = exams.backendFor(exam.id)
       const working = (await backend.read())!
-      working.examDraft.title =
+      working.workingCopy.title =
         index === 2 ? 'Special Algebra Exam' : `Exam ${index + 1}`
       working.dirty = index === 3
       await backend.write(working)
@@ -227,7 +227,7 @@ test('meaningful Question Bank changes update recency while browsing, compositio
     const afterBrowsing = (await banks.read(bank.id))!.lastUpdatedAt
     const backend = exams.backendFor(exam.id)
     const working = (await backend.read())!
-    working.examDraft.columns = { [question.id]: 2 }
+    working.workingCopy.columns = { [question.id]: 2 }
     await backend.write(working)
     const afterCompositionAndFormatting = (await banks.read(bank.id))!
       .lastUpdatedAt

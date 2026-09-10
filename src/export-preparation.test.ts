@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import type { Exam, Question, Version } from './exam'
+import type { Exam, Question, Arrangement } from './exam'
 import {
   DEFAULT_EXPORT_CONFIGURATION,
   DEFAULT_EXPORT_CONFIGURATION,
@@ -54,7 +54,7 @@ function request(
 ) {
   const selected = question()
   const exam: Exam = { title: 'Biology Quiz', questions: [selected] }
-  const version: Version = {
+  const arrangement: Arrangement = {
     id: 'working-copy',
     letter: '',
     questionOrder: [selected.id],
@@ -63,7 +63,7 @@ function request(
   return {
     examId: 'exam-1',
     exam,
-    version,
+    arrangement,
     configuration,
     history,
     measure: unmeasured,
@@ -122,7 +122,7 @@ describe('Export Record preparation', () => {
   test('captures unsaved visible content without consulting the saved Exam', () => {
     const input = request()
     input.exam.title = 'Renamed Working Copy'
-    input.version.choiceOrder = { 'question-1': ['shark', 'whale'] }
+    input.arrangement.choiceOrder = { 'question-1': ['shark', 'whale'] }
 
     const prepared = prepareExport(input)
 
@@ -161,7 +161,7 @@ describe('Export Record preparation', () => {
     expect(() => prepareExport({
       ...request(),
       exam: { title: 'Empty', questions: [] },
-      version: { id: 'working-copy', letter: '', questionOrder: [], choiceOrder: {} },
+      arrangement: { id: 'working-copy', letter: '', questionOrder: [], choiceOrder: {} },
     })).toThrow('Add at least one question to the Exam before exporting.')
 
     expect(() => prepareExport(request({

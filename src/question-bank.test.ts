@@ -1,16 +1,16 @@
-// The Question Bank and Exam Draft operations, at the level a teacher's action
+// The Question Bank and Working Copy operations, at the level a teacher's action
 // reduces to. The store composes these into atomic authoring actions; what is
 // asserted here is the part that has to hold however they are composed —
-// including the tolerance rules that keep a Question Bank and an Exam Draft
+// including the tolerance rules that keep a Question Bank and a Working Copy
 // usable when they disagree.
 
 import { describe, expect, test } from 'bun:test'
 import { createQuestion, DEFAULT_EXAM_TITLE } from './exam'
 import {
   bankQuestionById,
-  createExamDraft,
+  createWorkingCopy,
   createQuestionBank,
-  isInExamDraft,
+  isInWorkingCopy,
   withQuestionBanked,
   withChoiceOrder,
   withReferenceAdded,
@@ -24,16 +24,16 @@ const ids = ['q1', 'q2', 'q3']
 function draftOf(questionIds: readonly string[] = ids) {
   return questionIds.reduce(
     (draft, id) => withReferenceAdded(draft, id),
-    createExamDraft(),
+    createWorkingCopy(),
   )
 }
 
-describe('a new Question Bank and Exam Draft', () => {
+describe('a new Question Bank and Working Copy', () => {
   test('are empty, and the exam is untitled', () => {
     expect(createQuestionBank().questions).toEqual([])
-    expect(createExamDraft().questionIds).toEqual([])
-    expect(createExamDraft().title).toBe(DEFAULT_EXAM_TITLE)
-    expect(createExamDraft('Chem Unit 3').title).toBe('Chem Unit 3')
+    expect(createWorkingCopy().questionIds).toEqual([])
+    expect(createWorkingCopy().title).toBe(DEFAULT_EXAM_TITLE)
+    expect(createWorkingCopy('Chem Unit 3').title).toBe('Chem Unit 3')
   })
 })
 
@@ -69,7 +69,7 @@ describe('banking Question Content', () => {
   })
 })
 
-describe('referencing from the Exam Draft', () => {
+describe('referencing from the Working Copy', () => {
   test('adds a reference at the end, or immediately after a given one', () => {
     expect(draftOf().questionIds).toEqual(ids)
     expect(withReferenceAdded(draftOf(), 'q4', 'q1').questionIds).toEqual([
@@ -94,7 +94,7 @@ describe('referencing from the Exam Draft', () => {
     ])
   })
 
-  test('appends when the question it would sit beside is not on the Exam Draft', () => {
+  test('appends when the question it would sit beside is not on the Working Copy', () => {
     expect(withReferenceAdded(draftOf(), 'q4', 'elsewhere').questionIds).toEqual([
       ...ids,
       'q4',
@@ -108,8 +108,8 @@ describe('referencing from the Exam Draft', () => {
   test('holds a reference at most once, and adding it again is not a move', () => {
     const draft = draftOf()
     expect(withReferenceAdded(draft, 'q1', 'q3')).toBe(draft)
-    expect(isInExamDraft(draft, 'q1')).toBe(true)
-    expect(isInExamDraft(draft, 'q9')).toBe(false)
+    expect(isInWorkingCopy(draft, 'q1')).toBe(true)
+    expect(isInWorkingCopy(draft, 'q9')).toBe(false)
   })
 
   test('Removes references and their answer arrangements, and leaves an unreferenced Remove alone', () => {
@@ -123,7 +123,7 @@ describe('referencing from the Exam Draft', () => {
   })
 })
 
-describe('reordering the Exam Draft', () => {
+describe('reordering the Working Copy', () => {
   test('takes the given order', () => {
     expect(withReferenceOrder(draftOf(), ['q3', 'q1', 'q2']).questionIds).toEqual([
       'q3',
@@ -132,7 +132,7 @@ describe('reordering the Exam Draft', () => {
     ])
   })
 
-  test('ignores ids the Exam Draft does not reference', () => {
+  test('ignores ids the Working Copy does not reference', () => {
     expect(withReferenceOrder(draftOf(), ['q3', 'stranger', 'q1', 'q2']).questionIds)
       .toEqual(['q3', 'q1', 'q2'])
   })
@@ -140,7 +140,7 @@ describe('reordering the Exam Draft', () => {
   test('keeps a reference the new order forgot, so a reorder never Removes one', () => {
     // A reference the Question Bank cannot resolve never reaches the derived
     // ordering, so a move computed from that ordering comes back without it.
-    // It stays on the Exam Draft rather than disappearing behind a drag.
+    // It stays on the Working Copy rather than disappearing behind a drag.
     expect(withReferenceOrder(draftOf(), ['q3', 'q1']).questionIds).toEqual([
       'q3',
       'q1',
@@ -148,7 +148,7 @@ describe('reordering the Exam Draft', () => {
     ])
   })
 
-  test('an order that changes nothing is the same Exam Draft', () => {
+  test('an order that changes nothing is the same Working Copy', () => {
     const draft = draftOf()
     expect(withReferenceOrder(draft, ids)).toBe(draft)
   })
@@ -176,12 +176,12 @@ describe('replacing a reference', () => {
     expect(replaced.choiceOrder).toEqual({ q1: ['a', 'b'] })
   })
 
-  test('refuses when the outgoing question is not on the Exam Draft', () => {
+  test('refuses when the outgoing question is not on the Working Copy', () => {
     const draft = draftOf()
     expect(withReferenceReplaced(draft, 'elsewhere', 'q9')).toBe(draft)
   })
 
-  test('refuses when the incoming question is already on the Exam Draft', () => {
+  test('refuses when the incoming question is already on the Working Copy', () => {
     // A reference occurs at most once, so this would be a Remove wearing a
     // replacement's clothes.
     const draft = draftOf()

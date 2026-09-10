@@ -1,10 +1,10 @@
 import type { AuthoringState, SavedState } from "./exam-store";
-import type { ExamDraft } from "./question-bank";
+import type { ExamWorkingCopy } from "./question-bank";
 
 function withoutQuestionReferences(
-  draft: ExamDraft,
+  draft: ExamWorkingCopy,
   questionIds: ReadonlySet<string>,
-): ExamDraft {
+): ExamWorkingCopy {
   const remaining = draft.questionIds.filter((id) => !questionIds.has(id));
   const columns = Object.fromEntries(
     Object.entries(draft.columns ?? {}).filter(([id]) => !questionIds.has(id)),
@@ -22,7 +22,7 @@ function withoutQuestionReferences(
   };
 }
 
-function sameExamDraft(left: ExamDraft, right: ExamDraft): boolean {
+function sameExamWorkingCopy(left: ExamWorkingCopy, right: ExamWorkingCopy): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
@@ -36,7 +36,7 @@ export function withoutQuestions(
   questionIds: ReadonlySet<string>,
 ): { working: AuthoringState; saved: SavedState | null } {
   const nextWorkingDraft = withoutQuestionReferences(
-    working.examDraft,
+    working.workingCopy,
     questionIds,
   );
   const nextSaved = saved
@@ -47,7 +47,7 @@ export function withoutQuestions(
             ({ id }) => !questionIds.has(id),
           ),
         },
-        examDraft: withoutQuestionReferences(saved.examDraft, questionIds),
+        workingCopy: withoutQuestionReferences(saved.workingCopy, questionIds),
       }
     : null;
   const nextWorking: AuthoringState = {
@@ -57,9 +57,9 @@ export function withoutQuestions(
         ({ id }) => !questionIds.has(id),
       ),
     },
-    examDraft: nextWorkingDraft,
+    workingCopy: nextWorkingDraft,
     dirty: nextSaved
-      ? !sameExamDraft(nextWorkingDraft, nextSaved.examDraft)
+      ? !sameExamWorkingCopy(nextWorkingDraft, nextSaved.workingCopy)
       : working.dirty,
   };
   return { working: nextWorking, saved: nextSaved };

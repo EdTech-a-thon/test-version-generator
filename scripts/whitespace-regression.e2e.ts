@@ -27,7 +27,7 @@ test('the rendered exam preserves authored spaces and blank lines', async ({ pag
         },
       ],
     },
-    examDraft: { title: 'Whitespace repro', questionIds: ['q1'] },
+    workingCopy: { title: 'Whitespace repro', questionIds: ['q1'] },
     dirty: false,
   }
   await seedAuthoringState(page, authoring)

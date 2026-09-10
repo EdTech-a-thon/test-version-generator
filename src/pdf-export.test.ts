@@ -32,7 +32,7 @@ function plansOf(fixtureName: string) {
     plans: prepareExport({
       examId: 'fixture-exam',
       exam: fixture.exam,
-      version: fixture.version,
+      arrangement: fixture.arrangement,
       configuration: DEFAULT_EXPORT_CONFIGURATION,
       history: EMPTY_EXPORT_HISTORY,
       measure: fixture.measure,

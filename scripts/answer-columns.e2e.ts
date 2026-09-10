@@ -34,7 +34,7 @@ const question = (id: string, columns: number) => ({
 async function openExam(page: Page, columns: number) {
   await seedAuthoringState(page, {
     questionBank: { questions: [question('q1', columns), question('q2', 2)] },
-    examDraft: { title: 'Answer columns', questionIds: ['q1'] },
+    workingCopy: { title: 'Answer columns', questionIds: ['q1'] },
     dirty: false,
   })
   await expect(page.locator('.exam-question')).toHaveCount(1)
@@ -75,7 +75,7 @@ test('an inserted bank Question inherits its visual neighbor Working Copy layout
 test('the first Multiple Choice Question in an empty section uses one column', async ({ page }) => {
   await seedAuthoringState(page, {
     questionBank: { questions: [question('q1', 4)] },
-    examDraft: { title: 'Answer columns', questionIds: [] },
+    workingCopy: { title: 'Answer columns', questionIds: [] },
     dirty: false,
   })
   await page.getByRole('button', { name: 'Add Question q1 to the exam' }).click()

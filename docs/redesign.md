@@ -1,6 +1,6 @@
 # Multi-Exam and Question Bank Redesign
 
-This document summarizes the accepted product behavior that replaces the current one-bank, one-draft, immutable-Version workflow. Canonical vocabulary lives in [`CONTEXT.md`](../CONTEXT.md); architectural decisions live in [`docs/adr/`](adr/).
+This document summarizes the accepted multi-resource product behavior. Canonical vocabulary lives in [`CONTEXT.md`](../CONTEXT.md); architectural decisions live in [`docs/adr/`](adr/).
 
 ## Resource model
 
@@ -16,7 +16,7 @@ This document summarizes the accepted product behavior that replaces the current
 
 ### Exams and Working Copies
 
-- An Exam is mutable, has a durable UUID, and defaults to the name **Untitled Exam**. There is no separate Draft resource and no formal Version family.
+- An Exam is mutable, has a durable UUID, and defaults to the name **Untitled Exam**. Its editable state is its Working Copy; exports do not create a separate Exam family.
 - Every Exam has an explicitly saved state and one continuously backed-up Working Copy.
 - **Save** replaces the saved state with the Working Copy.
 - **Save As** atomically creates and saves a new Exam named `<current name> Copy`, moves the Working Copy and Undo history to it, restores the source Exam to its saved state, and clears the source history.

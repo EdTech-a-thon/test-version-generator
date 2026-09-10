@@ -1,6 +1,6 @@
 // Browser-local persistence for the fresh Export History generation.
 //
-// The Question Bank records and the Exam Draft/control record are normalized
+// The Question Bank records and the Working Copy/control record are normalized
 // into separate object stores. Every snapshot crosses those stores in one
 // transaction, so a reload sees either the previous authoring state or the
 // complete next one, never a bank and draft from different actions.
@@ -16,11 +16,11 @@ import {
   EXAM_WORKSPACE_STORE,
   EXPORT_RECORD_STORE,
   MEDIA_ASSET_STORE,
-  VERSIONED_STORAGE_NAME,
-  VERSIONED_STORAGE_VERSION,
+  STORAGE_NAME,
+  STORAGE_VERSION,
 } from './storage-schema'
 
-export { VERSIONED_STORAGE_NAME } from './storage-schema'
+export { STORAGE_NAME } from './storage-schema'
 export const QUESTION_BANK_STORE = 'question-bank'
 export const AUTHORING_STATE_STORE = 'authoring-state'
 export const SAVED_AUTHORING_STORE = 'saved-authoring-state'
@@ -30,14 +30,14 @@ export type CanonicalProjectionSnapshot = {
   saved: SavedState | null
 }
 
-const DATABASE_VERSION = VERSIONED_STORAGE_VERSION
+const DATABASE_VERSION = STORAGE_VERSION
 const CURRENT_AUTHORING_KEY = 'current'
 const SAVED_AUTHORING_KEY = 'saved'
 
 type AuthoringControl = {
   key: typeof CURRENT_AUTHORING_KEY
   questionIds: string[]
-  examDraft: AuthoringState['examDraft']
+  workingCopy: AuthoringState['workingCopy']
   dirty: boolean
 }
 
@@ -104,7 +104,7 @@ export function indexedDBAuthoringRecordsOf(
     control: {
       key: CURRENT_AUTHORING_KEY,
       questionIds: state.questionBank.questions.map((question) => question.id),
-      examDraft: state.examDraft,
+      workingCopy: state.workingCopy,
       dirty: state.dirty,
     },
   }
@@ -147,7 +147,7 @@ async function readAuthoringState(database: IDBDatabase): Promise<AuthoringState
         return question ? [question] : []
       }),
     },
-    examDraft: control.examDraft,
+    workingCopy: control.workingCopy,
     dirty: control.dirty,
   }
 }
@@ -183,7 +183,7 @@ async function transactionally(
 /** The active authoring backend used by the application. A custom database
  *  name keeps real-browser adapter tests isolated from application state. */
 export function createIndexedDBAuthoringBackend(
-  databaseName = VERSIONED_STORAGE_NAME,
+  databaseName = STORAGE_NAME,
 ): DurableAuthoringBackend & {
   commitCanonicalProjection(snapshot: CanonicalProjectionSnapshot): Promise<void>
 } {
@@ -262,7 +262,7 @@ export function createIndexedDBAuthoringBackend(
       // Assets are globally owned because canonical Questions and history can
       // outlive any one Exam database. Validate them before opening the atomic
       // Export Record transaction; a failure can never leave partial history.
-      const mediaDatabase = await openDatabase(VERSIONED_STORAGE_NAME)
+      const mediaDatabase = await openDatabase(STORAGE_NAME)
       try {
         const mediaTransaction = mediaDatabase.transaction(MEDIA_ASSET_STORE, 'readonly')
         const assets = await Promise.all(record.mediaHashes.map((hash) =>

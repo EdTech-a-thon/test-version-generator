@@ -10,7 +10,7 @@ function state(questionIds: string[], dirty: boolean): AuthoringState {
   }));
   return {
     questionBank: { questions },
-    examDraft: {
+    workingCopy: {
       title: "Biology",
       questionIds,
       columns: { a: 2, b: 4, c: 1 },
@@ -29,13 +29,13 @@ test("forced deletion removes canonical and presentation state while preserving 
   expect(deleted.working.questionBank.questions.map(({ id }) => id)).toEqual([
     "c",
   ]);
-  expect(deleted.working.examDraft).toEqual({
+  expect(deleted.working.workingCopy).toEqual({
     title: "Biology",
     questionIds: ["c"],
     columns: { c: 1 },
     choiceOrder: { c: ["c-1"] },
   });
-  expect(deleted.saved?.examDraft.questionIds).toEqual([]);
+  expect(deleted.saved?.workingCopy.questionIds).toEqual([]);
   expect(deleted.working.dirty).toBe(true);
 });
 
@@ -46,7 +46,7 @@ test("forced deletion itself is not an unsaved Exam change", () => {
   const deleted = withoutQuestions(working, saved, new Set(["a"]));
 
   expect(deleted.working.dirty).toBe(false);
-  expect(deleted.saved?.examDraft.questionIds).toEqual([]);
+  expect(deleted.saved?.workingCopy.questionIds).toEqual([]);
 });
 
 test("an aborted durable deletion leaves visible store state and history unchanged", () => {
@@ -64,7 +64,7 @@ test("an aborted durable deletion leaves visible store state and history unchang
     "b",
     "c",
   ]);
-  expect(before.examDraft.questionIds).toEqual(["a", "b"]);
+  expect(before.workingCopy.questionIds).toEqual(["a", "b"]);
   expect(before.dirty).toBe(true);
 });
 

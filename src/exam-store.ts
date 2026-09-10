@@ -1,12 +1,12 @@
 // The authoring state and the store that owns it.
 //
-// The authoring state — the Question Bank, the Exam Draft, and the dirty
+// The authoring state — the Question Bank, the Working Copy, and the dirty
 // flag — is mirrored to a backend on every change, so a refresh loses nothing.
 // The backend is a narrow injectable interface: the app hands the store the
 // normalized IndexedDB generation, while unit tests use an in-memory backend.
 //
 // The store is also the one authoring boundary. Every semantic action a teacher
-// can take on the Question Bank or the Exam Draft is a single method here:
+// can take on the Question Bank or the Working Copy is a single method here:
 // creating canonical Question Content with or without putting it on the exam,
 // adding a reference, editing a banked question's content and metadata, moving
 // a reference, Replacing one, and Removing one. Callers never assemble an
@@ -28,7 +28,7 @@ import {
 } from './exam'
 import {
   bankQuestionById,
-  createExamDraft,
+  createWorkingCopy,
   createQuestionBank,
   withChoiceOrder,
   withQuestionBanked,
@@ -36,7 +36,7 @@ import {
   withReferenceOrder,
   withReferenceReplaced,
   withReferencesRemoved,
-  type ExamDraft,
+  type ExamWorkingCopy,
   type QuestionBank,
 } from './question-bank'
 import { selectedExam, type SelectedExam } from './selected-exam'
@@ -52,7 +52,7 @@ import {
  *  and whether that has reached the saved state yet. */
 export type AuthoringState = {
   questionBank: QuestionBank
-  examDraft: ExamDraft
+  workingCopy: ExamWorkingCopy
   dirty: boolean
 }
 
@@ -71,7 +71,7 @@ export interface Backend<T> {
 }
 
 /** An authoring backend that keeps the explicit saved state in the same
- *  durability boundary as the working Question Bank and Exam Draft. */
+ *  durability boundary as the working Question Bank and Working Copy. */
 export interface DurableAuthoringBackend extends Backend<AuthoringState> {
   readSaved(): Promise<SavedState | null>
   /** Creates an Exam's saved baseline and first Working Copy in one transaction. */
@@ -108,7 +108,7 @@ export function createMemoryBackend<T>(
 export function createAuthoringState(): AuthoringState {
   return {
     questionBank: createQuestionBank(),
-    examDraft: createExamDraft(),
+    workingCopy: createWorkingCopy(),
     dirty: false,
   }
 }
@@ -138,8 +138,8 @@ function isColumnSettings(value: unknown): value is Record<string, ColumnSetting
   )
 }
 
-function isExamDraft(value: unknown): value is ExamDraft {
-  const draft = value as ExamDraft | null
+function isWorkingCopy(value: unknown): value is ExamWorkingCopy {
+  const draft = value as ExamWorkingCopy | null
   return (
     typeof draft === 'object' &&
     draft !== null &&
@@ -161,7 +161,7 @@ function isAuthoringState(value: unknown): value is AuthoringState {
     state !== null &&
     typeof state.dirty === 'boolean' &&
     isQuestionBank(state.questionBank) &&
-    isExamDraft(state.examDraft)
+    isWorkingCopy(state.workingCopy)
   )
 }
 
@@ -180,7 +180,7 @@ export type ExamStore = {
   /** The current authoring state. A new object on every change. */
   getState(): AuthoringState
   /** The Exam and ordering rendering and export consume — the referenced
-   *  Question Bank records, in Exam Draft order, and nothing else. */
+   *  Question Bank records, in Working Copy order, and nothing else. */
   selectedExam(): SelectedExam
   subscribe(listener: () => void): () => void
   /** Whether the newest Working Copy has reached browser-local storage. */
@@ -195,11 +195,8 @@ export type ExamStore = {
    * an undoable or discardable removal. */
   acceptForcedDeletion(questionIds: readonly string[]): void
 
-  /** Banks canonical Question Content without putting it on the Exam Draft. */
+  /** Banks canonical Question Content without putting it on the Working Copy. */
   createInQuestionBank(question: Question): void
-  /** Banks canonical Question Content and references it from the Exam Draft,
-   *  after `afterQuestionId` when given and at the end otherwise. */
-  createInExamDraft(question: Question, afterQuestionId?: string | null): void
   /** Replaces one Question Bank record — its Question Content, its Question
    *  Type, its Difficulty and its Topics — wherever it is referenced. One
    *  popup save is one call, so a content edit and a metadata edit made
@@ -210,29 +207,29 @@ export type ExamStore = {
   /** References a newly canonical copy immediately after the original while
    * preserving the original's visible Exam presentation. The caller may supply
    * a copy already committed to the owning Question Bank. */
-  duplicateInExamDraft(questionId: string, duplicate?: Question): void
-  /** References an unused Question Bank record from the Exam Draft — at the end,
+  duplicateInWorkingCopy(questionId: string, duplicate?: Question): void
+  /** References an unused Question Bank record from the Working Copy — at the end,
    *  or immediately before or after `targetQuestionId`. `'before'` is what names
    *  the first position in a Question Section, which no `'after'` can. A
    *  question already referenced is left where it is: a reference occurs at most
    *  once. An insertion beside a question in another Question Section is
    *  refused: composing never moves a question across the Multiple Choice /
    *  Short Answer boundary. */
-  addToExamDraft(
+  addToWorkingCopy(
     question: string | Question,
     targetQuestionId?: string | null,
     placement?: QuestionPlacement,
   ): void
-  /** Replaces one Exam Draft reference with an unused Question Bank record of
+  /** Replaces one Working Copy reference with an unused Question Bank record of
    *  the same Question Type, in the outgoing question's exact position. Nothing
    *  is copied and nothing is deleted: the outgoing question keeps its Question
    *  Bank record and is available to compose with again. Refused when either
    *  question is unbanked, when their Question Sections differ, or when the
-   *  incoming question is already on the Exam Draft. */
-  replaceInExamDraft(outgoingQuestionId: string, incoming: string | Question): void
+   *  incoming question is already on the Working Copy. */
+  replaceInWorkingCopy(outgoingQuestionId: string, incoming: string | Question): void
   /** Moves references within their Question Section. A target in another
    *  section is refused: composing never changes a question's type. */
-  moveInExamDraft(
+  moveInWorkingCopy(
     questionIds: readonly string[],
     targetId: string,
     placement: QuestionPlacement,
@@ -242,12 +239,12 @@ export type ExamStore = {
    *  authoring action. */
   shuffleSelectedQuestions(questionIds: readonly string[]): void
   /** Shuffles each selected eligible Multiple Choice question's answers in one
-   *  authoring action. The order belongs to the Exam Draft, not Question
+   *  authoring action. The order belongs to the Working Copy, not Question
    *  Content, so its canonical authored order remains intact. */
   shuffleSelectedAnswers(questionIds: readonly string[]): void
-  /** Removes references from the Exam Draft, leaving their Question Bank
+  /** Removes references from the Working Copy, leaving their Question Bank
    *  records exactly as they were. Remove excludes; it never deletes. */
-  removeFromExamDraft(questionIds: readonly string[]): void
+  removeFromWorkingCopy(questionIds: readonly string[]): void
   /** Whether anything has ever been saved — what tells an untouched draft from
    *  an exam with unsaved changes. */
   hasSavedExam(): boolean
@@ -269,39 +266,39 @@ export type ExamStore = {
   whenSettled(): Promise<void>
 }
 
-// The authoring state carrying a new Exam Draft — or the very same state when
-// the Exam Draft refused the change. Every reference operation is total and
+// The authoring state carrying a new Working Copy — or the very same state when
+// the Working Copy refused the change. Every reference operation is total and
 // returns the draft it was given when it declines, and this is what turns that
 // into "nothing happened": no undo step, no dirty flag and no write, because
 // `apply` stops at an unchanged state.
-function withExamDraft(
+function withExamWorkingCopy(
   state: AuthoringState,
-  examDraft: ExamDraft,
+  workingCopy: ExamWorkingCopy,
 ): AuthoringState {
-  return examDraft === state.examDraft ? state : { ...state, examDraft }
+  return workingCopy === state.workingCopy ? state : { ...state, workingCopy }
 }
 
 /** Freeze every referenced Question's current layout into an Exam arrangement.
  * It is used at save time, where an absent legacy setting must not keep
  * following a later canonical-content edit. */
-function withResolvedColumns(state: AuthoringState): ExamDraft {
-  const current = state.examDraft.columns ?? {}
+function withResolvedColumns(state: AuthoringState): ExamWorkingCopy {
+  const current = state.workingCopy.columns ?? {}
   let changed = false
   const columns = { ...current }
-  for (const questionId of state.examDraft.questionIds) {
+  for (const questionId of state.workingCopy.questionIds) {
     if (columns[questionId] !== undefined) continue
     const question = bankQuestionById(state.questionBank, questionId)
     if (!question) continue
     columns[questionId] = question.columns
     changed = true
   }
-  return changed ? { ...state.examDraft, columns } : state.examDraft
+  return changed ? { ...state.workingCopy, columns } : state.workingCopy
 }
 
 /** Savedness is a composition comparison. Canonical Question Content is live,
  * so it intentionally does not participate: only the Exam name, membership,
  * question order, answer order and column layout are explicitly saved. */
-function sameExamDraft(left: ExamDraft, right: ExamDraft): boolean {
+function sameExamWorkingCopy(left: ExamWorkingCopy, right: ExamWorkingCopy): boolean {
   const sameEntries = <T>(first: Record<string, T> | undefined, second: Record<string, T> | undefined, equal: (left: T, right: T) => boolean) => {
     const firstEntries = Object.entries(first ?? {})
     const secondEntries = second ?? {}
@@ -322,18 +319,18 @@ function sameExamDraft(left: ExamDraft, right: ExamDraft): boolean {
 function withColumnResolved(
   state: AuthoringState,
   questionId: string,
-): ExamDraft {
-  if (state.examDraft.columns?.[questionId] !== undefined) return state.examDraft
+): ExamWorkingCopy {
+  if (state.workingCopy.columns?.[questionId] !== undefined) return state.workingCopy
   const question = bankQuestionById(state.questionBank, questionId)
-  if (!question) return state.examDraft
+  if (!question) return state.workingCopy
   return {
-    ...state.examDraft,
-    columns: { ...(state.examDraft.columns ?? {}), [questionId]: question.columns },
+    ...state.workingCopy,
+    columns: { ...(state.workingCopy.columns ?? {}), [questionId]: question.columns },
   }
 }
 
 function withDirtyFlag(current: AuthoringState, saved: SavedState | null): AuthoringState {
-  const dirty = !saved || !sameExamDraft(current.examDraft, saved.examDraft)
+  const dirty = !saved || !sameExamWorkingCopy(current.workingCopy, saved.workingCopy)
   return current.dirty === dirty ? current : { ...current, dirty }
 }
 
@@ -365,14 +362,14 @@ export function createExamStore(options: {
   // records (and narrow in-memory test stores) a stable initial baseline.
   let saved: SavedState | null = options.saved ?? {
     questionBank: initialState.questionBank,
-    examDraft: initialState.examDraft,
+    workingCopy: initialState.workingCopy,
   }
   let state: AuthoringState = withDirtyFlag(initialState, saved)
   let exportHistory = options.exportHistory ?? EMPTY_EXPORT_HISTORY
   // The derived Exam, kept beside the state it was derived from. Deriving it
   // once per change rather than once per read is what lets a consumer treat it
   // as a stable dependency; `selectedExam` reuses the halves that did not move.
-  let selected: SelectedExam = selectedExam(state.questionBank, state.examDraft)
+  let selected: SelectedExam = selectedExam(state.questionBank, state.workingCopy)
   const listeners = new Set<() => void>()
   let pending: Promise<void> = Promise.resolve()
   let backupStatus: BackupStatus = 'ready'
@@ -416,7 +413,7 @@ export function createExamStore(options: {
 
   const settle = (next: AuthoringState) => {
     state = withDirtyFlag(next, saved)
-    selected = selectedExam(state.questionBank, state.examDraft, selected)
+    selected = selectedExam(state.questionBank, state.workingCopy, selected)
     mirror()
     notify()
   }
@@ -457,7 +454,7 @@ export function createExamStore(options: {
 
   const syncHistoryQuestion = (snapshot: AuthoringState, question: Question): AuthoringState => {
     const projected = withCanonicalQuestionProjection(snapshot, null, question).working
-    return projected.questionBank === snapshot.questionBank && projected.examDraft === snapshot.examDraft
+    return projected.questionBank === snapshot.questionBank && projected.workingCopy === snapshot.workingCopy
       ? snapshot
       : projected
   }
@@ -473,9 +470,9 @@ export function createExamStore(options: {
 
     setTitle: (title) =>
       change((current) =>
-        title === current.examDraft.title
+        title === current.workingCopy.title
           ? current
-          : { ...current, examDraft: { ...current.examDraft, title } },
+          : { ...current, workingCopy: { ...current.workingCopy, title } },
       ),
 
     syncCanonicalQuestions: (questions) => {
@@ -500,7 +497,7 @@ export function createExamStore(options: {
       if (working === state) return
       state = working
       saved = nextSaved
-      selected = selectedExam(state.questionBank, state.examDraft, selected)
+      selected = selectedExam(state.questionBank, state.workingCopy, selected)
       notify()
     },
 
@@ -508,7 +505,7 @@ export function createExamStore(options: {
       const deleted = withoutQuestions(state, saved, new Set(questionIds))
       state = deleted.working
       saved = deleted.saved
-      selected = selectedExam(state.questionBank, state.examDraft, selected)
+      selected = selectedExam(state.questionBank, state.workingCopy, selected)
       undoStack.length = 0
       redoStack.length = 0
       notify()
@@ -520,49 +517,38 @@ export function createExamStore(options: {
         questionBank: withQuestionBanked(current.questionBank, question),
       })),
 
-    createInExamDraft: (question, afterQuestionId = null) =>
-      change((current) => ({
-        ...current,
-        questionBank: withQuestionBanked(current.questionBank, question),
-        examDraft: withReferenceAdded(
-          current.examDraft,
-          question.id,
-          afterQuestionId,
-        ),
-      })),
-
     updateInQuestionBank: (question) =>
       change((current) => {
         // A Question Content edit must not silently revise this Exam's answer
         // layout. Capture its current effective setting before replacing the
         // canonical record, including for working copies written before the
-        // setting moved onto the Exam Draft.
+        // setting moved onto the Working Copy.
         const prior = bankQuestionById(current.questionBank, question.id)
         if (prior && prior.type !== question.type) return current
-        const columns = current.examDraft.columns ?? {}
-        const examDraft = current.examDraft.questionIds.includes(question.id)
+        const columns = current.workingCopy.columns ?? {}
+        const workingCopy = current.workingCopy.questionIds.includes(question.id)
           && columns[question.id] === undefined
           && prior
           ? {
-              ...current.examDraft,
+              ...current.workingCopy,
               columns: { ...columns, [question.id]: prior.columns },
             }
-          : current.examDraft
+          : current.workingCopy
         return {
           ...current,
           questionBank: withQuestionBanked(current.questionBank, question),
-          examDraft,
+          workingCopy,
         }
       }),
 
     setQuestionColumns: (questionIds, columns) => {
       const targeted = new Set(questionIds)
       change((current) => {
-        const currentColumns = current.examDraft.columns ?? {}
+        const currentColumns = current.workingCopy.columns ?? {}
         let changed = false
         const nextColumns = { ...currentColumns }
         for (const questionId of targeted) {
-          if (!current.examDraft.questionIds.includes(questionId)) continue
+          if (!current.workingCopy.questionIds.includes(questionId)) continue
           const effectiveColumns = nextColumns[questionId]
             ?? bankQuestionById(current.questionBank, questionId)?.columns
           if (effectiveColumns === columns) continue
@@ -570,52 +556,50 @@ export function createExamStore(options: {
           changed = true
         }
         return changed
-          ? { ...current, examDraft: { ...current.examDraft, columns: nextColumns } }
+          ? { ...current, workingCopy: { ...current.workingCopy, columns: nextColumns } }
           : current
       })
     },
 
-    duplicateInExamDraft: (questionId, suppliedCopy) =>
+    duplicateInWorkingCopy: (questionId, suppliedCopy) =>
       change((current) => {
         const original = bankQuestionById(current.questionBank, questionId)
-        if (!original || !current.examDraft.questionIds.includes(questionId)) return current
+        if (!original || !current.workingCopy.questionIds.includes(questionId)) return current
         const copy = suppliedCopy ?? duplicateQuestion(original)
         if (bankQuestionById(current.questionBank, copy.id)) return current
-        const selected = selectedExam(current.questionBank, current.examDraft)
+        const selected = selectedExam(current.questionBank, current.workingCopy)
         const visibleOriginal = selected.exam.questions.find(({ id }) => id === questionId)
         const originalChoices = choicesOf(original)
         const copiedChoices = choicesOf(copy)
-        const copiedChoiceOrder = orderedChoices(original, selected.version).map((choice) =>
+        const copiedChoiceOrder = orderedChoices(original, selected.arrangement).map((choice) =>
           copiedChoices[originalChoices.findIndex(({ id }) => id === choice.id)]!.id,
         )
-        const examDraft = withReferenceAdded(current.examDraft, copy.id, questionId)
+        const workingCopy = withReferenceAdded(current.workingCopy, copy.id, questionId)
         return {
           ...current,
           questionBank: withQuestionBanked(current.questionBank, copy),
-          examDraft: {
-            ...examDraft,
+          workingCopy: {
+            ...workingCopy,
             columns: {
-              ...(examDraft.columns ?? {}),
+              ...(workingCopy.columns ?? {}),
               [copy.id]: visibleOriginal ? columnsOf(visibleOriginal) : columnsOf(original),
             },
             choiceOrder: {
-              ...(examDraft.choiceOrder ?? {}),
+              ...(workingCopy.choiceOrder ?? {}),
               [copy.id]: copiedChoiceOrder,
             },
           },
         }
       }),
 
-    addToExamDraft: (questionOrId, targetQuestionId = null, placement = 'after') =>
+    addToWorkingCopy: (questionOrId, targetQuestionId = null, placement = 'after') =>
       change((current) => {
         const supplied = typeof questionOrId === 'string' ? null : questionOrId
         const questionId = typeof questionOrId === 'string' ? questionOrId : questionOrId.id
         const question = supplied ?? bankQuestionById(current.questionBank, questionId)
         if (!question) return current
         // An insertion point in another Question Section is refused rather than
-        // quietly honoured somewhere else. `createInExamDraft` is deliberately
-        // more tolerant: there the position is a hint and refusing it would
-        // lose a question the teacher has just written.
+        // quietly honoured somewhere else.
         const target = targetQuestionId
           ? bankQuestionById(current.questionBank, targetQuestionId)
           : null
@@ -623,16 +607,16 @@ export function createExamStore(options: {
         const bank = supplied
           ? withQuestionBanked(current.questionBank, supplied)
           : current.questionBank
-        let examDraft = withReferenceAdded(
-          current.examDraft,
+        let workingCopy = withReferenceAdded(
+          current.workingCopy,
           questionId,
           targetQuestionId,
           placement,
         )
-        if (examDraft === current.examDraft) return current
+        if (workingCopy === current.workingCopy) return current
         if (question.type === 'multiple-choice') {
-          const selected = selectedExam(bank, current.examDraft)
-          const rendered = orderedQuestions(selected.exam, selected.version)
+          const selected = selectedExam(bank, current.workingCopy)
+          const rendered = orderedQuestions(selected.exam, selected.arrangement)
             .filter(({ type }) => type === question.type)
           const targetIndex = targetQuestionId
             ? rendered.findIndex(({ id }) => id === targetQuestionId)
@@ -642,18 +626,18 @@ export function createExamStore(options: {
             : placement === 'before'
               ? rendered[targetIndex - 1] ?? rendered[targetIndex]
               : rendered[targetIndex]
-          examDraft = {
-            ...examDraft,
+          workingCopy = {
+            ...workingCopy,
             columns: {
-              ...(examDraft.columns ?? {}),
+              ...(workingCopy.columns ?? {}),
               [questionId]: neighbor ? columnsOf(neighbor) : 1,
             },
           }
         }
-        return { ...current, questionBank: bank, examDraft }
+        return { ...current, questionBank: bank, workingCopy }
       }),
 
-    replaceInExamDraft: (outgoingQuestionId, incomingQuestion) =>
+    replaceInWorkingCopy: (outgoingQuestionId, incomingQuestion) =>
       change((current) => {
         const incomingQuestionId = typeof incomingQuestion === 'string'
           ? incomingQuestion
@@ -667,55 +651,55 @@ export function createExamStore(options: {
           !outgoing
           || !incoming
           || outgoing.type !== incoming.type
-          || current.examDraft.questionIds.includes(incomingQuestionId)
+          || current.workingCopy.questionIds.includes(incomingQuestionId)
         ) return current
-        const examDraft = withColumnResolved({ ...current, questionBank: bank }, outgoingQuestionId)
-        const replaced = withReferenceReplaced(examDraft, outgoingQuestionId, incomingQuestionId)
-        return replaced === current.examDraft && bank === current.questionBank
+        const workingCopy = withColumnResolved({ ...current, questionBank: bank }, outgoingQuestionId)
+        const replaced = withReferenceReplaced(workingCopy, outgoingQuestionId, incomingQuestionId)
+        return replaced === current.workingCopy && bank === current.questionBank
           ? current
-          : { ...current, questionBank: bank, examDraft: replaced }
+          : { ...current, questionBank: bank, workingCopy: replaced }
       }),
 
-    moveInExamDraft: (questionIds, targetId, placement) =>
+    moveInWorkingCopy: (questionIds, targetId, placement) =>
       change((current) => {
         // Reordering is the derived Exam's own rule — a question only ever
         // moves within its Question Section — so the move is resolved against
-        // the derived arrangement and its result recorded as the Exam Draft's
+        // the derived arrangement and its result recorded as the Working Copy's
         // new order.
-        const { exam, version } = selectedExam(current.questionBank, current.examDraft)
-        const moved = moveQuestions(exam, version, questionIds, targetId, placement)
-        if (moved === version) return current
-        return withExamDraft(
+        const { exam, arrangement } = selectedExam(current.questionBank, current.workingCopy)
+        const moved = moveQuestions(exam, arrangement, questionIds, targetId, placement)
+        if (moved === arrangement) return current
+        return withExamWorkingCopy(
           current,
-          withReferenceOrder(current.examDraft, moved.questionOrder),
+          withReferenceOrder(current.workingCopy, moved.questionOrder),
         )
       }),
 
     shuffleSelectedQuestions: (questionIds) =>
       change((current) => {
-        const { exam, version } = selectedExam(current.questionBank, current.examDraft)
-        const shuffled = shuffleSelectedQuestions(exam, version, questionIds, Math.random)
-        if (shuffled === version) return current
-        return withExamDraft(
+        const { exam, arrangement } = selectedExam(current.questionBank, current.workingCopy)
+        const shuffled = shuffleSelectedQuestions(exam, arrangement, questionIds, Math.random)
+        if (shuffled === arrangement) return current
+        return withExamWorkingCopy(
           current,
-          withReferenceOrder(current.examDraft, shuffled.questionOrder),
+          withReferenceOrder(current.workingCopy, shuffled.questionOrder),
         )
       }),
 
     shuffleSelectedAnswers: (questionIds) =>
       change((current) => {
-        const { exam, version } = selectedExam(current.questionBank, current.examDraft)
-        const shuffled = shuffleSelectedAnswers(exam, version, questionIds, Math.random)
-        if (shuffled === version) return current
-        return withExamDraft(
+        const { exam, arrangement } = selectedExam(current.questionBank, current.workingCopy)
+        const shuffled = shuffleSelectedAnswers(exam, arrangement, questionIds, Math.random)
+        if (shuffled === arrangement) return current
+        return withExamWorkingCopy(
           current,
-          withChoiceOrder(current.examDraft, shuffled.choiceOrder),
+          withChoiceOrder(current.workingCopy, shuffled.choiceOrder),
         )
       }),
 
-    removeFromExamDraft: (questionIds) =>
+    removeFromWorkingCopy: (questionIds) =>
       change((current) =>
-        withExamDraft(current, withReferencesRemoved(current.examDraft, questionIds)),
+        withExamWorkingCopy(current, withReferencesRemoved(current.workingCopy, questionIds)),
       ),
 
     hasSavedExam: () => saved !== null,
@@ -729,12 +713,12 @@ export function createExamStore(options: {
       await pending
       const working = state
       const sourceSaved = saved
-      const copiedTitle = `${working.examDraft.title} Copy`
+      const copiedTitle = `${working.workingCopy.title} Copy`
       const targetInitial: AuthoringState = {
         ...working,
         // A newly explicit saved composition must freeze any inherited answer
         // column settings exactly as Save does.
-        examDraft: { ...withResolvedColumns(working), title: copiedTitle },
+        workingCopy: { ...withResolvedColumns(working), title: copiedTitle },
         dirty: false,
       }
       // Question Content remains live when restoring an arrangement: Save As
@@ -742,13 +726,13 @@ export function createExamStore(options: {
       // composition predates them.
       const sourceRestored: AuthoringState = {
         ...working,
-        examDraft: sourceSaved?.examDraft ?? createExamDraft(working.examDraft.title),
+        workingCopy: sourceSaved?.workingCopy ?? createWorkingCopy(working.workingCopy.title),
         dirty: false,
       }
       const history = { undo: [...undoStack], redo: [...redoStack] }
       await commit({ sourceRestored, targetInitial })
       state = withDirtyFlag(sourceRestored, sourceSaved)
-      selected = selectedExam(state.questionBank, state.examDraft, selected)
+      selected = selectedExam(state.questionBank, state.workingCopy, selected)
       undoStack.length = 0
       redoStack.length = 0
       notify()
@@ -761,7 +745,7 @@ export function createExamStore(options: {
       const savingState = state
       const nextSaved: SavedState = {
         questionBank: savingState.questionBank,
-        examDraft: withResolvedColumns(savingState),
+        workingCopy: withResolvedColumns(savingState),
       }
       await (durableBackend
         ? durableBackend.commitSaved(nextSaved)
@@ -775,11 +759,11 @@ export function createExamStore(options: {
         return
       }
       if (durableBackend) {
-        state = withDirtyFlag({ ...state, examDraft: nextSaved.examDraft }, saved)
-        selected = selectedExam(state.questionBank, state.examDraft, selected)
+        state = withDirtyFlag({ ...state, workingCopy: nextSaved.workingCopy }, saved)
+        selected = selectedExam(state.questionBank, state.workingCopy, selected)
         notify()
       } else {
-        settle({ ...state, examDraft: nextSaved.examDraft })
+        settle({ ...state, workingCopy: nextSaved.workingCopy })
         await pending
       }
     },
@@ -797,10 +781,10 @@ export function createExamStore(options: {
       // Discard restores this Exam's saved composition, but Question Content is
       // canonical and live. A later typo fix therefore remains visible rather
       // than being rolled back with this Exam's arrangement.
-      const savedDraft = saved?.examDraft ?? createExamDraft(state.examDraft.title)
+      const savedDraft = saved?.workingCopy ?? createWorkingCopy(state.workingCopy.title)
       const restored: AuthoringState = {
         ...state,
-        examDraft: savedDraft,
+        workingCopy: savedDraft,
       }
       undoStack.length = 0
       redoStack.length = 0

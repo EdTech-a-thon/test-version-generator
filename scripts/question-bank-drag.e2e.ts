@@ -1,7 +1,7 @@
-// Composing an Exam Draft with the pointer, in a real browser.
+// Composing a Working Copy with the pointer, in a real browser.
 //
 // The drop rule itself is a pure function proven in `src/workspace-drag.test.ts`,
-// and what each authoring action does to the Question Bank and the Exam Draft is
+// and what each authoring action does to the Question Bank and the Working Copy is
 // proven at the store. What is proven here is the part only a browser has: that
 // a gesture starting in one pane reaches a target in the other, that the three
 // zones of a rendered question are where the rule says they are, that an
@@ -52,7 +52,7 @@ const examQuestions = (page: Page) => page.locator(EXAM_QUESTION)
 const rendered = (page: Page, id: string) =>
   page.locator(`.exam-question[data-question-id="${id}"]`)
 
-/** The rendered Exam Draft, in the order it prints. */
+/** The rendered Working Copy, in the order it prints. */
 async function renderedIds(page: Page): Promise<string[]> {
   return await page.locator(EXAM_QUESTION).evaluateAll((nodes) =>
     nodes.map((node) => (node as HTMLElement).dataset.questionId ?? ''),
@@ -65,7 +65,7 @@ async function openWorkspace(
 ) {
   await seedAuthoringState(page, {
     questionBank: { questions: QUESTIONS },
-    examDraft: { title: 'Biology quiz', questionIds },
+    workingCopy: { title: 'Biology quiz', questionIds },
     dirty: false,
   })
   await expect(examQuestions(page)).toHaveCount(questionIds.length)
@@ -226,7 +226,7 @@ test('an empty Question Section offers a first-question drop target', async ({ p
   await expect(emptySectionOffer(page)).toHaveCount(0)
 })
 
-test('an empty Exam Draft offers its placeholder as the first-question drop target', async ({ page }) => {
+test('an empty Working Copy offers its placeholder as the first-question drop target', async ({ page }) => {
   await openWorkspace(page, [])
 
   // A blank sheet already draws where the first question goes, so that is what
@@ -267,7 +267,7 @@ test('a bank-to-draft drop is exactly one undoable action, and redoes', async ({
   expect(await renderedIds(page)).toEqual(['mc1', 'mcSpare', 'mc2', 'sa1'])
 })
 
-test('dragging inside the Exam Draft reorders and never Replaces', async ({ page }) => {
+test('dragging inside the Working Copy reorders and never Replaces', async ({ page }) => {
   await openWorkspace(page)
 
   const target = rendered(page, 'mc2')
@@ -315,7 +315,7 @@ test('a composed question is selected and revealed after repagination', async ({
   ]
   await seedAuthoringState(page, {
     questionBank: { questions: many },
-    examDraft: {
+    workingCopy: {
       title: 'A long exam',
       questionIds: many.slice(0, 14).map((item) => item.id),
     },

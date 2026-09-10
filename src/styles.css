@@ -160,8 +160,8 @@ button { cursor: pointer; }
   min-width: 0; padding: 18px; display: flex; flex-direction: column; gap: 18px;
   overflow-y: auto; border-left: 1px solid #e0d3c5;
 }
-.export-version-state { display: grid; gap: 4px; margin: 0; color: #6e5b4d; }
-.export-version-state strong { color: #332a24; font-size: 20px; }
+.export-arrangement-state { display: grid; gap: 4px; margin: 0; color: #6e5b4d; }
+.export-arrangement-state strong { color: #332a24; font-size: 20px; }
 .export-durability-note { margin: 0; color: #6e5b4d; font-size: 13px; line-height: 1.45; }
 .storage-notice {
   position: fixed; z-index: 40; left: 50%; bottom: 22px; transform: translateX(-50%);
@@ -214,24 +214,24 @@ button { cursor: pointer; }
 }
 .empty-exam-button svg { width: 17px; height: 17px; stroke-width: 2; }
 
-/* Version History is an inspection drawer, not another editing surface. */
-.version-history-drawer {
+/* Arrangement History is an inspection drawer, not another editing surface. */
+.export-history-drawer {
   position: fixed; z-index: 19; top: 58px; right: 0; bottom: 0; width: min(360px, 100vw);
   padding: 18px; overflow-y: auto; border-left: 1px solid #e0d3c2;
   background: #fffaf3; box-shadow: -8px 0 24px rgb(55 42 33 / 16%);
 }
-.version-history-drawer[hidden] { display: none; }
-.version-history-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
-.version-history-header h2 { margin: 0; font-size: 18px; }
-.version-history-header p, .version-history-empty { margin: 6px 0 0; color: #6e5b4d; font-size: 13px; line-height: 1.45; }
-.version-history-list { display: grid; gap: 8px; margin: 20px 0 0; padding: 0; list-style: none; }
-.version-history-item {
+.export-history-drawer[hidden] { display: none; }
+.export-history-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+.export-history-header h2 { margin: 0; font-size: 18px; }
+.export-history-header p, .export-history-empty { margin: 6px 0 0; color: #6e5b4d; font-size: 13px; line-height: 1.45; }
+.export-history-list { display: grid; gap: 8px; margin: 20px 0 0; padding: 0; list-style: none; }
+.export-history-item {
   display: grid; width: 100%; gap: 4px; padding: 12px; border: 1px solid #e0d3c2;
   border-radius: 8px; color: #4e3b2f; background: #fffdf8; text-align: left;
 }
-.version-history-item:hover, .version-history-item:focus-visible { border-color: #9f5037; background: #f7eee3; }
-.version-history-item[aria-current='page'] { border-color: #9f5037; box-shadow: inset 0 0 0 1px #9f5037; }
-.version-history-item time, .version-history-item span { color: #6e5b4d; font-size: 13px; }
+.export-history-item:hover, .export-history-item:focus-visible { border-color: #9f5037; background: #f7eee3; }
+.export-history-item[aria-current='page'] { border-color: #9f5037; box-shadow: inset 0 0 0 1px #9f5037; }
+.export-history-item time, .export-history-item span { color: #6e5b4d; font-size: 13px; }
 .historical-document { min-height: calc(100vh - 58px); }
 .historical-document-bar {
   position: sticky; top: 58px; z-index: 2; display: flex; align-items: center; justify-content: space-between;
@@ -272,7 +272,7 @@ button { cursor: pointer; }
 /* ---------------------------------------------------------------------------
    The split authoring workspace.
 
-   The Question Bank sits beside the rendered Exam Draft at an even split, so
+   The Question Bank sits beside the rendered Working Copy at an even split, so
    neither side reads as the lesser one, and the divider between them moves.
    The sheet keeps its real geometry — it is a piece of paper, and scaling it to
    fit a pane would show a layout the printer will not produce — so the Exam
@@ -281,7 +281,7 @@ button { cursor: pointer; }
 
    `--bank-column` is the width `workspace-split.tsx` is holding: a percentage
    while the bank is open, the rail's width once it is away. The fixed drop
-   offer at the foot of the Exam Draft pane reads it too, so the two cannot
+   offer at the foot of the Working Copy pane reads it too, so the two cannot
    disagree about where the pane begins. */
 .authoring-workspace {
   --bank-column: 33%;
@@ -643,7 +643,7 @@ button { cursor: pointer; }
 
    An empty section is not drawn on the sheet — a section is derived from the
    questions in it — so a composition gesture would have nothing to aim at. This
-   is the offer, pinned to the foot of the Exam Draft pane while a compatible
+   is the offer, pinned to the foot of the Working Copy pane while a compatible
    gesture is in flight: reachable however far the exam has been scrolled, and
    never a pixel taken from the paper's own geometry. */
 .exam-draft-empty-section {
@@ -1099,7 +1099,7 @@ button { cursor: pointer; }
   html[data-export-reference-print] .vary-summary,
   html[data-export-reference-print] .measure-host,
   html[data-export-reference-print] .authoring-workspace,
-  html[data-export-reference-print] .version-history-drawer,
+  html[data-export-reference-print] .export-history-drawer,
   html[data-export-reference-print] .dialog-backdrop { display: none; }
   html[data-export-reference-print] body,
   html[data-export-reference-print] :root { background: #fff; }

@@ -1,13 +1,13 @@
 // The canonical exam model.
 //
-// There is exactly one copy of every question. A `Version` holds an ordering
+// There is exactly one copy of every question. An `Arrangement` holds an ordering
 // and nothing else: which order the questions appear in, and which order each
 // question's choices appear in. Fixing a typo therefore fixes it in every
-// version, and shuffling one version never disturbs another.
+// arrangement, and shuffling one arrangement never disturbs another.
 //
 // Orderings are tolerated rather than validated: a question or choice that the
 // ordering has never heard of is appended to the end of its section, and an id
-// in an ordering with nothing behind it is ignored. That is what keeps versions
+// in an ordering with nothing behind it is ignored. That is what keeps arrangements
 // valid across content edits without a migration step.
 
 import {
@@ -41,7 +41,7 @@ export type Difficulty = 'easy' | 'medium' | 'hard'
 export const DIFFICULTIES: readonly Difficulty[] = ['easy', 'medium', 'hard']
 
 /** How each Question Section is written wherever a teacher sees it, so the
- *  bank row, the filter and the Exam Draft's own chrome can never disagree. */
+ *  bank row, the filter and the Working Copy's own chrome can never disagree. */
 export const SECTION_LABELS: Record<QuestionType, string> = {
   'multiple-choice': 'Multiple choice',
   open: 'Short answer',
@@ -75,7 +75,7 @@ export type Exam = {
   questions: Question[]
 }
 
-export type Version = {
+export type Arrangement = {
   id: string
   letter: string
   questionOrder: string[]
@@ -172,21 +172,21 @@ export function createExam(title: string = DEFAULT_EXAM_TITLE): Exam {
   return { title, questions: [] }
 }
 
-export function createVersion(letter = 'A'): Version {
+export function createArrangement(letter = 'A'): Arrangement {
   return { id: crypto.randomUUID(), letter, questionOrder: [], choiceOrder: {} }
 }
 
 // 'A', 'B', 'C', … skipping letters already taken. Past 'Z' the letters keep
 // counting as 'AA', 'AB', … rather than colliding.
-export function nextVersionLetter(versions: readonly Version[]): string {
-  const taken = new Set(versions.map((version) => version.letter))
+export function nextArrangementLetter(arrangements: readonly Arrangement[]): string {
+  const taken = new Set(arrangements.map((arrangement) => arrangement.letter))
   for (let index = 0; ; index += 1) {
-    const letter = versionLetterAt(index)
+    const letter = arrangementLetterAt(index)
     if (!taken.has(letter)) return letter
   }
 }
 
-function versionLetterAt(index: number): string {
+function arrangementLetterAt(index: number): string {
   let letter = ''
   let remaining = index
   do {
@@ -219,25 +219,25 @@ export function reconcileOrder(
   return result
 }
 
-// The questions of one section, in the order this version puts them in.
+// The questions of one section, in the order this arrangement puts them in.
 export function questionsInSection(
   exam: Exam,
-  version: Version,
+  arrangement: Arrangement,
   section: QuestionType,
 ): Question[] {
   const inSection = exam.questions.filter((question) => question.type === section)
   const byId = new Map(inSection.map((question) => [question.id, question]))
   return reconcileOrder(
-    version.questionOrder,
+    arrangement.questionOrder,
     inSection.map((question) => question.id),
   ).map((id) => byId.get(id)!)
 }
 
 // Every question in render order: each section in turn, each section in the
-// order this version puts it in.
-export function orderedQuestions(exam: Exam, version: Version): Question[] {
+// order this arrangement puts it in.
+export function orderedQuestions(exam: Exam, arrangement: Arrangement): Question[] {
   return SECTION_ORDER.flatMap((section) =>
-    questionsInSection(exam, version, section),
+    questionsInSection(exam, arrangement, section),
   )
 }
 
@@ -250,35 +250,35 @@ export function choicesOf(question: Question): Choice[] {
   }))
 }
 
-// The question's answers in the order this version puts them in. A choice's
+// The question's answers in the order this arrangement puts them in. A choice's
 // letter on the printed page is its position here, so correctness follows its
 // choice with no bookkeeping.
-export function orderedChoices(question: Question, version: Version): Choice[] {
+export function orderedChoices(question: Question, arrangement: Arrangement): Choice[] {
   const choices = choicesOf(question)
   const byId = new Map(choices.map((choice) => [choice.id, choice]))
   return reconcileOrder(
-    version.choiceOrder[question.id] ?? [],
+    arrangement.choiceOrder[question.id] ?? [],
     choices.map((choice) => choice.id),
   ).map((id) => byId.get(id)!)
 }
 
 export function withQuestionAppended(
-  version: Version,
+  arrangement: Arrangement,
   questionId: string,
-): Version {
-  if (version.questionOrder.includes(questionId)) return version
-  return { ...version, questionOrder: [...version.questionOrder, questionId] }
+): Arrangement {
+  if (arrangement.questionOrder.includes(questionId)) return arrangement
+  return { ...arrangement, questionOrder: [...arrangement.questionOrder, questionId] }
 }
 
 export function withQuestionRemoved(
-  version: Version,
+  arrangement: Arrangement,
   questionId: string,
-): Version {
-  const choiceOrder = { ...version.choiceOrder }
+): Arrangement {
+  const choiceOrder = { ...arrangement.choiceOrder }
   delete choiceOrder[questionId]
   return {
-    ...version,
-    questionOrder: version.questionOrder.filter((id) => id !== questionId),
+    ...arrangement,
+    questionOrder: arrangement.questionOrder.filter((id) => id !== questionId),
     choiceOrder,
   }
 }
@@ -289,33 +289,33 @@ export type QuestionPlacement = 'before' | 'after'
 // another section is refused: ordering never changes a question's type.
 export function moveQuestion(
   exam: Exam,
-  version: Version,
+  arrangement: Arrangement,
   questionId: string,
   targetId: string,
   placement: QuestionPlacement,
-): Version {
+): Arrangement {
   const question = questionById(exam, questionId)
   const target = questionById(exam, targetId)
   if (!question || !target || question.type !== target.type || questionId === targetId) {
-    return version
+    return arrangement
   }
 
-  const sectionIds = questionsInSection(exam, version, question.type).map(
+  const sectionIds = questionsInSection(exam, arrangement, question.type).map(
     (item) => item.id,
   )
   const withoutQuestion = sectionIds.filter((id) => id !== questionId)
   const targetIndex = withoutQuestion.indexOf(targetId)
-  if (targetIndex < 0) return version
+  if (targetIndex < 0) return arrangement
   withoutQuestion.splice(targetIndex + (placement === 'after' ? 1 : 0), 0, questionId)
 
   const questionOrder = SECTION_ORDER.flatMap((section) =>
     section === question.type
       ? withoutQuestion
-      : questionsInSection(exam, version, section).map((item) => item.id),
+      : questionsInSection(exam, arrangement, section).map((item) => item.id),
   )
-  if (questionOrder.every((id, index) => id === version.questionOrder[index]) &&
-      questionOrder.length === version.questionOrder.length) return version
-  return { ...version, questionOrder }
+  if (questionOrder.every((id, index) => id === arrangement.questionOrder[index]) &&
+      questionOrder.length === arrangement.questionOrder.length) return arrangement
+  return { ...arrangement, questionOrder }
 }
 
 // Moves a selection as one block while preserving its on-page order. Only
@@ -324,26 +324,26 @@ export function moveQuestion(
 // moving a question into the wrong section.
 export function moveQuestions(
   exam: Exam,
-  version: Version,
+  arrangement: Arrangement,
   questionIds: readonly string[],
   targetId: string,
   placement: QuestionPlacement,
-): Version {
+): Arrangement {
   const target = questionById(exam, targetId)
-  if (!target) return version
+  if (!target) return arrangement
 
-  const sectionIds = questionsInSection(exam, version, target.type).map(
+  const sectionIds = questionsInSection(exam, arrangement, target.type).map(
     (question) => question.id,
   )
   const selected = new Set(
     questionIds.filter((id) => questionById(exam, id)?.type === target.type),
   )
-  if (selected.size === 0 || selected.has(targetId)) return version
+  if (selected.size === 0 || selected.has(targetId)) return arrangement
 
   const moving = sectionIds.filter((id) => selected.has(id))
   const remaining = sectionIds.filter((id) => !selected.has(id))
   const targetIndex = remaining.indexOf(targetId)
-  if (targetIndex < 0) return version
+  if (targetIndex < 0) return arrangement
   remaining.splice(
     targetIndex + (placement === 'after' ? 1 : 0),
     0,
@@ -353,15 +353,15 @@ export function moveQuestions(
   const questionOrder = SECTION_ORDER.flatMap((section) =>
     section === target.type
       ? remaining
-      : questionsInSection(exam, version, section).map((question) => question.id),
+      : questionsInSection(exam, arrangement, section).map((question) => question.id),
   )
   if (
-    questionOrder.length === version.questionOrder.length &&
-    questionOrder.every((id, index) => id === version.questionOrder[index])
+    questionOrder.length === arrangement.questionOrder.length &&
+    questionOrder.every((id, index) => id === arrangement.questionOrder[index])
   ) {
-    return version
+    return arrangement
   }
-  return { ...version, questionOrder }
+  return { ...arrangement, questionOrder }
 }
 
 // The same contract as `Math.random`: a float in [0, 1). Random operations
@@ -381,14 +381,14 @@ export type RandomSource = () => number
  */
 export function shuffleSelectedQuestions(
   exam: Exam,
-  version: Version,
+  arrangement: Arrangement,
   questionIds: readonly string[],
   random: RandomSource,
-): Version {
+): Arrangement {
   const selected = new Set(questionIds)
   let changed = false
   const questionOrder = SECTION_ORDER.flatMap((section) => {
-    const sectionIds = questionsInSection(exam, version, section).map(
+    const sectionIds = questionsInSection(exam, arrangement, section).map(
       (question) => question.id,
     )
     const selectedIds = sectionIds.filter((id) => selected.has(id))
@@ -412,7 +412,7 @@ export function shuffleSelectedQuestions(
     )
   })
 
-  return changed ? { ...version, questionOrder } : version
+  return changed ? { ...arrangement, questionOrder } : arrangement
 }
 
 /**
@@ -428,17 +428,17 @@ export function shuffleSelectedQuestions(
  */
 export function shuffleSelectedAnswers(
   exam: Exam,
-  version: Version,
+  arrangement: Arrangement,
   questionIds: readonly string[],
   random: RandomSource,
-): Version {
+): Arrangement {
   const selected = new Set(questionIds)
-  let choiceOrder = version.choiceOrder
+  let choiceOrder = arrangement.choiceOrder
   let changed = false
 
   for (const question of exam.questions) {
     if (!selected.has(question.id) || question.type !== 'multiple-choice') continue
-    const current = orderedChoices(question, version)
+    const current = orderedChoices(question, arrangement)
     if (current.length < 2) continue
 
     const shuffled = current.map((choice) => choice.id)
@@ -458,5 +458,5 @@ export function shuffleSelectedAnswers(
     changed = true
   }
 
-  return changed ? { ...version, choiceOrder } : version
+  return changed ? { ...arrangement, choiceOrder } : arrangement
 }

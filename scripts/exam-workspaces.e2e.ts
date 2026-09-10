@@ -22,12 +22,12 @@ test('the IndexedDB workspace service keeps UUID identities and recency apart fr
     const second = await workspaces.create()
     await workspaces.backendFor(first.id).write({
       questionBank: { questions: [] },
-      examDraft: { title: 'First stored Exam', questionIds: [] },
+      workingCopy: { title: 'First stored Exam', questionIds: [] },
       dirty: true,
     })
     await workspaces.backendFor(second.id).write({
       questionBank: { questions: [] },
-      examDraft: { title: 'Second stored Exam', questionIds: [] },
+      workingCopy: { title: 'Second stored Exam', questionIds: [] },
       dirty: true,
     })
     await workspaces.open(first.id)
@@ -36,7 +36,7 @@ test('the IndexedDB workspace service keeps UUID identities and recency apart fr
     // the registry's last-opened order.
     await workspaces.backendFor(second.id).write({
       questionBank: { questions: [] },
-      examDraft: { title: 'Second changed in background', questionIds: [] },
+      workingCopy: { title: 'Second changed in background', questionIds: [] },
       dirty: true,
     })
     return {
@@ -73,7 +73,7 @@ test('a failed Save As leaves the source Exam and active workspace unchanged', a
     const sourceBackend = workspaces.backendFor(sourceId)
     const source = {
       questionBank: { questions: [] },
-      examDraft: { title: 'Source Exam', questionIds: [] },
+      workingCopy: { title: 'Source Exam', questionIds: [] },
       dirty: false,
     }
     await sourceBackend.commitSaved(source)
@@ -92,7 +92,7 @@ test('a failed Save As leaves the source Exam and active workspace unchanged', a
         sourceRestored: source,
         targetInitial: {
           ...source,
-          examDraft: { ...source.examDraft, title: 'Source Exam Copy' },
+          workingCopy: { ...source.workingCopy, title: 'Source Exam Copy' },
         },
       })
     } catch (error) {
@@ -114,5 +114,5 @@ test('a failed Save As leaves the source Exam and active workspace unchanged', a
   expect(result.active).toBe('33333333-3333-4333-8333-333333333333')
   expect(result.targetExists).toBe(false)
   expect(result.recent).toEqual(['33333333-3333-4333-8333-333333333333'])
-  expect(result.source).toMatchObject({ examDraft: { title: 'Source Exam' }, dirty: false })
+  expect(result.source).toMatchObject({ workingCopy: { title: 'Source Exam' }, dirty: false })
 })

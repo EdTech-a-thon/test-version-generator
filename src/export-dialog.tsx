@@ -54,7 +54,7 @@ export function ExportDialog({
       ? 'Choose the student test, the answer key, or both.'
       : null
   const emptyError = empty
-    ? 'Add at least one question to the Exam Draft before exporting.'
+    ? 'Add at least one question to the Working Copy before exporting.'
     : null
   const invalid = selectionError !== null || emptyError !== null
 
@@ -70,7 +70,7 @@ export function ExportDialog({
   }, [])
 
   // A modal owns the viewport, not only its own paper preview. Otherwise a
-  // wheel gesture over its controls or dimmed backdrop scrolls the Exam Draft
+  // wheel gesture over its controls or dimmed backdrop scrolls the Working Copy
   // underneath, making the apparent modal state and the background drift apart.
   useEffect(() => {
     const previousBodyOverflow = document.body.style.overflow
