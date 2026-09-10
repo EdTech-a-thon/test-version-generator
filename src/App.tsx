@@ -31,7 +31,12 @@ import {
 } from './script-marks'
 import { leftArrowInputRule, rightArrowInputRule } from './text-arrows'
 import type { ReactNode } from 'react'
-import { cleanDocument, emptyDoc } from './question-doc'
+import {
+  cleanDocument,
+  suggestedAnswerDocumentOf,
+  withSuggestedAnswer,
+  withoutSuggestedAnswer,
+} from './question-doc'
 import type { ProseMirrorJSON } from './question-doc'
 import {
   DIFFICULTIES,
@@ -108,6 +113,12 @@ import { BankFileDropTarget } from './bank-file-drop'
 import { questionBankCollection, type QuestionBankCollectionItem } from './resource-collections'
 import { QuestionBankExportDialog } from './question-bank-export-dialog'
 import { QuestionBankImportDialog } from './question-bank-import-dialog'
+import {
+  keepSuggestedAnswer,
+  suggestedAnswerMode,
+  suggestedAnswerSchema,
+  suggestedAnswerView,
+} from './suggested-answer'
 
 /** The mark each Question Section goes by, so a type reads the same wherever
  *  it is named — the picker that chooses one, and the dialog that states it. */
@@ -351,10 +362,12 @@ function CrepeQuestion({
   value,
   onChange,
   onReady,
+  suggestedAnswer = false,
 }: {
   value: ProseMirrorJSON
   onChange: (doc: ProseMirrorJSON) => void
   onReady: (readDocument: () => ProseMirrorJSON) => void
+  suggestedAnswer?: boolean
 }) {
   useEditor((root) => {
     const safeValue = cleanDocument(value)
@@ -404,6 +417,7 @@ function CrepeQuestion({
     })
     crepe.editor
       .use(multipleChoiceMode(true))
+      .use(suggestedAnswerMode(suggestedAnswer))
       .use(subscriptSchema)
       .use(superscriptSchema)
       .use(scriptKeymap)
@@ -415,6 +429,9 @@ function CrepeQuestion({
       .use(multipleChoiceChoiceView)
       .use(multipleChoiceKeymap)
       .use(uniqueChoiceIds)
+      .use(suggestedAnswerSchema)
+      .use(suggestedAnswerView)
+      .use(keepSuggestedAnswer)
     // Make the whole multiple-choice block the drag target instead of a single
     // answer row: never offer a handle for a choice itself, so Crepe's handle
     // climbs to the multipleChoice node. Paragraphs inside a choice keep their
@@ -434,7 +451,10 @@ function CrepeQuestion({
               return false
             }
           }
-          if (node?.type?.name === 'multipleChoiceChoice') return false
+          if (
+            node?.type?.name === 'multipleChoiceChoice'
+            || node?.type?.name === 'suggestedAnswer'
+          ) return false
           return true
         },
       }))
@@ -489,15 +509,15 @@ function QuestionDialog({
   // and never changes it: there is no switch to make, and nothing to preserve
   // across one.
   const { type } = question
-  const [doc] = useState<ProseMirrorJSON>(question.doc)
+  const [doc] = useState<ProseMirrorJSON>(() =>
+    type === 'open'
+      ? withSuggestedAnswer(question.doc, question.suggestedAnswer)
+      : question.doc,
+  )
   const [difficulty, setDifficulty] = useState<Difficulty | ''>(question.difficulty ?? '')
   const [topics, setTopics] = useState<readonly string[]>(topicsOf(question))
-  const [suggestedAnswer] = useState<ProseMirrorJSON>(question.suggestedAnswer ?? emptyDoc)
-  const [editingSuggestedAnswer, setEditingSuggestedAnswer] = useState(false)
   const latestDoc = useRef(doc)
-  const latestSuggestedAnswer = useRef(suggestedAnswer)
   const readEditorDocument = useRef<(() => ProseMirrorJSON) | null>(null)
-  const readSuggestedAnswer = useRef<(() => ProseMirrorJSON) | null>(null)
   const dialog = useRef<HTMLElement>(null)
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
@@ -523,26 +543,24 @@ function QuestionDialog({
     setSaveError(null)
     try {
       await settlePendingMedia()
+      const edited = cleanDocument(
+        readEditorDocument.current?.() ?? latestDoc.current,
+      )
       const saved: Question = {
         ...question,
         type,
         doc: await ownDocumentMedia(
-          cleanDocument(readEditorDocument.current?.() ?? latestDoc.current),
+          type === 'open' ? withoutSuggestedAnswer(edited) : edited,
         ),
       }
       if (difficulty) saved.difficulty = difficulty
       else delete saved.difficulty
       if (topics.length > 0) saved.topics = [...topics]
       else delete saved.topics
-      if (type === 'open' && editingSuggestedAnswer) {
-        const answer = cleanDocument(readSuggestedAnswer.current?.() ?? latestSuggestedAnswer.current)
-        const content = Array.isArray(answer.content) ? answer.content as ProseMirrorJSON[] : []
-        const visiblyBlank = content.every((node) =>
-          node.type === 'paragraph'
-          && (!Array.isArray(node.content) || node.content.length === 0),
-        )
-        if (visiblyBlank) delete saved.suggestedAnswer
-        else saved.suggestedAnswer = await ownDocumentMedia(answer)
+      if (type === 'open') {
+        const answer = suggestedAnswerDocumentOf(edited)
+        if (answer) saved.suggestedAnswer = await ownDocumentMedia(answer)
+        else delete saved.suggestedAnswer
       }
       await onSave(saved)
     } catch (error) {
@@ -656,6 +674,7 @@ function QuestionDialog({
         <div className="dialog-editor">
           <CrepeQuestion
             value={doc}
+            suggestedAnswer={type === 'open'}
             onReady={(readDocument) => {
               readEditorDocument.current = readDocument
             }}
@@ -664,20 +683,6 @@ function QuestionDialog({
             }}
           />
         </div>
-        {type === 'open' && (editingSuggestedAnswer ? <section className="suggested-answer-editor" aria-label="Suggested Answer">
-          <h3>Suggested Answer <span>(optional)</span></h3>
-          <div className="dialog-editor">
-            <CrepeQuestion
-              value={suggestedAnswer}
-              onReady={(readDocument) => { readSuggestedAnswer.current = readDocument }}
-              onChange={(next) => { latestSuggestedAnswer.current = next }}
-            />
-          </div>
-        </section> : <button
-          type="button"
-          className="secondary-button add-suggested-answer"
-          onClick={() => setEditingSuggestedAnswer(true)}
-        >{question.suggestedAnswer ? 'Edit Suggested Answer' : 'Add Suggested Answer'}</button>)}
         <footer className="dialog-actions">
           {!isNew && onDelete && <button type="button" className="danger-button question-delete-button" onClick={onDelete}><Trash2 />Delete Question</button>}
           {saveError && <p className="dialog-save-error" role="alert">{saveError}</p>}

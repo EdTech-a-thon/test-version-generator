@@ -161,6 +161,73 @@ export function stemNodesOf(doc: ProseMirrorJSON): ProseMirrorJSON[] {
   return choiceList && isBlankParagraph(stem.at(-1)) ? stem.slice(0, -1) : stem
 }
 
+// The `suggestedAnswer` node of a question document being edited, or undefined
+// when there is none. It exists only inside the dialog's editor: a Question
+// stores its Suggested Answer in its own field, and the document that reaches
+// storage and export never carries one.
+export function suggestedAnswerNodeOf(
+  doc: ProseMirrorJSON,
+): ProseMirrorJSON | undefined {
+  return childrenOf(doc).find((node) => node.type === 'suggestedAnswer')
+}
+
+// The document to hand the editor for a Short Answer question: the stem with
+// a Suggested Answer block at the end, holding the answer already saved for it.
+// The block is always present, so an answer is typed rather than added.
+export function withSuggestedAnswer(
+  doc: ProseMirrorJSON,
+  answer?: ProseMirrorJSON,
+): ProseMirrorJSON {
+  const content = answer ? childrenOf(answer) : []
+  const without = withoutSuggestedAnswer(doc)
+  const stem = childrenOf(without)
+  return {
+    ...without,
+    content: [
+      ...(stem.length > 0 ? stem : [{ type: 'paragraph' }]),
+      {
+        type: 'suggestedAnswer',
+        content: content.length > 0 ? content : [{ type: 'paragraph' }],
+      },
+    ],
+  }
+}
+
+// The stem the dialog saves: the edited document with its Suggested Answer
+// block lifted out, along with the empty paragraph Crepe keeps on either side
+// of the block as the editing boundary. That boundary is not teacher-authored
+// space, so it is no more part of the stem than the block itself is.
+export function withoutSuggestedAnswer(doc: ProseMirrorJSON): ProseMirrorJSON {
+  const nodes = childrenOf(doc)
+  const index = nodes.findIndex((node) => node.type === 'suggestedAnswer')
+  if (index < 0) return { ...doc, content: [...nodes] }
+  const before = nodes.slice(0, index)
+  const after = nodes.slice(index + 1)
+  const content = [
+    ...(isBlankParagraph(before.at(-1)) && before.length > 1
+      ? before.slice(0, -1)
+      : before),
+    ...(isBlankParagraph(after[0]) ? after.slice(1) : after),
+  ]
+  return {
+    ...doc,
+    content: content.length > 0 ? content : [{ type: 'paragraph' }],
+  }
+}
+
+// The Suggested Answer the dialog saves, or undefined when the block was left
+// visibly blank — an empty block is how a question says it has no Suggested
+// Answer, so blank never saves a document made of empty paragraphs.
+export function suggestedAnswerDocumentOf(
+  doc: ProseMirrorJSON,
+): ProseMirrorJSON | undefined {
+  const node = suggestedAnswerNodeOf(doc)
+  if (!node) return undefined
+  const content = childrenOf(node)
+  if (content.every(isBlankParagraph)) return undefined
+  return { type: 'doc', content }
+}
+
 // The document with its multiple-choice node taken out, if it has one. A
 // document holds at most one, so this is what switching a question to Open
 // Response lifts out into the stash.
