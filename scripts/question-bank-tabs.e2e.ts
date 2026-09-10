@@ -36,7 +36,7 @@ async function seedBanks(page: Page) {
 const bank = (page: Page) => page.getByRole('region', { name: 'Question Bank' })
 const search = (page: Page) => page.getByRole('searchbox', { name: 'Search question stems' })
 
-test('a bank launch is consumed into bank-only mode without drag or Exam authoring', async ({ page }) => {
+test('a bank launch is consumed into bank-only mode without creating an Exam', async ({ page }) => {
   const ids = await seedBanks(page)
   await page.goto(`/editor?bank=${ids.biology}`)
 
@@ -47,7 +47,7 @@ test('a bank launch is consumed into bank-only mode without drag or Exam authori
   await expect(page.getByRole('textbox', { name: 'Exam name' })).toHaveCount(0)
   await expect(page.getByRole('tab', { name: 'Biology' })).toHaveAttribute('aria-selected', 'true')
   await expect(bank(page)).toContainText('Describe mitosis.')
-  await expect(bank(page).getByRole('listitem')).not.toHaveAttribute('data-draggable')
+  await expect(bank(page).getByRole('button', { name: 'Add Describe mitosis. to the exam' })).toBeVisible()
 })
 
 test('the bank picker owns focus and restores it when dismissed', async ({ page }) => {
@@ -148,6 +148,44 @@ test('tab browsing and closing do not author an Exam', async ({ page }) => {
   expect(exams).toHaveLength(0)
 })
 
+test('adding the first bank Question creates an Untitled Exam with the carried tabs and an unsaved Working Copy', async ({ page }) => {
+  const ids = await seedBanks(page)
+  await page.goto(`/editor?bank=${ids.biology}`)
+  await page.getByRole('button', { name: 'Open Question Bank' }).click()
+  await page.getByRole('dialog', { name: 'Open Question Bank' }).getByRole('button', { name: /Chemistry/ }).click()
+  await page.getByRole('tab', { name: 'Biology' }).click()
+
+  await bank(page).getByRole('button', { name: 'Add Describe mitosis. to the exam' }).click()
+
+  await expect(page).toHaveURL(/\/editor$/)
+  await expect(page.getByRole('textbox', { name: 'Exam name' })).toHaveValue('Untitled Exam')
+  await expect(page.locator('.exam-question')).toContainText('Describe mitosis.')
+  await expect(page.getByRole('tab', { name: 'Biology' })).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByRole('tab', { name: 'Chemistry' })).toBeVisible()
+  await expect(page.getByLabel('Working Copy status')).toHaveText('Unsaved changes · backed up locally')
+  await page.getByRole('button', { name: 'Discard changes' }).click()
+  await expect(page.locator('.exam-question')).toHaveCount(0)
+  await expect(page.getByLabel('Working Copy status')).toHaveText('Saved')
+})
+
+test('dropping the first bank Question creates the Exam and Working Copy', async ({ page }) => {
+  const ids = await seedBanks(page)
+  await page.goto(`/editor?bank=${ids.biology}`)
+  const row = bank(page).getByRole('listitem').filter({ hasText: 'Describe mitosis.' })
+  const target = page.getByRole('main', { name: 'Bank-only editor' })
+  const sourceBox = (await row.boundingBox())!
+  const targetBox = (await target.boundingBox())!
+
+  await page.mouse.move(sourceBox.x + 20, sourceBox.y + sourceBox.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(targetBox.x + targetBox.width / 2, targetBox.y + targetBox.height / 2, { steps: 8 })
+  await page.mouse.up()
+
+  await expect(page.getByRole('textbox', { name: 'Exam name' })).toHaveValue('Untitled Exam')
+  await expect(page.locator('.exam-question')).toContainText('Describe mitosis.')
+  await expect(page.getByLabel('Working Copy status')).toHaveText('Unsaved changes · backed up locally')
+})
+
 test('starting an Exam from bank-only mode carries the visible bank tabs', async ({ page }) => {
   const ids = await seedBanks(page)
   await page.goto(`/editor?bank=${ids.biology}`)
@@ -160,6 +198,56 @@ test('starting an Exam from bank-only mode carries the visible bank tabs', async
   await expect(page.getByRole('tab', { name: 'Biology' })).toBeVisible()
   await expect(page.getByRole('tab', { name: 'Chemistry' })).toHaveAttribute('aria-selected', 'true')
   await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeDisabled()
+})
+
+test('opening an Exam inside the editor carries the current tabs and external reopening restores them', async ({ page }) => {
+  await seedBanks(page)
+  await page.goto('/')
+  await page.getByRole('button', { name: 'New Exam' }).first().click()
+  await page.getByRole('textbox', { name: 'Exam name' }).fill('Destination Exam')
+  await page.getByRole('button', { name: 'Save', exact: true }).click()
+  await page.getByRole('button', { name: 'Home' }).click()
+
+  await page.getByRole('button', { name: 'Open Biology' }).click()
+  await page.getByRole('button', { name: 'Open Question Bank' }).click()
+  await page.getByRole('dialog', { name: 'Open Question Bank' }).getByRole('button', { name: /Chemistry/ }).click()
+  await page.getByRole('button', { name: 'Open existing Exam' }).click()
+  await page.getByRole('dialog', { name: 'Open Exam' }).getByRole('button', { name: /Destination Exam/ }).click()
+
+  await expect(page.getByRole('tab', { name: 'Biology' })).toBeVisible()
+  await expect(page.getByRole('tab', { name: 'Chemistry' })).toHaveAttribute('aria-selected', 'true')
+  await page.getByRole('button', { name: 'Home' }).click()
+  await page.getByRole('button', { name: 'Open Destination Exam' }).click()
+  await expect(page.getByRole('tab', { name: 'Biology' })).toBeVisible()
+  await expect(page.getByRole('tab', { name: 'Chemistry' })).toHaveAttribute('aria-selected', 'true')
+})
+
+test('one Exam composes Questions from multiple banks without duplicate identity', async ({ page }) => {
+  const ids = await seedBanks(page)
+  await page.goto(`/editor?bank=${ids.biology}`)
+  await bank(page).getByRole('button', { name: 'Add Describe mitosis. to the exam' }).click()
+  await page.getByRole('button', { name: 'Open Question Bank' }).click()
+  await page.getByRole('dialog', { name: 'Open Question Bank' }).getByRole('button', { name: /Chemistry/ }).click()
+  await bank(page).getByRole('button', { name: 'Add Describe oxygen. to the exam' }).click()
+
+  await expect(page.locator('.exam-question')).toHaveCount(2)
+  await expect(page.locator('.exam-question')).toContainText(['Describe mitosis.', 'Describe oxygen.'])
+  await expect(bank(page).getByRole('button', { name: 'Add Describe oxygen. to the exam' })).toHaveCount(0)
+  await expect(bank(page).getByRole('button', { name: 'Remove Describe oxygen. from the exam' })).toBeVisible()
+})
+
+test('an Exam offers composition from banks but not direct creation or automatic Replace', async ({ page }) => {
+  await seedBanks(page)
+  await page.goto('/')
+  await page.getByRole('button', { name: 'New Exam' }).first().click()
+  await page.getByRole('button', { name: 'Open Question Bank' }).click()
+  await page.getByRole('dialog', { name: 'Open Question Bank' }).getByRole('button', { name: /Biology/ }).click()
+
+  await expect(page.getByRole('button', { name: 'New question' })).toHaveCount(0)
+  await expect(page.getByText('Drag or add a Question from an open Question Bank')).toBeVisible()
+  await bank(page).getByRole('button', { name: 'Add Describe mitosis. to the exam' }).click()
+  await page.locator('.exam-question').click({ button: 'right' })
+  await expect(page.getByRole('menuitem', { name: 'Replace with equivalents' })).toHaveCount(0)
 })
 
 test('an Exam can browse bank tabs without changing its saved state or Undo', async ({ page }) => {
@@ -191,23 +279,15 @@ test('an Exam can browse bank tabs without changing its saved state or Undo', as
 })
 
 test('closing an Exam bank tab leaves Questions referenced by the Exam unchanged', async ({ page }) => {
-  await seedBanks(page)
-  await page.goto('/')
-  await page.getByRole('button', { name: 'New Exam' }).first().click()
-  await page.getByRole('button', { name: 'Insert your first question' }).click()
-  await page.getByRole('menuitem', { name: 'Short answer' }).click()
-  await page.keyboard.type('A saved Exam question')
-  await page.keyboard.press('Control+Enter')
+  const ids = await seedBanks(page)
+  await page.goto(`/editor?bank=${ids.biology}`)
+  await bank(page).getByRole('button', { name: 'Add Describe mitosis. to the exam' }).click()
   await page.getByRole('button', { name: 'Save', exact: true }).click()
   await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeDisabled()
 
-  await page.getByRole('button', { name: 'Open Question Bank' }).click()
-  const picker = page.getByRole('dialog', { name: 'Open Question Bank' })
-  await picker.getByRole('button', { name: /Biology/ }).click()
-  await expect(picker).toBeHidden()
   await page.getByRole('button', { name: 'Close Biology' }).click()
 
-  await expect(page.locator('.exam-question')).toContainText('A saved Exam question')
+  await expect(page.locator('.exam-question')).toContainText('Describe mitosis.')
   await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeDisabled()
 })
 

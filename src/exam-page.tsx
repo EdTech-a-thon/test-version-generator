@@ -41,11 +41,11 @@ import {
   type QuestionItem,
   type PlannedQuestion,
 } from './export-plan'
-import { DEFAULT_COLUMNS, columnsOf, type ColumnSetting, type Exam, type QuestionType, type Version } from './exam'
+import { DEFAULT_COLUMNS, columnsOf, type ColumnSetting, type Exam, type Version } from './exam'
 import type { Selection } from './use-selection'
 import type { WorkspaceDrag } from './use-workspace-drag'
 import { dropStateOf, type QuestionDropState } from './workspace-drag'
-import { CircleMinus, Copy, EllipsisVertical, ListPlus, Pencil, Plus, RefreshCw, Shuffle } from 'lucide-react'
+import { CircleMinus, Copy, EllipsisVertical, Pencil, RefreshCw, Shuffle } from 'lucide-react'
 import {
   ContextMenu,
   type MenuItem,
@@ -128,11 +128,9 @@ function questionMenuItems({
   columns,
   onEdit,
   onDuplicate,
-  onReplaceWithEquivalents,
   onShuffleSelected,
   onShuffleSelectedAnswers,
   onRemove,
-  onAdd,
   onSetColumns,
   selectedQuestionIds,
 }: {
@@ -140,11 +138,9 @@ function questionMenuItems({
   columns: ColumnSetting
   onEdit: (questionId: string) => void
   onDuplicate: (questionId: string) => void
-  onReplaceWithEquivalents: (questionIds: readonly string[]) => void
   onShuffleSelected: (questionIds: readonly string[]) => void
   onShuffleSelectedAnswers: (questionIds: readonly string[]) => void
   onRemove: (questionIds: readonly string[]) => void
-  onAdd: (section: QuestionType, afterQuestionId?: string) => void
   onSetColumns: (questionIds: readonly string[], columns: ColumnSetting) => void
   selectedQuestionIds: readonly string[]
 }): MenuItem[] {
@@ -166,11 +162,6 @@ function questionMenuItems({
           icon: <Shuffle />,
           onSelect: () => onShuffleSelectedAnswers(actedOnIds),
         },
-        {
-          kind: 'action',
-          label: 'Replace with equivalents',
-          onSelect: () => onReplaceWithEquivalents(actedOnIds),
-        },
       ],
     },
     {
@@ -184,12 +175,6 @@ function questionMenuItems({
       label: 'Duplicate',
       icon: <Copy />,
       onSelect: () => onDuplicate(question.id),
-    },
-    {
-      kind: 'action',
-      label: 'Add question below',
-      icon: <ListPlus />,
-      onSelect: () => onAdd(question.type, question.id),
     },
   ]
   // Columns are a multiple-choice question's business. An open question has no
@@ -222,12 +207,6 @@ function questionMenuItems({
       icon: <Shuffle />,
       onSelect: () => onShuffleSelected(actedOnIds),
     },
-    {
-      kind: 'action',
-      label: 'Replace with equivalents',
-      icon: <RefreshCw />,
-      onSelect: () => onReplaceWithEquivalents(actedOnIds),
-    },
   )
   // Remove, never Delete: this takes the question off the Exam Draft and leaves
   // its Question Bank record alone, so it is neither destructive nor worth a
@@ -259,11 +238,9 @@ function questionMenuItems({
 // a handle rather than the text is a miss, and should still get the menu.
 function QuestionHandles({
   question,
-  onAdd,
   onOpenMenu,
 }: {
   question: PlannedQuestion
-  onAdd: (section: QuestionType, afterQuestionId?: string) => void
   onOpenMenu: (questionId: string, point: MenuPoint, side?: MenuSide) => void
 }) {
   return (
@@ -273,14 +250,6 @@ function QuestionHandles({
       onClick={(event) => event.stopPropagation()}
       onDoubleClick={(event) => event.stopPropagation()}
     >
-      <button
-        type="button"
-        className="question-handle"
-        aria-label={`Add a question after question ${question.number}`}
-        onClick={() => onAdd(question.type, question.id)}
-      >
-        <Plus />
-      </button>
       <button
         type="button"
         className="question-handle menu-handle"
@@ -312,7 +281,6 @@ function QuestionView({
   orderedIds,
   selection,
   onEdit,
-  onAdd,
   onOpenMenu,
   dragging,
   dropped,
@@ -327,7 +295,6 @@ function QuestionView({
   orderedIds: readonly string[]
   selection: Selection
   onEdit: (questionId: string) => void
-  onAdd: (section: QuestionType, afterQuestionId?: string) => void
   onOpenMenu: (questionId: string, point: MenuPoint, side?: MenuSide) => void
   dragging: boolean
   dropped: boolean
@@ -460,7 +427,7 @@ function QuestionView({
       }}
     >
       {item.numbered && (
-        <QuestionHandles question={question} onAdd={onAdd} onOpenMenu={onOpenMenu} />
+        <QuestionHandles question={question} onOpenMenu={onOpenMenu} />
       )}
       <QuestionContent item={item} showCorrectness />
     </section>
@@ -472,7 +439,6 @@ function PageItemView({
   orderedIds,
   selection,
   onEdit,
-  onAdd,
   onOpenMenu,
   draggedQuestionIds,
   droppedQuestionIds,
@@ -486,7 +452,6 @@ function PageItemView({
   orderedIds: readonly string[]
   selection: Selection
   onEdit: (questionId: string) => void
-  onAdd: (section: QuestionType, afterQuestionId?: string) => void
   onOpenMenu: (questionId: string, point: MenuPoint, side?: MenuSide) => void
   draggedQuestionIds: ReadonlySet<string>
   droppedQuestionIds: ReadonlySet<string>
@@ -515,7 +480,6 @@ function PageItemView({
           orderedIds={orderedIds}
           selection={selection}
           onEdit={onEdit}
-          onAdd={onAdd}
           onOpenMenu={onOpenMenu}
           dragging={draggedQuestionIds.has(item.question.id)}
           dropped={droppedQuestionIds.has(item.question.id) && item.numbered}
@@ -736,12 +700,9 @@ export function ExamPage({
   onRevealed,
   onEdit,
   onDuplicate,
-  onReplaceWithEquivalents,
   onShuffleSelected,
   onShuffleSelectedAnswers,
   onRemove,
-  onAdd,
-  onAddFirst,
   onSetColumns,
   unsavedDraft = false,
   contentSelection = { test: true, answerKey: true },
@@ -758,14 +719,9 @@ export function ExamPage({
   onRevealed?: () => void
   onEdit: (questionId: string) => void
   onDuplicate: (questionId: string) => void
-  onReplaceWithEquivalents: (questionIds: readonly string[]) => void
   onShuffleSelected: (questionIds: readonly string[]) => void
   onShuffleSelectedAnswers: (questionIds: readonly string[]) => void
   onRemove: (questionIds: readonly string[]) => void
-  onAdd: (section: QuestionType, afterQuestionId?: string) => void
-  /** The first question on an empty sheet. Its position names no Question
-   *  Section, so unlike `onAdd` this one has a type still to be chosen. */
-  onAddFirst?: (point: MenuPoint) => void
   onSetColumns: (questionIds: readonly string[], columns: ColumnSetting) => void
   unsavedDraft?: boolean
   contentSelection?: ExportContentSelection
@@ -908,23 +864,13 @@ export function ExamPage({
                 chrome: it appears only while the exam is empty, and it is
                 never part of the printed document. */}
             {blank && index === 0 && (
-              <button
-                type="button"
+              <div
                 className="secondary-button empty-exam-button"
-                onClick={(event) => {
-                  const bounds = event.currentTarget.getBoundingClientRect()
-                  onAddFirst?.({ x: bounds.left + 12, y: bounds.top + 12 })
-                }}
-                // An empty sheet has nothing drawn on it to aim at, so the way
-                // in is also the way to drop: the placeholder is the first
-                // question's position, and it is the whole of the page rather
-                // than a strip at the top of it.
                 data-empty-section={emptySectionOffer ?? undefined}
                 data-active={drag.intent?.kind === 'insert-first' ? 'true' : undefined}
               >
-                <Plus />
-                Insert your first question
-              </button>
+                Drag or add a Question from an open Question Bank
+              </div>
             )}
             {page.items.map((item) => (
               <PageItemView
@@ -933,7 +879,6 @@ export function ExamPage({
                 orderedIds={orderedIds}
                 selection={selection}
                 onEdit={onEdit}
-                onAdd={onAdd}
                 onOpenMenu={openMenu}
                 draggedQuestionIds={draggedQuestionIds}
                 droppedQuestionIds={droppedQuestionIds}
@@ -983,11 +928,9 @@ export function ExamPage({
             columns: columnSettings[menuQuestion.id] ?? DEFAULT_COLUMNS,
             onEdit,
             onDuplicate,
-            onReplaceWithEquivalents,
             onShuffleSelected,
             onShuffleSelectedAnswers,
             onRemove,
-            onAdd,
             onSetColumns,
             selectedQuestionIds: [...selection.selectedIds],
           })}

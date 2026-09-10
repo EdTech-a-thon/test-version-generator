@@ -156,7 +156,7 @@ export function sanitizeExamTitle(title: string): string {
     .replace(/[\\/:*?"<>|]+/g, '-')
     .replace(/\s+/g, ' ')
     .replace(/[. ]+$/g, '')
-  return safe || 'Untitled exam'
+  return safe || 'Untitled Exam'
 }
 
 /** Kept beside the adapters because their package metadata also describes a

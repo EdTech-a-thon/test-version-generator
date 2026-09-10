@@ -36,18 +36,16 @@ import type { ProseMirrorJSON } from './question-doc'
 import {
   DIFFICULTIES,
   DIFFICULTY_LABELS,
-  DEFAULT_COLUMNS,
   SECTION_LABELS,
   SECTION_ORDER,
-  columnsOf,
   createQuestion,
   topicsOf,
   withTopicAdded,
 } from './exam'
-import type { ColumnSetting, Difficulty, Question, QuestionPlacement, QuestionType } from './exam'
+import type { Difficulty, Question, QuestionPlacement, QuestionType } from './exam'
 import { DifficultyBadge, TopicBadge } from './badges'
-import { bankQuestionById } from './question-bank'
-import { createExamStore, type ExamStore } from './exam-store'
+import { bankQuestionById, createExamDraft } from './question-bank'
+import { createExamStore, loadExamStore, type ExamStore } from './exam-store'
 import { ExamPage } from './exam-page'
 import { QuestionBankPane } from './question-bank-pane'
 import { NO_FILTER, topicOptions, type QuestionBankFilter } from './question-bank-view'
@@ -727,13 +725,25 @@ function QuestionBankTabsPane({
   service,
   initialResource,
   fallback,
+  examDraftIds = new Set(),
   onActiveResourceChange,
+  onQuestionsChange,
+  onAddToExam,
+  onRemoveFromExam,
+  workspaceDrag,
+  resourceRevision = 0,
 }: {
   context: BankWorkspaceContext
   service: QuestionBankWorkspaceService
   initialResource?: QuestionBankResource
   fallback?: ReactNode
+  examDraftIds?: ReadonlySet<string>
   onActiveResourceChange?: (resource: QuestionBankResource | null) => void
+  onQuestionsChange?: (questions: readonly Question[]) => void
+  onAddToExam?: (question: Question) => void
+  onRemoveFromExam?: (questionId: string) => void
+  workspaceDrag?: ReturnType<typeof useWorkspaceDrag>
+  resourceRevision?: number
 }) {
   const stableContext = useMemo<BankWorkspaceContext>(
     () => ({ mode: context.mode, resourceId: context.resourceId }),
@@ -754,7 +764,8 @@ function QuestionBankTabsPane({
   const [selectedQuestionId, setSelectedQuestionId] = useState<string | null>(null)
   const [choosingType, setChoosingType] = useState<MenuPoint | null>(null)
   const [editing, setEditing] = useState<Question | null>(null)
-  const drag = useWorkspaceDrag(() => undefined)
+  const unavailableDrag = useWorkspaceDrag(() => undefined)
+  const drag = workspaceDrag ?? unavailableDrag
 
   useEffect(() => {
     if (initialResource) {
@@ -787,12 +798,17 @@ function QuestionBankTabsPane({
       setHydrated(true)
     })()
     return () => { current = false }
-  }, [service, stableContext])
+  }, [resourceRevision, service, stableContext])
 
   const active = workspace.activeBankId ? resources[workspace.activeBankId] : undefined
   useEffect(() => {
     if (hydrated) onActiveResourceChange?.(active ?? null)
   }, [active, hydrated, onActiveResourceChange])
+  useEffect(() => {
+    if (hydrated) onQuestionsChange?.(
+      Object.values(resources).flatMap((resource) => resource.questions),
+    )
+  }, [hydrated, onQuestionsChange, resources])
   const filter = active ? workspace.filters[active.id] ?? NO_FILTER : NO_FILTER
   const updateResource = (resource: QuestionBankResource) => {
     setResources((current) => ({ ...current, [resource.id]: resource }))
@@ -887,7 +903,7 @@ function QuestionBankTabsPane({
     </div>
     {active ? <QuestionBankPane
       bank={{ questions: active.questions }}
-      examDraftIds={new Set()}
+      examDraftIds={examDraftIds}
       filter={filter}
       onFilterChange={(nextFilter) => {
         setWorkspace((current) => ({ ...current, filters: { ...current.filters, [active.id]: nextFilter } }))
@@ -901,6 +917,13 @@ function QuestionBankTabsPane({
         const question = active.questions.find((candidate) => candidate.id === questionId)
         if (question) setEditing(question)
       }}
+      onAddToExamDraft={onAddToExam
+        ? (questionId) => {
+            const question = active.questions.find(({ id }) => id === questionId)
+            if (question) onAddToExam(question)
+          }
+        : undefined}
+      onRemoveFromExamDraft={onRemoveFromExam}
     /> : fallback ?? <div className="question-bank question-bank-no-tab"><p>No Question Bank is open.</p></div>}
     {pickerBanks && <ResourcePicker
       title="Open Question Bank"
@@ -953,14 +976,21 @@ function QuestionBankEditor({
   bankWorkspaces: QuestionBankWorkspaceService
   exams: readonly RecentExam[]
   onHome: () => void
-  onOpenExam: (id: string) => void
-  onNewExam: () => void
+  onOpenExam: (id: string, activeBankId: string | null) => void
+  onNewExam: (question?: Question) => void
   launchError: string | null
 }) {
   const [activeResource, setActiveResource] = useState<QuestionBankResource | null>(initialResource ?? null)
   const [name, setName] = useState(initialResource?.name ?? '')
   const [nameError, setNameError] = useState<string | null>(null)
   const [choosingExam, setChoosingExam] = useState(false)
+  const activeResourceRef = useRef(activeResource)
+  activeResourceRef.current = activeResource
+  const drag = useWorkspaceDrag((source, intent) => {
+    if (source.pane !== 'question-bank' || intent.kind !== 'insert-first') return
+    const question = activeResourceRef.current?.questions.find(({ id }) => id === source.questionId)
+    if (question) onNewExam(question)
+  })
 
   useEffect(() => setName(activeResource?.name ?? ''), [activeResource?.name])
 
@@ -1004,13 +1034,20 @@ function QuestionBankEditor({
           service={bankWorkspaces}
           initialResource={activeResource ?? undefined}
           onActiveResourceChange={setActiveResource}
+          workspaceDrag={drag}
+          onAddToExam={(question) => onNewExam(question)}
         />
       </div>
-      <main className="bank-only-empty" aria-label="Bank-only editor">
+      <main
+        className="bank-only-empty"
+        aria-label="Bank-only editor"
+        data-empty-section={drag.source?.pane === 'question-bank' ? drag.source.type : undefined}
+        data-active={drag.intent?.kind === 'insert-first' ? 'true' : undefined}
+      >
         <h1>No Exam open</h1>
         <p>Create and edit reusable Questions here without creating or changing an Exam.</p>
         <div className="bank-only-actions">
-          <button type="button" className="primary-button" onClick={onNewExam}>New Exam</button>
+          <button type="button" className="primary-button" onClick={() => onNewExam()}>New Exam</button>
           <button type="button" className="secondary-button" onClick={() => setChoosingExam(true)}>Open existing Exam</button>
         </div>
       </main>
@@ -1021,7 +1058,7 @@ function QuestionBankEditor({
       closeLabel="Close Exam picker"
       emptyMessage="No Exams are available on this device."
       resources={exams.map((exam) => ({ id: exam.id, name: exam.title, questionCount: exam.questionCount }))}
-      onChoose={onOpenExam}
+      onChoose={(id) => onOpenExam(id, activeResource?.id ?? null)}
       onClose={() => setChoosingExam(false)}
     />}
   </>
@@ -1031,14 +1068,18 @@ function ExamEditor({
   store,
   examId,
   bankWorkspaces,
+  exams,
   onHome,
+  onOpenExam,
   onSaveAs,
   launchError,
 }: {
   store: ExamStore
   examId: string
   bankWorkspaces: QuestionBankWorkspaceService
+  exams: readonly RecentExam[]
   onHome: () => void
+  onOpenExam: (id: string) => void
   onSaveAs: () => Promise<void>
   launchError: string | null
 }) {
@@ -1129,6 +1170,7 @@ function ExamEditor({
     )
     : state.dirty
   const [storageNotice, setStorageNotice] = useState<string | null>(null)
+  const [choosingExam, setChoosingExam] = useState(false)
   const closeVersionHistory = useCallback(() => {
     setHistoryOpen(false)
     requestAnimationFrame(() => historyButton.current?.focus())
@@ -1152,6 +1194,7 @@ function ExamEditor({
   const [bankFilter, setBankFilter] = useState<QuestionBankFilter>(NO_FILTER)
   const [selectedBankId, setSelectedBankId] = useState<string | null>(null)
   const [bankPercent, setBankPercent] = useState(33)
+  const [bankRevision, setBankRevision] = useState(0)
   useEffect(() => {
     let current = true
     void bankWorkspaces.workspace({ mode: 'exam', resourceId: examId }).then((workspace) => {
@@ -1228,43 +1271,23 @@ function ExamEditor({
     selectOnExamDraft(questionId)
     setRevealQuestionId(questionId)
   }
-  // The answer layout a question about to be written starts with: the one the
-  // question it is being added below uses, else the one the last multiple-choice
-  // question written uses, else two columns. A teacher who lays their answers
-  // out in one column lays the next question out that way too, and saying so
-  // once is the whole of the setting they should have to touch.
-  const columnsForNewQuestion = (afterQuestionId: string | null): ColumnSetting => {
-    // The rendered Exam is the Working Copy's effective arrangement, including
-    // any Exam-only column override; canonical Question Content is only the
-    // fallback for a question not currently composed here.
-    const above = afterQuestionId
-      ? exam.questions.find((question) => question.id === afterQuestionId)
-      : undefined
-    if (above?.type === 'multiple-choice') return columnsOf(above)
-    for (let index = exam.questions.length - 1; index >= 0; index -= 1) {
-      const question = exam.questions[index]!
-      if (question.type === 'multiple-choice') return columnsOf(question)
-    }
-    return DEFAULT_COLUMNS
-  }
-
-  const addToExamDraft = (questionId: string) => {
-    store.addToExamDraft(questionId)
-    selectAndReveal(questionId)
+  const addToExamDraft = (question: Question) => {
+    store.addToExamDraft(question)
+    selectAndReveal(question.id)
   }
   const insertIntoExamDraft = (
-    questionId: string,
+    question: Question,
     targetQuestionId: string,
     placement: QuestionPlacement,
   ) => {
-    store.addToExamDraft(questionId, targetQuestionId, placement)
-    selectAndReveal(questionId)
+    store.addToExamDraft(question, targetQuestionId, placement)
+    selectAndReveal(question.id)
   }
-  const replaceInExamDraft = (outgoingQuestionId: string, incomingQuestionId: string) => {
-    store.replaceInExamDraft(outgoingQuestionId, incomingQuestionId)
+  const replaceInExamDraft = (outgoingQuestionId: string, incoming: Question) => {
+    store.replaceInExamDraft(outgoingQuestionId, incoming)
     // Necessary rather than merely tidy: the outgoing question is off the exam
     // now, and a selection pointing at it names no position on the Exam Draft.
-    selectAndReveal(incomingQuestionId)
+    selectAndReveal(incoming.id)
   }
   const shuffleSelectedQuestions = (questionIds: readonly string[]) => {
     store.shuffleSelectedQuestions(questionIds)
@@ -1274,25 +1297,6 @@ function ExamEditor({
   const shuffleSelectedAnswers = (questionIds: readonly string[]) => {
     store.shuffleSelectedAnswers(questionIds)
     setVarySummary('Shuffled answer order.')
-  }
-
-  const replaceWithEquivalentQuestions = (questionIds: readonly string[]) => {
-    const before = store.getState().examDraft.questionIds
-    const positions = questionIds
-      .map((questionId) => before.indexOf(questionId))
-      .filter((index) => index !== -1)
-    const result = store.replaceWithEquivalentQuestions(questionIds)
-    const after = store.getState().examDraft.questionIds
-
-    // Selection follows the occupied positions: replaced questions stay acted
-    // on under their incoming identities, while unmatched questions remain
-    // selected under the identities they already had.
-    selection.clear()
-    for (const index of positions) selection.toggle(after[index]!)
-    const questionNoun = result.replaced === 1 ? 'question' : 'questions'
-    setVarySummary(
-      `Replaced ${result.replaced} ${questionNoun}; ${result.unmatched} unmatched.`,
-    )
   }
 
   // Where a released gesture goes. Each branch is one store call, so one drag
@@ -1308,11 +1312,14 @@ function ExamEditor({
       return
     }
     if (intent.kind === 'insert') {
-      insertIntoExamDraft(source.questionId, intent.targetQuestionId, intent.placement)
+      const question = bankQuestionById(store.getState().questionBank, source.questionId)
+      if (question) insertIntoExamDraft(question, intent.targetQuestionId, intent.placement)
     } else if (intent.kind === 'replace') {
-      replaceInExamDraft(intent.outgoingQuestionId, source.questionId)
+      const question = bankQuestionById(store.getState().questionBank, source.questionId)
+      if (question) replaceInExamDraft(intent.outgoingQuestionId, question)
     } else {
-      addToExamDraft(source.questionId)
+      const question = bankQuestionById(store.getState().questionBank, source.questionId)
+      if (question) addToExamDraft(question)
     }
   })
 
@@ -1624,6 +1631,7 @@ function ExamEditor({
           />
         </div>
         <div className="header-actions">
+          <button type="button" className="site-link" onClick={() => setChoosingExam(true)}>Open Exam</button>
           <button type="button" className="site-link editor-home-link" onClick={onHome}>Home</button>
           <button
             type="button"
@@ -1720,6 +1728,21 @@ function ExamEditor({
         </div>
       </header>
 
+      {choosingExam && <ResourcePicker
+        title="Open Exam"
+        closeLabel="Close Exam picker"
+        emptyMessage="No other Exams are available on this device."
+        resources={exams
+          .filter((candidate) => candidate.id !== examId)
+          .map((candidate) => ({
+            id: candidate.id,
+            name: candidate.title,
+            questionCount: candidate.questionCount,
+          }))}
+        onChoose={onOpenExam}
+        onClose={() => setChoosingExam(false)}
+      />}
+
       {exportDialog && (
         <ExportDialog
           configuration={exportDialog.configuration}
@@ -1776,6 +1799,15 @@ function ExamEditor({
           <QuestionBankTabsPane
             context={{ mode: 'exam', resourceId: examId }}
             service={bankWorkspaces}
+            examDraftIds={examDraftIds}
+            onQuestionsChange={store.syncCanonicalQuestions}
+            onAddToExam={addToExamDraft}
+            onRemoveFromExam={(questionId) => {
+              store.removeFromExamDraft([questionId])
+              if (selection.isSelected(questionId)) selection.toggle(questionId)
+            }}
+            workspaceDrag={drag}
+            resourceRevision={bankRevision}
             fallback={<QuestionBankPane
               bank={state.questionBank}
               examDraftIds={examDraftIds}
@@ -1784,16 +1816,16 @@ function ExamEditor({
               selectedQuestionId={selectedBankId}
               onSelect={setSelectedBankId}
               drag={drag}
-              onCreate={(point) =>
-                setChoosingType({ point, destination: 'question-bank', after: null })
-              }
               onEdit={(questionId) => {
                 const question = bankQuestionById(state.questionBank, questionId)
                 if (question) {
                   setEditing({ question, destination: 'question-bank', after: null })
                 }
               }}
-              onAddToExamDraft={addToExamDraft}
+              onAddToExamDraft={(questionId) => {
+                const question = bankQuestionById(state.questionBank, questionId)
+                if (question) addToExamDraft(question)
+              }}
               onRemoveFromExamDraft={(questionId) => {
                 store.removeFromExamDraft([questionId])
                 if (selection.isSelected(questionId)) selection.toggle(questionId)
@@ -1825,27 +1857,32 @@ function ExamEditor({
                 setEditing({ question, destination: 'exam-draft', after: null })
               }
             }}
-            onDuplicate={(questionId) => store.duplicateInExamDraft(questionId)}
-            onReplaceWithEquivalents={replaceWithEquivalentQuestions}
+            onDuplicate={(questionId) => {
+              void (async () => {
+                const original = bankQuestionById(store.getState().questionBank, questionId)
+                if (!original) return
+                const owner = await bankWorkspaces.ownerOfQuestion(questionId)
+                if (!owner) {
+                  store.duplicateInExamDraft(questionId)
+                  return
+                }
+                const before = new Set(owner.questions.map(({ id }) => id))
+                const updated = await bankWorkspaces.commit(owner.id, {
+                  kind: 'duplicate-question',
+                  questionId,
+                })
+                const copy = updated.questions.find(({ id }) => !before.has(id))
+                if (!copy) return
+                store.duplicateInExamDraft(questionId, copy)
+                setBankRevision((revision) => revision + 1)
+              })()
+            }}
             onShuffleSelected={shuffleSelectedQuestions}
             onShuffleSelectedAnswers={shuffleSelectedAnswers}
             onRemove={(questionIds) => {
               store.removeFromExamDraft(questionIds)
               selection.clear()
             }}
-            onAdd={(section, afterQuestionId) =>
-              setEditing({
-                question: createQuestion(
-                  section,
-                  columnsForNewQuestion(afterQuestionId ?? null),
-                ),
-                destination: 'exam-draft',
-                after: afterQuestionId ?? null,
-              })
-            }
-            onAddFirst={(point) =>
-              setChoosingType({ point, destination: 'exam-draft', after: null })
-            }
             onSetColumns={(questionIds, columns) =>
               store.setQuestionColumns(questionIds, columns)
             }
@@ -1948,11 +1985,10 @@ function ExamEditor({
             icon: QUESTION_TYPE_ICONS[type],
             onSelect: () => {
               setEditing({
-                question: createQuestion(
-                  type,
-                  columnsForNewQuestion(choosingType.after),
-                ),
-                destination: choosingType.destination,
+                question: createQuestion(type),
+                destination: choosingType.destination === 'exam-draft'
+                  ? 'question-bank'
+                  : choosingType.destination,
                 after: choosingType.after,
               })
             },
@@ -2017,6 +2053,7 @@ export default function App({
   const [editorStore, setEditorStore] = useState(store)
   const [editorBankStore] = useState(bankStore)
   const [editorId, setEditorId] = useState(initialEditorId)
+  const [editorMode, setEditorMode] = useState(initialEditorMode)
   const homeError = initialError
   const saveAs = useCallback(async () => {
     if (!editorStore) return
@@ -2069,25 +2106,56 @@ export default function App({
     onNewBank={() => { void bankWorkspaces.create().then((bank) => window.location.assign(`/editor?bank=${bank.id}`)) }}
     onOpenBank={(id) => window.location.assign(`/editor?bank=${id}`)}
   />
-  if (initialEditorMode === 'bank') return <QuestionBankEditor
+  if (editorMode === 'bank') return <QuestionBankEditor
     initialResource={editorBankStore?.getState()}
     bankWorkspaces={bankWorkspaces}
     exams={exams}
     launchError={initialError}
-    onNewExam={() => {
-      void workspaces.create().then(async (exam) => {
+    onNewExam={(question) => {
+      void (async () => {
+        const exam = await workspaces.create(question)
         await bankWorkspaces.carryWorkspace(
           { mode: 'bank', resourceId: editorBankStore?.getState().id ?? '' },
           { mode: 'exam', resourceId: exam.id },
         )
-        window.location.assign(`/editor?exam=${exam.id}`)
-      })
+        const backend = workspaces.backendFor(exam.id)
+        if (question) {
+          const initial = await backend.read()
+          const saved = await backend.readSaved()
+          if (!initial || !saved) throw new Error('The new Exam could not be loaded.')
+          setEditorStore(createExamStore({
+            backend,
+            saved,
+            initial,
+            initialHistory: {
+              undo: [{
+                ...initial,
+                examDraft: createExamDraft('Untitled Exam'),
+                dirty: false,
+              }],
+              redo: [],
+            },
+          }))
+        } else {
+          setEditorStore(await loadExamStore(backend))
+        }
+        setEditorId(exam.id)
+        setEditorMode('exam')
+        window.history.replaceState(null, '', '/editor')
+      })()
     }}
-    onOpenExam={(id) => {
-      void bankWorkspaces.carryWorkspace(
-        { mode: 'bank', resourceId: editorBankStore?.getState().id ?? '' },
-        { mode: 'exam', resourceId: id },
-      ).then(() => window.location.assign(`/editor?exam=${id}`))
+    onOpenExam={(id, activeBankId) => {
+      void (async () => {
+        await bankWorkspaces.carryWorkspace(
+          { mode: 'bank', resourceId: activeBankId ?? '' },
+          { mode: 'exam', resourceId: id },
+        )
+        if (!await workspaces.open(id)) return
+        setEditorStore(await loadExamStore(workspaces.backendFor(id)))
+        setEditorId(id)
+        setEditorMode('exam')
+        window.history.replaceState(null, '', '/editor')
+      })()
     }}
     onHome={() => {
     void bankWorkspaces.activeId().then(async (id) => {
@@ -2095,7 +2163,25 @@ export default function App({
       window.location.assign('/')
     })
   }} />
-  return editorStore && editorId ? <ExamEditor store={editorStore} examId={editorId} bankWorkspaces={bankWorkspaces} launchError={initialError} onSaveAs={saveAs} onHome={() => {
+  return editorStore && editorId ? <ExamEditor
+    store={editorStore}
+    examId={editorId}
+    bankWorkspaces={bankWorkspaces}
+    exams={exams}
+    launchError={initialError}
+    onSaveAs={saveAs}
+    onOpenExam={(id) => {
+      void (async () => {
+        await bankWorkspaces.carryWorkspace(
+          { mode: 'exam', resourceId: editorId },
+          { mode: 'exam', resourceId: id },
+        )
+        if (!await workspaces.open(id)) return
+        setEditorStore(await loadExamStore(workspaces.backendFor(id)))
+        setEditorId(id)
+      })()
+    }}
+    onHome={() => {
     void workspaces.activeId().then(async (id) => {
       if (id) await workspaces.removePristine(id)
       window.location.assign('/')

@@ -244,6 +244,16 @@ export function createIndexedDBAuthoringBackend(
       return saved ?? null
     },
 
+    initialize: async (saved, working) => {
+      await transaction(
+        [QUESTION_BANK_STORE, AUTHORING_STATE_STORE, SAVED_AUTHORING_STORE],
+        (transaction) => {
+          putAuthoringState(transaction, working)
+          transaction.objectStore(SAVED_AUTHORING_STORE).put(saved, SAVED_AUTHORING_KEY)
+        },
+      )
+    },
+
     commitSaved: async (saved) => {
       await transaction(
         [QUESTION_BANK_STORE, AUTHORING_STATE_STORE, SAVED_AUTHORING_STORE],

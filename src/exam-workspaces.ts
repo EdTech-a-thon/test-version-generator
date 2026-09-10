@@ -1,3 +1,4 @@
+import type { Question } from './exam'
 import type { AuthoringState, SaveAsSnapshot } from './exam-store'
 import { createIndexedDBAuthoringBackend } from './indexeddb-authoring'
 import { createExamDraft } from './question-bank'
@@ -30,7 +31,6 @@ export function isPristineExam(
     state
     && state.examDraft.title === 'Untitled Exam'
     && state.examDraft.questionIds.length === 0
-    && state.questionBank.questions.length === 0
     && history.versions.length === 0,
   )
 }
@@ -114,15 +114,30 @@ export function createExamWorkspaceService(options: { now?: () => Date; createId
         return record?.examId ?? null
       })
     },
-    async create(): Promise<ExamSummary> {
+    async create(firstQuestion?: Question): Promise<ExamSummary> {
       const timestamp = now().toISOString()
       const exam = { id: createId(), createdAt: timestamp, lastOpenedAt: timestamp }
-      const initial = {
-        questionBank: { questions: [] }, examDraft: createExamDraft('Untitled Exam'), dirty: false,
+      const initial: AuthoringState = {
+        questionBank: { questions: firstQuestion ? [firstQuestion] : [] },
+        examDraft: {
+          ...createExamDraft('Untitled Exam'),
+          questionIds: firstQuestion ? [firstQuestion.id] : [],
+          ...(firstQuestion?.type === 'multiple-choice'
+            ? { columns: { [firstQuestion.id]: 1 as const } }
+            : {}),
+        },
+        dirty: Boolean(firstQuestion),
       }
       // A newly created Exam starts with an explicit empty saved composition,
       // not merely a clean-looking Working Copy.
-      await backendFor(exam.id).commitSaved(initial)
+      const backend = backendFor(exam.id)
+      await backend.initialize(
+        {
+          questionBank: initial.questionBank,
+          examDraft: createExamDraft('Untitled Exam'),
+        },
+        initial,
+      )
       await transact([EXAM_STORE, EXAM_WORKSPACE_STORE, EDITOR_WORKSPACE_STORE], 'readwrite', (transaction) => {
         transaction.objectStore(EXAM_STORE).put(exam)
         transaction.objectStore(EXAM_WORKSPACE_STORE).put({ key: 'active', examId: exam.id } satisfies ActiveWorkspace)

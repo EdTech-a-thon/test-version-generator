@@ -78,7 +78,7 @@ describe('DOCX packaging', () => {
       'Chemistry- Unit 3 - Review-Amber Badger.docx',
     )
     expect(docxFilename('  ...  ', 'Amber Badger')).toBe(
-      'Untitled exam-Amber Badger.docx',
+      'Untitled Exam-Amber Badger.docx',
     )
   })
 

@@ -290,6 +290,32 @@ describe('Insert and Replace', () => {
     expect(renderedIds(store)).toEqual([questions[0]!.id, spare.id, questions[1]!.id])
   })
 
+  test('inherits the visual Multiple Choice neighbor layout, using below at the top and one for an empty section', async () => {
+    const { store } = await freshStore()
+    const first = createQuestion('multiple-choice', 2)
+    const second = createQuestion('multiple-choice', 2)
+    const beforeFirst = createQuestion('multiple-choice', 2)
+    const emptySectionFirst = createQuestion('open', 2)
+    store.createInExamDraft(first)
+    store.createInExamDraft(second)
+    store.createInQuestionBank(beforeFirst)
+    store.createInQuestionBank(emptySectionFirst)
+    store.setQuestionColumns([first.id], 4)
+    store.setQuestionColumns([second.id], 1)
+
+    store.addToExamDraft(beforeFirst.id, first.id, 'before')
+    store.addToExamDraft(emptySectionFirst.id)
+
+    expect(store.getState().examDraft.columns?.[beforeFirst.id]).toBe(4)
+    expect(store.getState().examDraft.columns?.[emptySectionFirst.id]).toBeUndefined()
+
+    const lone = createQuestion('multiple-choice', 4)
+    const empty = await freshStore()
+    empty.store.createInQuestionBank(lone)
+    empty.store.addToExamDraft(lone.id)
+    expect(empty.store.getState().examDraft.columns?.[lone.id]).toBe(1)
+  })
+
   test('inserts before the first question of a Question Section', async () => {
     // The only placement that cannot be expressed as "after something": the
     // top edge of the first rendered question in its section.
@@ -392,6 +418,28 @@ describe('Insert and Replace', () => {
     expect(store.canUndo()).toBe(true)
   })
 
+  test('Replace uses the incoming authored answer order and keeps the outgoing position and columns', async () => {
+    const { store } = await freshStore()
+    const before = createQuestion('multiple-choice', 2)
+    const outgoing = createQuestion('multiple-choice', 2)
+    const after = createQuestion('multiple-choice', 2)
+    const incoming = createQuestion('multiple-choice', 1)
+    for (const question of [before, outgoing, after]) store.createInExamDraft(question)
+    store.createInQuestionBank(incoming)
+    store.setQuestionColumns([outgoing.id], 4)
+    store.shuffleSelectedAnswers([outgoing.id])
+
+    store.replaceInExamDraft(outgoing.id, incoming.id)
+
+    expect(renderedIds(store)).toEqual([before.id, incoming.id, after.id])
+    expect(store.getState().examDraft.columns?.[incoming.id]).toBe(4)
+    expect(store.getState().examDraft.choiceOrder?.[incoming.id]).toBeUndefined()
+    expect(orderedChoices(
+      store.selectedExam().exam.questions.find(({ id }) => id === incoming.id)!,
+      store.selectedExam().version,
+    ).map(({ id }) => id)).toEqual(choicesOf(incoming).map(({ id }) => id))
+  })
+
   test('each is exactly one undo step', async () => {
     const { store, questions } = await withExamDraft(2)
     const spare = createQuestion('multiple-choice')
@@ -405,115 +453,6 @@ describe('Insert and Replace', () => {
 
     store.redo()
     expect(renderedIds(store)).toEqual([spare.id, questions[1]!.id])
-  })
-})
-
-describe('replacing selected questions with Equivalent Questions', () => {
-  test('replaces exact matches at their occupied positions and reports the batch', async () => {
-    const { store } = await freshStore()
-    const selected = [
-      { ...createQuestion('multiple-choice'), difficulty: 'hard' as const, topics: ['Cells'] },
-      { ...createQuestion('multiple-choice'), difficulty: 'easy' as const, topics: ['Plants'] },
-    ]
-    const equivalent = {
-      ...createQuestion('multiple-choice'),
-      difficulty: 'hard' as const,
-      topics: ['Cells'],
-    }
-    for (const question of selected) store.createInExamDraft(question)
-    store.createInQuestionBank(equivalent)
-
-    const result = store.replaceWithEquivalentQuestions(selected.map(({ id }) => id))
-
-    expect(result).toEqual({ replaced: 1, unmatched: 1 })
-    expect(renderedIds(store)).toEqual([equivalent.id, selected[1]!.id])
-    store.undo()
-    expect(renderedIds(store)).toEqual(selected.map(({ id }) => id))
-  })
-
-  test('uses restrictive exact metadata pools and consumes each candidate once', async () => {
-    const { store } = await freshStore()
-    const algebra = [
-      { ...createQuestion('multiple-choice'), difficulty: 'hard' as const, topics: ['Algebra'] },
-      { ...createQuestion('multiple-choice'), difficulty: 'hard' as const, topics: ['Algebra'] },
-    ]
-    const cells = {
-      ...createQuestion('multiple-choice'),
-      topics: ['Cells', 'Mitosis'],
-    }
-    const untagged = { ...createQuestion('multiple-choice'), difficulty: 'hard' as const }
-    const alreadyInDraft = {
-      ...createQuestion('multiple-choice'),
-      difficulty: 'hard' as const,
-      topics: ['Algebra'],
-    }
-    for (const question of [...algebra, cells, untagged, alreadyInDraft]) {
-      store.createInExamDraft(question)
-    }
-
-    const algebraCandidate = {
-      ...createQuestion('multiple-choice'),
-      difficulty: 'hard' as const,
-      topics: ['Algebra'],
-    }
-    const cellsCandidate = {
-      ...createQuestion('multiple-choice'),
-      topics: ['Mitosis', 'Cells'],
-    }
-    const nearMisses: Question[] = [
-      { ...createQuestion('multiple-choice'), difficulty: 'hard', topics: ['algebra'] },
-      { ...createQuestion('multiple-choice'), difficulty: 'easy', topics: ['Algebra'] },
-      { ...createQuestion('open'), difficulty: 'hard', topics: ['Algebra'] },
-      { ...createQuestion('multiple-choice'), difficulty: 'hard' },
-    ]
-    for (const question of [algebraCandidate, cellsCandidate, ...nearMisses]) {
-      store.createInQuestionBank(question)
-    }
-
-    const result = store.replaceWithEquivalentQuestions([
-      algebra[0]!.id,
-      algebra[1]!.id,
-      cells.id,
-      untagged.id,
-    ])
-
-    expect(result).toEqual({ replaced: 2, unmatched: 2 })
-    expect(renderedIds(store)).toEqual([
-      algebraCandidate.id,
-      algebra[1]!.id,
-      cellsCandidate.id,
-      untagged.id,
-      alreadyInDraft.id,
-    ])
-    expect(new Set(renderedIds(store)).size).toBe(5)
-  })
-
-  test('matches against the latest Question Bank state and leaves outgoing records banked', async () => {
-    const { store } = await freshStore()
-    const outgoing = {
-      ...createQuestion('multiple-choice'),
-      difficulty: 'medium' as const,
-      topics: ['Geometry'],
-    }
-    const candidate = {
-      ...createQuestion('multiple-choice'),
-      difficulty: 'easy' as const,
-      topics: ['Arithmetic'],
-    }
-    store.createInExamDraft(outgoing)
-    store.createInQuestionBank(candidate)
-    store.updateInQuestionBank({
-      ...candidate,
-      difficulty: 'medium',
-      topics: ['Geometry'],
-    })
-
-    expect(store.replaceWithEquivalentQuestions([outgoing.id])).toEqual({
-      replaced: 1,
-      unmatched: 0,
-    })
-    expect(bankIds(store)).toEqual([outgoing.id, candidate.id])
-    expect(store.selectedExam().version.choiceOrder[candidate.id]).toBeUndefined()
   })
 })
 
@@ -720,15 +659,29 @@ describe('shuffling selected questions', () => {
 })
 
 describe('duplicating', () => {
-  test('banks a copy and places it after the original', async () => {
+  test('banks a copy after the original with fresh identities and the visible presentation', async () => {
     const { store, questions } = await withExamDraft(2)
+    const original = questions[0]!
+    store.setQuestionColumns([original.id], 4)
+    store.shuffleSelectedAnswers([original.id])
+    const visibleOrder = store.selectedExam().version.choiceOrder[original.id]!
 
-    store.duplicateInExamDraft(questions[0]!.id)
+    store.duplicateInExamDraft(original.id)
 
     const copyId = renderedIds(store)[1]!
-    expect(copyId).not.toBe(questions[0]!.id)
-    expect(renderedIds(store)).toEqual([questions[0]!.id, copyId, questions[1]!.id])
+    const copy = store.getState().questionBank.questions.find(({ id }) => id === copyId)!
+    const originalChoiceIds = choicesOf(original).map(({ id }) => id)
+    const copiedChoiceIds = choicesOf(copy).map(({ id }) => id)
+    const expectedCopiedOrder = visibleOrder.map((id) => copiedChoiceIds[originalChoiceIds.indexOf(id)]!)
+    expect(copyId).not.toBe(original.id)
+    expect(copiedChoiceIds.every((id) => !originalChoiceIds.includes(id))).toBe(true)
+    expect(renderedIds(store)).toEqual([original.id, copyId, questions[1]!.id])
+    expect(store.getState().examDraft.columns?.[copyId]).toBe(4)
+    expect(store.getState().examDraft.choiceOrder?.[copyId]).toEqual(expectedCopiedOrder)
     expect(bankIds(store)).toHaveLength(3)
+
+    store.undo()
+    expect(renderedIds(store)).toEqual(questions.map(({ id }) => id))
   })
 })
 
@@ -757,6 +710,11 @@ describe('the dirty flag and persistence', () => {
             })
           }
           working = structuredClone(value)
+        }),
+      initialize: (value, initialWorking) =>
+        schedule(() => {
+          saved = structuredClone(value)
+          working = structuredClone(initialWorking)
         }),
       commitSaved: (value) =>
         schedule(() => {
@@ -796,14 +754,14 @@ describe('the dirty flag and persistence', () => {
 
     store.setTitle('Chem Unit 3')
     expect(store.getState().dirty).toBe(true)
-    store.setTitle('Untitled exam')
+    store.setTitle('Untitled Exam')
     expect(store.getState().dirty).toBe(false)
 
     // Save retains command history; Undo afterward returns to an unsaved copy.
     store.setTitle('Saved title')
     await store.save()
     store.undo()
-    expect(store.getState().examDraft.title).toBe('Untitled exam')
+    expect(store.getState().examDraft.title).toBe('Untitled Exam')
     expect(store.getState().dirty).toBe(true)
   })
 
@@ -971,7 +929,7 @@ describe('the dirty flag and persistence', () => {
     })
     await store.publish(second.publication)
 
-    store.setTitle('Untitled exam')
+    store.setTitle('Untitled Exam')
     const reExport = prepareExport({
       ...store.selectedExam(),
       configuration: DEFAULT_EXPORT_CONFIGURATION,
@@ -1013,7 +971,7 @@ describe('the dirty flag and persistence', () => {
 
     expect(store.getState().dirty).toBe(true)
     await store.discard()
-    expect(store.getState().examDraft.title).toBe('Untitled exam')
+    expect(store.getState().examDraft.title).toBe('Untitled Exam')
     expect(renderedIds(store)).toEqual([questions[0]!.id])
   })
 
@@ -1113,7 +1071,7 @@ describe('the dirty flag and persistence', () => {
 
     await store.discard()
 
-    expect(store.getState().examDraft.title).toBe('Untitled exam')
+    expect(store.getState().examDraft.title).toBe('Untitled Exam')
     expect(renderedIds(store)).toEqual(questions.map((question) => question.id))
     expect(store.getState().dirty).toBe(false)
   })
@@ -1124,37 +1082,20 @@ describe('the dirty flag and persistence', () => {
     const inheritedIncoming = { ...createQuestion('multiple-choice'), columns: 1 as const }
     const explicit = { ...createQuestion('multiple-choice'), columns: 2 as const }
     const explicitIncoming = { ...createQuestion('multiple-choice'), columns: 1 as const }
-    const equivalent = {
-      ...createQuestion('multiple-choice'),
-      columns: 4 as const,
-      difficulty: 'hard' as const,
-      topics: ['Geometry'],
-    }
-    const equivalentIncoming = {
-      ...createQuestion('multiple-choice'),
-      columns: 1 as const,
-      difficulty: 'hard' as const,
-      topics: ['Geometry'],
-    }
-    for (const question of [inherited, explicit, equivalent]) store.createInExamDraft(question)
-    for (const question of [inheritedIncoming, explicitIncoming, equivalentIncoming]) {
+    for (const question of [inherited, explicit]) store.createInExamDraft(question)
+    for (const question of [inheritedIncoming, explicitIncoming]) {
       store.createInQuestionBank(question)
     }
 
     store.replaceInExamDraft(inherited.id, inheritedIncoming.id)
     store.setQuestionColumns([explicit.id], 4)
     store.replaceInExamDraft(explicit.id, explicitIncoming.id)
-    expect(store.replaceWithEquivalentQuestions([equivalent.id])).toEqual({
-      replaced: 1,
-      unmatched: 0,
-    })
 
     const columns = new Map(
       store.selectedExam().exam.questions.map((question) => [question.id, question.columns]),
     )
     expect(columns.get(inheritedIncoming.id)).toBe(4)
     expect(columns.get(explicitIncoming.id)).toBe(4)
-    expect(columns.get(equivalentIncoming.id)).toBe(4)
   })
 
   test('Discard before the first user Save retains canonical Question Content', async () => {
@@ -1182,7 +1123,7 @@ describe('the dirty flag and persistence', () => {
 
     await store.discard()
 
-    expect(store.getState().examDraft.title).toBe('Untitled exam')
+    expect(store.getState().examDraft.title).toBe('Untitled Exam')
     expect(store.getState().questionBank.questions[0]).toMatchObject({
       id: saved.id,
       columns: 4,
@@ -1250,9 +1191,9 @@ describe('Save As', () => {
       sourceBefore.questionBank.questions.map(({ id }) => id),
     )
     expect(copied?.sourceRestored.examDraft).toMatchObject({
-      title: 'Untitled exam', questionIds: [questions[0]!.id, questions[1]!.id], columns: expect.any(Object),
+      title: 'Untitled Exam', questionIds: [questions[0]!.id, questions[1]!.id], columns: expect.any(Object),
     })
-    expect(store.getState().examDraft.title).toBe('Untitled exam')
+    expect(store.getState().examDraft.title).toBe('Untitled Exam')
     expect(renderedIds(store)).toEqual([questions[0]!.id, questions[1]!.id])
     expect(store.canUndo()).toBe(false)
     expect(store.canRedo()).toBe(false)
@@ -1278,7 +1219,7 @@ describe('Save As', () => {
 
     expect(store.getState()).toBe(before)
     expect(store.getState().dirty).toBe(false)
-    expect(store.getState().examDraft.title).toBe('Untitled exam')
+    expect(store.getState().examDraft.title).toBe('Untitled Exam')
   })
 })
 
@@ -1343,7 +1284,7 @@ describe('undo and redo', () => {
     store.undo()
     await store.whenSettled()
 
-    expect(backend.value?.examDraft.title).toBe('Untitled exam')
+    expect(backend.value?.examDraft.title).toBe('Untitled Exam')
   })
 
   test('an untouched store has nothing to undo or redo', async () => {

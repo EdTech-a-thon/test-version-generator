@@ -14,11 +14,14 @@
 // step, and one mirrored write.
 
 import {
+  choicesOf,
+  columnsOf,
   duplicateQuestion,
   moveQuestions,
+  orderedChoices,
+  orderedQuestions,
   shuffleSelectedAnswers,
   shuffleSelectedQuestions,
-  topicsOf,
   type ColumnSetting,
   type Question,
   type QuestionPlacement,
@@ -62,11 +65,6 @@ export type AuthoringState = {
 
 export type SavedState = Omit<AuthoringState, 'dirty'>
 
-export type EquivalentReplacementSummary = {
-  replaced: number
-  unmatched: number
-}
-
 /** Browser-local Working Copy durability, separate from whether its Exam has
  * intentionally been saved. */
 export type BackupStatus = 'ready' | 'pending' | 'failed'
@@ -83,6 +81,8 @@ export interface Backend<T> {
  *  durability boundary as the working Question Bank and Exam Draft. */
 export interface DurableAuthoringBackend extends Backend<AuthoringState> {
   readSaved(): Promise<SavedState | null>
+  /** Creates an Exam's saved baseline and first Working Copy in one transaction. */
+  initialize(saved: SavedState, working: AuthoringState): Promise<void>
   commitSaved(value: SavedState): Promise<void>
   readPublicationHistory(): Promise<PublicationHistory>
   commitPublication(value: AuthoringState, publication: PublicationCommit): Promise<void>
@@ -195,6 +195,9 @@ export type ExamStore = {
   backupStatus(): BackupStatus
 
   setTitle(title: string): void
+  /** Refreshes the canonical Questions projected from open Question Banks.
+   * Workspace browsing is not an Exam command and creates no Undo step. */
+  syncCanonicalQuestions(questions: readonly Question[]): void
 
   /** Banks canonical Question Content without putting it on the Exam Draft. */
   createInQuestionBank(question: Question): void
@@ -208,10 +211,10 @@ export type ExamStore = {
    *  save is never lost. */
   updateInQuestionBank(question: Question): void
   setQuestionColumns(questionIds: readonly string[], columns: ColumnSetting): void
-  /** Banks a copy of a banked question and references it immediately after the
-   *  original. Nothing is copied out of the Exam Draft: the copy is a Question
-   *  Bank record of its own. */
-  duplicateInExamDraft(questionId: string): void
+  /** References a newly canonical copy immediately after the original while
+   * preserving the original's visible Exam presentation. The caller may supply
+   * a copy already committed to the owning Question Bank. */
+  duplicateInExamDraft(questionId: string, duplicate?: Question): void
   /** References an unused Question Bank record from the Exam Draft — at the end,
    *  or immediately before or after `targetQuestionId`. `'before'` is what names
    *  the first position in a Question Section, which no `'after'` can. A
@@ -220,7 +223,7 @@ export type ExamStore = {
    *  refused: composing never moves a question across the Multiple Choice /
    *  Short Answer boundary. */
   addToExamDraft(
-    questionId: string,
+    question: string | Question,
     targetQuestionId?: string | null,
     placement?: QuestionPlacement,
   ): void
@@ -230,13 +233,7 @@ export type ExamStore = {
    *  Bank record and is available to compose with again. Refused when either
    *  question is unbanked, when their Question Sections differ, or when the
    *  incoming question is already on the Exam Draft. */
-  replaceInExamDraft(outgoingQuestionId: string, incomingQuestionId: string): void
-  /** Replaces as many selected Exam Draft questions as have exact, unused
-   *  Equivalent Questions in the latest Question Bank state. All replacements
-   *  are one authoring action and candidates never come from the initial draft. */
-  replaceWithEquivalentQuestions(
-    questionIds: readonly string[],
-  ): EquivalentReplacementSummary
+  replaceInExamDraft(outgoingQuestionId: string, incoming: string | Question): void
   /** Moves references within their Question Section. A target in another
    *  section is refused: composing never changes a question's type. */
   moveInExamDraft(
@@ -353,17 +350,6 @@ function withColumnResolved(
 function withDirtyFlag(current: AuthoringState, saved: SavedState | null): AuthoringState {
   const dirty = !saved || !sameExamDraft(current.examDraft, saved.examDraft)
   return current.dirty === dirty ? current : { ...current, dirty }
-}
-
-function areEquivalentQuestions(left: Question, right: Question): boolean {
-  const leftTopics = new Set(topicsOf(left))
-  const rightTopics = new Set(topicsOf(right))
-  if (leftTopics.size === 0 || leftTopics.size !== rightTopics.size) return false
-  return (
-    left.type === right.type
-    && left.difficulty === right.difficulty
-    && [...leftTopics].every((topic) => rightTopics.has(topic))
-  )
 }
 
 export type SaveAsSnapshot = {
@@ -512,6 +498,16 @@ export function createExamStore(options: {
           : { ...current, examDraft: { ...current.examDraft, title } },
       ),
 
+    syncCanonicalQuestions: (questions) => {
+      let bank = state.questionBank
+      for (const question of questions) bank = withQuestionBanked(bank, question)
+      if (bank.questions.length === state.questionBank.questions.length
+        && bank.questions.every((question, index) => question === state.questionBank.questions[index])) return
+      state = { ...state, questionBank: bank }
+      selected = selectedExam(state.questionBank, state.examDraft, selected)
+      notify()
+    },
+
     createInQuestionBank: (question) =>
       change((current) => ({
         ...current,
@@ -572,21 +568,42 @@ export function createExamStore(options: {
       })
     },
 
-    duplicateInExamDraft: (questionId) =>
+    duplicateInExamDraft: (questionId, suppliedCopy) =>
       change((current) => {
         const original = bankQuestionById(current.questionBank, questionId)
-        if (!original) return current
-        const copy = duplicateQuestion(original)
+        if (!original || !current.examDraft.questionIds.includes(questionId)) return current
+        const copy = suppliedCopy ?? duplicateQuestion(original)
+        if (bankQuestionById(current.questionBank, copy.id)) return current
+        const selected = selectedExam(current.questionBank, current.examDraft)
+        const visibleOriginal = selected.exam.questions.find(({ id }) => id === questionId)
+        const originalChoices = choicesOf(original)
+        const copiedChoices = choicesOf(copy)
+        const copiedChoiceOrder = orderedChoices(original, selected.version).map((choice) =>
+          copiedChoices[originalChoices.findIndex(({ id }) => id === choice.id)]!.id,
+        )
+        const examDraft = withReferenceAdded(current.examDraft, copy.id, questionId)
         return {
           ...current,
           questionBank: withQuestionBanked(current.questionBank, copy),
-          examDraft: withReferenceAdded(current.examDraft, copy.id, questionId),
+          examDraft: {
+            ...examDraft,
+            columns: {
+              ...(examDraft.columns ?? {}),
+              [copy.id]: visibleOriginal ? columnsOf(visibleOriginal) : columnsOf(original),
+            },
+            choiceOrder: {
+              ...(examDraft.choiceOrder ?? {}),
+              [copy.id]: copiedChoiceOrder,
+            },
+          },
         }
       }),
 
-    addToExamDraft: (questionId, targetQuestionId = null, placement = 'after') =>
+    addToExamDraft: (questionOrId, targetQuestionId = null, placement = 'after') =>
       change((current) => {
-        const question = bankQuestionById(current.questionBank, questionId)
+        const supplied = typeof questionOrId === 'string' ? null : questionOrId
+        const questionId = typeof questionOrId === 'string' ? questionOrId : questionOrId.id
+        const question = supplied ?? bankQuestionById(current.questionBank, questionId)
         if (!question) return current
         // An insertion point in another Question Section is refused rather than
         // quietly honoured somewhere else. `createInExamDraft` is deliberately
@@ -596,68 +613,61 @@ export function createExamStore(options: {
           ? bankQuestionById(current.questionBank, targetQuestionId)
           : null
         if (target && target.type !== question.type) return current
-        return withExamDraft(
-          current,
-          withReferenceAdded(
-            current.examDraft,
-            questionId,
-            targetQuestionId,
-            placement,
-          ),
+        const bank = supplied
+          ? withQuestionBanked(current.questionBank, supplied)
+          : current.questionBank
+        let examDraft = withReferenceAdded(
+          current.examDraft,
+          questionId,
+          targetQuestionId,
+          placement,
         )
+        if (examDraft === current.examDraft) return current
+        if (question.type === 'multiple-choice') {
+          const selected = selectedExam(bank, current.examDraft)
+          const rendered = orderedQuestions(selected.exam, selected.version)
+            .filter(({ type }) => type === question.type)
+          const targetIndex = targetQuestionId
+            ? rendered.findIndex(({ id }) => id === targetQuestionId)
+            : -1
+          const neighbor = targetIndex < 0
+            ? rendered.at(-1)
+            : placement === 'before'
+              ? rendered[targetIndex - 1] ?? rendered[targetIndex]
+              : rendered[targetIndex]
+          examDraft = {
+            ...examDraft,
+            columns: {
+              ...(examDraft.columns ?? {}),
+              [questionId]: neighbor ? columnsOf(neighbor) : 1,
+            },
+          }
+        }
+        return { ...current, questionBank: bank, examDraft }
       }),
 
-    replaceInExamDraft: (outgoingQuestionId, incomingQuestionId) =>
+    replaceInExamDraft: (outgoingQuestionId, incomingQuestion) =>
       change((current) => {
-        const outgoing = bankQuestionById(current.questionBank, outgoingQuestionId)
-        const incoming = bankQuestionById(current.questionBank, incomingQuestionId)
+        const incomingQuestionId = typeof incomingQuestion === 'string'
+          ? incomingQuestion
+          : incomingQuestion.id
+        const bank = typeof incomingQuestion === 'string'
+          ? current.questionBank
+          : withQuestionBanked(current.questionBank, incomingQuestion)
+        const outgoing = bankQuestionById(bank, outgoingQuestionId)
+        const incoming = bankQuestionById(bank, incomingQuestionId)
         if (
           !outgoing
           || !incoming
           || outgoing.type !== incoming.type
           || current.examDraft.questionIds.includes(incomingQuestionId)
         ) return current
-        const examDraft = withColumnResolved(current, outgoingQuestionId)
-        return withExamDraft(
-          current,
-          withReferenceReplaced(examDraft, outgoingQuestionId, incomingQuestionId),
-        )
+        const examDraft = withColumnResolved({ ...current, questionBank: bank }, outgoingQuestionId)
+        const replaced = withReferenceReplaced(examDraft, outgoingQuestionId, incomingQuestionId)
+        return replaced === current.examDraft && bank === current.questionBank
+          ? current
+          : { ...current, questionBank: bank, examDraft: replaced }
       }),
-
-    replaceWithEquivalentQuestions: (questionIds) => {
-      const summary: EquivalentReplacementSummary = { replaced: 0, unmatched: 0 }
-      change((current) => {
-        const initialDraftIds = new Set(current.examDraft.questionIds)
-        const selectedIds = [...new Set(questionIds)].filter((id) => initialDraftIds.has(id))
-        const available = current.questionBank.questions.filter(
-          (question) => !initialDraftIds.has(question.id),
-        )
-        const consumed = new Set<string>()
-        let examDraft = current.examDraft
-
-        for (const outgoingId of selectedIds) {
-          const outgoing = bankQuestionById(current.questionBank, outgoingId)
-          const incoming = outgoing
-            ? available.find(
-                (candidate) =>
-                  !consumed.has(candidate.id)
-                  && areEquivalentQuestions(outgoing, candidate),
-              )
-            : undefined
-          if (!incoming) {
-            summary.unmatched += 1
-            continue
-          }
-          consumed.add(incoming.id)
-          const resolved = withColumnResolved({ ...current, examDraft }, outgoingId)
-          examDraft = withReferenceReplaced(resolved, outgoingId, incoming.id)
-          summary.replaced += 1
-        }
-
-        return withExamDraft(current, examDraft)
-      })
-      return summary
-    },
 
     moveInExamDraft: (questionIds, targetId, placement) =>
       change((current) => {

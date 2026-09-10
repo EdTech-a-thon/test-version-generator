@@ -239,7 +239,7 @@ export function QuestionBankPane({
    *  authoring action. */
   selectedQuestionId: string | null
   onSelect: (questionId: string) => void
-  onCreate: (point: MenuPoint) => void
+  onCreate?: (point: MenuPoint) => void
   onEdit: (questionId: string) => void
   onAddToExamDraft?: (questionId: string) => void
   /** Takes the question back off the Exam Draft, leaving its bank record be. */
@@ -361,7 +361,7 @@ export function QuestionBankPane({
       <header className="question-bank-header">
         <h2>Question Bank</h2>
         <div className="question-bank-header-actions">
-          <button
+          {onCreate && <button
             type="button"
             className="secondary-button"
             aria-haspopup="menu"
@@ -374,7 +374,7 @@ export function QuestionBankPane({
           >
             <Plus />
             New question
-          </button>
+          </button>}
         </div>
       </header>
 

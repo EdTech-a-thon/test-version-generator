@@ -91,7 +91,7 @@ export type Choice = {
 // this order. `'open'` is the section a school test calls "Short Answer".
 export const SECTION_ORDER: readonly QuestionType[] = ['multiple-choice', 'open']
 
-export const DEFAULT_EXAM_TITLE = 'Untitled exam'
+export const DEFAULT_EXAM_TITLE = 'Untitled Exam'
 
 function newQuestionDoc(type: QuestionType): ProseMirrorJSON {
   return type === 'multiple-choice'

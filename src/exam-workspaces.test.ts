@@ -8,7 +8,7 @@ test('only an untouched Untitled Exam without Export Records is disposable', () 
   expect(isPristineExam(empty, { versions: [] })).toBe(true)
 
   expect(isPristineExam({ ...empty, examDraft: { ...empty.examDraft, title: 'Named Exam' } }, { versions: [] })).toBe(false)
-  expect(isPristineExam({ ...empty, questionBank: { questions: [{} as never] } }, { versions: [] })).toBe(false)
+  expect(isPristineExam({ ...empty, questionBank: { questions: [{} as never] } }, { versions: [] })).toBe(true)
   expect(isPristineExam(empty, { versions: [{}] })).toBe(false)
   expect(isPristineExam(null, { versions: [] })).toBe(false)
 })

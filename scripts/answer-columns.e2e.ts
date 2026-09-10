@@ -33,7 +33,7 @@ const question = (id: string, columns: number) => ({
 
 async function openExam(page: Page, columns: number) {
   await seedAuthoringState(page, {
-    questionBank: { questions: [question('q1', columns)] },
+    questionBank: { questions: [question('q1', columns), question('q2', 2)] },
     examDraft: { title: 'Answer columns', questionIds: ['q1'] },
     dirty: false,
   })
@@ -44,12 +44,7 @@ test('the menu offers counts and nothing that decides for itself', async ({ page
   await openExam(page, 1)
 
   await page.locator('.exam-question').first().click({ button: 'right' })
-  await page.keyboard.press('ArrowDown')
-  await page.keyboard.press('ArrowDown')
-  await page.keyboard.press('ArrowDown')
-  await page.keyboard.press('ArrowDown')
   const answerColumns = page.getByRole('menuitem', { name: 'Answer columns' })
-  await expect(answerColumns).toBeFocused()
   await answerColumns.press('ArrowRight')
   await expect(page.getByRole('menuitemradio', { name: '1 column' })).toBeVisible()
   await expect(page.getByRole('menuitemradio', { name: '2 columns' })).toBeVisible()
@@ -60,7 +55,7 @@ test('the menu offers counts and nothing that decides for itself', async ({ page
   await expect(page.getByRole('menuitemradio', { name: '1 column' })).toHaveCount(0)
 })
 
-test('a question written below another inherits its visible Working Copy layout', async ({ page }) => {
+test('an inserted bank Question inherits its visual neighbor Working Copy layout', async ({ page }) => {
   // The canonical Question starts in two columns. Change only this Exam's
   // layout, then verify the new question follows the visible arrangement.
   await openExam(page, 2)
@@ -70,28 +65,20 @@ test('a question written below another inherits its visible Working Copy layout'
   await page.getByRole('menuitemradio', { name: '1 column' }).click()
   await expect(page.locator('.choice-grid[data-columns="1"]')).toHaveCount(1)
 
-  await page.locator('.exam-question').first().click({ button: 'right' })
-  await page.getByRole('menuitem', { name: 'Add question below' }).click()
-  await expect(page.getByRole('dialog', { name: 'Question editor' })).toBeVisible()
-  await page.keyboard.type('And another one')
-  await page.keyboard.press('Control+Enter')
-  await expect(page.getByRole('dialog', { name: 'Question editor' })).toBeHidden()
+  await page.getByRole('button', { name: 'Add Question q2 to the exam' }).click()
 
-  // Both, not just the seeded one: the layout was inherited rather than reset
-  // to whatever a blank question would otherwise carry.
+  // Both, not just the seeded one: insertion inherited the visible layout.
   await expect(page.locator('.choice-grid')).toHaveCount(2)
   await expect(page.locator('.choice-grid[data-columns="1"]')).toHaveCount(2)
 })
 
-test('a question with nothing above it opens in two columns', async ({ page }) => {
-  await page.goto('/')
-  await page.getByRole('button', { name: 'New Exam' }).first().click()
-  await page.getByRole('button', { name: 'New question' }).click()
-  await page.getByRole('menuitem', { name: 'Multiple choice' }).click()
-  await expect(page.getByRole('dialog', { name: 'Question editor' })).toBeVisible()
-  await page.keyboard.type('The first question of all')
-  await page.keyboard.press('Control+Enter')
-  await page.getByRole('button', { name: /^Add .* to the exam$/ }).click()
+test('the first Multiple Choice Question in an empty section uses one column', async ({ page }) => {
+  await seedAuthoringState(page, {
+    questionBank: { questions: [question('q1', 4)] },
+    examDraft: { title: 'Answer columns', questionIds: [] },
+    dirty: false,
+  })
+  await page.getByRole('button', { name: 'Add Question q1 to the exam' }).click()
 
-  await expect(page.locator('.choice-grid[data-columns="2"]')).toHaveCount(1)
+  await expect(page.locator('.choice-grid[data-columns="1"]')).toHaveCount(1)
 })

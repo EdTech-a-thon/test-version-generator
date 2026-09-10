@@ -408,6 +408,15 @@ export function createQuestionBankWorkspaceService(
     async read(id: string) {
       return readBank(await registry, id)
     },
+    async ownerOfQuestion(questionId: string): Promise<QuestionBankResource | null> {
+      const database = await registry
+      const transaction = database.transaction(CANONICAL_QUESTION_STORE, 'readonly')
+      const stored = await requestOf(
+        transaction.objectStore(CANONICAL_QUESTION_STORE).get(questionId),
+      ) as StoredQuestion | undefined
+      await completionOf(transaction)
+      return stored ? readBank(database, stored.bankId) : null
+    },
     async open(id: string): Promise<QuestionBankResource | null> {
       const bank = await readBank(await registry, id)
       if (!bank) return null

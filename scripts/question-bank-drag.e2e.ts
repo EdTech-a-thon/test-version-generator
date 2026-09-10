@@ -231,7 +231,7 @@ test('an empty Exam Draft offers its placeholder as the first-question drop targ
 
   // A blank sheet already draws where the first question goes, so that is what
   // a gesture aims at — not a second offer pinned somewhere else.
-  const placeholder = page.getByRole('button', { name: 'Insert your first question' })
+  const placeholder = page.getByText('Drag or add a Question from an open Question Bank')
   await expect(placeholder).toBeVisible()
   await expect(emptySectionOffer(page)).toHaveCount(0)
 
