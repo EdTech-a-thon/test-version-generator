@@ -1,8 +1,10 @@
 :root {
-  font-family: Arial, Helvetica, sans-serif; color: #332a24; background: #eee6da;
+  font-family: Arial, Helvetica, sans-serif; color: #332a24; background: var(--app-ground);
   /* The one palette. These are the values the Crepe editor theme is configured
      with further down, named here so the workspace around it agrees rather than
      each surface mixing its own browns. */
+  /* The ground the dashboard's pages sit on, under everything that is paper. */
+  --app-ground: #eee6da;
   --paper-surface: #fffaf3;
   --paper-surface-low: #f2e6d8;
   --paper-outline: #e0d3c2;
@@ -14,6 +16,10 @@
   --paper-danger: #a3321f;
   --paper-danger-wash: #f8e0da;
   --paper-danger-line: #eec8be;
+  /* The Question Bank window and the strip its tabs sit on. The strip is
+     deliberately darker than any authoring surface: it is frame, not paper. */
+  --bank-chrome: #e9ddcb;
+  --bank-frame-line: #d3c2ac;
 
   /* Badge tints. Muted enough to sit inside a page of prose without shouting,
      separated enough that two of them side by side are two colours. Difficulty
@@ -31,6 +37,11 @@
   --tint-3-ink: #7a4a6b; --tint-3-wash: #f2e4ee; --tint-3-line: #e3cdda;
   --tint-4-ink: #866321; --tint-4-wash: #f6ecd4; --tint-4-line: #e9d9af;
   --tint-5-ink: #3d6a68; --tint-5-wash: #e0efed; --tint-5-line: #c6e0dd;
+
+  /* Exam thumbnails are the real 816px sheet under `zoom`. One width, one
+     zoom, stated once: 168 / 816. */
+  --sheet-width: 168px;
+  --sheet-zoom: 0.2059;
 }
 
 /* A classification badge: a Difficulty, a Topic, or the question's own type.
@@ -78,8 +89,23 @@ html, body, #root { margin: 0; min-width: 320px; min-height: 100%; }
 button, input, select { font: inherit; }
 button { cursor: pointer; }
 
+/* The editor is an application frame rather than a long document: the bar and
+   the Question Bank hold still and only the Exam's own lane scrolls. That puts
+   the scrollbar inside the lane it belongs to, instead of running the full
+   height of the window past furniture that never moves — and it takes the
+   Question Bank off `position: sticky`, which drifted a pixel or two at either
+   end of the document's scroll. */
+.editor-shell { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+/* One row, exactly the height that is left. `minmax(0, 1fr)` rather than the
+   implicit `auto` row: an auto row grows to its tallest item, so the pane that
+   is supposed to scroll would instead make the whole grid taller than the
+   frame and be clipped by it — scrolling a little and then stopping. */
+.editor-shell > .authoring-workspace {
+  flex: 1 1 auto; min-height: 0; height: auto; grid-template-rows: minmax(0, 1fr);
+}
+
 .document-bar {
-  position: sticky; top: 0; z-index: 20; min-height: 58px; padding: 9px 18px;
+  flex: none; position: sticky; top: 0; z-index: 20; min-height: 58px; padding: 9px 18px;
   display: flex; align-items: center; justify-content: space-between; gap: 20px;
   border-bottom: 1px solid #e8dfd2; background: #fffaf3;
 }
@@ -101,7 +127,23 @@ button { cursor: pointer; }
 .document-title:focus { border-color: #b65f43; box-shadow: inset 0 0 0 1px #b65f43; }
 .header-actions, .dialog-actions { display: flex; align-items: center; gap: 10px; }
 .header-actions { flex-wrap: wrap; justify-content: flex-end; gap: 7px; }
-.working-copy-status { color: #6e5b4d; font-size: 13px; white-space: nowrap; }
+/* Its own width, whatever it is saying. The four states are four different
+   sentences, and this changes on every keystroke: as text in a wrapping flex
+   row it reflowed the whole bar under the teacher's hands while they typed. */
+.working-copy-badge { position: relative; display: flex; }
+.working-copy-badge-button {
+  display: flex; align-items: center; justify-content: center; width: 34px; height: 34px;
+  padding: 0; border: 1px solid transparent; border-radius: 8px;
+  color: #6e5b4d; background: transparent;
+}
+.working-copy-badge-button svg { width: 18px; height: 18px; }
+.working-copy-badge-button:hover, .working-copy-badge-button:focus-visible { background: #f2e6d8; }
+.working-copy-badge[data-state='dirty'] .working-copy-badge-button { color: var(--medium-ink); }
+.working-copy-badge[data-state='saved'] .working-copy-badge-button { color: var(--easy-ink); }
+.working-copy-badge[data-state='failed'] .working-copy-badge-button { color: var(--paper-danger); }
+.working-copy-badge:hover .working-copy-tip,
+.working-copy-badge-button:focus-visible + .working-copy-tip { visibility: visible; opacity: 1; }
+.working-copy-tip { width: min(280px, calc(100vw - 32px)); }
 .export-button, .primary-button, .secondary-button {
   min-height: 36px; padding: 8px 14px; border: 1px solid #bda995; border-radius: 8px;
   color: #4e3b2f; background: #f7eee3; font-weight: 600;
@@ -272,67 +314,123 @@ button { cursor: pointer; }
 /* ---------------------------------------------------------------------------
    The split authoring workspace.
 
-   The Question Bank sits beside the rendered Working Copy at an even split, so
-   neither side reads as the lesser one, and the divider between them moves.
-   The sheet keeps its real geometry — it is a piece of paper, and scaling it to
-   fit a pane would show a layout the printer will not produce — so the Exam
-   Draft pane scrolls instead, in both directions. When there is no room for two
-   panes the bank collapses to a rail rather than squeezing the sheet.
+   This is an Exam editor. The Exam holds the left lane, where reading starts,
+   and the Question Bank is the drawer beside it on the right: somewhere to
+   pick from rather than somewhere to read, so it opens as the narrower pane
+   and the divider between them moves. The sheet keeps its real geometry — it
+   is a piece of paper, and scaling it to fit a pane would show a layout the
+   printer will not produce — so the Exam Draft pane scrolls instead, in both
+   directions. When there is no room for two panes the bank goes below the
+   sheet rather than squeezing it.
 
-   `--bank-column` is the width `workspace-split.tsx` is holding: a percentage
-   while the bank is open, the rail's width once it is away. The fixed drop
-   offer at the foot of the Working Copy pane reads it too, so the two cannot
-   disagree about where the pane begins. */
+   `--bank-column` is the width `workspace-split.tsx` is holding, measured back
+   from the right edge. The fixed drop offer at the foot of the Working Copy
+   pane reads it too, so the two cannot disagree about where that pane ends. */
 .authoring-workspace {
   --bank-column: 33%;
   --bank-divider: 6px;
-  display: grid; grid-template-columns: var(--bank-column) var(--bank-divider) 1fr;
-  align-items: start;
+  display: grid; grid-template-columns: 1fr var(--bank-divider) var(--bank-column);
+  align-items: stretch;
 }
-.editor-output { min-width: 0; }
+/* The Exam's lane, and the only thing in the editor that scrolls. Both ways:
+   the sheet keeps its printed width, so a narrow lane scrolls sideways rather
+   than showing a layout the printer will not produce. */
+.editor-output { min-width: 0; min-height: 0; overflow: auto; }
+.editor-output .exam-workspace { min-height: 0; overflow: visible; }
 
 /* The divider. A real control: it takes focus and answers the arrow keys, so
    the split is resizable without a pointer. */
 .workspace-resizer {
-  position: sticky; top: 58px; align-self: start;
-  height: calc(100vh - 58px); cursor: col-resize;
-  background: #f3ece2; border-right: 1px solid #e8dfd2;
+  min-height: 0; cursor: col-resize;
+  background: var(--bank-chrome); border-left: 1px solid #e8dfd2;
 }
 .workspace-resizer:hover, .workspace-resizer:focus-visible { background: #e3d2bd; }
 .workspace-resizer:focus-visible { outline: 2px solid #8a6a4c; outline-offset: -2px; }
 
+/* ---------------------------------------------------------------------------
+   The Question Bank pane: a window inside the editor.
+
+   Chrome's model, because these are tabs and a teacher already knows how those
+   behave. A darker strip carries them; the active tab takes the window's own
+   colour so the two read as one surface rather than two browns that nearly
+   agree; and a single stroke draws the window's edge, running under the tabs
+   and around the scroll area, so the tab strip is visibly not part of the bank
+   it opens. The new-tab plus follows the last tab, where Chrome puts it. */
 .question-bank-authoring {
-  position: sticky; top: 58px; align-self: start;
-  min-width: 0; height: calc(100vh - 58px);
+  min-width: 0; min-height: 0; background: var(--bank-chrome);
 }
-.bank-tabs-pane { display: flex; flex-direction: column; height: 100%; min-height: 0; background: #fffaf3; }
+.bank-tabs-pane {
+  display: flex; flex-direction: column; height: 100%; min-height: 0;
+  padding: 0 10px 10px; background: var(--bank-chrome);
+}
 .bank-tabs-pane > .question-bank { flex: 1 1 auto; height: auto; min-height: 0; }
+/* The strip's last pixel row is the window's own top border. An inactive tab
+   is transparent there, so the border runs on through it; the active tab
+   paints over it, and the tab and the bank below become one surface with no
+   line between them. The overlap lives here rather than on the active tab so
+   that nothing inside the horizontally scrolling tab list overflows it
+   vertically — that is what puts a second scrollbar on the strip. */
 .bank-tabs-bar {
-  display: flex; align-items: center; gap: 8px; padding: 8px 10px 0;
-  border-right: 1px solid #e8dfd2; background: #fffaf3;
+  position: relative; z-index: 1; margin-bottom: -1px;
+  display: flex; align-items: stretch; gap: 2px; padding: 8px 0 0;
 }
-.bank-tabs { display: flex; flex: 1 1 auto; gap: 4px; min-width: 0; overflow-x: auto; }
+/* Tabs give up width to each other before the strip scrolls, and the plus
+   never gives up any, so it stays reachable however many banks are open. */
+.bank-tabs {
+  display: flex; align-items: stretch; flex: 0 1 auto; gap: 2px; min-width: 0;
+  overflow-x: auto; overflow-y: hidden; scrollbar-width: thin;
+}
 .bank-tab {
-  display: flex; flex: none; align-items: center; border: 1px solid #ddcdb9;
-  border-bottom: 0; border-radius: 7px 7px 0 0; background: #f3e9dc;
+  display: flex; flex: 0 1 auto; align-items: center; min-width: 40px;
+  border: 1px solid transparent; border-bottom: 0; border-radius: 9px 9px 0 0;
+  color: #6b5949; background: transparent;
 }
-.bank-tab[data-active] { background: #fffdf8; box-shadow: inset 0 2px var(--paper-accent); }
-.bank-tab > button { border: 0; color: #5b4839; background: transparent; }
-.bank-tab > button[role='tab'] { max-width: 180px; padding: 8px 5px 8px 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.bank-tab > button:last-child { display: inline-flex; padding: 7px 7px 7px 3px; }
+.bank-tab:hover:not([data-active]) { background: #f0e5d5; }
+.bank-tab[data-active] {
+  border-color: var(--bank-frame-line); color: #3d3027; background: var(--paper-surface);
+}
+.bank-tab > button { border: 0; color: inherit; background: transparent; }
+.bank-tab > button[role='tab'] { flex: 0 1 auto; max-width: 180px; min-width: 0; padding: 8px 5px 8px 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bank-tab > button:last-child { display: inline-flex; flex: none; padding: 7px 8px 7px 3px; border-radius: 5px; }
+.bank-tab > button:last-child:hover { background: #e2d3bf; }
 .bank-tab svg { width: 14px; height: 14px; }
 .bank-tab > button:focus-visible, .open-bank-button:focus-visible { outline: 2px solid #8a6a4c; outline-offset: -2px; }
 .open-bank-button {
-  flex: none; padding: 7px 9px; border: 1px solid #ddcdb9; border-radius: 6px;
-  color: #5b4839; background: #fffdf8; font-size: 12px;
+  display: inline-flex; flex: none; align-self: center; align-items: center; justify-content: center;
+  margin: 4px 0 0 4px; padding: 5px; border: 0; border-radius: 6px;
+  color: #6b5949; background: transparent;
 }
-.bank-tabs-error { margin: 8px 10px 0; }
+.open-bank-button:hover:not(:disabled) { color: #3d3027; background: #f0e5d5; }
+.open-bank-button svg { width: 17px; height: 17px; }
+.bank-tabs-error { margin: 8px 0 0; }
 .question-bank-no-tab { justify-content: center; text-align: center; }
 .question-bank {
-  display: flex; flex-direction: column; gap: 14px;
-  height: calc(100vh - 58px); padding: 18px 16px; overflow-y: auto;
-  border-right: 1px solid #e8dfd2; background: #fffaf3;
+  display: flex; flex-direction: column;
+  height: 100%; min-height: 0; padding: 0 16px 18px; overflow: hidden;
+  border: 1px solid var(--bank-frame-line); border-radius: 10px;
+  background: var(--paper-surface);
 }
+/* The leftmost tab is flush with the window's left edge, so when it is the
+   active one the corner between them has to stop being a corner: tab and
+   window are a single shape. */
+.bank-tabs-bar:has(.bank-tab:first-child[data-active]) + .question-bank {
+  border-top-left-radius: 0;
+}
+/* What the bank is and what you can do to it stay put while its questions
+   scroll under them — the point of a filter is to be reachable from wherever
+   the list has got to. It is the list that scrolls rather than the pane, so
+   the toolbar is simply above the scroll area instead of stuck to the top of
+   it, and no scrollbar runs up alongside the buttons. */
+.question-bank-toolbar {
+  flex: none;
+  display: flex; flex-direction: column; gap: 12px;
+  margin: 0 -16px 14px; padding: 14px 16px 12px;
+  border-bottom: 1px solid transparent; background: var(--paper-surface);
+}
+/* The rule under the toolbar says "there is more above this". At the top of
+   the list there is not, so it is not drawn — but its pixel is always
+   reserved, so nothing shifts as it appears. */
+.question-bank[data-scrolled] .question-bank-toolbar { border-bottom-color: var(--paper-outline); }
 .question-bank-header {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
 }
@@ -399,6 +497,7 @@ button { cursor: pointer; }
   background: #fdf6ec; text-align: center;
 }
 .question-bank-list {
+  flex: 1 1 auto; min-height: 0; overflow-y: auto;
   display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none;
 }
 .question-bank-row {
@@ -648,7 +747,7 @@ button { cursor: pointer; }
    never a pixel taken from the paper's own geometry. */
 .exam-draft-empty-section {
   position: fixed; z-index: 900;
-  left: calc(var(--bank-column) + var(--bank-divider)); right: 0; bottom: 0;
+  left: 0; right: calc(var(--bank-column) + var(--bank-divider)); bottom: 0;
   display: flex; align-items: center; justify-content: center;
   height: 68px; margin: 0 18px 18px; border-radius: 8px;
   border: 2px dashed #c9b49b; background: #fffaf3f2; color: #6d5a45;
@@ -688,12 +787,21 @@ button { cursor: pointer; }
 .choice-grid { width: 100%; margin: 8px 0 0; border: 0; border-collapse: collapse; table-layout: fixed; }
 .choice-cell { padding: 1px 12px 1px 0; border: 0; vertical-align: top; }
 .choice-cell[data-correct-answer] { position: relative; }
-/* Correctness is authoring-only feedback. It is absolutely positioned so it
-   cannot change the measured or printed choice-grid geometry. */
-.choice-correctness-marker {
-  position: absolute; top: 0; right: 2px; width: 15px; height: 15px;
-  border: 1px solid #8b7868; border-radius: 50%; color: #6d5a45; background: #fffdf8;
-  text-align: center; font: 700 11px/14px Arial, Helvetica, sans-serif;
+/* Correctness is authoring-only feedback, and it belongs on the choice: a mark
+   out at the right-hand margin was read as belonging to the row rather than to
+   an answer in it. Drawn entirely in colour and an underline, neither of which
+   takes up space, so it cannot change the measured or printed choice-grid
+   geometry. */
+.choice-cell[data-correct-answer] .choice-letter { color: var(--easy-ink); }
+.choice-cell[data-correct-answer] .choice-body {
+  color: var(--easy-ink); text-decoration: underline; text-underline-offset: 2px;
+}
+/* Zero inline width, painting out of its own box into the gutter to the left
+   of the letter: the column gap between choices, and the number gutter for the
+   first column. That is what keeps it out of the geometry. */
+.choice-correctness-marker { display: inline-block; width: 0; overflow: visible; color: var(--easy-ink); }
+.choice-correctness-marker svg {
+  width: 12px; height: 12px; margin-left: -15px; vertical-align: -1px; stroke-width: 3.5;
 }
 .choice-letter { float: left; margin-right: 6px; font-weight: 400; }
 .choice-body > :first-child { margin-top: 0; }
@@ -1044,22 +1152,52 @@ button { cursor: pointer; }
 }
 @keyframes mc-caret-blink { 50% { opacity: 0; } }
 
+/* Short Answer: the Suggested Answer is one inline editing region at the end
+   of the same document. Its label occupies the control lane used by a
+   multiple-choice radio, while its optional rich text stays in the question's
+   normal writing lane. */
+.milkdown [data-type="suggested-answer"] {
+  display: flex; align-items: flex-start; gap: 14px;
+  margin: 28px 0 8px; padding-top: 14px;
+  border-top: 1px solid #d8c8b7;
+}
+.sa-label {
+  flex: 0 0 112px; padding-top: 4px;
+  color: #786457; font-size: 12px; font-weight: 700;
+  line-height: 1.4; user-select: none;
+}
+.sa-body { position: relative; flex: 1 1 auto; min-width: 0; outline: none; }
+.milkdown .ProseMirror .sa-body > :first-child { margin-top: 0; padding-top: 0; }
+.milkdown .ProseMirror .sa-body > :last-child { margin-bottom: 0; padding-bottom: 0; }
+.milkdown .sa-body .crepe-placeholder::before { content: none; }
+.sa-body:has(> p:only-child > br.ProseMirror-trailingBreak)::before,
+.sa-body:has(> p:only-child:empty)::before {
+  content: 'Optional answer';
+  position: absolute; inset: 4px auto auto 0;
+  color: #a8988c; pointer-events: none;
+}
+
 /* The sheet keeps its size on a narrow screen — it is a piece of paper, and
    shrinking it would mean showing a layout the printer will not produce. The
    workspace scrolls instead. */
 @media (max-width: 880px) {
   /* Too narrow for two panes: the bank goes above the sheet rather than
      squeezing it, and the divider has nothing left to divide. */
+  .editor-shell { height: auto; overflow: visible; }
+  .editor-shell > .authoring-workspace { grid-template-rows: none; }
   .authoring-workspace {
     --bank-divider: 0px; grid-template-columns: 1fr;
   }
-  .question-bank-authoring { position: static; height: auto; }
+  .editor-output { overflow: visible; }
+  .editor-output .exam-workspace { min-height: calc(100vh - 58px); }
+  .question-bank-authoring { height: auto; }
+  .bank-tabs-pane { padding: 0; }
   .question-bank {
     height: auto; max-height: 44vh;
-    border-right: none; border-bottom: 1px solid #e8dfd2;
+    border-width: 1px 0 0; border-radius: 0;
   }
   .workspace-resizer { display: none; }
-  .exam-draft-empty-section { left: 0; }
+  .exam-draft-empty-section { right: 0; }
   .exam-workspace { padding: 16px 0; }
   .dialog-backdrop { padding: 0; }
   /* Keep the output-faithful paper available: the dialog stacks rather than
@@ -1127,32 +1265,131 @@ button { cursor: pointer; }
 .site-link { color: #6e5b4d; font-size: 14px; text-decoration: none; }
 .site-link:hover { color: #9f5037; text-decoration: underline; text-underline-offset: 4px; }
 
-.site-page { display: flex; flex-direction: column; min-height: 100vh; }
-.home-page { display: flex; flex-direction: column; min-height: 100vh; }
-.home-main { flex: 1; width: 100%; max-width: 1120px; margin: 0 auto; padding: 32px 20px 44px; }
-.home-resource-section { margin-top: 42px; }
-.home-heading { display: flex; align-items: end; justify-content: space-between; gap: 20px; margin-bottom: 20px; }
-.home-heading h1 { margin: 0 0 7px; font-size: 28px; }
-.home-heading p { margin: 0; color: #6e5b4d; }
-.home-heading-actions { display: flex; align-items: center; gap: 9px; }
-.home-heading-actions .secondary-button { display: inline-flex; align-items: center; text-decoration: none; }
-.home-empty { padding: 46px 24px; border: 1px dashed #d8cbbb; border-radius: 10px; text-align: center; background: #fffaf3; }
+/* ---------------------------------------------------------------------------
+   The dashboard shell: a standing left nav, breadcrumbs across the top, and
+   the page between them. Every surface outside the editor wears it, so where
+   you are is answered the same way everywhere.
+   --------------------------------------------------------------------------- */
+.app-shell { display: grid; grid-template-columns: 228px minmax(0, 1fr); min-height: 100vh; }
+.app-nav {
+  position: sticky; top: 0; align-self: start; height: 100vh;
+  display: flex; flex-direction: column; gap: 20px; padding: 13px 12px;
+  border-right: 1px solid #e8dfd2; background: #fffaf3;
+}
+.app-nav-brand { padding: 4px 6px; }
+.app-nav-list { display: grid; gap: 3px; margin: 0; padding: 0; list-style: none; }
+.app-nav-link {
+  display: flex; align-items: center; gap: 10px; padding: 9px 11px; border-radius: 8px;
+  color: #4e3b2f; font-size: 14px; font-weight: 600; text-decoration: none;
+}
+.app-nav-link svg { flex: none; width: 17px; height: 17px; color: #90786a; }
+.app-nav-link:hover { background: #f2e6d8; }
+.app-nav-link[aria-current='page'] { color: var(--paper-accent); background: var(--paper-accent-wash); }
+.app-nav-link[aria-current='page'] svg { color: var(--paper-accent); }
+.app-frame { display: flex; flex-direction: column; min-width: 0; min-height: 100vh; }
+.app-topbar {
+  position: sticky; top: 0; z-index: 20; min-height: 54px;
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 8px 22px; border-bottom: 1px solid #e8dfd2; background: #fffaf3;
+}
+.app-topbar-actions { display: flex; align-items: center; gap: 10px; }
+.app-main { flex: 1; width: 100%; max-width: 1120px; margin: 0 auto; padding: 26px 22px 40px; }
+
+.breadcrumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0; padding: 0; list-style: none; font-size: 14px; }
+.breadcrumbs li { display: flex; align-items: center; gap: 8px; color: #6e5b4d; }
+.breadcrumbs li + li::before { content: '/'; color: #b8a493; }
+.breadcrumbs a { color: #6e5b4d; text-decoration: none; }
+.breadcrumbs a:hover { color: var(--paper-accent); text-decoration: underline; text-underline-offset: 4px; }
+.breadcrumbs [aria-current='page'] { color: #332a24; font-weight: 700; }
+
+/* Where the work lives: an icon, and the whole explanation only when asked. */
+.storage-badge { position: relative; display: flex; }
+.storage-badge-button {
+  display: flex; align-items: center; justify-content: center; width: 34px; height: 34px;
+  padding: 0; border: 1px solid transparent; border-radius: 8px; color: #6e5b4d; background: transparent;
+}
+.storage-badge-button svg { width: 18px; height: 18px; }
+.storage-badge-button:hover, .storage-badge-button:focus-visible { color: var(--paper-accent); background: #f2e6d8; }
+.storage-badge-button[data-status='denied'] { color: var(--paper-danger); }
+.storage-tip {
+  position: absolute; top: calc(100% + 8px); right: 0; z-index: 30; width: min(320px, calc(100vw - 32px));
+  padding: 13px 15px; border: 1px solid #ddcdb9; border-radius: 10px; background: #fffaf3;
+  box-shadow: 0 12px 32px rgb(58 42 30 / 18%); font-size: 13px; line-height: 1.5;
+  visibility: hidden; opacity: 0;
+}
+.storage-badge:hover .storage-tip,
+.storage-badge-button:focus-visible + .storage-tip { visibility: visible; opacity: 1; }
+.storage-tip strong { display: block; margin-bottom: 6px; }
+.storage-tip p { margin: 0; color: #6e5b4d; }
+.storage-tip .storage-warning { margin-top: 8px; color: var(--paper-danger); font-weight: 600; }
+.storage-tip .storage-status { margin-top: 8px; color: #3f6b46; font-weight: 600; }
+
+/* Home: two shelves, and nothing to read. The section names are labels rather
+   than titles — Home is where you resume work, not a page about itself. */
+.home-shelf + .home-shelf { margin-top: 34px; }
+.shelf-bar { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
+.shelf-label {
+  margin: 0; color: #6e5b4d; font-size: 13px; font-weight: 700;
+  letter-spacing: .04em; text-transform: uppercase;
+}
+.carousel-arrows { display: flex; gap: 6px; }
+.home-empty { padding: 40px 24px; border: 1px dashed #d8cbbb; border-radius: 10px; text-align: center; background: #fffaf3; }
 .home-empty h2 { margin: 0 0 8px; font-size: 18px; }
-.home-empty p { margin: 0 0 20px; color: #6e5b4d; }
+.home-empty p { margin: 0; color: #6e5b4d; }
 .home-error { margin: 0 0 18px; padding: 12px 14px; border: 1px solid var(--paper-danger-line); border-radius: 7px; color: var(--paper-danger); background: var(--paper-danger-wash); }
-.storage-summary { padding: 18px 20px; border: 1px solid #ddcdb9; border-radius: 10px; background: #f8eee2; }
-.storage-summary h1 { margin: 0 0 7px; font-size: 18px; }
-.storage-summary p { margin: 0; color: #6e5b4d; font-size: 14px; line-height: 1.5; }
-.storage-summary .storage-warning { margin-top: 8px; color: var(--paper-danger); font-weight: 600; }
-.storage-summary .storage-status { margin-top: 8px; color: #3f6b46; font-weight: 600; }
-.bank-only-workspace { display: grid; grid-template-columns: minmax(340px, 35%) 1fr; min-height: calc(100vh - 116px); }
-.bank-only-workspace .question-bank-authoring { position: relative; height: calc(100vh - 68px); }
-.bank-only-empty { display: grid; align-content: center; justify-items: center; padding: 40px; text-align: center; color: #6e5b4d; }
-.bank-only-empty h1 { margin: 0 0 10px; color: #382d26; }
-.bank-only-empty p { margin: 0; max-width: 440px; }
-.bank-only-actions { display: flex; gap: 10px; margin-top: 22px; }
+
+/* An empty shelf. The dots are the page's own ground showing through a space a
+   card has not been put in yet, so it is drawn as an outline rather than as a
+   card — and the whole outline is the button. */
+.create-first {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px;
+  width: 100%; min-height: 190px; padding: 34px 24px;
+  border: 1px dashed #cdb9a6; border-radius: 10px; color: #6e5b4d; background-color: transparent;
+  background-image: radial-gradient(circle at center, #d6c6b3 1.3px, transparent 1.4px);
+  background-size: 15px 15px; font: inherit; font-size: 17px; font-weight: 600; cursor: pointer;
+  transition: color .12s ease, border-color .12s ease, background-color .12s ease;
+}
+.create-first svg { width: 26px; height: 26px; stroke-width: 2; }
+.create-first:hover, .create-first:focus-visible {
+  color: var(--paper-accent); border-color: var(--paper-accent); background-color: var(--paper-accent-wash);
+  background-image: radial-gradient(circle at center, #e5c2ae 1.3px, transparent 1.4px);
+}
+/* The Question Bank page: one bank, full screen, in the dashboard's chrome.
+   Like the editor it is a frame rather than a document — the name and the
+   toolbar stay put and the list of Questions scrolls inside its window. */
+.app-shell:has(.bank-page) { height: 100vh; min-height: 0; overflow: hidden; }
+.app-shell:has(.bank-page) .app-frame { height: 100vh; min-height: 0; }
+/* The same column the Exams and Question Banks lists are laid out in, so the
+   bank does not spread wider than the pages it is reached from. */
+.app-shell:has(.bank-page) .app-main {
+  display: flex; flex-direction: column; min-height: 0;
+  padding: 16px 22px 22px;
+}
+.app-shell:has(.bank-page) .site-footer { display: none; }
+.bank-page { display: flex; flex-direction: column; min-height: 0; flex: 1 1 auto; }
+/* Here the bank is the whole page rather than one pane of a workspace, so it
+   drops the window it is framed in beside the sheet: no border, no paper of
+   its own, and no inset — the rows sit directly on the page's ground, and the
+   toolbar above them is the page's own head row. */
+.bank-page > .question-bank {
+  flex: 1 1 auto; min-height: 0; height: auto;
+  padding: 0 0 18px; border: 0; border-radius: 0; background: transparent;
+}
+.bank-page > .question-bank .question-bank-toolbar {
+  margin-inline: 0; padding: 0 0 12px; background: var(--app-ground);
+}
+/* The bank's name is the heading of that row, so it takes the width the row
+   has left over and the actions keep their own. */
+.bank-page-heading { flex: 1 1 auto; min-width: 0; }
+.bank-page-title {
+  width: 100%; padding: 4px 7px;
+  border: 1px solid transparent; border-radius: 6px;
+  color: #332a24; background: transparent; font: 700 26px/1.2 inherit; outline: none;
+}
+.bank-page-title:hover { border-color: #d8cbbb; }
+.bank-page-title:focus { border-color: var(--paper-accent); }
 .bank-save-status { color: #6e5b4d; font-size: 13px; }
-.bank-name-error { margin: 10px 20px 0; }
+.bank-name-error { margin: 6px 0 0 7px; }
 .dialog-save-error { flex: 1; margin: 0; color: var(--paper-danger); font-size: 13px; }
 .danger-button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 34px; padding: 7px 12px; border: 1px solid var(--paper-danger); border-radius: 6px; color: #fff; background: var(--paper-danger); font: inherit; font-weight: 700; }
 .danger-button:disabled { opacity: 0.55; }
@@ -1163,38 +1400,122 @@ button { cursor: pointer; }
 .destructive-dialog ul { margin: 10px 0; }
 .destructive-dialog-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
 .resource-row { display: flex; gap: 16px; padding: 2px 2px 14px; overflow-x: auto; overscroll-behavior-inline: contain; scroll-snap-type: inline proximity; }
-.resource-row > [role='listitem'] { flex: 0 0 262px; scroll-snap-align: start; }
-.collection-main { flex: 1; width: 100%; max-width: 1120px; margin: 0 auto; padding: 36px 20px 48px; }
-.collection-heading { display: flex; align-items: end; justify-content: space-between; gap: 24px; }
-.collection-heading h1 { margin: 0 0 7px; font-size: 30px; }
-.collection-heading p, .collection-count { margin: 0; color: #6e5b4d; }
-.collection-search input { width: min(340px, 42vw); padding: 10px 12px; border: 1px solid #cdb9a6; border-radius: 8px; background: #fffdf8; }
-.collection-count { margin: 18px 0 14px; font-size: 14px; }
+.resource-row > [role='listitem'] { flex: 0 0 var(--sheet-width); scroll-snap-align: start; }
+.carousel-arrow {
+  display: flex; align-items: center; justify-content: center; width: 28px; height: 28px;
+  padding: 0; border: 1px solid #ddcdb9; border-radius: 999px; color: #4e3b2f; background: #fffaf3;
+}
+.carousel-arrow:hover:not(:disabled) { color: var(--paper-accent); border-color: var(--paper-accent); }
+.carousel-arrow:disabled { color: #c3b3a3; border-color: #e8dfd2; cursor: default; }
+.carousel-arrow svg { width: 16px; height: 16px; }
+.collection-heading { display: flex; align-items: center; justify-content: space-between; gap: 24px; }
+.collection-heading h1 { margin: 0; font-size: 28px; }
+.collection-actions { display: flex; align-items: center; gap: 9px; }
+.collection-filter { display: flex; align-items: center; gap: 14px; margin: 16px 0 16px; }
+.collection-search input { width: min(320px, 42vw); padding: 9px 12px; border: 1px solid #cdb9a6; border-radius: 8px; background: #fffdf8; }
+.collection-count { margin: 0; color: #6e5b4d; font-size: 14px; }
 .collection-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(245px, 1fr)); gap: 16px; }
+/* Exam cards are sheets at a fixed scale, so their column is that width. */
+.collection-grid--exams { grid-template-columns: repeat(auto-fill, var(--sheet-width)); gap: 20px 18px; }
 .resource-card { min-height: 190px; border: 1px solid #e0d3c2; border-radius: 9px; color: inherit; text-align: left; background: #fffaf3; overflow: hidden; }
 .resource-card:hover, .resource-card:focus-within { border-color: #b65f43; box-shadow: 0 3px 12px rgb(91 68 47 / 12%); }
-.exam-card { display: grid; grid-template-rows: 92px 1fr; width: 100%; padding: 0; }
-.exam-card-page { margin: 14px 14px 0; padding: 12px; overflow: hidden; border: 1px solid #e8dfd2; background: #fffdf8; box-shadow: 0 1px 3px rgb(91 68 47 / 12%); color: #4e3b2f; font-family: Georgia, serif; font-size: 11px; line-height: 1.4; }
-.exam-card-preview-content { transform: scale(.68); transform-origin: top left; width: 147%; }
-.exam-card-preview-content section { padding-bottom: 8px; border-bottom: 1px solid #e8dfd2; }
-.exam-card-preview-content .doc-content > :first-child { margin-top: 0; }
-.empty-page-line { color: #9b8a7d; font-family: Arial, sans-serif; }
-.resource-card-body, .resource-card-main { padding: 14px; }
+/* An Exam looks like what it prints: its own first sheet, shrunk, captioned.
+   Nothing frames it, so a shelf of Exams reads as a stack of paper rather than
+   as another row of the tiles a Question Bank gets.
+
+   The thumbnail is a real `.exam-page` at real geometry under `zoom`, so the
+   margins, the header furniture and the number gutter are the ones the printer
+   uses — there is no second, approximate way of drawing a page to keep in step
+   with the first. */
+.exam-card { display: grid; gap: 8px; width: var(--sheet-width); padding: 0; border: 0; background: transparent; text-align: left; color: inherit; }
+.exam-sheet {
+  width: var(--sheet-width); height: calc(var(--sheet-width) * 11 / 8.5); overflow: hidden;
+  border: 1px solid #e0d3c2; border-radius: 2px; background: #fffdf8;
+  box-shadow: 0 1px 4px rgb(91 68 47 / 14%);
+}
+.exam-sheet .exam-page {
+  zoom: var(--sheet-zoom); margin: 0; box-shadow: none; cursor: inherit;
+}
+.exam-sheet .exam-question { cursor: inherit; }
+.exam-card:hover .exam-sheet, .exam-card:focus-visible .exam-sheet {
+  border-color: #b65f43; box-shadow: 0 4px 14px rgb(91 68 47 / 22%);
+}
+.exam-card-caption { display: grid; gap: 2px; padding: 0 1px; }
+.exam-card-title {
+  overflow: hidden; color: #332a24; font-size: 13px; font-weight: 700;
+  text-overflow: ellipsis; white-space: nowrap;
+}
+.exam-card-stats { display: flex; align-items: center; gap: 6px; color: #866f5e; font-size: 12px; }
+.unsaved-mark { display: inline-flex; color: var(--medium-ink); }
+.unsaved-mark svg { width: 13px; height: 13px; }
+/* Sized in page coordinates like everything else on the sheet, so it lands at
+   a readable size once the thumbnail's `zoom` is applied. */
+.empty-page-line { display: block; margin-top: 90px; color: #9b8a7d; font-family: Arial, sans-serif; font-size: 44px; text-align: center; }
+.resource-card-main { padding: 14px; }
 .resource-card-main { display: block; width: 100%; border: 0; color: inherit; text-align: left; background: transparent; }
 .resource-card h2 { margin: 0 0 7px; overflow: hidden; font-size: 18px; text-overflow: ellipsis; white-space: nowrap; }
-.resource-card p { margin: 0 0 9px; color: #6e5b4d; font-size: 14px; }
 .resource-card time { display: block; margin-top: 8px; color: #866f5e; font-size: 12px; }
-.unsaved-badge { display: inline-block; padding: 2px 7px; border-radius: 999px; color: #8a6320; background: #f8ecd2; font-size: 12px; }
-.topic-summary { min-height: 20px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.bank-delete-button { width: 100%; padding: 8px 14px; border: 0; border-top: 1px solid var(--paper-danger-line); color: var(--paper-danger); background: var(--paper-danger-wash); text-align: left; font: inherit; font-size: 12px; font-weight: 700; }
-.bank-usage { border-top: 1px solid #e8dfd2; padding: 10px 14px 12px; font-size: 13px; }
-.bank-usage summary { color: #6e5b4d; cursor: pointer; font-weight: 600; }
-.bank-usage p { margin: 8px 0 0; }
-.bank-usage ul { display: grid; gap: 6px; margin: 8px 0 0; padding: 0; list-style: none; }
-.bank-usage li { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
-.bank-usage li button { padding: 0; border: 0; color: #9f5037; background: transparent; text-align: left; text-decoration: underline; }
-.bank-usage li span { color: #6e5b4d; font-size: 11px; text-align: right; }
-.editor-home-link { border: 0; background: transparent; }
+/* The mark is pinned to the corner, so the name stops short of it. */
+.question-bank-card h2 { padding-right: 26px; }
+.bank-card-count { margin: 0; color: #6e5b4d; font-size: 14px; }
+.bank-card-topics { display: flex; flex-wrap: wrap; gap: 5px; min-height: 24px; margin-top: 9px; }
+.question-bank-card { position: relative; }
+/* Pinned to the card's corner rather than laid out in the head row: a button
+   cannot nest inside the button that opens the bank. */
+.bank-card-menu {
+  position: absolute; top: 7px; right: 7px; z-index: 1;
+  display: flex; align-items: center; justify-content: center; width: 26px; height: 26px;
+  padding: 0; border: 1px solid transparent; border-radius: 6px;
+  color: #6e5b4d; background: transparent;
+}
+.bank-card-menu svg { width: 16px; height: 16px; }
+.bank-card-menu:hover, .bank-card-menu:focus-visible { color: var(--paper-accent); border-color: #ddcdb9; background: #f7eee3; }
+.bank-card-usage { margin: 10px 0 0; color: #6e5b4d; font-size: 13px; }
+/* The mark in the editor's document bar is the way home. */
+.editor-home-mark {
+  display: flex; align-items: center; padding: 3px; border: 1px solid transparent;
+  border-radius: 8px; background: transparent;
+}
+.editor-home-mark:hover, .editor-home-mark:focus-visible { border-color: #ddcdb9; background: #f2e6d8; }
+/* Inside the fixed-height title slot the page furniture already reserves, so
+   typing a longer name can never change what fits on the sheet.
+
+   The field is as wide as the name and no wider: a mirror of the value sits in
+   the same grid cell behind the input and sets the column, and `size={1}`
+   keeps the input's own 20-character default from putting a floor under it.
+   Without that the hover underline would run the width of the sheet. */
+.exam-title-field {
+  display: inline-grid; max-width: 100%; min-width: 0;
+}
+.exam-title-field::after {
+  grid-area: 1 / 1; padding: 0 1px;
+  content: attr(data-value); visibility: hidden; white-space: pre; overflow: hidden;
+  font: inherit; letter-spacing: inherit;
+}
+.exam-title-input {
+  grid-area: 1 / 1; width: 100%; min-width: 2ch; padding: 0 1px;
+  border: 0; border-bottom: 1px solid transparent;
+  color: inherit; background: transparent; font: inherit; line-height: inherit; outline: none;
+}
+.exam-title-input::placeholder { color: #b8a493; }
+.exam-title-input:hover:not(:disabled) { border-bottom-color: #d8cbbb; }
+.exam-title-input:focus { border-bottom-color: var(--paper-accent); }
+.exam-title-input:disabled { color: inherit; -webkit-text-fill-color: currentcolor; opacity: 1; }
+
+/* Drop a Question Bank File anywhere. */
+.bank-drop-overlay {
+  position: fixed; inset: 0; z-index: 90; display: grid; place-items: center;
+  padding: 32px; background: rgb(51 42 36 / 32%);
+}
+.bank-drop-card {
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+  padding: 42px 54px; border: 2px dashed var(--paper-accent); border-radius: 14px;
+  color: var(--paper-accent); background: var(--paper-accent-wash);
+  box-shadow: 0 18px 60px rgb(58 42 30 / 30%); text-align: center;
+}
+.bank-drop-card svg { width: 34px; height: 34px; }
+.bank-drop-card strong { font-size: 19px; }
+.bank-drop-card span { color: var(--paper-ink-soft); font-size: 14px; }
 .resource-picker {
   width: min(480px, calc(100vw - 32px)); max-height: min(620px, calc(100vh - 48px));
   padding: 20px; overflow-y: auto; border-radius: 12px; background: #fffdf8;
@@ -1210,10 +1531,10 @@ button { cursor: pointer; }
 }
 .resource-picker-list > button:hover { border-color: #b65f43; }
 .resource-picker-list span { color: #6e5b4d; font-size: 13px; }
-.site-main { flex: 1; width: 100%; max-width: 760px; margin: 0 auto; padding: 26px 20px 40px; }
-.site-main h1 { margin: 0 0 6px; font-size: 26px; }
+.site-prose { width: 100%; max-width: 760px; margin: 0 auto; }
+.site-prose h1 { margin: 0 0 6px; font-size: 26px; }
 .site-lede { margin: 0 0 22px; color: #6e5b4d; font-size: 14px; }
-.site-main a { color: #9f5037; font-weight: 600; text-underline-offset: 4px; }
+.site-prose a { color: #9f5037; font-weight: 600; text-underline-offset: 4px; }
 
 .site-card {
   margin-bottom: 20px; padding: 20px; border: 1px solid #e8dfd2; border-radius: 10px;
@@ -1239,12 +1560,12 @@ button { cursor: pointer; }
   font-family: 'Segoe Script', 'Bradley Hand', 'Snell Roundhand', 'Comic Sans MS', cursive;
 }
 
-/* Specific enough to beat the `.site-main a` link colour above it. */
-.site-main a.site-button {
+/* Specific enough to beat the `.site-prose a` link colour above it. */
+.site-prose a.site-button {
   display: inline-block; padding: 9px 15px; border-radius: 8px;
   color: #fffaf3; background: #9f5037; font-size: 14px; font-weight: 600; text-decoration: none;
 }
-.site-main a.site-button:hover { background: #87422e; }
+.site-prose a.site-button:hover { background: #87422e; }
 
 .site-footer {
   display: flex; flex-wrap: wrap; align-items: center; justify-content: center;
@@ -1280,7 +1601,7 @@ button { cursor: pointer; }
 .question-bank-export-choices .doc-content { display: inline; }
 .question-bank-export-choices .doc-content p { display: inline; }
 .question-bank-correct { margin-left: 8px; color: #27643a; font-size: 12px; }
-.bank-import-dialog, .question-bank-details-dialog {
+.question-bank-details-dialog {
   width: min(620px, calc(100vw - 32px)); max-height: calc(100vh - 40px);
   padding: 22px; overflow: auto; border-radius: 12px; background: #fffdf8;
   box-shadow: 0 18px 60px rgb(58 42 30 / 24%);
@@ -1294,23 +1615,165 @@ button { cursor: pointer; }
   background: white; color: inherit; font: inherit;
 }
 .question-bank-details-dialog textarea { min-height: 90px; resize: vertical; }
-.bank-import-dialog dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 18px; }
-.bank-import-dialog dl div { display: flex; justify-content: space-between; gap: 12px; }
-.bank-import-dialog dd { margin: 0; text-align: right; }
 .bank-import-announcements:empty { display: none; }
-.suggested-answer-editor { margin: 0 20px 18px; border-top: 1px solid #e0d3c2; }
-.suggested-answer-editor h3 { margin: 14px 0 6px; font-size: 14px; }
-.suggested-answer-editor h3 span { color: #6e5b4d; font-size: 12px; font-weight: 400; }
-.add-suggested-answer { align-self: flex-start; margin: 0 20px 18px; }
 
 /* The footer is chrome, like the document bar: it belongs to the app, not to
    the test, so it never reaches the printer. */
+@media (max-width: 900px) {
+  .app-shell { grid-template-columns: minmax(0, 1fr); }
+  .app-nav {
+    position: static; height: auto; flex-direction: row; align-items: center; gap: 14px;
+    padding: 8px 14px; border-right: 0; border-bottom: 1px solid #e8dfd2; overflow-x: auto;
+  }
+  .app-nav-list { grid-auto-flow: column; justify-content: start; }
+  .app-nav-link { white-space: nowrap; }
+  .app-frame { min-height: 0; }
+}
+
 @media (max-width: 640px) {
-  .home-heading, .collection-heading { align-items: stretch; flex-direction: column; }
-  .home-heading-actions { align-self: flex-start; }
+  .home-shelf-heading, .collection-heading { align-items: stretch; flex-direction: column; }
+  .app-main { padding: 20px 14px 32px; }
   .collection-search input { width: 100%; }
+  .carousel-arrow { display: none; }
 }
 
 @media print {
   .site-footer { display: none; }
+}
+
+/* The Question Bank import review.
+ *
+ * Importing is a reading task before it is a decision: the teacher is deciding
+ * whether this is the right bank, which they can only do by reading the
+ * questions. So the dialog borrows the export preview's proportions — the
+ * questions get the room, and everything the import itself needs sits in a
+ * rail beside them. Until a record has been inspected there is nothing to
+ * read, and the dialog stays the size of the one control it is offering. */
+.bank-import-dialog {
+  display: flex; flex-direction: column;
+  width: min(560px, calc(100vw - 32px)); max-height: calc(100vh - 40px);
+  overflow: hidden; border-radius: 12px; background: var(--paper-surface);
+  box-shadow: 0 18px 60px rgb(58 42 30 / 24%);
+}
+.bank-import-dialog--review {
+  width: min(1120px, calc(100vw - 32px)); height: min(760px, 94vh); max-height: none;
+}
+.bank-import-dialog > .dialog-header { flex: none; align-items: flex-start; gap: 24px; }
+.bank-import-dialog > .dialog-header p {
+  max-width: 52ch; margin: 5px 0 0; color: var(--paper-ink-soft);
+  font-size: 13px; line-height: 1.45;
+}
+.bank-import-dialog > .dialog-actions { flex: none; }
+/* Backing out of a review is a different kind of act from cancelling, so it
+   sits apart from the pair that resolve the dialog. */
+.bank-import-back { margin-right: auto; }
+.bank-import-choose { padding: 4px 18px 0; }
+.bank-import-announcements { padding: 0 18px; }
+
+.bank-import-integrity {
+  display: flex; align-items: flex-start; gap: 8px; max-width: 310px; margin: 0;
+  color: var(--paper-ink-soft); font-size: 12px; line-height: 1.4;
+}
+.bank-import-integrity svg { flex: none; width: 18px; height: 18px; color: #27643a; }
+.bank-import-integrity strong { display: block; color: #27643a; font-size: 13px; }
+
+.bank-import-body {
+  flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 320px;
+  overflow: hidden; border-top: 1px solid var(--paper-outline);
+}
+.bank-import-preview {
+  min-width: 0; min-height: 0; padding: 22px 26px; overflow-y: auto;
+  overscroll-behavior: contain; background: #fff;
+}
+.bank-import-preview-head h3 { margin: 0; font-size: 19px; }
+.bank-import-preview-head p { margin: 4px 0 0; color: var(--paper-ink-soft); font-size: 13px; }
+.bank-import-preview-description { max-width: 62ch; }
+
+.bank-import-question { padding: 18px 0; border-top: 1px solid var(--paper-outline); }
+.bank-import-question-head {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 8px;
+}
+.bank-import-question-number {
+  display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%;
+  background: var(--paper-surface-low); color: var(--paper-ink-soft);
+  font-size: 12px; font-weight: 700;
+}
+.bank-import-question-type {
+  color: var(--paper-ink-soft); font-size: 12px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.04em;
+}
+.bank-import-stem { line-height: 1.5; }
+.bank-import-stem p { margin: 0 0 6px; }
+.bank-import-stem img { max-width: 100%; height: auto; }
+
+.bank-import-choices { display: grid; gap: 5px; margin: 10px 0 0; padding-left: 22px; }
+.bank-import-choices li { padding-left: 3px; color: var(--paper-ink-soft); }
+.bank-import-choices .doc-content, .bank-import-choices .doc-content p {
+  display: inline; margin: 0;
+}
+.bank-import-choices li.is-correct { color: #27643a; font-weight: 600; }
+/* The mark sits with the answer it belongs to rather than out at the margin,
+   so the eye finds it on the text it is about. */
+.bank-import-correct {
+  width: 15px; height: 15px; margin-left: 6px; color: #27643a; vertical-align: -3px;
+}
+
+.bank-import-answer {
+  margin-top: 10px; padding-left: 11px; border-left: 2px solid var(--paper-outline);
+}
+.bank-import-answer h4 {
+  margin: 0 0 4px; color: var(--paper-ink-soft); font-size: 12px;
+  text-transform: uppercase; letter-spacing: 0.04em;
+}
+.bank-import-answer .doc-content { color: var(--paper-ink-soft); font-size: 14px; }
+.bank-import-answer .doc-content p { margin: 0; }
+
+.bank-import-controls {
+  min-width: 0; padding: 18px; display: flex; flex-direction: column; gap: 16px;
+  overflow-y: auto; border-left: 1px solid var(--paper-outline);
+}
+.bank-import-controls .bank-import-name { margin: 0; }
+
+/* A label and its value differ in weight and in colour, so a row reads at a
+   glance instead of being parsed. */
+.bank-import-summary { display: grid; margin: 0; }
+.bank-import-summary div {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+  padding: 7px 0; border-top: 1px solid var(--paper-outline);
+}
+.bank-import-summary div:first-child { border-top: 0; }
+.bank-import-summary dt { color: var(--paper-ink-soft); font-size: 13px; }
+.bank-import-summary dd { margin: 0; color: #332a24; font-weight: 700; text-align: right; }
+.bank-import-summary dd small {
+  display: block; color: var(--paper-ink-soft); font-size: 11px; font-weight: 400;
+}
+.bank-import-summary .is-warning dt, .bank-import-summary .is-warning dd {
+  color: var(--paper-danger);
+}
+
+.bank-import-provenance { display: grid; gap: 10px; margin: 0; }
+.bank-import-provenance dt { color: var(--paper-ink-soft); font-size: 12px; }
+.bank-import-provenance dd {
+  margin: 2px 0 0; font-size: 13px; font-weight: 600; word-break: break-word;
+}
+
+.bank-import-topics h4 {
+  margin: 0 0 6px; color: var(--paper-ink-soft); font-size: 12px;
+  text-transform: uppercase; letter-spacing: 0.04em;
+}
+.bank-import-topics div { display: flex; flex-wrap: wrap; gap: 5px; }
+.bank-import-note {
+  margin: auto 0 0; color: var(--paper-ink-soft); font-size: 12px; line-height: 1.45;
+}
+
+/* Narrow enough that two lanes would each be too small to read: the rail goes
+   under the questions rather than beside them. */
+@media (max-width: 900px) {
+  .bank-import-dialog--review { width: calc(100vw - 24px); height: calc(100vh - 24px); }
+  .bank-import-body {
+    grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto;
+  }
+  .bank-import-controls {
+    max-height: 45%; border-top: 1px solid var(--paper-outline); border-left: 0;
+  }
 }

@@ -31,7 +31,12 @@ import {
 } from './script-marks'
 import { leftArrowInputRule, rightArrowInputRule } from './text-arrows'
 import type { ReactNode } from 'react'
-import { cleanDocument, emptyDoc } from './question-doc'
+import {
+  cleanDocument,
+  suggestedAnswerDocumentOf,
+  withSuggestedAnswer,
+  withoutSuggestedAnswer,
+} from './question-doc'
 import type { ProseMirrorJSON } from './question-doc'
 import {
   DIFFICULTIES,
@@ -44,7 +49,7 @@ import {
 } from './exam'
 import type { Difficulty, Question, QuestionPlacement, QuestionType } from './exam'
 import { DifficultyBadge, TopicBadge } from './badges'
-import { bankQuestionById, createWorkingCopy } from './question-bank'
+import { bankQuestionById } from './question-bank'
 import { createExamStore, loadExamStore, type ExamStore } from './exam-store'
 import { ExamPage } from './exam-page'
 import { QuestionBankPane } from './question-bank-pane'
@@ -69,13 +74,16 @@ import { configurePastedImages, settlePendingMedia } from './pasted-images'
 import {
   AlignLeft,
   Check,
+  CircleDot,
   FileType2,
   Gauge,
   ListChecks,
   Plus,
   Redo2,
+  RefreshCw,
   Tags,
   Trash2,
+  TriangleAlert,
   Undo2,
   X,
 } from 'lucide-react'
@@ -85,7 +93,6 @@ import { Footer } from './site-chrome'
 import { HomePage } from './home-page'
 import type { ExamWorkspaceService, QuestionDeletionImpact, QuestionUsage, RecentExam } from './exam-workspaces'
 import {
-  type QuestionBankResourceStore,
   type QuestionBankResource,
   type QuestionBankSummary,
   type QuestionBankTabsWorkspace,
@@ -98,12 +105,20 @@ import {
   ExportHistoryDrawer,
   HistoricalExportRecord,
 } from './export-history'
+import { AppShell } from './app-shell'
 import { AboutPage, PrivacyPage } from './site-pages'
 import { persistentStorageStatus, requestPersistentStorage, type PersistentStorageStatus } from './durable-storage'
 import { ResourceCollectionPage } from './resource-collection-page'
+import { BankFileDropTarget } from './bank-file-drop'
 import { questionBankCollection, type QuestionBankCollectionItem } from './resource-collections'
 import { QuestionBankExportDialog } from './question-bank-export-dialog'
 import { QuestionBankImportDialog } from './question-bank-import-dialog'
+import {
+  keepSuggestedAnswer,
+  suggestedAnswerMode,
+  suggestedAnswerSchema,
+  suggestedAnswerView,
+} from './suggested-answer'
 
 /** The mark each Question Section goes by, so a type reads the same wherever
  *  it is named — the picker that chooses one, and the dialog that states it. */
@@ -347,10 +362,12 @@ function CrepeQuestion({
   value,
   onChange,
   onReady,
+  suggestedAnswer = false,
 }: {
   value: ProseMirrorJSON
   onChange: (doc: ProseMirrorJSON) => void
   onReady: (readDocument: () => ProseMirrorJSON) => void
+  suggestedAnswer?: boolean
 }) {
   useEditor((root) => {
     const safeValue = cleanDocument(value)
@@ -400,6 +417,7 @@ function CrepeQuestion({
     })
     crepe.editor
       .use(multipleChoiceMode(true))
+      .use(suggestedAnswerMode(suggestedAnswer))
       .use(subscriptSchema)
       .use(superscriptSchema)
       .use(scriptKeymap)
@@ -411,6 +429,9 @@ function CrepeQuestion({
       .use(multipleChoiceChoiceView)
       .use(multipleChoiceKeymap)
       .use(uniqueChoiceIds)
+      .use(suggestedAnswerSchema)
+      .use(suggestedAnswerView)
+      .use(keepSuggestedAnswer)
     // Make the whole multiple-choice block the drag target instead of a single
     // answer row: never offer a handle for a choice itself, so Crepe's handle
     // climbs to the multipleChoice node. Paragraphs inside a choice keep their
@@ -430,7 +451,10 @@ function CrepeQuestion({
               return false
             }
           }
-          if (node?.type?.name === 'multipleChoiceChoice') return false
+          if (
+            node?.type?.name === 'multipleChoiceChoice'
+            || node?.type?.name === 'suggestedAnswer'
+          ) return false
           return true
         },
       }))
@@ -485,15 +509,15 @@ function QuestionDialog({
   // and never changes it: there is no switch to make, and nothing to preserve
   // across one.
   const { type } = question
-  const [doc] = useState<ProseMirrorJSON>(question.doc)
+  const [doc] = useState<ProseMirrorJSON>(() =>
+    type === 'open'
+      ? withSuggestedAnswer(question.doc, question.suggestedAnswer)
+      : question.doc,
+  )
   const [difficulty, setDifficulty] = useState<Difficulty | ''>(question.difficulty ?? '')
   const [topics, setTopics] = useState<readonly string[]>(topicsOf(question))
-  const [suggestedAnswer] = useState<ProseMirrorJSON>(question.suggestedAnswer ?? emptyDoc)
-  const [editingSuggestedAnswer, setEditingSuggestedAnswer] = useState(false)
   const latestDoc = useRef(doc)
-  const latestSuggestedAnswer = useRef(suggestedAnswer)
   const readEditorDocument = useRef<(() => ProseMirrorJSON) | null>(null)
-  const readSuggestedAnswer = useRef<(() => ProseMirrorJSON) | null>(null)
   const dialog = useRef<HTMLElement>(null)
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
@@ -519,26 +543,24 @@ function QuestionDialog({
     setSaveError(null)
     try {
       await settlePendingMedia()
+      const edited = cleanDocument(
+        readEditorDocument.current?.() ?? latestDoc.current,
+      )
       const saved: Question = {
         ...question,
         type,
         doc: await ownDocumentMedia(
-          cleanDocument(readEditorDocument.current?.() ?? latestDoc.current),
+          type === 'open' ? withoutSuggestedAnswer(edited) : edited,
         ),
       }
       if (difficulty) saved.difficulty = difficulty
       else delete saved.difficulty
       if (topics.length > 0) saved.topics = [...topics]
       else delete saved.topics
-      if (type === 'open' && editingSuggestedAnswer) {
-        const answer = cleanDocument(readSuggestedAnswer.current?.() ?? latestSuggestedAnswer.current)
-        const content = Array.isArray(answer.content) ? answer.content as ProseMirrorJSON[] : []
-        const visiblyBlank = content.every((node) =>
-          node.type === 'paragraph'
-          && (!Array.isArray(node.content) || node.content.length === 0),
-        )
-        if (visiblyBlank) delete saved.suggestedAnswer
-        else saved.suggestedAnswer = await ownDocumentMedia(answer)
+      if (type === 'open') {
+        const answer = suggestedAnswerDocumentOf(edited)
+        if (answer) saved.suggestedAnswer = await ownDocumentMedia(answer)
+        else delete saved.suggestedAnswer
       }
       await onSave(saved)
     } catch (error) {
@@ -652,6 +674,7 @@ function QuestionDialog({
         <div className="dialog-editor">
           <CrepeQuestion
             value={doc}
+            suggestedAnswer={type === 'open'}
             onReady={(readDocument) => {
               readEditorDocument.current = readDocument
             }}
@@ -660,20 +683,6 @@ function QuestionDialog({
             }}
           />
         </div>
-        {type === 'open' && (editingSuggestedAnswer ? <section className="suggested-answer-editor" aria-label="Suggested Answer">
-          <h3>Suggested Answer <span>(optional)</span></h3>
-          <div className="dialog-editor">
-            <CrepeQuestion
-              value={suggestedAnswer}
-              onReady={(readDocument) => { readSuggestedAnswer.current = readDocument }}
-              onChange={(next) => { latestSuggestedAnswer.current = next }}
-            />
-          </div>
-        </section> : <button
-          type="button"
-          className="secondary-button add-suggested-answer"
-          onClick={() => setEditingSuggestedAnswer(true)}
-        >{question.suggestedAnswer ? 'Edit Suggested Answer' : 'Add Suggested Answer'}</button>)}
         <footer className="dialog-actions">
           {!isNew && onDelete && <button type="button" className="danger-button question-delete-button" onClick={onDelete}><Trash2 />Delete Question</button>}
           {saveError && <p className="dialog-save-error" role="alert">{saveError}</p>}
@@ -873,13 +882,167 @@ function ResourcePicker({
   </div>, document.body)
 }
 
+/**
+ * One Question Bank, open and editable: its list, its filters, and the dialogs
+ * that create, edit, delete and share the Questions in it.
+ *
+ * It knows nothing about where it is being shown. The Exam editor mounts it in
+ * the right-hand pane under a strip of tabs; the Question Bank page mounts one
+ * of them full width with no tabs at all. Mount it with `key={bank.id}` — a
+ * different bank is a different workspace, and none of the selection or dialog
+ * state below should survive the change.
+ */
+function QuestionBankWorkspace({
+  bank,
+  heading,
+  extraActions,
+  service,
+  filter,
+  onFilterChange,
+  onBankChange,
+  onBankGone,
+  workingCopyIds = new Set(),
+  drag: providedDrag,
+  examsService,
+  onAddToExam,
+  onRemoveFromExam,
+  beforeCanonicalQuestionCommit,
+  onCanonicalQuestionCommitted,
+  onQuestionDeleted,
+}: {
+  bank: QuestionBankResource
+  /** Handed to the pane's header, where the surface this is mounted on names
+   *  the bank and adds the actions that belong to the surface rather than to
+   *  the bank. See `QuestionBankPane`. */
+  heading?: ReactNode
+  extraActions?: ReactNode
+  service: QuestionBankWorkspaceService
+  filter: QuestionBankFilter
+  onFilterChange: (filter: QuestionBankFilter) => void
+  onBankChange: (bank: QuestionBankResource) => void
+  /** The bank was disposed of by the deletion that emptied it. */
+  onBankGone: () => void
+  workingCopyIds?: ReadonlySet<string>
+  drag?: ReturnType<typeof useWorkspaceDrag>
+  examsService?: ExamWorkspaceService
+  onAddToExam?: (question: Question) => void
+  onRemoveFromExam?: (questionId: string) => void
+  beforeCanonicalQuestionCommit?: () => Promise<void>
+  onCanonicalQuestionCommitted?: (question: Question) => void
+  onQuestionDeleted?: (questionId: string) => void
+}) {
+  const [selectedQuestionId, setSelectedQuestionId] = useState<string | null>(null)
+  const [choosingType, setChoosingType] = useState<MenuPoint | null>(null)
+  const [editing, setEditing] = useState<Question | null>(null)
+  const [usage, setUsage] = useState<QuestionUsage[] | undefined>()
+  const [confirmingDeletion, setConfirmingDeletion] = useState(false)
+  const [exporting, setExporting] = useState(false)
+  const unavailableDrag = useWorkspaceDrag(() => undefined)
+  const drag = providedDrag ?? unavailableDrag
+
+  return <>
+    <QuestionBankPane
+      bank={{ questions: bank.questions }}
+      heading={heading}
+      extraActions={extraActions}
+      workingCopyIds={workingCopyIds}
+      filter={filter}
+      onFilterChange={onFilterChange}
+      selectedQuestionId={selectedQuestionId}
+      onSelect={setSelectedQuestionId}
+      drag={drag}
+      onCreate={setChoosingType}
+      onExport={() => setExporting(true)}
+      exportBlocked={editing !== null}
+      onEdit={(questionId) => {
+        const question = bank.questions.find((candidate) => candidate.id === questionId)
+        if (!question) return
+        if (!examsService) {
+          setEditing(question)
+          setUsage(undefined)
+          return
+        }
+        void examsService.questionUsage(questionId).then((questionUsage) => {
+          setEditing(question)
+          setUsage(questionUsage)
+        })
+      }}
+      onAddToWorkingCopy={onAddToExam
+        ? (questionId) => {
+            const question = bank.questions.find(({ id }) => id === questionId)
+            if (question) onAddToExam(question)
+          }
+        : undefined}
+      onRemoveFromWorkingCopy={onRemoveFromExam}
+    />
+    {exporting && <QuestionBankExportDialog bank={bank} onClose={() => setExporting(false)} />}
+    {choosingType && <ContextMenu
+      point={choosingType}
+      ariaLabel="Question type"
+      items={SECTION_ORDER.map((type) => ({
+        kind: 'action' as const,
+        label: SECTION_LABELS[type],
+        icon: QUESTION_TYPE_ICONS[type],
+        onSelect: () => {
+          setEditing(createQuestion(type))
+          setUsage(undefined)
+        },
+      }))}
+      onClose={() => setChoosingType(null)}
+    />}
+    {editing && <QuestionDialog
+      question={editing}
+      isNew={!bank.questions.some((question) => question.id === editing.id)}
+      topicSuggestions={topicOptions({ questions: bank.questions })}
+      ownerName={bank.name}
+      usage={usage}
+      onCancel={() => setEditing(null)}
+      onDelete={bank.questions.some(({ id }) => id === editing.id) ? () => setConfirmingDeletion(true) : undefined}
+      onSave={async (question) => {
+        const existing = bank.questions.some((candidate) => candidate.id === question.id)
+        if (existing) await beforeCanonicalQuestionCommit?.()
+        const updated = existing && examsService
+          ? await service.commitCanonicalQuestion(
+              bank.id,
+              question,
+              (canonical) => examsService.propagateCanonicalQuestion(canonical),
+            )
+          : await service.commit(bank.id, {
+              kind: existing ? 'update-question' : 'create-question',
+              question,
+            })
+        onBankChange(updated)
+        if (existing) onCanonicalQuestionCommitted?.(question)
+        setEditing(null)
+      }}
+    />}
+    {confirmingDeletion && editing && <QuestionDeletionConfirmation
+      usage={usage ?? []}
+      onCancel={() => setConfirmingDeletion(false)}
+      onConfirm={async () => {
+        await beforeCanonicalQuestionCommit?.()
+        const updated = await service.permanentlyDeleteQuestion(
+          bank.id,
+          editing.id,
+          (ids) => examsService?.forceDeleteQuestions(ids) ?? Promise.resolve({ rollback: async () => undefined, finalize: async () => undefined }),
+        )
+        if (updated) onBankChange(updated)
+        else onBankGone()
+        onQuestionDeleted?.(editing.id)
+        setSelectedQuestionId(null)
+        drag.cancel()
+        setConfirmingDeletion(false)
+        setEditing(null)
+      }}
+    />}
+  </>
+}
+
 function QuestionBankTabsPane({
   context,
   service,
-  initialResource,
   fallback,
   workingCopyIds = new Set(),
-  onActiveResourceChange,
   onQuestionsChange,
   onAddToExam,
   onRemoveFromExam,
@@ -892,10 +1055,8 @@ function QuestionBankTabsPane({
 }: {
   context: BankWorkspaceContext
   service: QuestionBankWorkspaceService
-  initialResource?: QuestionBankResource
   fallback?: ReactNode
   workingCopyIds?: ReadonlySet<string>
-  onActiveResourceChange?: (resource: QuestionBankResource | null) => void
   onQuestionsChange?: (questions: readonly Question[]) => void
   onAddToExam?: (question: Question) => void
   onRemoveFromExam?: (questionId: string) => void
@@ -907,36 +1068,19 @@ function QuestionBankTabsPane({
   onQuestionDeleted?: (questionId: string) => void
 }) {
   const stableContext = useMemo<BankWorkspaceContext>(
-    () => ({ mode: context.mode, resourceId: context.resourceId }),
-    [context.mode, context.resourceId],
+    () => ({ examId: context.examId }),
+    [context.examId],
   )
   const [workspace, setWorkspace] = useState<QuestionBankTabsWorkspace>(() => ({
-    openBankIds: initialResource ? [initialResource.id] : [],
-    activeBankId: initialResource?.id ?? null,
-    filters: initialResource ? { [initialResource.id]: NO_FILTER } : {},
+    openBankIds: [],
+    activeBankId: null,
+    filters: {},
     pane: { bankPercent: 33 },
   }))
-  const [resources, setResources] = useState<Record<string, QuestionBankResource>>(() =>
-    initialResource ? { [initialResource.id]: initialResource } : {},
-  )
+  const [resources, setResources] = useState<Record<string, QuestionBankResource>>({})
   const [pickerBanks, setPickerBanks] = useState<QuestionBankSummary[] | null>(null)
   const [hydrated, setHydrated] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
-  const [selectedQuestionId, setSelectedQuestionId] = useState<string | null>(null)
-  const [choosingType, setChoosingType] = useState<MenuPoint | null>(null)
-  const [editing, setEditing] = useState<Question | null>(null)
-  const [editingOwner, setEditingOwner] = useState<QuestionBankResource | null>(null)
-  const [usage, setUsage] = useState<QuestionUsage[] | undefined>()
-  const [confirmingDeletion, setConfirmingDeletion] = useState(false)
-  const [exportingBank, setExportingBank] = useState<QuestionBankResource | null>(null)
-  const unavailableDrag = useWorkspaceDrag(() => undefined)
-  const drag = workspaceDrag ?? unavailableDrag
-
-  useEffect(() => {
-    if (initialResource) {
-      setResources((current) => ({ ...current, [initialResource.id]: initialResource }))
-    }
-  }, [initialResource])
 
   useEffect(() => {
     let current = true
@@ -967,9 +1111,6 @@ function QuestionBankTabsPane({
 
   const active = workspace.activeBankId ? resources[workspace.activeBankId] : undefined
   useEffect(() => {
-    if (hydrated) onActiveResourceChange?.(active ?? null)
-  }, [active, hydrated, onActiveResourceChange])
-  useEffect(() => {
     if (hydrated) onQuestionsChange?.(
       Object.values(resources).flatMap((resource) => resource.questions),
     )
@@ -988,14 +1129,12 @@ function QuestionBankTabsPane({
     }
     setWorkspace(opened.workspace)
     updateResource(opened.bank)
-    setSelectedQuestionId(null)
     setPickerBanks(null)
     requestAnimationFrame(() => document.querySelector<HTMLElement>(`[role="tab"][data-bank-id="${CSS.escape(id)}"]`)?.focus())
   }
   const activate = async (id: string) => {
     const previousActiveBankId = workspace.activeBankId
     setWorkspace((current) => openBankTab(current, id))
-    setSelectedQuestionId(null)
     const opened = await service.openTab(stableContext, id)
     if (!opened) {
       setWorkspace((current) => current.activeBankId === id
@@ -1017,7 +1156,6 @@ function QuestionBankTabsPane({
       delete remaining[id]
       return remaining
     })
-    setSelectedQuestionId(null)
     await service.closeTab(stableContext, id)
     requestAnimationFrame(() => {
       const target = next.activeBankId
@@ -1064,46 +1202,37 @@ function QuestionBankTabsPane({
           </div>
         })}
       </div>
-      <button type="button" className="open-bank-button" aria-label="Open Question Bank" disabled={!hydrated} onClick={() => void openPicker()}>Open Question Bank</button>
+      {/* Where Chrome keeps it: a plus at the end of the strip, next to the
+          tab that was opened last. */}
+      <button
+        type="button"
+        className="open-bank-button"
+        aria-label="Open Question Bank"
+        title="Open Question Bank"
+        disabled={!hydrated}
+        onClick={() => void openPicker()}
+      ><Plus /></button>
     </div>
-    {active ? <QuestionBankPane
-      bank={{ questions: active.questions }}
-      workingCopyIds={workingCopyIds}
+    {active ? <QuestionBankWorkspace
+      key={active.id}
+      bank={active}
+      service={service}
       filter={filter}
       onFilterChange={(nextFilter) => {
         setWorkspace((current) => ({ ...current, filters: { ...current.filters, [active.id]: nextFilter } }))
         void service.updateFilter(stableContext, active.id, nextFilter)
       }}
-      selectedQuestionId={selectedQuestionId}
-      onSelect={setSelectedQuestionId}
-      drag={drag}
-      onCreate={setChoosingType}
-      onExport={() => setExportingBank(active)}
-      exportBlocked={editing !== null}
-      onEdit={(questionId) => {
-        const question = active.questions.find((candidate) => candidate.id === questionId)
-        if (!question) return
-        if (!examsService) {
-          setEditing(question)
-          setEditingOwner(active)
-          setUsage(undefined)
-          return
-        }
-        void examsService.questionUsage(questionId).then((questionUsage) => {
-          setEditing(question)
-          setEditingOwner(active)
-          setUsage(questionUsage)
-        })
-      }}
-      onAddToWorkingCopy={onAddToExam
-        ? (questionId) => {
-            const question = active.questions.find(({ id }) => id === questionId)
-            if (question) onAddToExam(question)
-          }
-        : undefined}
-      onRemoveFromWorkingCopy={onRemoveFromExam}
+      onBankChange={updateResource}
+      onBankGone={() => void close(active.id)}
+      workingCopyIds={workingCopyIds}
+      drag={workspaceDrag}
+      examsService={examsService}
+      onAddToExam={onAddToExam}
+      onRemoveFromExam={onRemoveFromExam}
+      beforeCanonicalQuestionCommit={beforeCanonicalQuestionCommit}
+      onCanonicalQuestionCommitted={onCanonicalQuestionCommitted}
+      onQuestionDeleted={onQuestionDeleted}
     /> : fallback ?? <div className="question-bank question-bank-no-tab"><p>No Question Bank is open.</p></div>}
-    {exportingBank && <QuestionBankExportDialog bank={exportingBank} onClose={() => setExportingBank(null)} />}
     {pickerBanks && <ResourcePicker
       title="Open Question Bank"
       closeLabel="Close Question Bank picker"
@@ -1112,105 +1241,42 @@ function QuestionBankTabsPane({
       onChoose={(id) => void chooseBank(id)}
       onClose={() => setPickerBanks(null)}
     />}
-    {choosingType && <ContextMenu
-      point={choosingType}
-      ariaLabel="Question type"
-      items={SECTION_ORDER.map((type) => ({
-        kind: 'action' as const,
-        label: SECTION_LABELS[type],
-        icon: QUESTION_TYPE_ICONS[type],
-        onSelect: () => {
-          setEditing(createQuestion(type))
-          setEditingOwner(active ?? null)
-          setUsage(undefined)
-        },
-      }))}
-      onClose={() => setChoosingType(null)}
-    />}
-    {editing && active && <QuestionDialog
-      question={editing}
-      isNew={!active.questions.some((question) => question.id === editing.id)}
-      topicSuggestions={topicOptions({ questions: active.questions })}
-      ownerName={editingOwner?.name ?? active.name}
-      usage={usage}
-      onCancel={() => setEditing(null)}
-      onDelete={active.questions.some(({ id }) => id === editing.id) ? () => setConfirmingDeletion(true) : undefined}
-      onSave={async (question) => {
-        const existing = active.questions.some((candidate) => candidate.id === question.id)
-        if (existing) await beforeCanonicalQuestionCommit?.()
-        const updated = existing && examsService
-          ? await service.commitCanonicalQuestion(
-              active.id,
-              question,
-              (canonical) => examsService.propagateCanonicalQuestion(canonical),
-            )
-          : await service.commit(active.id, {
-              kind: existing ? 'update-question' : 'create-question',
-              question,
-            })
-        updateResource(updated)
-        if (existing) onCanonicalQuestionCommitted?.(question)
-        setEditing(null)
-      }}
-    />}
-    {confirmingDeletion && editing && editingOwner && <QuestionDeletionConfirmation
-      usage={usage ?? []}
-      onCancel={() => setConfirmingDeletion(false)}
-      onConfirm={async () => {
-        await beforeCanonicalQuestionCommit?.()
-        const updated = await service.permanentlyDeleteQuestion(
-          editingOwner.id,
-          editing.id,
-          (ids) => examsService?.forceDeleteQuestions(ids) ?? Promise.resolve({ rollback: async () => undefined, finalize: async () => undefined }),
-        )
-        if (updated) updateResource(updated)
-        else {
-          const next = await service.closeTab(stableContext, editingOwner.id)
-          setWorkspace(next)
-          setResources((current) => {
-            const remaining = { ...current }
-            delete remaining[editingOwner.id]
-            return remaining
-          })
-        }
-        onQuestionDeleted?.(editing.id)
-        setSelectedQuestionId(null)
-        drag.cancel()
-        setConfirmingDeletion(false)
-        setEditing(null)
-      }}
-    />}
   </div>
 }
 
-function QuestionBankEditor({
-  initialResource,
+
+/**
+ * The Question Bank page: one bank, full screen, in the same chrome as Home
+ * and the collections.
+ *
+ * Opening a Question Bank is not opening the editor. The editor edits an Exam;
+ * a bank is a place you go to write and organise Questions, reached by its own
+ * breadcrumb trail and leaving no Exam behind it. Double-clicking a Question
+ * here opens the same Question editor the Exam editor's pane opens.
+ */
+function QuestionBankPage({
+  bank: initialBank,
   bankWorkspaces,
   workspaces,
-  exams,
-  onHome,
-  onOpenExam,
-  onNewExam,
+  persistentStorage,
   launchError,
 }: {
-  initialResource?: QuestionBankResource
+  bank: QuestionBankResource
   bankWorkspaces: QuestionBankWorkspaceService
   workspaces: ExamWorkspaceService
-  exams: readonly RecentExam[]
-  onHome: () => void
-  onOpenExam: (id: string, activeBankId: string | null) => void
-  onNewExam: (question?: Question) => void
+  persistentStorage: PersistentStorageStatus
   launchError: string | null
 }) {
-  const [activeResource, setActiveResource] = useState<QuestionBankResource | null>(initialResource ?? null)
-  const [name, setName] = useState(initialResource?.name ?? '')
+  const [bank, setBank] = useState(initialBank)
+  const [name, setName] = useState(initialBank.name)
+  const [filter, setFilter] = useState<QuestionBankFilter>(NO_FILTER)
   const [nameError, setNameError] = useState<string | null>(null)
   const [editingDetails, setEditingDetails] = useState(false)
   const [details, setDetails] = useState({
-    description: initialResource?.description ?? '',
-    author: initialResource?.author ?? '',
-    licenseName: initialResource?.license?.name ?? '',
-    licenseUrl: initialResource?.license?.url ?? '',
+    description: initialBank.description ?? '',
+    author: initialBank.author ?? '',
+    licenseName: initialBank.license?.name ?? '',
+    licenseUrl: initialBank.license?.url ?? '',
   })
   const [detailsBusy, setDetailsBusy] = useState(false)
   const [importAnnouncement] = useState(() => {
@@ -1218,86 +1284,60 @@ function QuestionBankEditor({
     window.sessionStorage.removeItem('test-parrot-import-announcement')
     return message
   })
-  const [choosingExam, setChoosingExam] = useState(false)
-  const activeResourceRef = useRef(activeResource)
-  activeResourceRef.current = activeResource
-  const drag = useWorkspaceDrag((source, intent) => {
-    if (source.pane !== 'question-bank' || intent.kind !== 'insert-first') return
-    const question = activeResourceRef.current?.questions.find(({ id }) => id === source.questionId)
-    if (question) onNewExam(question)
-  })
 
-  useEffect(() => setName(activeResource?.name ?? ''), [activeResource?.name])
-  useEffect(() => setDetails({
-    description: activeResource?.description ?? '',
-    author: activeResource?.author ?? '',
-    licenseName: activeResource?.license?.name ?? '',
-    licenseUrl: activeResource?.license?.url ?? '',
-  }), [activeResource])
+  useEffect(() => setName(bank.name), [bank.name])
 
   const commitName = async () => {
-    if (!activeResource || name === activeResource.name) return
+    if (name === bank.name) return
     setNameError(null)
     try {
-      const updated = await bankWorkspaces.commit(activeResource.id, { kind: 'rename', name })
-      setActiveResource(updated)
+      setBank(await bankWorkspaces.commit(bank.id, { kind: 'rename', name }))
     } catch (error) {
       setNameError(error instanceof Error ? error.message : 'The Question Bank name could not be saved.')
     }
   }
 
-  return <>
-    {launchError && <p className="home-error editor-launch-error" role="alert">{launchError}</p>}
+  return <AppShell
+    crumbs={[
+      { label: 'Home', href: '/' },
+      { label: 'Question Banks', href: '/question-banks' },
+      { label: bank.name },
+    ]}
+    persistentStorage={persistentStorage}
+    actions={<span className="bank-save-status">Changes save immediately</span>}
+  >
+    {launchError && <p className="home-error" role="alert">{launchError}</p>}
     {importAnnouncement && <p className="sr-only" role="status" aria-live="polite">{importAnnouncement}</p>}
-    <header className="document-bar">
-      <div className="document-identity">
-        <img className="app-logo" src="/logo.png" alt="Test Parrot" width={36} height={36} />
-        {activeResource ? <input
-          aria-label="Question Bank name"
-          className="document-title"
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-          onBlur={() => void commitName()}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') event.currentTarget.blur()
-          }}
-        /> : <span className="document-title bank-workspace-title">Question Banks</span>}
-      </div>
-      <div className="header-actions">
-        <span className="bank-save-status">Changes save immediately</span>
-        {activeResource && <button type="button" className="secondary-button" aria-haspopup="dialog" onClick={() => setEditingDetails(true)}>Bank details</button>}
-        <button type="button" className="site-link editor-home-link" onClick={onHome}>Home</button>
-      </div>
-    </header>
-    {nameError && <p className="home-error bank-name-error" role="alert">{nameError}</p>}
-    <div className="bank-only-workspace">
-      <div className="question-bank-authoring">
-        <QuestionBankTabsPane
-          context={{ mode: 'bank', resourceId: initialResource?.id ?? '' }}
-          service={bankWorkspaces}
-          initialResource={activeResource ?? undefined}
-          onActiveResourceChange={setActiveResource}
-          workspaceDrag={drag}
-          examsService={workspaces}
-          onAddToExam={(question) => onNewExam(question)}
-        />
-      </div>
-      <main
-        className="bank-only-empty"
-        aria-label="Bank-only editor"
-        data-empty-section={drag.source?.pane === 'question-bank' ? drag.source.type : undefined}
-        data-active={drag.intent?.kind === 'insert-first' ? 'true' : undefined}
-      >
-        <h1>No Exam open</h1>
-        <p>Create and edit reusable Questions here without creating or changing an Exam.</p>
-        <div className="bank-only-actions">
-          <button type="button" className="primary-button" onClick={() => onNewExam()}>New Exam</button>
-          <button type="button" className="secondary-button" onClick={() => setChoosingExam(true)}>Open existing Exam</button>
-        </div>
-      </main>
+    <div className="bank-page">
+      <QuestionBankWorkspace
+        key={bank.id}
+        bank={bank}
+        // The bank's name is the page's title, so it is what the pane's header
+        // row is built around: the actions sit beside it rather than under a
+        // second heading that would only say "Question Bank" again.
+        heading={<div className="bank-page-heading">
+          <input
+            aria-label="Question Bank name"
+            className="bank-page-title"
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            onBlur={() => void commitName()}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') event.currentTarget.blur()
+            }}
+          />
+          {nameError && <p className="home-error bank-name-error" role="alert">{nameError}</p>}
+        </div>}
+        extraActions={<button type="button" className="secondary-button" aria-haspopup="dialog" onClick={() => setEditingDetails(true)}>Bank details</button>}
+        service={bankWorkspaces}
+        filter={filter}
+        onFilterChange={setFilter}
+        onBankChange={setBank}
+        onBankGone={() => window.location.assign('/question-banks')}
+        examsService={workspaces}
+      />
     </div>
-    <Footer />
-    {editingDetails && activeResource && <div className="dialog-backdrop" role="presentation">
+    {editingDetails && <div className="dialog-backdrop" role="presentation">
       <section className="question-bank-details-dialog" role="dialog" aria-modal="true" aria-labelledby="bank-details-title">
         <h2 id="bank-details-title">Question Bank details</h2>
         <p>Only details you enter are included when this Question Bank is shared.</p>
@@ -1310,7 +1350,7 @@ function QuestionBankEditor({
           <button type="button" className="primary-button" disabled={detailsBusy} onClick={() => {
             setDetailsBusy(true)
             setNameError(null)
-            void bankWorkspaces.commit(activeResource.id, {
+            void bankWorkspaces.commit(bank.id, {
               kind: 'update-provenance',
               provenance: {
                 description: details.description,
@@ -1318,7 +1358,7 @@ function QuestionBankEditor({
                 ...(details.licenseName.trim() ? { license: { name: details.licenseName, ...(details.licenseUrl.trim() ? { url: details.licenseUrl } : {}) } } : {}),
               },
             }).then((updated) => {
-              setActiveResource(updated)
+              setBank(updated)
               setEditingDetails(false)
             }).catch((error: unknown) => {
               setNameError(error instanceof Error ? error.message : 'Question Bank details could not be saved.')
@@ -1327,15 +1367,40 @@ function QuestionBankEditor({
         </div>
       </section>
     </div>}
-    {choosingExam && <ResourcePicker
-      title="Open Exam"
-      closeLabel="Close Exam picker"
-      emptyMessage="No Exams are available on this device."
-      resources={exams.map((exam) => ({ id: exam.id, name: exam.title, questionCount: exam.questionCount }))}
-      onChoose={(id) => onOpenExam(id, activeResource?.id ?? null)}
-      onClose={() => setChoosingExam(false)}
-    />}
-  </>
+  </AppShell>
+}
+
+
+/** What the Working Copy's state is, in a slot that never changes size. */
+const WORKING_COPY_STATES = {
+  pending: { Icon: RefreshCw, label: 'Backing up…', detail: 'This change is still being written to this browser.' },
+  failed: { Icon: TriangleAlert, label: 'Backup failed', detail: 'This change could not be written to this browser. Export to keep it.' },
+  dirty: { Icon: CircleDot, label: 'Unsaved changes · backed up locally', detail: 'Backed up in this browser. Save to update the Exam itself.' },
+  saved: { Icon: Check, label: 'Saved', detail: 'Everything in this Working Copy is in the saved Exam.' },
+} as const
+
+function WorkingCopyStatus({ dirty, backupStatus }: {
+  dirty: boolean
+  backupStatus: 'pending' | 'failed' | 'ready'
+}) {
+  const state = backupStatus === 'pending' ? 'pending'
+    : backupStatus === 'failed' ? 'failed'
+      : dirty ? 'dirty' : 'saved'
+  const { Icon, label, detail } = WORKING_COPY_STATES[state]
+  return (
+    <div className="working-copy-badge" data-state={state}>
+      <button type="button" className="working-copy-badge-button" aria-label={label} aria-describedby="working-copy-tip">
+        <Icon aria-hidden="true" />
+      </button>
+      {/* The words are still here for anyone who needs them: on hover, on
+          focus, and — because this is what changed — announced. */}
+      <div className="storage-tip working-copy-tip" id="working-copy-tip" role="tooltip">
+        <strong>{label}</strong>
+        <p>{detail}</p>
+      </div>
+      <span className="sr-only" role="status" aria-live="polite" aria-label="Working Copy status">{label}</span>
+    </div>
+  )
 }
 
 function ExamEditor({
@@ -1436,7 +1501,7 @@ function ExamEditor({
   const [bankRevision, setBankRevision] = useState(0)
   useEffect(() => {
     let current = true
-    void bankWorkspaces.workspace({ mode: 'exam', resourceId: examId }).then((workspace) => {
+    void bankWorkspaces.workspace({ examId }).then((workspace) => {
       if (current) setBankPercent(workspace.pane.bankPercent)
     })
     return () => { current = false }
@@ -1821,22 +1886,33 @@ function ExamEditor({
   return (
     <>
       {launchError && <p className="home-error editor-launch-error" role="alert">{launchError}</p>}
+      {/* This bar belongs to the Exam. The mark is the way home and the name
+          sits beside it, where a document's name sits — the same name that is
+          printed on the page's own title line, and the same field: typing in
+          either is typing the Exam's name. */}
+      <div className="editor-shell">
       <header className="document-bar">
-        {/* The mark sits at the far left of the bar with the Exam's name beside
-            it, the way a document editor puts its logo next to the file name. */}
         <div className="document-identity">
-          <img className="app-logo" src="/logo.png" alt="Test Parrot" width={36} height={36} />
+          <button
+            type="button"
+            className="editor-home-mark"
+            aria-label="Test Parrot home"
+            title="Home"
+            onClick={onHome}
+          >
+            <img className="app-logo" src="/logo.png" alt="" width={36} height={36} />
+          </button>
           <input
             aria-label="Exam name"
             className="document-title"
             value={state.workingCopy.title}
             disabled={isHistoricalBrowsing}
+            placeholder="Untitled Exam"
             onChange={(event) => store.setTitle(event.target.value)}
           />
         </div>
         <div className="header-actions">
           <button type="button" className="site-link" onClick={() => setChoosingExam(true)}>Open Exam</button>
-          <button type="button" className="site-link editor-home-link" onClick={onHome}>Home</button>
           <button
             type="button"
             className="toolbar-icon-button"
@@ -1861,19 +1937,12 @@ function ExamEditor({
           >
             <Redo2 />
           </button>
-          <span
-            className="working-copy-status"
-            aria-label="Working Copy status"
-            aria-live="polite"
-          >
-            {backupStatus === 'pending'
-              ? 'Backing up…'
-              : backupStatus === 'failed'
-                ? 'Backup failed'
-                : state.dirty
-                  ? 'Unsaved changes · backed up locally'
-                  : 'Saved'}
-          </span>
+          {/* A mark, not a sentence. It changes on every keystroke, and four
+              different sentences in a flex row that wraps means the whole bar
+              reflowing under the teacher's hands while they type. The text is
+              still there — in the tooltip, and announced to a screen reader —
+              but the slot it lives in never changes size. */}
+          <WorkingCopyStatus dirty={state.dirty} backupStatus={backupStatus} />
           <button
             type="button"
             className="secondary-button"
@@ -1988,7 +2057,7 @@ function ExamEditor({
         initialBankPercent={bankPercent}
         onBankPercentChange={(percent) => {
           setBankPercent(percent)
-          void bankWorkspaces.updatePane({ mode: 'exam', resourceId: examId }, percent)
+          void bankWorkspaces.updatePane({ examId }, percent)
         }}
         bank={
           <div
@@ -1997,7 +2066,7 @@ function ExamEditor({
             aria-hidden={isHistoricalBrowsing || undefined}
           >
           <QuestionBankTabsPane
-            context={{ mode: 'exam', resourceId: examId }}
+            context={{ examId }}
             service={bankWorkspaces}
             workingCopyIds={workingCopyIds}
             onQuestionsChange={store.syncCanonicalQuestions}
@@ -2061,6 +2130,8 @@ function ExamEditor({
             drag={drag}
             revealQuestionId={revealQuestionId}
             onRevealed={clearReveal}
+            onTitleChange={(title) => store.setTitle(title)}
+            titleDisabled={isHistoricalBrowsing}
             onEdit={(questionId) => {
               const question = bankQuestionById(state.questionBank, questionId)
               if (!question) return
@@ -2121,6 +2192,7 @@ function ExamEditor({
           </>
         }
       />
+      </div>
 
       {varySummary && (
         <p className="vary-summary" role="status" aria-live="polite">
@@ -2213,25 +2285,24 @@ function ExamEditor({
  */
 export default function App({
   store,
-  bankStore,
+  bank,
   workspaces,
   bankWorkspaces,
   initialExams,
   initialBankCollection,
   persistentStorage,
   initialEditorId,
-  initialEditorMode,
   initialError,
 }: {
   store: ExamStore | null
-  bankStore: QuestionBankResourceStore | null
+  /** The Question Bank the `/question-bank` route was entered for. */
+  bank: QuestionBankResource | null
   workspaces: ExamWorkspaceService
   bankWorkspaces: QuestionBankWorkspaceService
   initialExams: readonly RecentExam[]
   initialBankCollection: readonly QuestionBankCollectionItem[]
   persistentStorage: PersistentStorageStatus
   initialEditorId: string | null
-  initialEditorMode: 'bank' | 'exam' | null
   initialError: string | null
 }) {
   const route = useRoute()
@@ -2239,11 +2310,10 @@ export default function App({
   const [bankCollection, setBankCollection] = useState(initialBankCollection)
   const [storageStatus, setStorageStatus] = useState(persistentStorage)
   const [editorStore, setEditorStore] = useState(store)
-  const [editorBankStore] = useState(bankStore)
   const [editorId, setEditorId] = useState(initialEditorId)
-  const [editorMode, setEditorMode] = useState(initialEditorMode)
   const [deletingBank, setDeletingBank] = useState<{ bank: QuestionBankCollectionItem; impact: QuestionDeletionImpact[] } | null>(null)
   const [inspectingBankFile, setInspectingBankFile] = useState(false)
+  const [droppedBankFile, setDroppedBankFile] = useState<File | null>(null)
   const homeError = initialError
   const importBank = useCallback(async (
     proposal: import('./question-bank-import').QuestionBankImportProposal,
@@ -2254,7 +2324,7 @@ export default function App({
       'test-parrot-import-announcement',
       `Imported ${imported.questions.length} ${imported.questions.length === 1 ? 'Question' : 'Questions'} into ${imported.name}.`,
     )
-    window.location.assign(`/editor?bank=${imported.id}`)
+    window.location.assign(`/question-bank?id=${imported.id}`)
   }, [bankWorkspaces])
   const requestBankDeletion = useCallback((bank: QuestionBankCollectionItem) => {
     void bankWorkspaces.read(bank.id).then(async (resource) => {
@@ -2319,97 +2389,63 @@ export default function App({
     })()
     return () => { current = false }
   }, [route, workspaces, bankWorkspaces])
-  if (route === '/about') return <AboutPage />
-  if (route === '/privacy') return <PrivacyPage />
-  if (route === '/exams') return <><ResourceCollectionPage
+  const newExam = () => { void workspaces.create().then((exam) => window.location.assign(`/editor?exam=${exam.id}`)) }
+  const newBank = () => { void bankWorkspaces.create().then((bank) => window.location.assign(`/question-bank?id=${bank.id}`)) }
+  const openExam = (id: string) => window.location.assign(`/editor?exam=${id}`)
+  const openBank = (id: string) => window.location.assign(`/question-bank?id=${id}`)
+  const importDialog = inspectingBankFile && <QuestionBankImportDialog
+    key={droppedBankFile ? `${droppedBankFile.name}:${droppedBankFile.lastModified}` : 'chosen'}
+    initialFile={droppedBankFile ?? undefined}
+    onClose={() => { setInspectingBankFile(false); setDroppedBankFile(null) }}
+    onImport={importBank}
+  />
+  // Importing by drop is offered on every page, the editor included, so the
+  // overlay and the dialog live outside the route switch below.
+  const globalChrome = <>
+    <BankFileDropTarget onFile={(file) => { setDroppedBankFile(file); setInspectingBankFile(true) }} />
+    {importDialog}
+  </>
+  if (route === '/about') return <>{globalChrome}<AboutPage persistentStorage={storageStatus} /></>
+  if (route === '/privacy') return <>{globalChrome}<PrivacyPage persistentStorage={storageStatus} /></>
+  if (route === '/exams') return <>{globalChrome}<ResourceCollectionPage
     kind="exams"
     exams={exams}
     banks={bankCollection}
-    onOpenExam={(id) => window.location.assign(`/editor?exam=${id}`)}
-    onOpenBank={(id) => window.location.assign(`/editor?bank=${id}`)}
+    persistentStorage={storageStatus}
+    onOpenExam={openExam}
+    onOpenBank={openBank}
+    onNewExam={newExam}
   />{bankDeletionConfirmation}</>
-  if (route === '/question-banks') return <><ResourceCollectionPage
+  if (route === '/question-banks') return <>{globalChrome}<ResourceCollectionPage
     kind="question-banks"
     exams={exams}
     banks={bankCollection}
-    onOpenExam={(id) => window.location.assign(`/editor?exam=${id}`)}
-    onOpenBank={(id) => window.location.assign(`/editor?bank=${id}`)}
+    persistentStorage={storageStatus}
+    onOpenExam={openExam}
+    onOpenBank={openBank}
+    onNewBank={newBank}
     onDeleteBank={requestBankDeletion}
     onImportBank={() => setInspectingBankFile(true)}
-  />{bankDeletionConfirmation}{inspectingBankFile && <QuestionBankImportDialog
-    onClose={() => setInspectingBankFile(false)}
-    onImport={importBank}
-  />}</>
-  if (route === '/') return <><HomePage
+  />{bankDeletionConfirmation}</>
+  if (route === '/') return <>{globalChrome}<HomePage
     exams={exams}
     banks={bankCollection}
     error={homeError}
     persistentStorage={storageStatus}
-    onNewExam={() => { void workspaces.create().then((exam) => window.location.assign(`/editor?exam=${exam.id}`)) }}
-    onOpen={(id) => window.location.assign(`/editor?exam=${id}`)}
-    onNewBank={() => { void bankWorkspaces.create().then((bank) => window.location.assign(`/editor?bank=${bank.id}`)) }}
-    onOpenBank={(id) => window.location.assign(`/editor?bank=${id}`)}
+    onNewExam={newExam}
+    onOpen={openExam}
+    onNewBank={newBank}
+    onOpenBank={openBank}
     onDeleteBank={requestBankDeletion}
   />{bankDeletionConfirmation}</>
-  if (editorMode === 'bank') return <QuestionBankEditor
-    initialResource={editorBankStore?.getState()}
+  if (route === '/question-bank') return bank ? <>{globalChrome}<QuestionBankPage
+    bank={bank}
     bankWorkspaces={bankWorkspaces}
     workspaces={workspaces}
-    exams={exams}
+    persistentStorage={storageStatus}
     launchError={initialError}
-    onNewExam={(question) => {
-      void (async () => {
-        const exam = await workspaces.create(question)
-        await bankWorkspaces.carryWorkspace(
-          { mode: 'bank', resourceId: editorBankStore?.getState().id ?? '' },
-          { mode: 'exam', resourceId: exam.id },
-        )
-        const backend = workspaces.backendFor(exam.id)
-        if (question) {
-          const initial = await backend.read()
-          const saved = await backend.readSaved()
-          if (!initial || !saved) throw new Error('The new Exam could not be loaded.')
-          setEditorStore(createExamStore({
-            backend,
-            saved,
-            initial,
-            initialHistory: {
-              undo: [{
-                ...initial,
-                workingCopy: createWorkingCopy('Untitled Exam'),
-                dirty: false,
-              }],
-              redo: [],
-            },
-          }))
-        } else {
-          setEditorStore(await loadExamStore(backend))
-        }
-        setEditorId(exam.id)
-        setEditorMode('exam')
-        window.history.replaceState(null, '', '/editor')
-      })()
-    }}
-    onOpenExam={(id, activeBankId) => {
-      void (async () => {
-        await bankWorkspaces.carryWorkspace(
-          { mode: 'bank', resourceId: activeBankId ?? '' },
-          { mode: 'exam', resourceId: id },
-        )
-        if (!await workspaces.open(id)) return
-        setEditorStore(await loadExamStore(workspaces.backendFor(id)))
-        setEditorId(id)
-        setEditorMode('exam')
-        window.history.replaceState(null, '', '/editor')
-      })()
-    }}
-    onHome={() => {
-    void bankWorkspaces.activeId().then(async (id) => {
-      if (id) await bankWorkspaces.removePristine(id)
-      window.location.assign('/')
-    })
-  }} />
-  return editorStore && editorId ? <ExamEditor
+  /></> : globalChrome
+  return editorStore && editorId ? <>{globalChrome}<ExamEditor
     store={editorStore}
     examId={editorId}
     bankWorkspaces={bankWorkspaces}
@@ -2419,10 +2455,7 @@ export default function App({
     onSaveAs={saveAs}
     onOpenExam={(id) => {
       void (async () => {
-        await bankWorkspaces.carryWorkspace(
-          { mode: 'exam', resourceId: editorId },
-          { mode: 'exam', resourceId: id },
-        )
+        await bankWorkspaces.carryWorkspace({ examId: editorId }, { examId: id })
         if (!await workspaces.open(id)) return
         setEditorStore(await loadExamStore(workspaces.backendFor(id)))
         setEditorId(id)
@@ -2433,5 +2466,5 @@ export default function App({
       if (id) await workspaces.removePristine(id)
       window.location.assign('/')
     })
-  }} /> : null
+  }} /></> : globalChrome
 }

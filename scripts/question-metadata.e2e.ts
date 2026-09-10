@@ -114,6 +114,26 @@ test('an unclassified question still saves, stem and all', async ({ page }) => {
   await expect(bankRows(page)).toHaveCount(1)
 })
 
+test('a Short Answer question authors and restores its Suggested Answer inline', async ({ page }) => {
+  await page.goto('/')
+  await page.getByRole('button', { name: /^(New Exam|Create your first Exam)$/ }).first().click()
+  await newQuestion(page, 'Short answer')
+
+  const editor = dialog(page).locator('.ProseMirror')
+  await expect(editor.getByText('Suggested Answer', { exact: true })).toBeVisible()
+  await page.keyboard.type('Explain osmosis')
+  const answer = editor.locator('[data-type="suggested-answer"]')
+  await answer.click()
+  await page.keyboard.type('Water crosses a selectively permeable membrane.')
+  await page.getByRole('button', { name: 'Save question' }).click()
+
+  await page.getByRole('button', { name: /^Edit / }).click()
+  await expect(dialog(page).locator('.ProseMirror')).toContainText('Explain osmosis')
+  await expect(dialog(page).locator('[data-type="suggested-answer"]')).toContainText(
+    'Water crosses a selectively permeable membrane.',
+  )
+})
+
 test('a question is created as a Short Answer question, and stays one', async ({ page }) => {
   await page.goto('/')
   await page.getByRole('button', { name: 'New Exam' }).first().click()

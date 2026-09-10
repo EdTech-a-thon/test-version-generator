@@ -1,12 +1,19 @@
-import { Footer, SiteHeader } from './site-chrome'
+import type { PersistentStorageStatus } from './durable-storage'
+import { AppShell } from './app-shell'
 
 const SUPPORT_EMAIL = 'support@testparrot.com'
 
-export function AboutPage() {
+export function AboutPage({
+  persistentStorage,
+}: {
+  persistentStorage: PersistentStorageStatus
+}) {
   return (
-    <div className="site-page">
-      <SiteHeader />
-      <main className="site-main">
+    <AppShell
+      crumbs={[{ label: 'Home', href: '/' }, { label: 'About' }]}
+      persistentStorage={persistentStorage}
+    >
+      <div className="site-prose">
         <h1>About</h1>
         <p className="site-lede">
           A free tool for teachers who need the same test in more than one order.
@@ -64,17 +71,22 @@ export function AboutPage() {
             Email {SUPPORT_EMAIL}
           </a>
         </section>
-      </main>
-      <Footer />
-    </div>
+      </div>
+    </AppShell>
   )
 }
 
-export function PrivacyPage() {
+export function PrivacyPage({
+  persistentStorage,
+}: {
+  persistentStorage: PersistentStorageStatus
+}) {
   return (
-    <div className="site-page">
-      <SiteHeader />
-      <main className="site-main">
+    <AppShell
+      crumbs={[{ label: 'Home', href: '/' }, { label: 'Privacy' }]}
+      persistentStorage={persistentStorage}
+    >
+      <div className="site-prose">
         <h1>Privacy</h1>
         <p className="site-lede">What we collect, what we don't, and why.</p>
 
@@ -109,8 +121,7 @@ export function PrivacyPage() {
             .
           </p>
         </section>
-      </main>
-      <Footer />
-    </div>
+      </div>
+    </AppShell>
   )
 }

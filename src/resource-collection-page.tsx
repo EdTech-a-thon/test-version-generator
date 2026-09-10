@@ -1,27 +1,34 @@
 import { useMemo, useState } from 'react'
 import type { RecentExam } from './exam-workspaces'
-import { ExamCard, QuestionBankCard } from './resource-cards'
+import type { PersistentStorageStatus } from './durable-storage'
+import { CreateFirstCard, ExamCard, QuestionBankCard } from './resource-cards'
 import {
   filterExamCollection,
   filterQuestionBankCollection,
   type QuestionBankCollectionItem,
 } from './resource-collections'
-import { Footer, SiteHeader } from './site-chrome'
+import { AppShell } from './app-shell'
 
 export function ResourceCollectionPage({
   kind,
   exams,
   banks,
+  persistentStorage,
   onOpenExam,
   onOpenBank,
+  onNewExam,
+  onNewBank,
   onDeleteBank,
   onImportBank,
 }: {
   kind: 'exams' | 'question-banks'
   exams: readonly RecentExam[]
   banks: readonly QuestionBankCollectionItem[]
+  persistentStorage: PersistentStorageStatus
   onOpenExam: (id: string) => void
   onOpenBank: (id: string) => void
+  onNewExam?: () => void
+  onNewBank?: () => void
   onDeleteBank?: (bank: QuestionBankCollectionItem) => void
   onImportBank?: () => void
 }) {
@@ -37,82 +44,82 @@ export function ResourceCollectionPage({
   const isExams = kind === 'exams'
   const resources = isExams ? shownExams : shownBanks
   const resourceName = isExams ? 'Exams' : 'Question Banks'
+  const create = isExams ? onNewExam : onNewBank
 
   return (
-    <div className="site-page collection-page">
-      <SiteHeader />
-      <main className="collection-main">
-        <header className="collection-heading">
-          <div>
-            <h1>All {resourceName}</h1>
-            <p>
-              {isExams
-                ? 'Open any Exam or Working Copy in this browser.'
-                : 'Find a Question Bank by name or Topic.'}
-            </p>
-          </div>
-          <div className="collection-heading-actions">
-            {!isExams && onImportBank && (
-              <button type="button" className="secondary-button" onClick={onImportBank}>
-                Import Question Bank
-              </button>
-            )}
-            <label className="collection-search">
-              <span className="sr-only">Search {resourceName}</span>
-              <input
-                type="search"
-                autoFocus
-                placeholder={`Search ${resourceName}`}
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-              />
-            </label>
-          </div>
-        </header>
+    <AppShell
+      crumbs={[{ label: 'Home', href: '/' }, { label: resourceName }]}
+      persistentStorage={persistentStorage}
+    >
+      {/* The bar above is navigation. Acting on this collection happens on the
+          collection, and the page already says which one it is — so the buttons
+          are just Import and New. */}
+      <header className="collection-heading">
+        <h1>{resourceName}</h1>
+        <div className="collection-actions">
+          {!isExams && onImportBank && (
+            <button type="button" className="secondary-button" onClick={onImportBank}>
+              Import
+            </button>
+          )}
+          {create && (
+            <button type="button" className="primary-button" onClick={create}>
+              New
+            </button>
+          )}
+        </div>
+      </header>
+      <div className="collection-filter">
+        <label className="collection-search">
+          <span className="sr-only">Search {resourceName}</span>
+          <input
+            type="search"
+            autoFocus
+            placeholder={`Search ${resourceName}`}
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+          />
+        </label>
         <p className="collection-count" role="status" aria-live="polite">
           {resources.length}{' '}
-          {resources.length === 1
-            ? resourceName.replace(/s$/, '')
-            : resourceName}
+          {resources.length === 1 ? resourceName.replace(/s$/, '') : resourceName}
         </p>
-        {resources.length === 0 ? (
-          <section
-            className="home-empty"
-            aria-label={`${resourceName} search results`}
-          >
-            <h2>
-              {query
-                ? `No ${resourceName} match “${query.trim()}”`
-                : `No ${resourceName} yet`}
-            </h2>
-            <p>
-              {query
-                ? 'Try another search.'
-                : `Create a ${isExams ? 'new Exam' : 'Question Bank'} from Home.`}
-            </p>
-          </section>
-        ) : (
-          <section
-            className="collection-grid"
-            aria-label={`${resourceName} search results`}
-          >
-            {isExams
-              ? shownExams.map((exam) => (
-                  <ExamCard key={exam.id} exam={exam} onOpen={onOpenExam} />
-                ))
-              : shownBanks.map((bank) => (
-                  <QuestionBankCard
-                    key={bank.id}
-                    bank={bank}
-                    onOpen={onOpenBank}
-                    onOpenExam={onOpenExam}
-                    onDelete={onDeleteBank}
-                  />
-                ))}
-          </section>
-        )}
-      </main>
-      <Footer />
-    </div>
+      </div>
+      {resources.length === 0 ? (
+        <section aria-label={`${resourceName} search results`}>
+          {query ? (
+            <div className="home-empty">
+              <h2>No {resourceName} match “{query.trim()}”</h2>
+              <p>Try another search.</p>
+            </div>
+          ) : (
+            create && (
+              <CreateFirstCard
+                label={isExams ? 'Create your first Exam' : 'Create your first Question Bank'}
+                onClick={create}
+              />
+            )
+          )}
+        </section>
+      ) : (
+        <section
+          className={isExams ? 'collection-grid collection-grid--exams' : 'collection-grid'}
+          aria-label={`${resourceName} search results`}
+        >
+          {isExams
+            ? shownExams.map((exam) => (
+                <ExamCard key={exam.id} exam={exam} onOpen={onOpenExam} />
+              ))
+            : shownBanks.map((bank) => (
+                <QuestionBankCard
+                  key={bank.id}
+                  bank={bank}
+                  onOpen={onOpenBank}
+                  onDelete={onDeleteBank}
+                />
+              ))}
+        </section>
+      )}
+    </AppShell>
   )
 }

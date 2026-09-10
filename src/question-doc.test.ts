@@ -4,9 +4,13 @@ import {
   cleanDocument,
   choiceNodesOf,
   multipleChoiceNodeOf,
+  suggestedAnswerDocumentOf,
+  suggestedAnswerNodeOf,
   withFreshChoiceIds,
   withMultipleChoice,
+  withSuggestedAnswer,
   withoutMultipleChoice,
+  withoutSuggestedAnswer,
 } from './question-doc'
 import type { ProseMirrorJSON } from './question-doc'
 
@@ -114,6 +118,32 @@ describe('cleanDocument', () => {
   test('never leaves a choice list with fewer than two answers', () => {
     const cleaned = cleanDocument(doc(choiceList('c1')))
     expect(choiceNodesOf(cleaned)).toHaveLength(2)
+  })
+})
+
+describe('withSuggestedAnswer and withoutSuggestedAnswer', () => {
+  test('presents the stored answer in one inline editing document', () => {
+    const stem = doc({
+      type: 'paragraph',
+      content: [{ type: 'text', text: 'Explain osmosis.' }],
+    })
+    const answer = doc({
+      type: 'paragraph',
+      content: [{ type: 'text', text: 'Water crosses a membrane.' }],
+    })
+
+    const editing = withSuggestedAnswer(stem, answer)
+
+    expect(suggestedAnswerNodeOf(editing)?.content).toEqual(answer.content)
+    expect(withoutSuggestedAnswer(editing)).toEqual(stem)
+    expect(suggestedAnswerDocumentOf(editing)).toEqual(answer)
+  })
+
+  test('keeps a schema-valid blank stem while an untouched answer stays absent', () => {
+    const editing = withSuggestedAnswer(doc({ type: 'paragraph' }))
+
+    expect(withoutSuggestedAnswer(editing)).toEqual(doc({ type: 'paragraph' }))
+    expect(suggestedAnswerDocumentOf(editing)).toBeUndefined()
   })
 })
 
