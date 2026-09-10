@@ -5,10 +5,8 @@
 // single-workspace generation is deliberately not interpreted as an Exam.
 export const VERSIONED_STORAGE_NAME = 'test-parrot-exams-v1'
 export const MEDIA_ASSET_STORE = 'media-assets'
-export const VERSION_STORE = 'versions'
-export const QUESTION_REVISION_STORE = 'question-revisions'
-export const LAYOUT_PLAN_STORE = 'layout-plans'
-export const VERSIONED_STORAGE_VERSION = 6
+export const EXPORT_RECORD_STORE = 'export-records'
+export const VERSIONED_STORAGE_VERSION = 7
 export const EXAM_STORE = 'exams'
 export const EXAM_WORKSPACE_STORE = 'exam-workspace'
 export const QUESTION_BANK_REGISTRY_STORE = 'question-banks'

@@ -15,7 +15,7 @@ import {
   createPublicationDocx,
 } from './docx-export'
 import {
-  EMPTY_PUBLICATION_HISTORY,
+  EMPTY_EXPORT_HISTORY,
   docxFilename,
   plansOf,
   prepareExport,
@@ -73,13 +73,9 @@ describe('DOCX packaging', () => {
     expect([...signature]).toEqual([0x50, 0x4b])
   })
 
-  test('names the file after the exam and friendly Version', () => {
-    expect(docxFilename(exam.title, 'Amber Badger')).toBe(
-      'Chemistry- Unit 3 - Review-Amber Badger.docx',
-    )
-    expect(docxFilename('  ...  ', 'Amber Badger')).toBe(
-      'Untitled Exam-Amber Badger.docx',
-    )
+  test('names the file after the Exam', () => {
+    expect(docxFilename(exam.title)).toBe('Chemistry- Unit 3 - Review.docx')
+    expect(docxFilename('  ...  ')).toBe('Untitled Exam.docx')
   })
 
   test('names the document after the exam and the version it exported', async () => {
@@ -301,12 +297,13 @@ describe('one combined package for a published Version', () => {
   function preparedPlans() {
     return plansOf(
       prepareExport({
+        examId: 'fixture-exam',
         exam: mixed,
         version: mixedVersion,
         configuration: {
           selection: { test: true, answerKey: true },
         },
-        history: EMPTY_PUBLICATION_HISTORY,
+        history: EMPTY_EXPORT_HISTORY,
         measure: unmeasured,
         createdAt: '2026-09-04T12:00:00.000Z',
       }),
@@ -325,7 +322,7 @@ describe('one combined package for a published Version', () => {
     )
   })
 
-  test('restarts page numbering and carries the friendly name on both documents', async () => {
+  test('restarts page numbering and carries the output ID on both documents', async () => {
     const fingerprint = await docxFingerprint(
       await (await createExamDocx(preparedPlans(), async () => null)).arrayBuffer(),
     )
@@ -336,9 +333,9 @@ describe('one combined package for a published Version', () => {
       ['para 1'],
     ])
     expect(fingerprint.pages.every((page) =>
-      page.header.join(' ').includes('Version: Amber Badger'),
+      page.header.join(' ').includes('ID: A'),
     )).toBe(true)
-    expect(fingerprint.version).toBe('Amber Badger')
+    expect(fingerprint.version).toBe('A')
   })
 
   test('writes an answer key as headings and bold letters, not as a refusal', async () => {

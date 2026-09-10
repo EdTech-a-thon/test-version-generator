@@ -92,12 +92,11 @@ test("full Question editor discloses impact, cancels safely, and permanently del
   await expect(page.getByRole("textbox", { name: "Exam name" })).toHaveValue("Biology final");
   await expect(page.locator(".exam-question")).toHaveCount(0);
 
-  await page.getByRole("button", { name: "Version History" }).click();
-  await page.getByLabel("Version History").locator(".version-history-item").click();
+  await page.getByRole("button", { name: "Export History" }).click();
+  await page.getByLabel("Export History").locator(".version-history-item").click();
   await expect(page.locator(".historical-document")).toContainText("Shared cell question");
-  await page.getByRole("button", { name: "Historical Export", exact: true }).click();
   const historicalDownload = page.waitForEvent("download");
-  await page.getByRole("dialog", { name: "Export" }).getByRole("button", { name: "Download PDF" }).click();
+  await page.getByRole("button", { name: "Re-export PDF", exact: true }).click();
   await historicalDownload;
 });
 

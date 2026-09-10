@@ -103,7 +103,7 @@ async function counts(page: Page, bankId: string) {
     const service = createExamWorkspaceService()
     const exams = await service.recent()
     const histories = await Promise.all(
-      exams.map((exam) => service.backendFor(exam.id).readPublicationHistory()),
+      exams.map((exam) => service.backendFor(exam.id).readExportHistory()),
     )
     const { createQuestionBankWorkspaceService } = (await import(
       /* @vite-ignore */ '/src/question-bank-workspaces.ts'
@@ -112,7 +112,7 @@ async function counts(page: Page, bankId: string) {
     return {
       exams: exams.length,
       history: histories.reduce(
-        (sum, history) => sum + history.versions.length,
+        (sum, history) => sum + history.records.length,
         0,
       ),
       bankUpdatedAt: bank?.lastUpdatedAt,

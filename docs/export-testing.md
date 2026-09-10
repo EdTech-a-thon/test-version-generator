@@ -13,52 +13,40 @@ This document describes the implemented architecture and its acceptance path.
 Publication has one pure preparation boundary and one shared planning pipeline:
 
 ```text
-Exam Draft + Version History + Content Selection
-                    |
-                    v
-          publication preparation
-       canonical test + key Layout Plans
-       fingerprint + Version resolution
-       selected plans + commit payload
-                    |
-                    v
-          Export Document -> Layout Plan
-                         /       \
-                        v         v
-          print-reference view   PDF / DOCX Export Adapters
+Exam Working Copy + Content Selection
+                  |
+                  v
+       Export Record preparation
+      selected resolved Layout Plans
+                  |
+                  v
+        Export Document -> Layout Plan
+                       /       \
+                      v         v
+        print-reference view   PDF / DOCX Export Adapters
 ```
 
-`prepareExport({ exam, version, configuration, history, measure, createdAt })`
-is the application-level pure seam. It always prepares separate canonical
-student-test and answer-key plans, computes one name-independent Export
-Fingerprint across both, resolves an existing or provisional friendly-named
-Version, and returns the selected plans plus the immutable records required for
-publication. Content Selection changes only which plans enter the selected
-artifact; format and Content Selection do not change identity or which plans
-are retained.
+`prepareExport({ examId, exam, version, configuration, history, measure,
+createdAt })` is the application-level pure seam. It resolves the selected
+student-test and/or answer-key Layout Plans from the visible Working Copy and
+returns a new immutable Export Record plus the selected artifact. Every
+successful export is a separate event; fingerprints remain diagnostics only
+and never deduplicate records or name output.
 
-The current Exam Draft arrangement is the only arrangement publication uses.
-Variation belongs to the authoring commands before export. A matching
-fingerprint reuses its stored Version and plans. A new fingerprint receives a
-unique adjective-noun name provisionally, and that name becomes permanent only
-when the publication transaction commits.
-
-`planExport({ exam, version, selection, measure })` remains the one-document
-planning boundary. Semantic derivation into an Export Document and pagination
-into a Layout Plan are internal stages. A Layout Plan is self-contained and
-carries page size and assignment, furniture, stream, explicit breaks, and
-ordered items. Export Adapters never inspect the Exam Draft, measure, or
-repaginate.
+Each Export Record is attached to its Exam UUID and retains the captured Exam
+name, exact format and Content Selection, question count, required media hashes,
+and complete resolved Layout Plans. Historical view and fixed-format re-export
+consume only that stored record. They never consult current Questions, restore
+an Exam, or invoke the current layout engine.
 
 The print adapter remains an internal preview/reference path (`ExportPreview`
 in `src/exam-page.tsx`). PDF and DOCX are explicit product artifacts. All three
 consume the same selected plans in student-test-then-answer-key order.
 
-The browser packages the complete selected PDF or DOCX before persistence. It then
-commits the Version (when new), new Question Revisions, both Layout Plans,
-required Media Assets, and current authoring state in one IndexedDB transaction.
-Only a successful transaction is followed by download. Browser cancellation
-after that point cannot roll history back.
+The browser packages the complete selected PDF or DOCX before atomically
+committing the Export Record and verifying required Media Assets. Download
+starts only after commit. Browser cancellation after that point cannot roll
+history back.
 
 ## Acceptance contract
 
@@ -110,8 +98,7 @@ The implementations are:
 - `src/export-fingerprint.ts` — Export Document and Layout Plan fingerprints.
 - `src/print-fingerprint.ts` — the print-reference adapter's real markup.
 - `src/docx-fingerprint.ts` — a generated DOCX package.
-- `src/export-preparation.ts` — the two-plan Version fingerprint and revision
-  identity.
+- `src/export-preparation.ts` — immutable event preparation and historical replay.
 
 ## Test layers
 
@@ -133,10 +120,10 @@ The implementations are:
 - `src/doc-view.test.ts` — authored whitespace in the read-only view.
 
 The Playwright suite covers the browser workflow and real IndexedDB behavior:
-default Content Selection, clean preview, New Version/re-export messaging,
+default Content Selection, clean preview, repeated event recording,
 focus and Cmd/Ctrl+P, first-publication persistent storage, atomic publication,
 quota and transaction failures, required-media failure, no phantom download,
-and an unchanged Exam Draft.
+and an unchanged Working Copy.
 
 ### Out-of-band comparison
 
@@ -194,7 +181,7 @@ environment record. Successful comparisons remove disposable converter state.
   does not translate LaTeX into fully structured OMML.
 - The PDF word comparison cannot adjudicate ruled blanks or typeset math; both
   remain covered structurally.
-- Version History is browser-local. Persistent-storage permission strengthens
+- Export History is browser-local. Persistent-storage permission strengthens
   local durability but is not an archival guarantee.
 
 ## Adding a supported document node

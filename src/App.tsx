@@ -93,16 +93,9 @@ import {
   type QuestionBankWorkspaceService,
 } from './question-bank-workspaces'
 import {
-  HistoricalDocument,
-  ReviewHistoricalQuestions,
-  UseAsDraftConfirmation,
-  VersionHistoryDrawer,
+  ExportHistoryDrawer,
+  HistoricalExportRecord,
 } from './version-history'
-import {
-  compatibleHistoricalDraft,
-  draftMatchesHistoricalVersion,
-  historicalReconciliation,
-} from './historical-draft'
 import { AboutPage, PrivacyPage } from './site-pages'
 import { persistentStorageStatus, requestPersistentStorage, type PersistentStorageStatus } from './durable-storage'
 import { ResourceCollectionPage } from './resource-collection-page'
@@ -1409,7 +1402,6 @@ function ExamEditor({
   const [exportDialog, setExportDialog] = useState<{
     configuration: ExportConfiguration
     error: string | null
-    source: 'live-draft' | 'historical-version'
   } | null>(null)
   const exportButton = useRef<HTMLButtonElement>(null)
   // Export can be opened by its visible button or Cmd/Ctrl+P. Remember the
@@ -1417,58 +1409,27 @@ function ExamEditor({
   // they started, rather than always moving them to the toolbar.
   const exportTrigger = useRef<HTMLElement | null>(null)
   const historyButton = useRef<HTMLButtonElement>(null)
-  // Browsing a Version hides the mounted draft document and puts its immutable
-  // stored Layout Plans in the same center lane. Returning therefore restores
-  // the same editing view rather than rebuilding authoring state.
+  // Browsing an Export Record hides the mounted Exam and puts its immutable
+  // stored Layout Plans in the center lane. Current authoring is never rebuilt.
   const [historyOpen, setHistoryOpen] = useState(false)
-  const [viewingVersionId, setViewingVersionId] = useState<string | null>(null)
+  const [viewingRecordId, setViewingRecordId] = useState<string | null>(null)
   const [historicalFocusKey, setHistoricalFocusKey] = useState(0)
-  const [confirmingUseAsDraft, setConfirmingUseAsDraft] = useState(false)
-  const [reviewingHistoricalQuestions, setReviewingHistoricalQuestions] = useState(false)
   const [confirmingQuestionDeletion, setConfirmingQuestionDeletion] = useState(false)
   const priorDraftFocus = useRef<HTMLElement | null>(null)
-  const useAsDraftButton = useRef<HTMLButtonElement>(null)
-  const publicationHistory = store.publicationHistory()
-  const viewingVersion = publicationHistory.versions.find(
-    (candidate) => candidate.id === viewingVersionId,
+  const reExportButton = useRef<HTMLButtonElement>(null)
+  const exportHistory = store.exportHistory()
+  const viewingRecord = exportHistory.records.find(
+    (candidate) => candidate.id === viewingRecordId,
   ) ?? null
-  // History inspection is read-only: no authoring command may leak through to
-  // the still-mounted draft while a drawer or stored Version is in front.
-  const isHistoricalBrowsing = historyOpen || viewingVersion !== null
-  const historicalDraft = viewingVersion
-    ? compatibleHistoricalDraft(
-      publicationHistory,
-      viewingVersion,
-      state.examDraft,
-      state.questionBank,
-    )
-    : null
-  const historicalReview = viewingVersion
-    ? historicalReconciliation(
-      publicationHistory,
-      viewingVersion,
-      state.questionBank,
-    )
-    : null
-  const lastExportedVersion = state.lastExportedVersionId
-    ? publicationHistory.versions.find((version) => version.id === state.lastExportedVersionId) ?? null
-    : publicationHistory.versions.at(-1) ?? null
-  const draftDiffersFromLastVersion = lastExportedVersion
-    ? !draftMatchesHistoricalVersion(
-      publicationHistory,
-      lastExportedVersion,
-      state.examDraft,
-      state.questionBank,
-    )
-    : state.dirty
+  const isHistoricalBrowsing = historyOpen || viewingRecord !== null
   const [storageNotice, setStorageNotice] = useState<string | null>(null)
   const [choosingExam, setChoosingExam] = useState(false)
   const closeVersionHistory = useCallback(() => {
     setHistoryOpen(false)
     requestAnimationFrame(() => historyButton.current?.focus())
   }, [])
-  const returnToExamDraft = useCallback(() => {
-    setViewingVersionId(null)
+  const returnToExam = useCallback(() => {
+    setViewingRecordId(null)
     requestAnimationFrame(() => {
       if (priorDraftFocus.current?.isConnected) {
         priorDraftFocus.current.focus()
@@ -1508,7 +1469,7 @@ function ExamEditor({
     const remember = (event: FocusEvent) => {
       const target = event.target
       if (
-        viewingVersion === null
+        viewingRecord === null
         && target instanceof HTMLElement
         && target.closest('.draft-document, .document-identity')
       ) {
@@ -1517,7 +1478,7 @@ function ExamEditor({
     }
     document.addEventListener('focusin', remember)
     return () => document.removeEventListener('focusin', remember)
-  }, [viewingVersion])
+  }, [viewingRecord])
   useEffect(() => {
     if (!varySummary) return
     const timer = window.setTimeout(() => setVarySummary(null), 4_000)
@@ -1615,11 +1576,7 @@ function ExamEditor({
     }
   })
 
-  const openExport = useCallback((
-    source: 'live-draft' | 'historical-version' = viewingVersion
-      ? 'historical-version'
-      : 'live-draft',
-  ) => {
+  const openExport = useCallback(() => {
     // A command may start with focus on the document body. That is not a useful
     // restoration target, so fall back to the visible Export button in that
     // case. A real control, such as the Exam name field, retains its own focus.
@@ -1631,9 +1588,8 @@ function ExamEditor({
     setExportDialog({
       configuration: DEFAULT_EXPORT_CONFIGURATION,
       error: null,
-      source,
     })
-  }, [viewingVersion])
+  }, [])
 
   useEffect(() => {
     const onSaveShortcut = (event: KeyboardEvent) => {
@@ -1643,14 +1599,14 @@ function ExamEditor({
         && !event.altKey
       ) {
         event.preventDefault()
-        if (editing || exportDialog || confirmingUseAsDraft || reviewingHistoricalQuestions || isHistoricalBrowsing) return
+        if (editing || exportDialog || isHistoricalBrowsing) return
         if (event.shiftKey) void onSaveAs()
         else void store.save()
       }
     }
     document.addEventListener('keydown', onSaveShortcut)
     return () => document.removeEventListener('keydown', onSaveShortcut)
-  }, [confirmingUseAsDraft, editing, exportDialog, isHistoricalBrowsing, onSaveAs, reviewingHistoricalQuestions, store])
+  }, [editing, exportDialog, isHistoricalBrowsing, onSaveAs, store])
 
   useEffect(() => {
     const backupNeedsWarning = () => store.backupStatus() !== 'ready'
@@ -1683,18 +1639,18 @@ function ExamEditor({
         && !event.altKey
       ) {
         // There is deliberately no browser-print fallback: even while another
-        // modal owns focus, Cmd/Ctrl+P must not bypass Version publication.
+        // modal owns focus, Cmd/Ctrl+P must not bypass recorded export.
         event.preventDefault()
-        if (editing || exportDialog || confirmingUseAsDraft || reviewingHistoricalQuestions) return
+        if (editing || exportDialog || isHistoricalBrowsing || exam.questions.length === 0) return
         openExport()
       }
     }
     document.addEventListener('keydown', onPrintShortcut)
     return () => document.removeEventListener('keydown', onPrintShortcut)
-  }, [confirmingUseAsDraft, editing, exportDialog, openExport, reviewingHistoricalQuestions])
+  }, [editing, exam.questions.length, exportDialog, isHistoricalBrowsing, openExport])
 
   useEffect(() => {
-    if (editing || exportDialog || confirmingUseAsDraft || reviewingHistoricalQuestions) return
+    if (editing || exportDialog) return
     const onKeyDown = (event: KeyboardEvent) => {
       const authoringShortcut =
         (event.key.toLowerCase() === 'z' && (event.ctrlKey || event.metaKey) && !event.altKey)
@@ -1738,9 +1694,9 @@ function ExamEditor({
         closeVersionHistory()
         return
       }
-      if (viewingVersion) {
+      if (viewingRecord) {
         event.preventDefault()
-        returnToExamDraft()
+        returnToExam()
         return
       }
       clearSelection()
@@ -1748,21 +1704,12 @@ function ExamEditor({
     }
     document.addEventListener('keydown', onKeyDown)
     return () => document.removeEventListener('keydown', onKeyDown)
-  }, [clearSelection, closeVersionHistory, confirmingUseAsDraft, editing, exportDialog, historyOpen, isHistoricalBrowsing, returnToExamDraft, reviewingHistoricalQuestions, selection.selectedIds, store, viewingVersion])
-
-  const restoreUseAsDraftFocus = () => {
-    requestAnimationFrame(() => useAsDraftButton.current?.focus())
-  }
+  }, [clearSelection, closeVersionHistory, editing, exportDialog, historyOpen, isHistoricalBrowsing, returnToExam, selection.selectedIds, store, viewingRecord])
 
   const closeExportDialog = () => {
-    const source = exportDialog?.source
     const trigger = exportTrigger.current
     exportTrigger.current = null
     setExportDialog(null)
-    if (source === 'live-draft' && viewingVersion) {
-      restoreUseAsDraftFocus()
-      return
-    }
     requestAnimationFrame(() => {
       const active = document.activeElement
       if (active && active !== document.body && active !== document.documentElement) return
@@ -1773,24 +1720,17 @@ function ExamEditor({
 
   const prepareForPublication = (
     configuration: ExportConfiguration,
-    source: 'live-draft' | 'historical-version',
     onProgress?: (progress: PreparationProgress) => void,
-  ) =>
-    source === 'historical-version' && viewingVersion
-      ? prepareHistoricalExport({
-        history: publicationHistory,
-        version: viewingVersion,
-        configuration,
-      })
-      : prepareExport({
-        exam,
-        version,
-        configuration,
-        history: publicationHistory,
-        measure: domMeasure,
-        createdAt: new Date().toISOString(),
-        onProgress,
-      })
+  ) => prepareExport({
+    examId,
+    exam,
+    version,
+    configuration,
+    history: exportHistory,
+    measure: domMeasure,
+    createdAt: new Date().toISOString(),
+    onProgress,
+  })
 
   /**
    * One export, from the Export button to the moment the browser takes over.
@@ -1799,15 +1739,11 @@ function ExamEditor({
    * transaction commit immutable history, required media, and the current
    * authoring state. The browser receives the download after that commit.
    */
-  const runExport = async (
-    configuration: ExportConfiguration,
-    source: 'live-draft' | 'historical-version',
-    onProgress: (progress: PreparationProgress) => void,
-  ) => {
-    const prepared = prepareForPublication(configuration, source, onProgress)
+  const runPreparedExport = async (prepared: PreparedExport) => {
+    const format = prepared.record.format
     let blob: Blob
     try {
-      if (configuration.format === 'pdf') {
+      if (format === 'pdf') {
         const pdf = await import('./pdf-export')
         blob = pdf.pdfBlob(await pdf.createPublicationPdf(prepared.documents))
       } else {
@@ -1815,26 +1751,23 @@ function ExamEditor({
         blob = await docx.createPublicationDocx(prepared.documents)
       }
     } catch (error) {
-      console.error(`Could not create the ${configuration.format.toUpperCase()} file`, error)
+      console.error(`Could not create the ${format.toUpperCase()} file`, error)
       const media = await import('./export-media')
-      const pdf = configuration.format === 'pdf' ? await import('./pdf-export') : null
+      const pdf = format === 'pdf' ? await import('./pdf-export') : null
       if (
         media.isRequiredMediaError(error)
         || pdf?.isPdfUnsupportedCharacterError(error)
         || pdf?.isPdfLayoutError(error)
       ) throw error
       throw new Error(
-        configuration.format === 'pdf'
+        format === 'pdf'
           ? 'The PDF file could not be created in this browser. Choose DOCX or try again.'
           : 'The Word file could not be created. Please try again.',
       )
     }
 
     let durability: 'granted' | 'denied' | null = null
-    if (
-      prepared.resolution.kind === 'new'
-      && store.publicationHistory().versions.length === 0
-    ) {
+    if (exportHistory.records.length === 0) {
       try {
         const storageResult = await requestPersistentStorage()
         durability = storageResult === 'unavailable' ? null : storageResult
@@ -1844,34 +1777,28 @@ function ExamEditor({
     }
 
     try {
-      // A historical export has no current authoring state to save and no
-      // immutable records to append. Its artifact comes entirely from stored
-      // plans and Media Assets, so leave the live draft untouched.
-      if (source === 'live-draft') await store.publish(prepared.publication)
+      await store.publish(prepared.record)
     } catch (error) {
-      console.error('Could not commit the Version', error)
+      console.error('Could not commit the Export Record', error)
       if (error instanceof DOMException && error.name === 'QuotaExceededError') {
         throw new Error(
           'Browser storage is full. Free space in this browser, then try exporting again.',
         )
       }
       throw new Error(
-        'The Version could not be saved to browser storage, so no download was started. Try again.',
+        'The Export Record could not be saved to browser storage, so no download was started. Try again.',
       )
     }
 
     if (durability) {
       setStorageNotice(
         durability === 'granted'
-          ? 'Version History is stored locally in this browser with persistent storage enabled. Keep an external archival copy of important files.'
-          : 'Persistent storage was not granted. Version History remains browser-local and may be cleared by the browser; keep an external archival copy.',
+          ? 'Export History is stored locally in this browser with persistent storage enabled. Keep an external archival copy of important files.'
+          : 'Persistent storage was not granted. Export History remains browser-local and may be cleared by the browser; keep an external archival copy.',
       )
     }
-    // Trigger the browser handoff in this completed command rather than a
-    // follow-up React effect. The dialog may now close, but no render timing or
-    // later state update can leave an already durable artifact undispatched.
     try {
-      if (configuration.format === 'pdf') {
+      if (format === 'pdf') {
         const { savePdfFile } = await import('./pdf-export')
         savePdfFile(blob, prepared.filename)
       } else {
@@ -1879,8 +1806,8 @@ function ExamEditor({
         saveDocxFile(blob, prepared.filename)
       }
     } catch (error) {
-      console.error(`Could not start the ${configuration.format.toUpperCase()} download`, error)
-      throw new Error('The download could not be started. The Version remains in History.')
+      console.error(`Could not start the ${format.toUpperCase()} download`, error)
+      throw new Error('The download could not be started. The Export Record remains in History.')
     }
   }
 
@@ -1891,14 +1818,12 @@ function ExamEditor({
       const hasNoSelectedContent =
         !exportDialog.configuration.selection.test
         && !exportDialog.configuration.selection.answerKey
-      // An invalid empty selection still has a well-defined Version identity.
-      // Prepare both canonical streams just for that identity, then deliberately
-      // show no paper until the teacher chooses content. This keeps the
-      // re-export/new-Version state visible beside its validation message.
+      // Prepare the default streams for preview while the selection is invalid,
+      // then deliberately show no paper until the teacher chooses content.
       const previewConfiguration = hasNoSelectedContent
         ? DEFAULT_EXPORT_CONFIGURATION
         : exportDialog.configuration
-      const prepared = prepareForPublication(previewConfiguration, exportDialog.source)
+      const prepared = prepareForPublication(previewConfiguration)
       exportPreview = hasNoSelectedContent
         ? { ...prepared, documents: [] }
         : prepared
@@ -1911,7 +1836,7 @@ function ExamEditor({
     <>
       {launchError && <p className="home-error editor-launch-error" role="alert">{launchError}</p>}
       <header className="document-bar">
-        {/* The mark sits at the far left of the bar with the exam's name beside
+        {/* The mark sits at the far left of the bar with the Exam's name beside
             it, the way a document editor puts its logo next to the file name. */}
         <div className="document-identity">
           <img className="app-logo" src="/logo.png" alt="Test Parrot" width={36} height={36} />
@@ -1976,7 +1901,7 @@ function ExamEditor({
             type="button"
             className="primary-button"
             aria-label="Save"
-            disabled={!state.dirty || backupStatus !== 'ready'}
+            disabled={isHistoricalBrowsing || !state.dirty || backupStatus !== 'ready'}
             onClick={() => void store.save()}
           >
             Save
@@ -1998,25 +1923,26 @@ function ExamEditor({
             aria-expanded={historyOpen}
             aria-controls="version-history"
             onPointerDown={() => {
-              // Reopening History while inspecting a Version must retain the
-              // original draft target for Return to Exam Draft.
-              if (viewingVersion !== null) return
+              // Reopening History while inspecting a record retains the
+              // original target for Back to Exam.
+              if (viewingRecord !== null) return
               const active = document.activeElement
               priorDraftFocus.current = active instanceof HTMLElement ? active : null
             }}
             onClick={() => setHistoryOpen((open) => !open)}
           >
-            Version History
+            Export History
           </button>
           <button
             ref={exportButton}
             type="button"
             className="export-button"
+            disabled={backupStatus !== 'ready' || isHistoricalBrowsing}
             aria-haspopup="dialog"
             aria-expanded={exportDialog !== null}
             onClick={() => openExport()}
           >
-            {viewingVersion ? 'Historical Export' : 'Export'}
+            Export
           </button>
         </div>
       </header>
@@ -2042,33 +1968,27 @@ function ExamEditor({
           onConfigurationChange={(configuration) =>
             setExportDialog((current) => (current ? { ...current, configuration } : current))
           }
-          resolution={exportPreview?.resolution ?? null}
           previewPlans={exportPreview?.documents ?? []}
-          // A stored Version is independently exportable even if the live
-          // Exam Draft was emptied after it was published.
-          empty={exportDialog.source === 'live-draft' && exam.questions.length === 0}
-          initialError={
-            exportDialog.error
-            ?? (exportDialog.source === 'live-draft' && exam.questions.length === 0 ? null : previewError)
-          }
+          empty={exam.questions.length === 0}
+          initialError={exportDialog.error ?? previewError}
           onSubmit={async (configuration, onProgress) => {
-            await runExport(configuration, exportDialog.source, onProgress)
+            await runPreparedExport(prepareForPublication(configuration, onProgress))
             closeExportDialog()
           }}
           onCancel={closeExportDialog}
         />
       )}
 
-      <VersionHistoryDrawer
-        versions={publicationHistory.versions}
-        selectedVersionId={viewingVersion?.id ?? null}
+      <ExportHistoryDrawer
+        records={exportHistory.records}
+        selectedRecordId={viewingRecord?.id ?? null}
         open={historyOpen}
         onOpenChange={(open) => {
           if (open) setHistoryOpen(true)
           else closeVersionHistory()
         }}
-        onSelect={(selectedVersion) => {
-          setViewingVersionId(selectedVersion.id)
+        onSelect={(selectedRecord) => {
+          setViewingRecordId(selectedRecord.id)
           setHistoricalFocusKey((key) => key + 1)
           setHistoryOpen(false)
         }}
@@ -2141,7 +2061,7 @@ function ExamEditor({
           <>
             <div
               className="draft-document"
-              hidden={viewingVersion !== null}
+              hidden={viewingRecord !== null}
               // The drawer is itself historical browsing, so the exposed part
               // of the draft cannot receive pointer authoring gestures either.
               inert={isHistoricalBrowsing || undefined}
@@ -2196,28 +2116,18 @@ function ExamEditor({
                 unsavedDraft={!store.hasSavedExam()}
               />
             </div>
-            {viewingVersion && (
-              <HistoricalDocument
-                version={viewingVersion}
-                plans={prepareHistoricalExport({
-                  history: publicationHistory,
-                  version: viewingVersion,
-                  configuration: DEFAULT_EXPORT_CONFIGURATION,
-                }).documents}
+            {viewingRecord && (
+              <HistoricalExportRecord
+                record={viewingRecord}
                 focusKey={historicalFocusKey}
-                canUseAsDraft={historicalDraft !== null || historicalReview !== null}
-                useAsDraftButton={useAsDraftButton}
-                onUseAsDraft={() => {
-                  if (!viewingVersion || !historicalReview) return
-                  if (draftDiffersFromLastVersion) {
-                    setConfirmingUseAsDraft(true)
-                  } else if (historicalReview.rows.length > 0) {
-                    setReviewingHistoricalQuestions(true)
-                  } else {
-                    store.useHistoricalVersionAsDraft(viewingVersion.id)
-                  }
+                reExportButton={reExportButton}
+                onBack={returnToExam}
+                onReExport={() => {
+                  void runPreparedExport(prepareHistoricalExport({
+                    record: viewingRecord,
+                    createdAt: new Date().toISOString(),
+                  }))
                 }}
-                onBack={returnToExamDraft}
               />
             )}
             <Footer />
@@ -2243,43 +2153,6 @@ function ExamEditor({
             ×
           </button>
         </div>
-      )}
-
-      {confirmingUseAsDraft && viewingVersion && (
-        <UseAsDraftConfirmation
-          onCancel={() => {
-            setConfirmingUseAsDraft(false)
-            restoreUseAsDraftFocus()
-          }}
-          onExportCurrent={() => {
-            setConfirmingUseAsDraft(false)
-            openExport('live-draft')
-          }}
-          onReplace={() => {
-            setConfirmingUseAsDraft(false)
-            if (historicalReview?.rows.length) {
-              setReviewingHistoricalQuestions(true)
-            } else {
-              store.useHistoricalVersionAsDraft(viewingVersion.id)
-              restoreUseAsDraftFocus()
-            }
-          }}
-        />
-      )}
-
-      {reviewingHistoricalQuestions && viewingVersion && historicalReview && (
-        <ReviewHistoricalQuestions
-          rows={historicalReview.rows}
-          onCancel={() => {
-            setReviewingHistoricalQuestions(false)
-            restoreUseAsDraftFocus()
-          }}
-          onConfirm={(resolutions) => {
-            store.reconcileHistoricalVersionAsDraft(viewingVersion.id, resolutions)
-            setReviewingHistoricalQuestions(false)
-            restoreUseAsDraftFocus()
-          }}
-        />
       )}
 
       {choosingType && (
@@ -2453,7 +2326,6 @@ export default function App({
     const saved = {
       questionBank: target.questionBank,
       examDraft: target.examDraft,
-      ...(target.lastExportedVersionId ? { lastExportedVersionId: target.lastExportedVersionId } : {}),
     }
     setEditorStore(createExamStore({
       backend: workspaces.backendFor(targetId),

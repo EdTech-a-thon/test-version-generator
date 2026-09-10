@@ -64,7 +64,7 @@ export function resourceUsageOf(
 export function isPristineExam(
   working: AuthoringState | null,
   saved: Omit<AuthoringState, 'dirty'> | null,
-  history: { versions: readonly unknown[] },
+  history: { records: readonly unknown[] },
 ): boolean {
   return Boolean(
     working
@@ -74,7 +74,7 @@ export function isPristineExam(
     && working.examDraft.questionIds.length === 0
     && saved.examDraft.title === 'Untitled Exam'
     && saved.examDraft.questionIds.length === 0
-    && history.versions.length === 0,
+    && history.records.length === 0,
   )
 }
 
@@ -216,9 +216,6 @@ export function createExamWorkspaceService(options: { now?: () => Date; createId
         await targetBackend.commitSaved({
           questionBank: snapshot.targetInitial.questionBank,
           examDraft: snapshot.targetInitial.examDraft,
-          ...(snapshot.targetInitial.lastExportedVersionId
-            ? { lastExportedVersionId: snapshot.targetInitial.lastExportedVersionId }
-            : {}),
         })
         await sourceBackend.write(snapshot.sourceRestored)
         sourceWritten = true
@@ -363,7 +360,7 @@ export function createExamWorkspaceService(options: { now?: () => Date; createId
       const [state, saved, history] = await Promise.all([
         backend.read(),
         backend.readSaved(),
-        backend.readPublicationHistory(),
+        backend.readExportHistory(),
       ])
       if (!isPristineExam(state, saved, history)) return false
       await transact([EXAM_STORE, EXAM_WORKSPACE_STORE], 'readwrite', async (transaction) => {

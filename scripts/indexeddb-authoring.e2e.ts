@@ -1,4 +1,4 @@
-// The fresh Version History storage generation, exercised in a real browser.
+// The fresh Export History storage generation, exercised in a real browser.
 //
 // These tests deliberately cross the public application boundary. IndexedDB
 // is Chromium's implementation, and the assertions observe the Question Bank
@@ -160,7 +160,7 @@ test('Question Metadata and bank-only content survive a user-visible reload', as
 }) => {
   await page.goto('/')
   await page.getByRole('button', { name: 'New Exam' }).first().click()
-  await page.getByRole('button', { name: 'New question' }).click()
+  await page.getByRole('button', { name: 'New question', exact: true }).click()
   await page.getByRole('menuitem', { name: 'Multiple choice' }).click()
   const dialog = page.getByRole('dialog', { name: 'Question editor' })
   await dialog.waitFor()
@@ -203,7 +203,7 @@ test('publication aborts every store when a required Media Asset is absent', asy
     const { createIndexedDBAuthoringBackend } = (await import(
       /* @vite-ignore */ authoringPath
     )) as typeof import('../src/indexeddb-authoring')
-    const { prepareExport, EMPTY_PUBLICATION_HISTORY } = (await import(
+    const { prepareExport, EMPTY_EXPORT_HISTORY } = (await import(
       /* @vite-ignore */ preparationPath
     )) as typeof import('../src/export-preparation')
     const { selectedExam } = (await import(
@@ -233,22 +233,20 @@ test('publication aborts every store when a required Media Asset is absent', asy
       dirty: true,
     }
     const prepared = prepareExport({
+      examId: 'exam-1',
       ...selectedExam(state.questionBank, state.examDraft),
       configuration: { format: 'pdf', selection: { test: true, answerKey: true } },
-      history: EMPTY_PUBLICATION_HISTORY,
+      history: EMPTY_EXPORT_HISTORY,
       measure: unmeasured,
       createdAt: '2026-09-04T12:00:00.000Z',
     })
-    prepared.publication.mediaHashes = ['f'.repeat(64)]
+    prepared.record.mediaHashes = ['f'.repeat(64)]
     const backend = createIndexedDBAuthoringBackend(
       'publication-media-abort-test',
     )
     let failed = false
     try {
-      await backend.commitPublication(
-        { questionBank: state.questionBank, examDraft: state.examDraft },
-        prepared.publication,
-      )
+      await backend.commitExportRecord(prepared.record)
     } catch {
       failed = true
     }
@@ -256,12 +254,12 @@ test('publication aborts every store when a required Media Asset is absent', asy
       failed,
       working: await backend.read(),
       saved: await backend.readSaved(),
-      history: await backend.readPublicationHistory(),
+      history: await backend.readExportHistory(),
     }
   })
 
   expect(result.failed).toBe(true)
   expect(result.working).toBeNull()
   expect(result.saved).toBeNull()
-  expect(result.history).toEqual({ versions: [], revisions: [], plans: [] })
+  expect(result.history).toEqual({ records: [] })
 })

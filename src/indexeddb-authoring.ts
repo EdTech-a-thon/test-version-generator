@@ -1,4 +1,4 @@
-// Browser-local persistence for the fresh Version History generation.
+// Browser-local persistence for the fresh Export History generation.
 //
 // The Question Bank records and the Exam Draft/control record are normalized
 // into separate object stores. Every snapshot crosses those stores in one
@@ -10,19 +10,12 @@ import type {
   DurableAuthoringBackend,
   SavedState,
 } from './exam-store'
-import type {
-  PublicationHistory,
-  PublishedLayoutPlan,
-  PublishedVersion,
-  QuestionRevision,
-} from './export-preparation'
+import type { ExportHistory, ExportRecord } from './export-preparation'
 import {
   EXAM_STORE,
   EXAM_WORKSPACE_STORE,
-  LAYOUT_PLAN_STORE,
+  EXPORT_RECORD_STORE,
   MEDIA_ASSET_STORE,
-  QUESTION_REVISION_STORE,
-  VERSION_STORE,
   VERSIONED_STORAGE_NAME,
   VERSIONED_STORAGE_VERSION,
 } from './storage-schema'
@@ -45,7 +38,6 @@ type AuthoringControl = {
   key: typeof CURRENT_AUTHORING_KEY
   questionIds: string[]
   examDraft: AuthoringState['examDraft']
-  lastExportedVersionId?: string
   dirty: boolean
 }
 
@@ -71,14 +63,8 @@ function openDatabase(databaseName: string): Promise<IDBDatabase> {
       if (!database.objectStoreNames.contains(MEDIA_ASSET_STORE)) {
         database.createObjectStore(MEDIA_ASSET_STORE, { keyPath: 'hash' })
       }
-      if (!database.objectStoreNames.contains(VERSION_STORE)) {
-        database.createObjectStore(VERSION_STORE, { keyPath: 'id' })
-      }
-      if (!database.objectStoreNames.contains(QUESTION_REVISION_STORE)) {
-        database.createObjectStore(QUESTION_REVISION_STORE, { keyPath: 'id' })
-      }
-      if (!database.objectStoreNames.contains(LAYOUT_PLAN_STORE)) {
-        database.createObjectStore(LAYOUT_PLAN_STORE, { keyPath: 'id' })
+      if (!database.objectStoreNames.contains(EXPORT_RECORD_STORE)) {
+        database.createObjectStore(EXPORT_RECORD_STORE, { keyPath: 'id' })
       }
       if (!database.objectStoreNames.contains(EXAM_STORE)) {
         database.createObjectStore(EXAM_STORE, { keyPath: 'id' })
@@ -119,9 +105,6 @@ export function indexedDBAuthoringRecordsOf(
       key: CURRENT_AUTHORING_KEY,
       questionIds: state.questionBank.questions.map((question) => question.id),
       examDraft: state.examDraft,
-      ...(state.lastExportedVersionId
-        ? { lastExportedVersionId: state.lastExportedVersionId }
-        : {}),
       dirty: state.dirty,
     },
   }
@@ -165,29 +148,19 @@ async function readAuthoringState(database: IDBDatabase): Promise<AuthoringState
       }),
     },
     examDraft: control.examDraft,
-    ...(typeof control.lastExportedVersionId === 'string'
-      ? { lastExportedVersionId: control.lastExportedVersionId }
-      : {}),
     dirty: control.dirty,
   }
 }
 
-async function readPublicationHistory(database: IDBDatabase): Promise<PublicationHistory> {
-  const transaction = database.transaction(
-    [VERSION_STORE, QUESTION_REVISION_STORE, LAYOUT_PLAN_STORE],
-    'readonly',
-  )
-  const versionsRequest = transaction.objectStore(VERSION_STORE).getAll()
-  const revisionsRequest = transaction.objectStore(QUESTION_REVISION_STORE).getAll()
-  const plansRequest = transaction.objectStore(LAYOUT_PLAN_STORE).getAll()
-  const [versions, revisions, plans] = await Promise.all([
-    resultOf(versionsRequest) as Promise<PublishedVersion[]>,
-    resultOf(revisionsRequest) as Promise<QuestionRevision[]>,
-    resultOf(plansRequest) as Promise<PublishedLayoutPlan[]>,
+async function readExportHistory(database: IDBDatabase): Promise<ExportHistory> {
+  const transaction = database.transaction(EXPORT_RECORD_STORE, 'readonly')
+  const request = transaction.objectStore(EXPORT_RECORD_STORE).getAll()
+  const [records] = await Promise.all([
+    resultOf(request) as Promise<ExportRecord[]>,
     completionOf(transaction),
   ])
-  versions.sort((left, right) => left.historyPosition - right.historyPosition)
-  return { versions, revisions, plans }
+  records.sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+  return { records }
 }
 
 async function transactionally(
@@ -283,41 +256,20 @@ export function createIndexedDBAuthoringBackend(
       )
     },
 
-    readPublicationHistory: async () => {
-      return readPublicationHistory(await database)
-    },
+    readExportHistory: async () => readExportHistory(await database),
 
-    commitPublication: async (working, publication) => {
+    commitExportRecord: async (record) => {
       await transaction(
-        [
-          QUESTION_BANK_STORE,
-          AUTHORING_STATE_STORE,
-          VERSION_STORE,
-          QUESTION_REVISION_STORE,
-          LAYOUT_PLAN_STORE,
-          MEDIA_ASSET_STORE,
-        ],
+        [EXPORT_RECORD_STORE, MEDIA_ASSET_STORE],
         (transaction) => {
-          // Publishing records output and the current Working Copy, but never
-          // changes the separately explicit saved Exam.
-          putAuthoringState(transaction, working)
-          if (publication.version) {
-            transaction.objectStore(VERSION_STORE).add(publication.version)
-            const revisions = transaction.objectStore(QUESTION_REVISION_STORE)
-            for (const revision of publication.revisions) revisions.add(revision)
-            const plans = transaction.objectStore(LAYOUT_PLAN_STORE)
-            for (const plan of publication.plans) plans.add(plan)
-          }
-
-          // Media is already ingested while authoring. Re-putting the immutable
-          // record inside this transaction both verifies it exists and includes
-          // every required asset in the publication durability boundary.
+          transaction.objectStore(EXPORT_RECORD_STORE).add(record)
+          // Media bytes were ingested while authoring. Verify every reference
+          // in the same transaction so history cannot commit incomplete.
           const media = transaction.objectStore(MEDIA_ASSET_STORE)
-          for (const hash of publication.mediaHashes) {
+          for (const hash of record.mediaHashes) {
             const request = media.get(hash)
             request.onsuccess = () => {
               if (request.result === undefined) transaction.abort()
-              else media.put(request.result)
             }
           }
         },

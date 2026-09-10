@@ -4,13 +4,12 @@ import type { LayoutPlan } from './export-plan'
 import type {
   ExportConfiguration,
   PreparationProgress,
-  PreparedExport,
 } from './export-preparation'
 
 function progressMessage(progress: PreparationProgress): string {
   return progress.stage === 'planning'
     ? `Laying out document ${progress.completed} of ${progress.total}…`
-    : 'Resolving Version identity…'
+    : 'Recording export…'
 }
 
 function focusableWithin(root: HTMLElement): HTMLElement[] {
@@ -27,7 +26,6 @@ function focusableWithin(root: HTMLElement): HTMLElement[] {
 export function ExportDialog({
   configuration,
   onConfigurationChange,
-  resolution,
   previewPlans,
   empty,
   initialError,
@@ -36,7 +34,6 @@ export function ExportDialog({
 }: {
   configuration: ExportConfiguration
   onConfigurationChange: (configuration: ExportConfiguration) => void
-  resolution: PreparedExport['resolution'] | null
   previewPlans: readonly LayoutPlan[]
   empty: boolean
   initialError?: string | null
@@ -59,7 +56,7 @@ export function ExportDialog({
   const emptyError = empty
     ? 'Add at least one question to the Exam Draft before exporting.'
     : null
-  const invalid = selectionError !== null || emptyError !== null || !resolution
+  const invalid = selectionError !== null || emptyError !== null
 
   const changeSelection = (selection: ExportConfiguration['selection']) =>
     onConfigurationChange({ ...configuration, selection })
@@ -195,17 +192,6 @@ export function ExportDialog({
           </div>
 
           <div className="export-controls">
-            {resolution && (
-              <p
-                className="export-version-state"
-                role="status"
-                aria-live="polite"
-              >
-                {resolution.kind === 'existing' ? 'Re-exporting' : 'Exporting'}
-                <strong>{resolution.version.name}</strong>
-              </p>
-            )}
-
             <fieldset className="export-field" disabled={preparing}>
               <legend>Format</legend>
               <label>
@@ -267,8 +253,8 @@ export function ExportDialog({
             </fieldset>
 
             <p className="export-durability-note">
-              Version History is stored only in this browser. It is useful for
-              local recovery and re-export, but it is not an archival backup.
+              Export History is stored only in this browser. It is useful for
+              local re-export, but it is not an archival backup.
             </p>
             {(selectionError || emptyError) && (
               <p

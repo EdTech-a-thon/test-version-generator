@@ -40,7 +40,7 @@ import {
   plansOf,
   prepareExport,
   versionRange,
-  EMPTY_PUBLICATION_HISTORY,
+  EMPTY_EXPORT_HISTORY,
   type ExportConfiguration,
 } from '../src/export-preparation'
 import {
@@ -176,10 +176,11 @@ for (const fixture of fixtures) {
     const configuration = configurationOf()
     const plans = plansOf(
       prepareExport({
+        examId: 'diagnostic-exam',
         exam: fixture.exam,
         version: fixture.version,
         configuration,
-        history: EMPTY_PUBLICATION_HISTORY,
+        history: EMPTY_EXPORT_HISTORY,
         measure: fixture.measure,
         createdAt: '2026-09-04T12:00:00.000Z',
       }),
@@ -277,8 +278,8 @@ for (const fixture of fixtures) {
       await download.saveAs(docx)
     }
 
-    // The media-rich composite is downloaded again through Version History,
-    // not the live draft Export action. This exercises the stored-plan path:
+    // The media-rich composite is downloaded again through Export History,
+    // not the live Working Copy action. This exercises the stored-plan path:
     // changing the current layout engine or Question Bank cannot alter it.
     if (fixture.name === 'a realistic composite exam' && docx) {
       // Destroy the live source after publication. A history export which
@@ -291,16 +292,12 @@ for (const fixture of fixtures) {
       }
       await expect(liveQuestions).toHaveCount(0)
 
-      await page.getByRole('button', { name: 'Version History' }).click()
-      const history = page.getByLabel('Version History')
+      await page.getByRole('button', { name: 'Export History' }).click()
+      const history = page.getByLabel('Export History')
       await history.locator('.version-history-item').first().click()
-      await page.getByRole('button', { name: 'Historical Export', exact: true }).click()
-      const historicalDialog = page.getByRole('dialog', { name: 'Export' })
-      await historicalDialog.waitFor()
-      await historicalDialog.getByRole('radio', { name: 'DOCX' }).check()
       const [historicalDownload] = await Promise.all([
         page.waitForEvent('download'),
-        historicalDialog.getByRole('button', { name: 'Download DOCX' }).click(),
+        page.getByRole('button', { name: 'Re-export DOCX', exact: true }).click(),
       ])
       const historical = join(directory, 'historical-export.docx')
       await historicalDownload.saveAs(historical)

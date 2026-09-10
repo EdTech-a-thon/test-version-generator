@@ -66,7 +66,7 @@ describe('a fresh installation', () => {
   })
 
   test('stores under new identifiers, so the earlier generation is never read', () => {
-    // ADR-0009: Version History is another storage cutover. Data written by
+    // ADR-0009: the historical storage generation is another cutover. Data written by
     // both earlier authoring generations is left where it is and never read.
     expect(VERSIONED_STORAGE_NAME).not.toBe('exam-authoring-v2')
     expect(VERSIONED_STORAGE_NAME).not.toBe('exam-saved-v2')
@@ -700,7 +700,7 @@ describe('the dirty flag and persistence', () => {
     const backend: DurableAuthoringBackend = {
       read: async () => working,
       readSaved: async () => saved,
-      readPublicationHistory: async () => ({ versions: [], revisions: [], plans: [] }),
+      readExportHistory: async () => ({ records: [] }),
       write: (value) =>
         schedule(async () => {
           if (firstWrite) {
@@ -721,11 +721,7 @@ describe('the dirty flag and persistence', () => {
           saved = structuredClone(value)
           working = { ...structuredClone(value), dirty: false }
         }),
-      commitPublication: (value) =>
-        schedule(() => {
-          saved = structuredClone(value)
-          working = { ...structuredClone(value), dirty: false }
-        }),
+      commitExportRecord: async () => undefined,
     }
     const store = await loadExamStore(backend)
     const first = createQuestion('multiple-choice')
@@ -811,208 +807,60 @@ describe('the dirty flag and persistence', () => {
     expect(store.getState().dirty).toBe(true)
   })
 
-  test('uses compatible metadata-only current records with historical answer order as one undoable action', async () => {
-    const { store, questions } = await withExamDraft(2)
-    const first = store.selectedExam()
-    const historicalAnswerOrder = [...choicesOf(questions[0]!)].map((choice) => choice.id).reverse()
-    const published = prepareExport({
-      ...first,
-      version: {
-        ...first.version,
-        questionOrder: [questions[1]!.id, questions[0]!.id],
-        choiceOrder: { [questions[0]!.id]: historicalAnswerOrder },
-      },
-      configuration: DEFAULT_EXPORT_CONFIGURATION,
-      history: store.publicationHistory(),
-      measure: unmeasured,
-      createdAt: '2026-09-04T12:00:00.000Z',
-    })
-    await store.publish(published.publication)
-    store.updateInQuestionBank({
-      ...questions[0]!,
-      difficulty: 'hard',
-      topics: ['Changed topic'],
-    })
-    const beforeReplacement = structuredClone(store.getState().examDraft)
-
-    expect(store.useHistoricalVersionAsDraft(published.resolution.version.id)).toBe(true)
-    expect(store.getState().examDraft.questionIds).toEqual([questions[1]!.id, questions[0]!.id])
-    expect(store.getState().examDraft.choiceOrder).toEqual({
-      [questions[0]!.id]: historicalAnswerOrder,
-    })
-    expect(bankIds(store)).toEqual([questions[0]!.id, questions[1]!.id])
-
-    store.undo()
-    expect(store.getState().examDraft).toEqual(beforeReplacement)
-  })
-
-  test('reconciles mixed updated and missing revisions atomically, with overrides and one Undo step', async () => {
-    const { store, questions } = await withExamDraft(2)
-    const first = store.selectedExam()
-    const historicalAnswerOrder = [...choicesOf(questions[0]!)].map((choice) => choice.id).reverse()
-    const published = prepareExport({
-      ...first,
-      version: {
-        ...first.version,
-        choiceOrder: { [questions[0]!.id]: historicalAnswerOrder },
-      },
-      configuration: DEFAULT_EXPORT_CONFIGURATION,
-      history: store.publicationHistory(),
-      measure: unmeasured,
-      createdAt: '2026-09-04T12:00:00.000Z',
-    })
-    await store.publish(published.publication)
-    // A fresh authoring boundary models a deleted historical source: only the
-    // updated current record remains in the Question Bank.
-    const changed = {
-      ...questions[0]!,
-      doc: {
-        ...questions[0]!.doc,
-        content: [
-          { type: 'paragraph', content: [{ type: 'text', text: 'Latest wording' }] },
-          ...questions[0]!.doc.content.slice(1),
-        ],
-      },
-    }
-    const reconciliationStore = createExamStore({
-      backend: memory(),
-      publicationHistory: store.publicationHistory(),
-      initial: {
-        questionBank: { questions: [changed] },
-        examDraft: { title: first.exam.title, questionIds: [changed.id], choiceOrder: {} },
-        dirty: false,
-      },
-    })
-    const before = structuredClone(reconciliationStore.getState())
-    const [updated, missing] = published.publication.revisions
-
-    // An invalid disposition does not partially add the historical updated
-    // question or replace the draft while it discovers the missing-row error.
-    expect(reconciliationStore.reconcileHistoricalVersionAsDraft(published.resolution.version.id, {
-      [updated!.id]: 'keep-historical',
-      [missing!.id]: 'keep-historical',
-    })).toBe(false)
-    expect(reconciliationStore.getState()).toEqual(before)
-
-    expect(reconciliationStore.reconcileHistoricalVersionAsDraft(published.resolution.version.id, {
-      [updated!.id]: 'use-latest',
-      [missing!.id]: 'add-to-question-bank',
-    })).toBe(true)
-    const reconciled = reconciliationStore.getState()
-    expect(reconciled.questionBank.questions).toHaveLength(2)
-    expect(reconciled.questionBank.questions.map((question) => question.id)).not.toContain(questions[1]!.id)
-    expect(reconciled.examDraft.questionIds[0]).toBe(questions[0]!.id)
-    expect(reconciled.examDraft.questionIds).toHaveLength(2)
-    expect(reconciled.examDraft.choiceOrder).toEqual({ [questions[0]!.id]: historicalAnswerOrder })
-
-    reconciliationStore.undo()
-    expect(reconciliationStore.getState()).toEqual(before)
-  })
-
-  test('retains the Version resolved by a re-export as the last export', async () => {
-    const { store, questions } = await withExamDraft(1)
-    const first = prepareExport({
-      ...store.selectedExam(),
-      configuration: DEFAULT_EXPORT_CONFIGURATION,
-      history: store.publicationHistory(),
-      measure: unmeasured,
-      createdAt: '2026-09-04T12:00:00.000Z',
-    })
-    await store.publish(first.publication)
-    store.setTitle('Newer Version')
-    const second = prepareExport({
-      ...store.selectedExam(),
-      configuration: DEFAULT_EXPORT_CONFIGURATION,
-      history: store.publicationHistory(),
-      measure: unmeasured,
-      createdAt: '2026-09-04T12:01:00.000Z',
-    })
-    await store.publish(second.publication)
-
-    store.setTitle('Untitled Exam')
-    const reExport = prepareExport({
-      ...store.selectedExam(),
-      configuration: DEFAULT_EXPORT_CONFIGURATION,
-      history: store.publicationHistory(),
-      measure: unmeasured,
-      createdAt: '2026-09-04T12:02:00.000Z',
-    })
-    expect(reExport.resolution.version.id).toBe(first.resolution.version.id)
-    await store.publish(reExport.publication)
-
-    expect(store.getState().lastExportedVersionId).toBe(first.resolution.version.id)
-    expect(store.publicationHistory().versions).toEqual([
-      first.resolution.version,
-      second.resolution.version,
-    ])
-
-    // Publication checkpoints are workflow state, not authoring history. Undo
-    // must restore Version 2's draft without rolling its checkpoint back to
-    // Version 2: Use as Draft must still warn before replacing that draft.
-    store.undo()
-    expect(store.getState().examDraft.title).toBe('Newer Version')
-    expect(store.getState().lastExportedVersionId).toBe(first.resolution.version.id)
-    expect(questions).toHaveLength(1)
-  })
-
   test('export records unsaved work without replacing the explicit saved Exam', async () => {
     const { store, questions } = await withExamDraft(1, 'open')
     await store.save()
     store.setTitle('Unsaved export title')
+    const selected = store.selectedExam()
     const exported = prepareExport({
-      ...store.selectedExam(),
+      examId: 'exam-1',
+      ...selected,
       configuration: DEFAULT_EXPORT_CONFIGURATION,
-      history: store.publicationHistory(),
+      history: store.exportHistory(),
       measure: unmeasured,
       createdAt: '2026-09-04T12:00:00.000Z',
+      createId: () => 'record-1',
     })
 
-    await store.publish(exported.publication)
+    await store.publish(exported.record)
 
+    expect(store.exportHistory().records).toEqual([exported.record])
     expect(store.getState().dirty).toBe(true)
     await store.discard()
     expect(store.getState().examDraft.title).toBe('Untitled Exam')
     expect(renderedIds(store)).toEqual([questions[0]!.id])
   })
 
-  test('historical re-export preparation is read-only for current, saved, and dirty authoring state', async () => {
-    const { backend, savedBackend, store, questions } = await withExamDraft(1, 'open')
+  test('historical re-export appends a new event without changing current authoring', async () => {
+    const { backend, savedBackend, store } = await withExamDraft(1, 'open')
     await store.save()
-    const first = store.selectedExam()
-    const published = prepareExport({
-      ...first,
-      configuration: { format: 'pdf', selection: { test: true, answerKey: true } },
-      history: store.publicationHistory(),
+    const prepared = prepareExport({
+      examId: 'exam-1',
+      ...store.selectedExam(),
+      configuration: DEFAULT_EXPORT_CONFIGURATION,
+      history: store.exportHistory(),
       measure: unmeasured,
       createdAt: '2026-09-04T12:00:00.000Z',
+      createId: () => 'record-1',
     })
-    await store.publish(published.publication)
-
-    // This is unsaved authoring work. Historical re-export must not quietly
-    // commit it, clear its dirty flag, or alter the last saved snapshot.
-    store.setTitle('Unsaved live draft')
+    await store.publish(prepared.record)
+    store.setTitle('Unsaved live work')
     await store.whenSettled()
-    const beforeState = store.getState()
-    const beforeHistory = structuredClone(store.publicationHistory())
-    const beforeSaved = structuredClone(savedBackend.value)
-    const beforeWrites = backend.writes
+    const before = store.getState()
+    const saved = structuredClone(savedBackend.value)
+    const writes = backend.writes
 
     const historical = prepareHistoricalExport({
-      history: store.publicationHistory(),
-      version: published.resolution.version,
-      configuration: { format: 'pdf', selection: { test: true, answerKey: true } },
+      record: prepared.record,
+      createdAt: '2026-09-04T12:01:00.000Z',
+      createId: () => 'record-2',
     })
+    await store.publish(historical.record)
 
-    expect(historical.publication.version).toBeNull()
-    expect(historical.publication.revisions).toEqual([])
-    expect(historical.publication.plans).toEqual([])
-    // Production does not call store.publish for this prepared export.
-    expect(store.getState()).toBe(beforeState)
-    expect(store.getState().dirty).toBe(true)
-    expect(store.publicationHistory()).toEqual(beforeHistory)
-    expect(savedBackend.value).toEqual(beforeSaved)
-    expect(backend.writes).toBe(beforeWrites)
-    expect(renderedIds(store)).toEqual([questions[0]!.id])
+    expect(store.exportHistory().records.map(({ id }) => id)).toEqual(['record-1', 'record-2'])
+    expect(store.getState()).toBe(before)
+    expect(savedBackend.value).toEqual(saved)
+    expect(backend.writes).toBe(writes)
   })
 
   test('a refresh restores the Question Bank, the Exam Draft and the dirty flag', async () => {

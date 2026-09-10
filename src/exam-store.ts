@@ -40,17 +40,12 @@ import {
   type QuestionBank,
 } from './question-bank'
 import { selectedExam, type SelectedExam } from './selected-exam'
-import {
-  compatibleHistoricalDraft,
-  reconcileHistoricalDraft,
-  type HistoricalQuestionResolution,
-} from './historical-draft'
 import { withCanonicalQuestionProjection } from './canonical-question-projection'
 import { withoutQuestions } from './question-deletion'
 import {
-  EMPTY_PUBLICATION_HISTORY,
-  type PublicationCommit,
-  type PublicationHistory,
+  EMPTY_EXPORT_HISTORY,
+  type ExportHistory,
+  type ExportRecord,
 } from './export-preparation'
 
 /** Everything authoring owns: canonical content, the selection made from it,
@@ -58,10 +53,6 @@ import {
 export type AuthoringState = {
   questionBank: QuestionBank
   examDraft: ExamDraft
-  /** The Version resolved by the most recent successful live-draft export.
-   * This is not Version History ordering: re-exporting an older Version moves
-   * the comparison point without changing the append-only history. */
-  lastExportedVersionId?: string
   dirty: boolean
 }
 
@@ -86,8 +77,8 @@ export interface DurableAuthoringBackend extends Backend<AuthoringState> {
   /** Creates an Exam's saved baseline and first Working Copy in one transaction. */
   initialize(saved: SavedState, working: AuthoringState): Promise<void>
   commitSaved(value: SavedState): Promise<void>
-  readPublicationHistory(): Promise<PublicationHistory>
-  commitPublication(value: AuthoringState, publication: PublicationCommit): Promise<void>
+  readExportHistory(): Promise<ExportHistory>
+  commitExportRecord(record: ExportRecord): Promise<void>
 }
 
 export type MemoryBackend<T> = Backend<T> & {
@@ -169,7 +160,6 @@ function isAuthoringState(value: unknown): value is AuthoringState {
     typeof state === 'object' &&
     state !== null &&
     typeof state.dirty === 'boolean' &&
-    (state.lastExportedVersionId === undefined || typeof state.lastExportedVersionId === 'string') &&
     isQuestionBank(state.questionBank) &&
     isExamDraft(state.examDraft)
   )
@@ -258,17 +248,6 @@ export type ExamStore = {
   /** Removes references from the Exam Draft, leaving their Question Bank
    *  records exactly as they were. Remove excludes; it never deletes. */
   removeFromExamDraft(questionIds: readonly string[]): void
-  /** Replaces the complete Exam Draft arrangement with a compatible historical
-   * Version while retaining current Question Bank records. */
-  useHistoricalVersionAsDraft(versionId: string): boolean
-  /** Reconciles a historical Version in one atomic, undoable authoring action.
-   * Historical recreations are new Question Bank records; current records are
-   * never overwritten. */
-  reconcileHistoricalVersionAsDraft(
-    versionId: string,
-    resolutions: Readonly<Record<string, HistoricalQuestionResolution>>,
-  ): boolean
-
   /** Whether anything has ever been saved — what tells an untouched draft from
    *  an exam with unsaved changes. */
   hasSavedExam(): boolean
@@ -282,8 +261,8 @@ export type ExamStore = {
   saveAs(commit: (snapshot: SaveAsSnapshot) => Promise<void>): Promise<SaveAsSession>
   /** Atomically records the current Working Copy alongside newly prepared
    * immutable Export History. It never changes the explicitly saved Exam. */
-  publish(publication: PublicationCommit): Promise<void>
-  publicationHistory(): PublicationHistory
+  publish(record: ExportRecord): Promise<void>
+  exportHistory(): ExportHistory
   discard(): Promise<void>
 
   /** Resolves once every mirrored write has landed. For tests and shutdown. */
@@ -373,7 +352,7 @@ export function createExamStore(options: {
   backend: Backend<AuthoringState>
   savedBackend?: Backend<SavedState>
   saved?: SavedState | null
-  publicationHistory?: PublicationHistory
+  exportHistory?: ExportHistory
   initial?: AuthoringState
   initialHistory?: { undo: AuthoringState[]; redo: AuthoringState[] }
 }): ExamStore {
@@ -387,12 +366,9 @@ export function createExamStore(options: {
   let saved: SavedState | null = options.saved ?? {
     questionBank: initialState.questionBank,
     examDraft: initialState.examDraft,
-    ...(initialState.lastExportedVersionId
-      ? { lastExportedVersionId: initialState.lastExportedVersionId }
-      : {}),
   }
   let state: AuthoringState = withDirtyFlag(initialState, saved)
-  let publicationHistory = options.publicationHistory ?? EMPTY_PUBLICATION_HISTORY
+  let exportHistory = options.exportHistory ?? EMPTY_EXPORT_HISTORY
   // The derived Exam, kept beside the state it was derived from. Deriving it
   // once per change rather than once per read is what lets a consumer treat it
   // as a stable dependency; `selectedExam` reuses the halves that did not move.
@@ -476,16 +452,7 @@ export function createExamStore(options: {
     const historicalAuthoringState = source.pop()
     if (!historicalAuthoringState) return
     destination.push(state)
-    // Publication is not an authoring action. Undo restores only the Question
-    // Bank and Exam Draft while retaining the checkpoint set by the most
-    // recent successful live-draft export; otherwise Undo could make a changed
-    // draft appear to match an older export and skip its replacement warning.
-    const { lastExportedVersionId } = state
-    settle(
-      lastExportedVersionId === undefined
-        ? historicalAuthoringState
-        : { ...historicalAuthoringState, lastExportedVersionId },
-    )
+    settle(historicalAuthoringState)
   }
 
   const syncHistoryQuestion = (snapshot: AuthoringState, question: Question): AuthoringState => {
@@ -751,50 +718,6 @@ export function createExamStore(options: {
         withExamDraft(current, withReferencesRemoved(current.examDraft, questionIds)),
       ),
 
-    useHistoricalVersionAsDraft: (versionId) => {
-      const version = publicationHistory.versions.find((item) => item.id === versionId)
-      if (!version) return false
-      const replacement = compatibleHistoricalDraft(
-        publicationHistory,
-        version,
-        state.examDraft,
-        state.questionBank,
-      )
-      if (!replacement) return false
-      const changed = replacement !== state.examDraft
-      change((current) =>
-        replacement === current.examDraft
-          ? current
-          : { ...current, examDraft: replacement },
-      )
-      return changed
-    },
-
-    reconcileHistoricalVersionAsDraft: (versionId, resolutions) => {
-      const version = publicationHistory.versions.find((item) => item.id === versionId)
-      if (!version) return false
-      const replacement = reconcileHistoricalDraft(
-        publicationHistory,
-        version,
-        state.examDraft,
-        state.questionBank,
-        resolutions,
-      )
-      if (!replacement) return false
-      const changed = replacement.questionBank !== state.questionBank
-        || replacement.examDraft !== state.examDraft
-      change((current) =>
-        !changed
-          ? current
-          : {
-              ...current,
-              questionBank: replacement.questionBank,
-              examDraft: replacement.examDraft,
-            },
-      )
-      return changed
-    },
-
     hasSavedExam: () => saved !== null,
 
     canUndo: () => undoStack.length > 0,
@@ -814,18 +737,12 @@ export function createExamStore(options: {
         examDraft: { ...withResolvedColumns(working), title: copiedTitle },
         dirty: false,
       }
-      delete targetInitial.lastExportedVersionId
       // Question Content remains live when restoring an arrangement: Save As
       // must not roll canonical edits back merely because the source's saved
       // composition predates them.
-      const sourceWithoutCheckpoint = { ...working }
-      delete sourceWithoutCheckpoint.lastExportedVersionId
       const sourceRestored: AuthoringState = {
-        ...sourceWithoutCheckpoint,
+        ...working,
         examDraft: sourceSaved?.examDraft ?? createExamDraft(working.examDraft.title),
-        ...(sourceSaved?.lastExportedVersionId
-          ? { lastExportedVersionId: sourceSaved.lastExportedVersionId }
-          : {}),
         dirty: false,
       }
       const history = { undo: [...undoStack], redo: [...redoStack] }
@@ -845,9 +762,6 @@ export function createExamStore(options: {
       const nextSaved: SavedState = {
         questionBank: savingState.questionBank,
         examDraft: withResolvedColumns(savingState),
-        ...(savingState.lastExportedVersionId
-          ? { lastExportedVersionId: savingState.lastExportedVersionId }
-          : {}),
       }
       await (durableBackend
         ? durableBackend.commitSaved(nextSaved)
@@ -870,46 +784,14 @@ export function createExamStore(options: {
       }
     },
 
-    publish: async (publication) => {
+    publish: async (record) => {
       await pending
-      const publishingState = state
-      const publicationState: AuthoringState = {
-        ...publishingState,
-        examDraft: withResolvedColumns(publishingState),
-        ...(publication.exportedVersionId ?? publishingState.lastExportedVersionId
-          ? {
-              lastExportedVersionId:
-                publication.exportedVersionId ?? publishingState.lastExportedVersionId,
-            }
-          : {}),
-      }
-      if (durableBackend) {
-        await durableBackend.commitPublication(publicationState, publication)
-      } else {
-        await backend.write(publicationState)
-      }
-      if (publication.version) {
-        publicationHistory = {
-          versions: [...publicationHistory.versions, publication.version],
-          revisions: [...publicationHistory.revisions, ...publication.revisions],
-          plans: [...publicationHistory.plans, ...publication.plans],
-        }
-      }
-      // Publishing may overlap newer authoring. The newer draft stays dirty,
-      // but its confirmation point still becomes the Version this successful
-      // export resolved; otherwise a later Use as Draft would compare against
-      // stale append-only history until reload.
-      if (state !== publishingState) {
-        if (publication.exportedVersionId && state.lastExportedVersionId !== publication.exportedVersionId) {
-          settle({ ...state, lastExportedVersionId: publication.exportedVersionId })
-        }
-        return
-      }
-      settle(publicationState)
-      await pending
+      if (durableBackend) await durableBackend.commitExportRecord(record)
+      exportHistory = { records: [...exportHistory.records, record] }
+      notify()
     },
 
-    publicationHistory: () => publicationHistory,
+    exportHistory: () => exportHistory,
 
     discard: async () => {
       // Discard restores this Exam's saved composition, but Question Content is
@@ -939,7 +821,7 @@ export async function loadExamStore(
 ): Promise<ExamStore> {
   let stored: AuthoringState | null = null
   let saved: SavedState | null = null
-  let publicationHistory: PublicationHistory = EMPTY_PUBLICATION_HISTORY
+  let exportHistory: ExportHistory = EMPTY_EXPORT_HISTORY
   try {
     stored = await backend.read()
   } catch (error) {
@@ -954,11 +836,11 @@ export async function loadExamStore(
     console.error('Could not read the saved exam', error)
   }
   try {
-    publicationHistory = 'readPublicationHistory' in backend
-      ? await (backend as DurableAuthoringBackend).readPublicationHistory()
-      : EMPTY_PUBLICATION_HISTORY
+    exportHistory = 'readExportHistory' in backend
+      ? await (backend as DurableAuthoringBackend).readExportHistory()
+      : EMPTY_EXPORT_HISTORY
   } catch (error) {
-    console.error('Could not read Version History', error)
+    console.error('Could not read Export History', error)
   }
   const initial = isAuthoringState(stored)
     ? stored
@@ -970,6 +852,6 @@ export async function loadExamStore(
     savedBackend,
     saved,
     initial,
-    publicationHistory,
+    exportHistory,
   })
 }
