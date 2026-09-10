@@ -1280,6 +1280,24 @@ button { cursor: pointer; }
 .question-bank-export-choices .doc-content { display: inline; }
 .question-bank-export-choices .doc-content p { display: inline; }
 .question-bank-correct { margin-left: 8px; color: #27643a; font-size: 12px; }
+.bank-import-dialog, .question-bank-details-dialog {
+  width: min(620px, calc(100vw - 32px)); max-height: calc(100vh - 40px);
+  padding: 22px; overflow: auto; border-radius: 12px; background: #fffdf8;
+  box-shadow: 0 18px 60px rgb(58 42 30 / 24%);
+}
+.bank-import-file, .bank-import-name, .question-bank-details-dialog > label {
+  display: grid; gap: 5px; margin: 12px 0; font-weight: 600;
+}
+.bank-import-name input, .question-bank-details-dialog input,
+.question-bank-details-dialog textarea {
+  padding: 9px 10px; border: 1px solid #bcae9c; border-radius: 7px;
+  background: white; color: inherit; font: inherit;
+}
+.question-bank-details-dialog textarea { min-height: 90px; resize: vertical; }
+.bank-import-dialog dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 18px; }
+.bank-import-dialog dl div { display: flex; justify-content: space-between; gap: 12px; }
+.bank-import-dialog dd { margin: 0; text-align: right; }
+.bank-import-announcements:empty { display: none; }
 .suggested-answer-editor { margin: 0 20px 18px; border-top: 1px solid #e0d3c2; }
 .suggested-answer-editor h3 { margin: 14px 0 6px; font-size: 14px; }
 .suggested-answer-editor h3 span { color: #6e5b4d; font-size: 12px; font-weight: 400; }

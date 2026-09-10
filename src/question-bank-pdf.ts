@@ -7,6 +7,7 @@ import {
   PDFString,
   rgb,
   type PDFFont,
+  type PDFImage,
   type PDFPage,
 } from 'pdf-lib'
 import {
@@ -48,6 +49,7 @@ type Context = {
   fonts: Fonts
   y: number
   pageNumber: number
+  images: Map<string, PDFImage>
 }
 
 type Piece = {
@@ -239,6 +241,19 @@ function inlinePieces(nodes: readonly SemanticNode[]): Piece[] {
   return pieces
 }
 
+function drawImage(context: Context, node: SemanticNode, x: number, width: number): void {
+  const image = node.asset ? context.images.get(node.asset) : undefined
+  if (!image) throw new Error(`Required Media Asset “${node.asset ?? 'missing'}” is unavailable for the PDF preview.`)
+  const naturalRatio = image.height / image.width
+  const targetWidth = Math.min(width, width * (node.authoredSize ?? 1))
+  const targetHeight = targetWidth * naturalRatio
+  ensure(context, targetHeight + (node.caption ? BODY_LINE : 0))
+  context.page.drawImage(image, { x, y: context.y - targetHeight, width: targetWidth, height: targetHeight })
+  context.y -= targetHeight + 4
+  if (node.caption) drawText(context, node.caption, { x, width: targetWidth, font: 'italic', size: 9 })
+  context.y -= 4
+}
+
 function drawBlocks(
   context: Context,
   nodes: readonly SemanticNode[],
@@ -310,6 +325,9 @@ function drawBlocks(
       case 'table':
         drawTable(context, node, x, width)
         break
+      case 'inline-image':
+      case 'block-image':
+        break
       default:
         drawBlocks(context, node.content ?? [], { x, width })
     }
@@ -368,8 +386,18 @@ function drawLabel(context: Context, label: string, value: string): void {
   ])
 }
 
+function imagesIn(nodes: readonly SemanticNode[]): SemanticNode[] {
+  return nodes.flatMap((node) => [
+    ...(node.type === 'inline-image' || node.type === 'block-image' ? [node] : []),
+    ...imagesIn(node.content ?? []),
+  ])
+}
+
 function drawDocument(context: Context, document: SemanticDocument): void {
   drawBlocks(context, document.content)
+  for (const image of imagesIn(document.content)) {
+    drawImage(context, image, MARGIN, CONTENT_WIDTH)
+  }
 }
 
 export async function createQuestionBankPdf(
@@ -392,12 +420,22 @@ export async function createQuestionBankPdf(
     boldItalic: await document.embedFont(boldItalic, { subset: true }),
     mono: await document.embedFont(mono, { subset: true }),
   }
+  const images = new Map<string, PDFImage>()
+  for (const [id, asset] of prepared.previewMedia ?? []) {
+    images.set(
+      id,
+      asset.type === 'jpg'
+        ? await document.embedJpg(asset.data)
+        : await document.embedPng(asset.data),
+    )
+  }
   const context: Context = {
     document,
     page: document.addPage([PAGE_WIDTH, PAGE_HEIGHT]),
     fonts,
     y: PAGE_HEIGHT - MARGIN,
     pageNumber: 1,
+    images,
   }
   document.setTitle(prepared.record.bank.name)
   document.setSubject(
@@ -424,6 +462,24 @@ export async function createQuestionBankPdf(
     { font: 'italic' },
   )
   context.y -= 8
+  if (prepared.record.bank.description) {
+    drawText(context, prepared.record.bank.description)
+  }
+  if (prepared.record.bank.author) {
+    drawLabel(context, 'Declared author (unverified)', prepared.record.bank.author)
+  }
+  if (prepared.record.bank.license) {
+    drawLabel(
+      context,
+      'License',
+      `${prepared.record.bank.license.name}${prepared.record.bank.license.url ? ` — ${prepared.record.bank.license.url}` : ''}`,
+    )
+  }
+  if (
+    prepared.record.bank.description
+    || prepared.record.bank.author
+    || prepared.record.bank.license
+  ) context.y -= 8
   drawText(
     context,
     `${prepared.record.bank.questions.length} ${prepared.record.bank.questions.length === 1 ? 'Question' : 'Questions'}`,
@@ -476,6 +532,9 @@ export async function createQuestionBankPdf(
           ],
           { x: MARGIN + 18, width: CONTENT_WIDTH - 18 },
         )
+        for (const image of imagesIn(choice.content.content)) {
+          drawImage(context, image, MARGIN + 18, CONTENT_WIDTH - 18)
+        }
       })
     }
     if (question.suggestedAnswer) {

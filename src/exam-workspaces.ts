@@ -12,6 +12,7 @@ import {
   EXAM_WORKSPACE_STORE,
   QUESTION_BANK_REGISTRY_STORE,
   QUESTION_BANK_WORKSPACE_STORE,
+  MEDIA_ASSET_STORE,
   VERSIONED_STORAGE_NAME,
   VERSIONED_STORAGE_VERSION,
 } from './storage-schema'
@@ -101,6 +102,7 @@ function openRegistry(): Promise<IDBDatabase> {
       if (!database.objectStoreNames.contains(CANONICAL_QUESTION_STORE)) database.createObjectStore(CANONICAL_QUESTION_STORE, { keyPath: 'id' })
       if (!database.objectStoreNames.contains(QUESTION_BANK_WORKSPACE_STORE)) database.createObjectStore(QUESTION_BANK_WORKSPACE_STORE, { keyPath: 'key' })
       if (!database.objectStoreNames.contains(EDITOR_WORKSPACE_STORE)) database.createObjectStore(EDITOR_WORKSPACE_STORE, { keyPath: 'key' })
+      if (!database.objectStoreNames.contains(MEDIA_ASSET_STORE)) database.createObjectStore(MEDIA_ASSET_STORE, { keyPath: 'hash' })
     }
     request.onsuccess = () => resolve(request.result)
     request.onerror = () => reject(request.error)

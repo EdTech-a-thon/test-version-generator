@@ -71,6 +71,36 @@ test('an existing Question Type cannot be changed', async () => {
   expect(store.getState()).toBe(initial)
 })
 
+test('provenance changes are durable substantive bank updates', async () => {
+  const initial = bank()
+  let committedChange: Parameters<Parameters<typeof createQuestionBankResourceStore>[1]>[0] | undefined
+  const store = createQuestionBankResourceStore(initial, async (change) => {
+    committedChange = change
+    return {
+      ...initial,
+      description: 'Course review',
+      author: 'Ada Teacher',
+      license: { name: 'CC BY', url: 'https://example.test/license' },
+      lastUpdatedAt: '2026-01-02T00:00:00.000Z',
+    }
+  })
+
+  await store.updateProvenance({
+    description: 'Course review',
+    author: 'Ada Teacher',
+    license: { name: 'CC BY', url: 'https://example.test/license' },
+  })
+  expect(committedChange).toEqual({
+    kind: 'update-provenance',
+    provenance: {
+      description: 'Course review',
+      author: 'Ada Teacher',
+      license: { name: 'CC BY', url: 'https://example.test/license' },
+    },
+  })
+  expect(store.getState().description).toBe('Course review')
+})
+
 test('bank tabs retain independent filters and choose an adjacent tab when closed', () => {
   const first = openBankTab(DEFAULT_BANK_TABS_WORKSPACE, 'bank-a')
   const second = openBankTab(first, 'bank-b')

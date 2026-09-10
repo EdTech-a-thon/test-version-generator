@@ -194,6 +194,22 @@ describe('Question Bank exchange export seam', () => {
     expect(await verifyQuestionBankRecordIntegrity(changed)).toBe(false)
   })
 
+  test('exports only explicitly stored provenance', async () => {
+    const source = {
+      ...bank([shortAnswer]),
+      description: 'Semester review',
+      author: 'Ada Teacher',
+      license: { name: 'CC BY', url: 'https://example.test/license' },
+    }
+    const { record } = await prepareQuestionBankExport(source)
+    expect(record.bank).toMatchObject({
+      description: 'Semester review',
+      author: 'Ada Teacher',
+      license: { name: 'CC BY', url: 'https://example.test/license' },
+    })
+    expect(JSON.stringify(record)).not.toContain('createdAt')
+  })
+
   test('preserves every supported media-free rich-text semantic without editor node names', async () => {
     const { record } = await prepareQuestionBankExport(bank([shortAnswer]))
     const encoded = JSON.stringify(record.bank.questions[0]!.stem)
@@ -225,7 +241,7 @@ describe('Question Bank exchange export seam', () => {
     expect(encoded).toContain('https://example.test/notes')
   })
 
-  test('rejects unsafe links, images, and invalid Multiple Choice correctness', async () => {
+  test('rejects unsafe links, missing media, and invalid Multiple Choice correctness', async () => {
     const unsafe = structuredClone(shortAnswer)
     const unsafeParagraph = (
       unsafe.doc.content as Record<string, unknown>[]
@@ -247,7 +263,7 @@ describe('Question Bank exchange export seam', () => {
       attrs: { src: '/local-images/deadbeef' },
     })
     await expect(prepareQuestionBankExport(bank([image]))).rejects.toThrow(
-      'media-free',
+      'Required media',
     )
 
     const twoCorrect = structuredClone(multipleChoice)
@@ -264,6 +280,34 @@ describe('Question Bank exchange export seam', () => {
     await expect(prepareQuestionBankExport(bank([oneChoice]))).rejects.toThrow(
       'at least two choices',
     )
+  })
+
+  test('embeds referenced media once and preserves image semantics', async () => {
+    const digest = '039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81'
+    const image = structuredClone(shortAnswer)
+    ;(image.doc.content as Record<string, unknown>[]).push({
+      type: 'image-block',
+      attrs: { src: '/local-images/shared', alt: 'Lab setup', caption: 'Figure 1', ratio: 0.5 },
+    }, {
+      type: 'image-block',
+      attrs: { src: '/local-images/shared', alt: 'Repeated setup' },
+    })
+    const prepared = await prepareQuestionBankExport(bank([image]), async () => ({
+      data: new Uint8Array([1, 2, 3]),
+      mimeType: 'image/png',
+      width: 10,
+      height: 20,
+    }))
+
+    expect(prepared.record.media).toEqual([{
+      id: `sha256:${digest}`,
+      mimeType: 'image/png',
+      width: 10,
+      height: 20,
+      bytes: 'AQID',
+    }])
+    expect(JSON.stringify(prepared.record.bank)).toContain(`sha256:${digest}`)
+    expect(JSON.stringify(prepared.record.bank)).toContain('"authoredSize":0.5')
   })
 
   test('uses RFC 8785 canonical JSON ordering and ECMAScript number serialization', () => {

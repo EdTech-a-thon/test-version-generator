@@ -1210,6 +1210,19 @@ function QuestionBankEditor({
   const [activeResource, setActiveResource] = useState<QuestionBankResource | null>(initialResource ?? null)
   const [name, setName] = useState(initialResource?.name ?? '')
   const [nameError, setNameError] = useState<string | null>(null)
+  const [editingDetails, setEditingDetails] = useState(false)
+  const [details, setDetails] = useState({
+    description: initialResource?.description ?? '',
+    author: initialResource?.author ?? '',
+    licenseName: initialResource?.license?.name ?? '',
+    licenseUrl: initialResource?.license?.url ?? '',
+  })
+  const [detailsBusy, setDetailsBusy] = useState(false)
+  const [importAnnouncement] = useState(() => {
+    const message = window.sessionStorage.getItem('test-parrot-import-announcement')
+    window.sessionStorage.removeItem('test-parrot-import-announcement')
+    return message
+  })
   const [choosingExam, setChoosingExam] = useState(false)
   const activeResourceRef = useRef(activeResource)
   activeResourceRef.current = activeResource
@@ -1220,6 +1233,12 @@ function QuestionBankEditor({
   })
 
   useEffect(() => setName(activeResource?.name ?? ''), [activeResource?.name])
+  useEffect(() => setDetails({
+    description: activeResource?.description ?? '',
+    author: activeResource?.author ?? '',
+    licenseName: activeResource?.license?.name ?? '',
+    licenseUrl: activeResource?.license?.url ?? '',
+  }), [activeResource])
 
   const commitName = async () => {
     if (!activeResource || name === activeResource.name) return
@@ -1234,6 +1253,7 @@ function QuestionBankEditor({
 
   return <>
     {launchError && <p className="home-error editor-launch-error" role="alert">{launchError}</p>}
+    {importAnnouncement && <p className="sr-only" role="status" aria-live="polite">{importAnnouncement}</p>}
     <header className="document-bar">
       <div className="document-identity">
         <img className="app-logo" src="/logo.png" alt="Test Parrot" width={36} height={36} />
@@ -1250,6 +1270,7 @@ function QuestionBankEditor({
       </div>
       <div className="header-actions">
         <span className="bank-save-status">Changes save immediately</span>
+        {activeResource && <button type="button" className="secondary-button" aria-haspopup="dialog" onClick={() => setEditingDetails(true)}>Bank details</button>}
         <button type="button" className="site-link editor-home-link" onClick={onHome}>Home</button>
       </div>
     </header>
@@ -1281,6 +1302,36 @@ function QuestionBankEditor({
       </main>
     </div>
     <Footer />
+    {editingDetails && activeResource && <div className="dialog-backdrop" role="presentation">
+      <section className="question-bank-details-dialog" role="dialog" aria-modal="true" aria-labelledby="bank-details-title">
+        <h2 id="bank-details-title">Question Bank details</h2>
+        <p>Only details you enter are included when this Question Bank is shared.</p>
+        <label>Description<textarea value={details.description} disabled={detailsBusy} onChange={(event) => setDetails({ ...details, description: event.target.value })} /></label>
+        <label>Declared author<input value={details.author} disabled={detailsBusy} onChange={(event) => setDetails({ ...details, author: event.target.value })} /></label>
+        <label>License name<input value={details.licenseName} disabled={detailsBusy} onChange={(event) => setDetails({ ...details, licenseName: event.target.value })} /></label>
+        <label>License URL<input type="url" value={details.licenseUrl} disabled={detailsBusy} onChange={(event) => setDetails({ ...details, licenseUrl: event.target.value })} /></label>
+        <div className="dialog-actions">
+          <button type="button" className="secondary-button" disabled={detailsBusy} onClick={() => setEditingDetails(false)}>Cancel</button>
+          <button type="button" className="primary-button" disabled={detailsBusy} onClick={() => {
+            setDetailsBusy(true)
+            setNameError(null)
+            void bankWorkspaces.commit(activeResource.id, {
+              kind: 'update-provenance',
+              provenance: {
+                description: details.description,
+                author: details.author,
+                ...(details.licenseName.trim() ? { license: { name: details.licenseName, ...(details.licenseUrl.trim() ? { url: details.licenseUrl } : {}) } } : {}),
+              },
+            }).then((updated) => {
+              setActiveResource(updated)
+              setEditingDetails(false)
+            }).catch((error: unknown) => {
+              setNameError(error instanceof Error ? error.message : 'Question Bank details could not be saved.')
+            }).finally(() => setDetailsBusy(false))
+          }}>{detailsBusy ? 'Saving…' : 'Save details'}</button>
+        </div>
+      </section>
+    </div>}
     {choosingExam && <ResourcePicker
       title="Open Exam"
       closeLabel="Close Exam picker"
@@ -2359,6 +2410,17 @@ export default function App({
   const [deletingBank, setDeletingBank] = useState<{ bank: QuestionBankCollectionItem; impact: QuestionDeletionImpact[] } | null>(null)
   const [inspectingBankFile, setInspectingBankFile] = useState(false)
   const homeError = initialError
+  const importBank = useCallback(async (
+    proposal: import('./question-bank-import').QuestionBankImportProposal,
+    proposedName: string,
+  ) => {
+    const imported = await bankWorkspaces.import(proposal, proposedName)
+    window.sessionStorage.setItem(
+      'test-parrot-import-announcement',
+      `Imported ${imported.questions.length} ${imported.questions.length === 1 ? 'Question' : 'Questions'} into ${imported.name}.`,
+    )
+    window.location.assign(`/editor?bank=${imported.id}`)
+  }, [bankWorkspaces])
   const requestBankDeletion = useCallback((bank: QuestionBankCollectionItem) => {
     void bankWorkspaces.read(bank.id).then(async (resource) => {
       const impact = await workspaces.deletionImpact(resource?.questions.map(({ id }) => id) ?? [])
@@ -2440,7 +2502,10 @@ export default function App({
     onOpenBank={(id) => window.location.assign(`/editor?bank=${id}`)}
     onDeleteBank={requestBankDeletion}
     onImportBank={() => setInspectingBankFile(true)}
-  />{bankDeletionConfirmation}{inspectingBankFile && <QuestionBankImportDialog onClose={() => setInspectingBankFile(false)} />}</>
+  />{bankDeletionConfirmation}{inspectingBankFile && <QuestionBankImportDialog
+    onClose={() => setInspectingBankFile(false)}
+    onImport={importBank}
+  />}</>
   if (route === '/') return <><HomePage
     exams={exams}
     banks={bankCollection}

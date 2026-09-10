@@ -12,6 +12,7 @@ import {
   DEFAULT_QUESTION_BANK_IMPORT_LIMITS,
   QuestionBankImportError,
   SUPPORTED_QUESTION_BANK_VERSIONS,
+  importedQuestionsFromRecord,
   inspectQuestionBankFile,
   inspectQuestionBankRecord,
   type QuestionBankImportLimits,
@@ -99,6 +100,39 @@ async function rejected(
     expect((error as Error).message).toContain(text)
   }
 }
+
+describe('Question Bank import mapping', () => {
+  test('creates fresh local Question and choice identities while preserving content', async () => {
+    const record = baseRecord()
+    record.bank.questions[0]!.stem.content.push({
+      type: 'block-image',
+      asset: `sha256:${'a'.repeat(64)}`,
+      alt: 'Atom model',
+      authoredSize: 0.5,
+    })
+    const ids = ['local-question', 'local-choice-a', 'local-choice-b']
+    const imported = importedQuestionsFromRecord(record, () => ids.shift()!)
+
+    expect(imported).toHaveLength(1)
+    expect(imported[0]).toMatchObject({
+      id: 'local-question',
+      type: 'multiple-choice',
+      difficulty: 'easy',
+      topics: ['Atoms'],
+    })
+    expect(JSON.stringify(imported)).not.toContain('q1')
+    expect(JSON.stringify(imported)).toContain('Which particle is neutral?')
+    expect(JSON.stringify(imported)).toContain('/local-images/')
+    const choiceList = (imported[0]!.doc.content as Record<string, unknown>[]).find(
+      (node) => node.type === 'multipleChoice',
+    )!
+    const choices = choiceList.content as Record<string, unknown>[]
+    expect(choices.map((choice) => (choice.attrs as Record<string, unknown>).id)).toEqual([
+      'local-choice-a',
+      'local-choice-b',
+    ])
+  })
+})
 
 describe('hostile Question Bank File inspection', () => {
   test('publishes exact compatibility and production resource limits', () => {

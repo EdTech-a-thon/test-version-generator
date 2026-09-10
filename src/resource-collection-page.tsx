@@ -54,7 +54,7 @@ export function ResourceCollectionPage({
           <div className="collection-heading-actions">
             {!isExams && onImportBank && (
               <button type="button" className="secondary-button" onClick={onImportBank}>
-                Inspect Question Bank PDF
+                Import Question Bank
               </button>
             )}
             <label className="collection-search">

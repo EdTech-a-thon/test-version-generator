@@ -1,56 +1,48 @@
 const registryDatabaseName = 'test-parrot-exams-v1'
-const databaseVersion = 5
+const databaseVersion = 6
 const workspaceStore = 'exam-workspace'
 const mediaStore = 'media-assets'
 
 self.addEventListener('install', () => self.skipWaiting())
 self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()))
 
-function activeExamDatabaseName() {
+function openDatabase(name) {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open(registryDatabaseName, databaseVersion)
+    const request = indexedDB.open(name, databaseVersion)
     request.onerror = () => reject(request.error)
-    request.onsuccess = () => {
-      const database = request.result
-      if (!database.objectStoreNames.contains(workspaceStore)) {
-        database.close()
-        resolve(null)
-        return
-      }
-      const transaction = database.transaction(workspaceStore, 'readonly')
-      const get = transaction.objectStore(workspaceStore).get('active')
-      get.onsuccess = () => resolve(
-        typeof get.result?.examId === 'string'
-          ? `${registryDatabaseName}-exam-${get.result.examId}`
-          : null,
-      )
-      get.onerror = () => reject(get.error)
-      transaction.oncomplete = () => database.close()
-    }
+    request.onsuccess = () => resolve(request.result)
   })
 }
 
-function assetFor(hash) {
-  return activeExamDatabaseName().then((databaseName) => {
-    if (!databaseName) return null
-    return new Promise((resolve, reject) => {
-      const request = indexedDB.open(databaseName, databaseVersion)
-      request.onerror = () => reject(request.error)
-      request.onsuccess = () => {
-        const database = request.result
-        if (!database.objectStoreNames.contains(mediaStore)) {
-          database.close()
-          resolve(null)
-          return
-        }
-        const transaction = database.transaction(mediaStore, 'readonly')
-        const get = transaction.objectStore(mediaStore).get(hash)
-        get.onsuccess = () => resolve(get.result ?? null)
-        get.onerror = () => reject(get.error)
-        transaction.oncomplete = () => database.close()
-      }
+async function recordFrom(databaseName, storeName, key) {
+  const database = await openDatabase(databaseName)
+  try {
+    if (!database.objectStoreNames.contains(storeName)) return null
+    return await new Promise((resolve, reject) => {
+      const transaction = database.transaction(storeName, 'readonly')
+      const get = transaction.objectStore(storeName).get(key)
+      get.onsuccess = () => resolve(get.result ?? null)
+      get.onerror = () => reject(get.error)
     })
-  })
+  } finally {
+    database.close()
+  }
+}
+
+async function activeExamDatabaseName() {
+  const active = await recordFrom(registryDatabaseName, workspaceStore, 'active')
+  return typeof active?.examId === 'string'
+    ? `${registryDatabaseName}-exam-${active.examId}`
+    : null
+}
+
+async function assetFor(hash) {
+  // Imported Question Banks own exchange media globally. Existing Exam media
+  // remains in its per-Exam store until the broader media-lifecycle migration.
+  const global = await recordFrom(registryDatabaseName, mediaStore, hash)
+  if (global) return global
+  const databaseName = await activeExamDatabaseName()
+  return databaseName ? recordFrom(databaseName, mediaStore, hash) : null
 }
 
 self.addEventListener('fetch', (event) => {

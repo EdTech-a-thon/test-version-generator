@@ -8,13 +8,20 @@ import {
   EXAM_WORKSPACE_STORE,
   QUESTION_BANK_REGISTRY_STORE,
   QUESTION_BANK_WORKSPACE_STORE,
+  MEDIA_ASSET_STORE,
   VERSIONED_STORAGE_NAME,
   VERSIONED_STORAGE_VERSION,
 } from './storage-schema'
 
 export const UNTITLED_QUESTION_BANK = 'Untitled Question Bank'
 
-export type QuestionBankResource = {
+export type QuestionBankProvenance = {
+  description?: string
+  author?: string
+  license?: { name: string; url?: string }
+}
+
+export type QuestionBankResource = QuestionBankProvenance & {
   id: string
   name: string
   createdAt: string
@@ -124,6 +131,7 @@ function tabsKey(context: BankWorkspaceContext): string {
 
 export type BankChange =
   | { kind: 'rename'; name: string }
+  | { kind: 'update-provenance'; provenance: QuestionBankProvenance }
   | { kind: 'create-question'; question: Question }
   | { kind: 'update-question'; question: Question }
   | { kind: 'duplicate-question'; questionId: string }
@@ -171,6 +179,7 @@ function createGlobalStores(database: IDBDatabase) {
   if (!database.objectStoreNames.contains(CANONICAL_QUESTION_STORE)) database.createObjectStore(CANONICAL_QUESTION_STORE, { keyPath: 'id' })
   if (!database.objectStoreNames.contains(QUESTION_BANK_WORKSPACE_STORE)) database.createObjectStore(QUESTION_BANK_WORKSPACE_STORE, { keyPath: 'key' })
   if (!database.objectStoreNames.contains(EDITOR_WORKSPACE_STORE)) database.createObjectStore(EDITOR_WORKSPACE_STORE, { keyPath: 'key' })
+  if (!database.objectStoreNames.contains(MEDIA_ASSET_STORE)) database.createObjectStore(MEDIA_ASSET_STORE, { keyPath: 'hash' })
 }
 
 function openRegistry(): Promise<IDBDatabase> {
@@ -204,6 +213,9 @@ async function readBank(database: IDBDatabase, id: string): Promise<QuestionBank
   return {
     id: bank.id,
     name: bank.name,
+    ...(bank.description !== undefined ? { description: bank.description } : {}),
+    ...(bank.author !== undefined ? { author: bank.author } : {}),
+    ...(bank.license !== undefined ? { license: { ...bank.license } } : {}),
     createdAt: bank.createdAt,
     lastUpdatedAt: bank.lastUpdatedAt,
     questions: bank.questionIds.flatMap((questionId) => {
@@ -405,6 +417,72 @@ export function createQuestionBankWorkspaceService(
     async carryWorkspace(from: BankWorkspaceContext, to: BankWorkspaceContext) {
       return service.saveWorkspace(to, await service.workspace(from))
     },
+    async import(
+      proposal: import('./question-bank-import').QuestionBankImportProposal,
+      proposedName: string,
+    ): Promise<QuestionBankResource> {
+      const timestamp = now().toISOString()
+      const bankId = createId()
+      const { importedQuestionsFromRecord } = await import('./question-bank-import')
+      const questions = importedQuestionsFromRecord(proposal.record, createId)
+      const bank: QuestionBankResource = {
+        id: bankId,
+        name: proposedName.trim() || UNTITLED_QUESTION_BANK,
+        ...(proposal.record.bank.description !== undefined
+          ? { description: proposal.record.bank.description }
+          : {}),
+        ...(proposal.record.bank.author !== undefined
+          ? { author: proposal.record.bank.author }
+          : {}),
+        ...(proposal.record.bank.license !== undefined
+          ? { license: { ...proposal.record.bank.license } }
+          : {}),
+        createdAt: timestamp,
+        lastUpdatedAt: timestamp,
+        questions,
+      }
+      await transact(
+        [
+          QUESTION_BANK_REGISTRY_STORE,
+          CANONICAL_QUESTION_STORE,
+          MEDIA_ASSET_STORE,
+          QUESTION_BANK_WORKSPACE_STORE,
+          EDITOR_WORKSPACE_STORE,
+        ],
+        'readwrite',
+        (transaction) => {
+          const { questions: importedQuestions, ...storedBank } = bank
+          transaction.objectStore(QUESTION_BANK_REGISTRY_STORE).add({
+            ...storedBank,
+            questionIds: importedQuestions.map((question) => question.id),
+          } satisfies StoredBank)
+          const questionStore = transaction.objectStore(CANONICAL_QUESTION_STORE)
+          for (const question of questions) {
+            questionStore.add({ ...question, bankId } satisfies StoredQuestion)
+          }
+          const mediaStore = transaction.objectStore(MEDIA_ASSET_STORE)
+          for (const asset of proposal.record.media) {
+            const binary = atob(asset.bytes)
+            const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0))
+            mediaStore.put({
+              hash: asset.id.slice('sha256:'.length),
+              mimeType: asset.mimeType,
+              bytes: bytes.buffer,
+              width: asset.width,
+              height: asset.height,
+            })
+          }
+          transaction.objectStore(QUESTION_BANK_WORKSPACE_STORE).put({ key: 'active', bankId } satisfies BankWorkspace)
+          transaction.objectStore(QUESTION_BANK_WORKSPACE_STORE).put({
+            key: 'bank-only', mode: 'bank', resourceId: bankId,
+            ...openBankTab(DEFAULT_BANK_TABS_WORKSPACE, bankId),
+          } satisfies StoredTabsWorkspace)
+          transaction.objectStore(EDITOR_WORKSPACE_STORE).put({ key: 'active', mode: 'bank', resourceId: bankId } satisfies EditorWorkspace)
+        },
+      )
+      void requestPersistentStorage()
+      return bank
+    },
     async create(): Promise<QuestionBankResource> {
       const timestamp = now().toISOString()
       const bank: QuestionBankResource = {
@@ -485,6 +563,9 @@ export function createQuestionBankWorkspaceService(
             if (!removeBank) {
               transaction.objectStore(QUESTION_BANK_REGISTRY_STORE).put({
                 id: before.id, name: before.name, createdAt: before.createdAt,
+                ...(before.description !== undefined ? { description: before.description } : {}),
+                ...(before.author !== undefined ? { author: before.author } : {}),
+                ...(before.license !== undefined ? { license: before.license } : {}),
                 lastUpdatedAt: timestamp, questionIds: remainingIds,
               } satisfies StoredBank)
               return
@@ -549,12 +630,10 @@ export function createQuestionBankWorkspaceService(
           (transaction) => {
             const stored = transaction.objectStore(CANONICAL_QUESTION_STORE)
             stored.put({ ...previous, bankId: id } satisfies StoredQuestion)
+            const { questions: previousQuestions, ...storedBank } = before
             transaction.objectStore(QUESTION_BANK_REGISTRY_STORE).put({
-              id: before.id,
-              name: before.name,
-              createdAt: before.createdAt,
-              lastUpdatedAt: before.lastUpdatedAt,
-              questionIds: before.questions.map((candidate) => candidate.id),
+              ...storedBank,
+              questionIds: previousQuestions.map((candidate) => candidate.id),
             } satisfies StoredBank)
           },
         ).catch(() => undefined)
@@ -579,6 +658,25 @@ export function createQuestionBankWorkspaceService(
           if (change.kind === 'rename') {
             if (change.name === bank.name) return
             banks.put({ ...bank, name: change.name, lastUpdatedAt: timestamp })
+            return
+          }
+
+          if (change.kind === 'update-provenance') {
+            const next = {
+              ...bank,
+              description: change.provenance.description?.trim() || undefined,
+              author: change.provenance.author?.trim() || undefined,
+              license: change.provenance.license?.name.trim()
+                ? {
+                    name: change.provenance.license.name.trim(),
+                    ...(change.provenance.license.url?.trim()
+                      ? { url: change.provenance.license.url.trim() }
+                      : {}),
+                  }
+                : undefined,
+            }
+            if (JSON.stringify(next) === JSON.stringify(bank)) return
+            banks.put({ ...next, lastUpdatedAt: timestamp })
             return
           }
 
@@ -635,6 +733,9 @@ export function createQuestionBankWorkspaceService(
         return {
           id: bank.id,
           name: bank.name,
+          ...(bank.description !== undefined ? { description: bank.description } : {}),
+          ...(bank.author !== undefined ? { author: bank.author } : {}),
+          ...(bank.license !== undefined ? { license: { ...bank.license } } : {}),
           createdAt: bank.createdAt,
           lastUpdatedAt: bank.lastUpdatedAt,
           questionCount: owned.length,
@@ -692,6 +793,8 @@ export function createQuestionBankResourceStore(
       return () => listeners.delete(listener)
     },
     rename: (name: string) => apply({ kind: 'rename', name }),
+    updateProvenance: (provenance: QuestionBankProvenance) =>
+      apply({ kind: 'update-provenance', provenance }),
     createQuestion: (question: Question) => apply({ kind: 'create-question', question }),
     updateQuestion: (question: Question) => apply({ kind: 'update-question', question }),
     duplicateQuestion: (questionId: string) => apply({ kind: 'duplicate-question', questionId }),

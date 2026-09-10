@@ -157,6 +157,26 @@ test('teacher exports the complete active Question Bank without Exam or history 
   ).toHaveAttribute('aria-selected', 'true')
 })
 
+test('export dialog traps focus and cancellation produces no download', async ({ page }) => {
+  const bankId = await seed(page)
+  await page.goto(`/editor?bank=${bankId}`)
+  const trigger = page.getByRole('button', { name: 'Share bank PDF' })
+  await trigger.focus()
+  await trigger.click()
+  const dialog = page.getByRole('dialog', { name: 'Export Question Bank' })
+  await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeFocused()
+  const downloads: string[] = []
+  page.on('download', (download) => downloads.push(download.suggestedFilename()))
+  await page.keyboard.press('Shift+Tab')
+  await expect(dialog.getByRole('button', { name: 'Download PDF' })).toBeFocused()
+  await page.keyboard.press('Tab')
+  await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(dialog).toBeHidden()
+  await expect(trigger).toBeFocused()
+  expect(downloads).toEqual([])
+})
+
 test('empty bank explains why export is unavailable and an open edit must be resolved', async ({
   page,
 }) => {

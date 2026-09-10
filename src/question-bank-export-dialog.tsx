@@ -21,6 +21,8 @@ export function QuestionBankExportDialog({
   )
   const [error, setError] = useState<string | null>(null)
   const [exporting, setExporting] = useState(false)
+  const exportingRef = useRef(exporting)
+  exportingRef.current = exporting
 
   useEffect(() => {
     let current = true
@@ -48,7 +50,7 @@ export function QuestionBankExportDialog({
       dialog.current?.querySelector<HTMLElement>('button')?.focus(),
     )
     const keydown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && !exporting) {
+      if (event.key === 'Escape' && !exportingRef.current) {
         event.preventDefault()
         onClose()
         return
@@ -77,7 +79,7 @@ export function QuestionBankExportDialog({
         if (previous?.isConnected) previous.focus()
       })
     }
-  }, [exporting, onClose])
+  }, [onClose])
 
   const download = async () => {
     if (!prepared || exporting) return
@@ -119,11 +121,15 @@ export function QuestionBankExportDialog({
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
+        aria-busy={!prepared && !error ? true : exporting}
       >
         <header className="dialog-header">
           <div>
             <h2 id={titleId}>Export Question Bank</h2>
-            <p>This teacher Question Bank contains answers.</p>
+            <p>
+              For teachers: this file contains correct answers and Suggested
+              Answers. It is separate from publishing an Exam.
+            </p>
           </div>
         </header>
         {error && (
@@ -132,7 +138,7 @@ export function QuestionBankExportDialog({
           </p>
         )}
         {!prepared && !error ? (
-          <p role="status">Preparing complete preview…</p>
+          <p role="status" aria-live="polite">Preparing Question Bank Record and complete preview…</p>
         ) : (
           prepared && (
             <div
@@ -147,6 +153,9 @@ export function QuestionBankExportDialog({
                 This Question Bank can be imported into Test Parrot. Import data
                 may be lost if this PDF is rewritten or printed.
               </p>
+              {prepared.record.bank.description && <p>{prepared.record.bank.description}</p>}
+              {prepared.record.bank.author && <p><strong>Declared author (unverified):</strong> {prepared.record.bank.author}</p>}
+              {prepared.record.bank.license && <p><strong>License:</strong> {prepared.record.bank.license.name}{prepared.record.bank.license.url ? ` — ${prepared.record.bank.license.url}` : ''}</p>}
               <p>
                 <strong>
                   {prepared.record.bank.questions.length}{' '}

@@ -1,9 +1,11 @@
 import Ajv2020, { type ErrorObject } from 'ajv/dist/2020'
+import type { Question } from './exam'
 import questionBankSchema from './question-bank-record-0.1.0.schema.json'
 import {
   QUESTION_BANK_ATTACHMENT_DESCRIPTION,
   QUESTION_BANK_FORMAT,
   canonicalizeJson,
+  recordDocumentToEditorNodes,
   type QuestionBankRecord,
   type QuestionBankRecordQuestion,
   type SemanticDocument,
@@ -97,6 +99,49 @@ export type QuestionBankImportProposal = {
     formatVersion: string
     integrity: 'verified'
   }
+}
+
+/** Map a validated portable record into fresh local authoring identities. */
+export function importedQuestionsFromRecord(
+  record: Pick<ParsedRecord, 'bank'>,
+  createId: () => string = () => crypto.randomUUID(),
+): Question[] {
+  return record.bank.questions.map((question) => {
+    const stem = recordDocumentToEditorNodes(question.stem)
+    const imported: Question = {
+      id: createId(),
+      type: question.type === 'short-answer' ? 'open' : 'multiple-choice',
+      columns: 1,
+      doc: {
+        type: 'doc',
+        content:
+          question.type === 'multiple-choice'
+            ? [
+                ...stem,
+                {
+                  type: 'multipleChoice',
+                  content: question.choices!.map((choice) => ({
+                    type: 'multipleChoiceChoice',
+                    attrs: { id: createId(), correct: choice.correct },
+                    content: recordDocumentToEditorNodes(choice.content),
+                  })),
+                },
+              ]
+            : stem,
+      },
+      ...(question.difficulty ? { difficulty: question.difficulty } : {}),
+      ...(question.topics ? { topics: [...question.topics] } : {}),
+      ...(question.suggestedAnswer
+        ? {
+            suggestedAnswer: {
+              type: 'doc',
+              content: recordDocumentToEditorNodes(question.suggestedAnswer),
+            },
+          }
+        : {}),
+    }
+    return imported
+  })
 }
 
 type Parser = (value: unknown) => ParsedRecord

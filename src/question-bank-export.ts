@@ -103,7 +103,20 @@ export type PreparedQuestionBankExport = {
   record: QuestionBankRecord
   recordBytes: Uint8Array
   filename: string
+  /** Renderer-oriented bytes; canonical source bytes remain in record.media. */
+  previewMedia?: Map<string, { data: Uint8Array; type: 'png' | 'jpg'; width: number; height: number }>
 }
+
+export type QuestionBankMediaSource = {
+  data: Uint8Array
+  mimeType: 'image/png' | 'image/jpeg' | 'image/webp'
+  width: number
+  height: number
+  previewData?: Uint8Array
+  previewType?: 'png' | 'jpg'
+}
+
+export type QuestionBankMediaLoader = (source: string) => Promise<QuestionBankMediaSource | null>
 
 const childNodes = (node: ProseMirrorJSON): ProseMirrorJSON[] =>
   Array.isArray(node.content) ? (node.content as ProseMirrorJSON[]) : []
@@ -165,9 +178,32 @@ function semanticMarks(node: ProseMirrorJSON): SemanticMark[] | undefined {
   })
 }
 
-function semanticNode(node: ProseMirrorJSON): SemanticNode {
+function imageSemanticNode(
+  node: ProseMirrorJSON,
+  mediaIds: ReadonlyMap<string, string>,
+): SemanticNode {
   const attrs = attributes(node)
-  const content = () => childNodes(node).map(semanticNode)
+  const source = stringValue(attrs.src)
+  const asset = mediaIds.get(source)
+  if (!asset) {
+    throw new Error(`Required media “${source || 'without a source'}” could not be resolved. Re-add the image and try again.`)
+  }
+  const authoredSize = Number(attrs.ratio)
+  if (Number.isFinite(authoredSize) && (authoredSize < 0.05 || authoredSize > 1)) {
+    throw new Error('Authored Image Size must be between 0.05 and 1.')
+  }
+  return {
+    type: node.type === 'image' ? 'inline-image' : 'block-image',
+    asset,
+    ...(stringValue(attrs.alt) ? { alt: stringValue(attrs.alt) } : {}),
+    ...(stringValue(attrs.caption) ? { caption: stringValue(attrs.caption) } : {}),
+    ...(Number.isFinite(authoredSize) ? { authoredSize } : {}),
+  }
+}
+
+function semanticNode(node: ProseMirrorJSON, mediaIds: ReadonlyMap<string, string>): SemanticNode {
+  const attrs = attributes(node)
+  const content = () => childNodes(node).map((child) => semanticNode(child, mediaIds))
   switch (node.type) {
     case 'text': {
       const marks = semanticMarks(node)
@@ -238,9 +274,7 @@ function semanticNode(node: ProseMirrorJSON): SemanticNode {
       )
     case 'image':
     case 'image-block':
-      throw new Error(
-        'This initial Question Bank export is media-free. Remove images, then try again.',
-      )
+      return imageSemanticNode(node, mediaIds)
     default:
       throw new Error(
         `Question Bank export does not support the “${String(node.type)}” content node.`,
@@ -248,18 +282,22 @@ function semanticNode(node: ProseMirrorJSON): SemanticNode {
   }
 }
 
-function semanticDocument(nodes: readonly ProseMirrorJSON[]): SemanticDocument {
-  return { type: 'document', content: nodes.map(semanticNode) }
+function semanticDocument(
+  nodes: readonly ProseMirrorJSON[],
+  mediaIds: ReadonlyMap<string, string>,
+): SemanticDocument {
+  return { type: 'document', content: nodes.map((node) => semanticNode(node, mediaIds)) }
 }
 
 function portableQuestion(
   question: Question,
   index: number,
+  mediaIds: ReadonlyMap<string, string>,
 ): QuestionBankRecordQuestion {
   const base: QuestionBankRecordQuestion = {
     id: `q${index + 1}`,
     type: question.type === 'open' ? 'short-answer' : 'multiple-choice',
-    stem: semanticDocument(stemNodesOf(question.doc)),
+    stem: semanticDocument(stemNodesOf(question.doc), mediaIds),
     ...(question.difficulty ? { difficulty: question.difficulty } : {}),
     ...(topicsOf(question).length > 0
       ? { topics: [...topicsOf(question)] }
@@ -272,6 +310,7 @@ function portableQuestion(
         ? {
             suggestedAnswer: semanticDocument(
               childNodes(question.suggestedAnswer),
+              mediaIds,
             ),
           }
         : {}),
@@ -290,7 +329,7 @@ function portableQuestion(
     ...base,
     choices: choices.map((choice, choiceIndex) => ({
       id: `q${index + 1}-c${choiceIndex + 1}`,
-      content: semanticDocument(childNodes(choice.node)),
+      content: semanticDocument(childNodes(choice.node), mediaIds),
       correct: choice.correct,
     })),
   }
@@ -393,27 +432,117 @@ export function questionBankFilename(name: string): string {
   return `${stem || 'untitled-question-bank'}.question-bank.pdf`
 }
 
+function imageSources(nodes: readonly ProseMirrorJSON[]): string[] {
+  const sources: string[] = []
+  const visit = (node: ProseMirrorJSON) => {
+    if (node.type === 'image' || node.type === 'image-block') {
+      const source = stringValue(attributes(node).src)
+      if (source && !sources.includes(source)) sources.push(source)
+    }
+    for (const child of childNodes(node)) visit(child)
+  }
+  for (const node of nodes) visit(node)
+  return sources
+}
+
+const browserQuestionBankMedia: QuestionBankMediaLoader = async (source) => {
+  try {
+    const response = await fetch(source)
+    if (!response.ok) return null
+    const blob = await response.blob()
+    if (!blob.type.toLowerCase().startsWith('image/') || blob.type.toLowerCase() === 'image/svg+xml') return null
+    const originalMimeType = blob.type.toLowerCase()
+    const bitmap = await createImageBitmap(blob)
+    try {
+      let data = new Uint8Array(await blob.arrayBuffer())
+      let mimeType: QuestionBankMediaSource['mimeType']
+      let previewData = data
+      let previewType: 'png' | 'jpg'
+      if (originalMimeType === 'image/png' || originalMimeType === 'image/jpeg') {
+        mimeType = originalMimeType
+        previewType = originalMimeType === 'image/jpeg' ? 'jpg' : 'png'
+      } else {
+        const canvas = document.createElement('canvas')
+        canvas.width = bitmap.width
+        canvas.height = bitmap.height
+        canvas.getContext('2d')?.drawImage(bitmap, 0, 0)
+        const png = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'))
+        if (!png) return null
+        previewData = new Uint8Array(await png.arrayBuffer())
+        previewType = 'png'
+        if (originalMimeType === 'image/webp') {
+          mimeType = 'image/webp'
+        } else {
+          data = previewData
+          mimeType = 'image/png'
+        }
+      }
+      return { data, mimeType, width: bitmap.width, height: bitmap.height, previewData, previewType }
+    } finally {
+      bitmap.close()
+    }
+  } catch {
+    return null
+  }
+}
+
+function base64(bytes: Uint8Array): string {
+  let value = ''
+  for (const byte of bytes) value += String.fromCharCode(byte)
+  return btoa(value)
+}
+
 export async function prepareQuestionBankExport(
   bank: QuestionBankResource,
+  loadMedia: QuestionBankMediaLoader = browserQuestionBankMedia,
 ): Promise<PreparedQuestionBankExport> {
   if (bank.questions.length === 0) {
     throw new Error(
       'A Question Bank requires at least one Question before it can be exported.',
     )
   }
+  const sources = bank.questions.flatMap((question) => [
+    ...imageSources(childNodes(question.doc)),
+    ...imageSources(question.suggestedAnswer ? childNodes(question.suggestedAnswer) : []),
+  ]).filter((source, index, all) => all.indexOf(source) === index)
+  const loaded = await Promise.all(sources.map((source) => loadMedia(source)))
+  const mediaIds = new Map<string, string>()
+  const media: QuestionBankRecord['media'] = []
+  const previewMedia = new Map<string, NonNullable<PreparedQuestionBankExport['previewMedia']> extends Map<string, infer V> ? V : never>()
+  for (const [index, source] of sources.entries()) {
+    const asset = loaded[index]
+    if (!asset) throw new Error(`Required media for “${source}” could not be resolved. Re-add the image and try again.`)
+    const digest = hex(await crypto.subtle.digest('SHA-256', asset.data))
+    const id = `sha256:${digest}`
+    mediaIds.set(source, id)
+    if (!media.some((candidate) => candidate.id === id)) {
+      media.push({ id, mimeType: asset.mimeType, width: asset.width, height: asset.height, bytes: base64(asset.data) })
+      previewMedia.set(id, {
+        data: asset.previewData ?? asset.data,
+        type: asset.previewType ?? (asset.mimeType === 'image/jpeg' ? 'jpg' : 'png'),
+        width: asset.width,
+        height: asset.height,
+      })
+    }
+  }
+  if (bank.license?.url) safeHttpUrl(bank.license.url)
   const serialized = await serializeQuestionBankRecord({
     requiredFeatures: [],
     bank: {
       name: bank.name,
-      questions: bank.questions.map(portableQuestion),
+      ...(bank.description !== undefined ? { description: bank.description } : {}),
+      ...(bank.author !== undefined ? { author: bank.author } : {}),
+      ...(bank.license !== undefined ? { license: { ...bank.license } } : {}),
+      questions: bank.questions.map((question, index) => portableQuestion(question, index, mediaIds)),
     },
-    media: [],
+    media,
   })
   // Preview and attachment share the serializer's exact record and bytes.
   return {
     record: serialized.record,
     recordBytes: serialized.bytes,
     filename: questionBankFilename(bank.name),
+    previewMedia,
   }
 }
 
@@ -447,6 +576,17 @@ function editorNode(node: SemanticNode): ProseMirrorJSON {
       type: 'code_block',
       attrs: { language: 'latex' },
       content: [{ type: 'text', text: node.source ?? '' }],
+    }
+  }
+  if (node.type === 'inline-image' || node.type === 'block-image') {
+    return {
+      type: node.type === 'inline-image' ? 'image' : 'image-block',
+      attrs: {
+        src: `/local-images/${node.asset!.slice('sha256:'.length)}`,
+        ...(node.alt !== undefined ? { alt: node.alt } : {}),
+        ...(node.caption !== undefined ? { caption: node.caption } : {}),
+        ...(node.authoredSize !== undefined ? { ratio: node.authoredSize } : {}),
+      },
     }
   }
   if (node.type === 'code-block') {
