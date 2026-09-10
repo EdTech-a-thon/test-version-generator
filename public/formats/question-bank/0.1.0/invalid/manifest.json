@@ -1,0 +1,9 @@
+{
+  "bad-integrity.json": "integrity-mismatch",
+  "bad-reference.json": "dangling-reference",
+  "invalid-media.json": "invalid-media",
+  "malformed-question.json": "invalid-structure",
+  "unsafe-url.json": "unsafe-url",
+  "unsupported-required-feature.json": "unsupported-feature",
+  "unsupported-version.json": "unsupported-version"
+}

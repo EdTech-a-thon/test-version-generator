@@ -1,7 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://testparrot.com/formats/question-bank/0.1.0/schema.json",
-  "title": "Test Parrot Question Bank Record",
+  "title": "Test Parrot Question Bank Record 0.1.0",
+  "description": "The authoritative machine-readable record embedded in a Test Parrot Question Bank File.",
   "type": "object",
   "required": [
     "format",
@@ -41,6 +42,16 @@
       "required": ["name", "questions"],
       "properties": {
         "name": { "type": "string" },
+        "description": { "type": "string" },
+        "author": { "type": "string" },
+        "license": {
+          "type": "object",
+          "required": ["name"],
+          "properties": {
+            "name": { "type": "string" },
+            "url": { "type": "string" }
+          }
+        },
         "questions": {
           "type": "array",
           "minItems": 1,
@@ -77,9 +88,21 @@
             "link"
           ]
         },
-        "href": { "type": "string", "pattern": "^https?://" },
+        "href": { "type": "string" },
         "title": { "type": "string" }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "type": { "const": "link" } },
+            "required": ["type"]
+          },
+          "then": {
+            "properties": { "href": { "type": "string" } },
+            "required": ["href"]
+          }
+        }
+      ]
     },
     "node": {
       "type": "object",
@@ -110,7 +133,7 @@
         "text": { "type": "string" },
         "marks": { "type": "array", "items": { "$ref": "#/$defs/mark" } },
         "level": { "type": "integer", "minimum": 1, "maximum": 6 },
-        "start": { "type": "integer" },
+        "start": { "type": "integer", "minimum": 1 },
         "language": { "type": "string" },
         "source": { "type": "string" },
         "header": { "type": "boolean" },
@@ -118,7 +141,43 @@
         "alt": { "type": "string" },
         "caption": { "type": "string" },
         "authoredSize": { "type": "number", "minimum": 0.05, "maximum": 1 }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "type": { "const": "text" } },
+            "required": ["type"]
+          },
+          "then": {
+            "properties": { "text": { "type": "string" } },
+            "required": ["text"]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": { "enum": ["inline-image", "block-image"] }
+            },
+            "required": ["type"]
+          },
+          "then": {
+            "properties": { "asset": { "type": "string" } },
+            "required": ["asset"]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": { "enum": ["inline-math", "display-math"] }
+            },
+            "required": ["type"]
+          },
+          "then": {
+            "properties": { "source": { "type": "string" } },
+            "required": ["source"]
+          }
+        }
+      ]
     },
     "mediaAsset": {
       "type": "object",
@@ -129,6 +188,15 @@
         "width": { "type": "integer", "minimum": 1 },
         "height": { "type": "integer", "minimum": 1 },
         "bytes": { "type": "string" }
+      }
+    },
+    "choice": {
+      "type": "object",
+      "required": ["id", "content", "correct"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^q[1-9][0-9]*-c[1-9][0-9]*$" },
+        "content": { "$ref": "#/$defs/document" },
+        "correct": { "type": "boolean" }
       }
     },
     "question": {
@@ -143,18 +211,24 @@
         "choices": {
           "type": "array",
           "minItems": 2,
-          "items": {
-            "type": "object",
-            "required": ["id", "content", "correct"],
-            "properties": {
-              "id": { "type": "string" },
-              "content": { "$ref": "#/$defs/document" },
-              "correct": { "type": "boolean" }
-            }
-          }
+          "items": { "$ref": "#/$defs/choice" }
         },
         "suggestedAnswer": { "$ref": "#/$defs/document" }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "type": { "const": "multiple-choice" } },
+            "required": ["type"]
+          },
+          "then": {
+            "properties": {
+              "choices": { "$ref": "#/$defs/question/properties/choices" }
+            },
+            "required": ["choices"]
+          }
+        }
+      ]
     }
   }
 }

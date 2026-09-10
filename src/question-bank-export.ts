@@ -7,6 +7,36 @@ export const QUESTION_BANK_FORMAT_VERSION = '0.1.0'
 export const QUESTION_BANK_ATTACHMENT_NAME = 'pdfcx.json'
 export const QUESTION_BANK_ATTACHMENT_DESCRIPTION = 'pdf-canonical-extraction'
 
+export const SUPPORTED_SEMANTIC_NODE_TYPES = [
+  'paragraph',
+  'heading',
+  'blockquote',
+  'bullet-list',
+  'ordered-list',
+  'list-item',
+  'code-block',
+  'rule',
+  'table',
+  'table-row',
+  'table-cell',
+  'inline-math',
+  'display-math',
+  'hard-break',
+  'text',
+  'inline-image',
+  'block-image',
+] as const
+
+export const SUPPORTED_SEMANTIC_MARK_TYPES = [
+  'strong',
+  'emphasis',
+  'inline-code',
+  'strike',
+  'subscript',
+  'superscript',
+  'link',
+] as const
+
 export type SemanticMark =
   | {
       type:
@@ -50,10 +80,16 @@ export type QuestionBankRecordQuestion = {
 export type QuestionBankRecord = {
   format: typeof QUESTION_BANK_FORMAT
   formatVersion: typeof QUESTION_BANK_FORMAT_VERSION
-  generator: { name: 'Test Parrot'; version: string }
+  generator: { name: string; version: string }
   requiredFeatures: string[]
   integrity: { algorithm: 'sha-256'; digest: string }
-  bank: { name: string; questions: QuestionBankRecordQuestion[] }
+  bank: {
+    name: string
+    description?: string
+    author?: string
+    license?: { name: string; url?: string }
+    questions: QuestionBankRecordQuestion[]
+  }
   media: {
     id: string
     mimeType: 'image/png' | 'image/jpeg' | 'image/webp'
@@ -324,6 +360,27 @@ export async function verifyQuestionBankRecordIntegrity(
   )
 }
 
+/** Serialize semantic record content at the public exchange boundary. */
+export async function serializeQuestionBankRecord(
+  content: Pick<QuestionBankRecord, 'bank' | 'media' | 'requiredFeatures'>,
+): Promise<{ record: QuestionBankRecord; bytes: Uint8Array }> {
+  const record: QuestionBankRecord = {
+    format: QUESTION_BANK_FORMAT,
+    formatVersion: QUESTION_BANK_FORMAT_VERSION,
+    generator: { name: 'Test Parrot', version: '0.1.0' },
+    requiredFeatures: [...content.requiredFeatures],
+    integrity: { algorithm: 'sha-256', digest: '' },
+    bank: structuredClone(content.bank),
+    media: structuredClone(content.media),
+  }
+  record.integrity.digest = await digestOf(record)
+  const bytes = new TextEncoder().encode(JSON.stringify(record))
+  return {
+    record: JSON.parse(new TextDecoder().decode(bytes)) as QuestionBankRecord,
+    bytes,
+  }
+}
+
 export function questionBankFilename(name: string): string {
   const stem = name
     .normalize('NFKD')
@@ -344,29 +401,18 @@ export async function prepareQuestionBankExport(
       'A Question Bank requires at least one Question before it can be exported.',
     )
   }
-  const record: QuestionBankRecord = {
-    format: QUESTION_BANK_FORMAT,
-    formatVersion: QUESTION_BANK_FORMAT_VERSION,
-    generator: { name: 'Test Parrot', version: '0.1.0' },
+  const serialized = await serializeQuestionBankRecord({
     requiredFeatures: [],
-    integrity: { algorithm: 'sha-256', digest: '' },
     bank: {
       name: bank.name,
       questions: bank.questions.map(portableQuestion),
     },
     media: [],
-  }
-  record.integrity.digest = await digestOf(record)
-  const recordBytes = new TextEncoder().encode(JSON.stringify(record))
-  // Preview and attachment share one serialization boundary. Parsing the bytes
-  // back here prevents a future serializer from making the attached payload
-  // differ from the record the preview receives.
-  const previewSource = JSON.parse(
-    new TextDecoder().decode(recordBytes),
-  ) as QuestionBankRecord
+  })
+  // Preview and attachment share the serializer's exact record and bytes.
   return {
-    record: previewSource,
-    recordBytes,
+    record: serialized.record,
+    recordBytes: serialized.bytes,
     filename: questionBankFilename(bank.name),
   }
 }
