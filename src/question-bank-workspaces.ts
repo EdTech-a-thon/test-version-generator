@@ -432,6 +432,41 @@ export function createQuestionBankWorkspaceService(
       })
       return bank
     },
+    async commitCanonicalQuestion(
+      id: string,
+      question: Question,
+      propagate: (question: Question) => Promise<void>,
+    ): Promise<QuestionBankResource> {
+      const before = await readBank(await registry, id)
+      if (!before) throw new Error('That Question Bank is unavailable on this device.')
+      const previous = before.questions.find((candidate) => candidate.id === question.id)
+      if (!previous) throw new Error('That Question does not belong to this Question Bank.')
+      try {
+        const updated = await service.commit(id, { kind: 'update-question', question })
+        await propagate(question)
+        return updated
+      } catch (error) {
+        // Exam projection handles its own compensation. Restore the exact
+        // canonical record and bank timestamp so a failed multi-resource save
+        // is observationally identical to no save at all.
+        await transact(
+          [QUESTION_BANK_REGISTRY_STORE, CANONICAL_QUESTION_STORE],
+          'readwrite',
+          (transaction) => {
+            const stored = transaction.objectStore(CANONICAL_QUESTION_STORE)
+            stored.put({ ...previous, bankId: id } satisfies StoredQuestion)
+            transaction.objectStore(QUESTION_BANK_REGISTRY_STORE).put({
+              id: before.id,
+              name: before.name,
+              createdAt: before.createdAt,
+              lastUpdatedAt: before.lastUpdatedAt,
+              questionIds: before.questions.map((candidate) => candidate.id),
+            } satisfies StoredBank)
+          },
+        ).catch(() => undefined)
+        throw error
+      }
+    },
     async commit(id: string, change: BankChange): Promise<QuestionBankResource> {
       const timestamp = now().toISOString()
       await transact(

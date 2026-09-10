@@ -55,6 +55,22 @@ test('a failed Question save leaves canonical visible state unchanged for retry'
   expect(store.getState().questions).toHaveLength(0)
 })
 
+test('an existing Question Type cannot be changed', async () => {
+  const original = createQuestion('multiple-choice')
+  const initial = { ...bank(), questions: [original] }
+  const store = createQuestionBankResourceStore(initial, async (change) => {
+    if (change.kind === 'update-question' && change.question.type !== original.type) {
+      throw new Error('A Question Type cannot be changed after creation.')
+    }
+    return initial
+  })
+
+  await expect(store.updateQuestion({ ...original, type: 'open' })).rejects.toThrow(
+    'A Question Type cannot be changed after creation.',
+  )
+  expect(store.getState()).toBe(initial)
+})
+
 test('bank tabs retain independent filters and choose an adjacent tab when closed', () => {
   const first = openBankTab(DEFAULT_BANK_TABS_WORKSPACE, 'bank-a')
   const second = openBankTab(first, 'bank-b')

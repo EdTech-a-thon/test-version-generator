@@ -1,6 +1,7 @@
 import type { Question } from './exam'
 import type { AuthoringState, SaveAsSnapshot } from './exam-store'
 import { createIndexedDBAuthoringBackend } from './indexeddb-authoring'
+import { withCanonicalQuestionProjection } from './canonical-question-projection'
 import { createExamDraft } from './question-bank'
 import {
   CANONICAL_QUESTION_STORE,
@@ -19,6 +20,13 @@ export type RecentExam = ExamSummary & {
   title: string
   questionCount: number
   preview: string | null
+}
+
+export type QuestionUsage = {
+  examId: string
+  title: string
+  saved: boolean
+  workingCopy: boolean
 }
 
 /** Only the disposable placeholder shape may be collected. Any authored
@@ -215,6 +223,54 @@ export function createExamWorkspaceService(options: { now?: () => Date; createId
         return { ...exam, title: state?.examDraft.title ?? 'Untitled Exam', questionCount: state?.examDraft.questionIds.length ?? 0, preview: state ? previewOf(state) : null }
       }))
       return records.sort((left, right) => right.lastOpenedAt.localeCompare(left.lastOpenedAt))
+    },
+    async questionUsage(questionId: string): Promise<QuestionUsage[]> {
+      const exams = await transact(EXAM_STORE, 'readonly', (transaction) =>
+        requestOf(transaction.objectStore(EXAM_STORE).getAll()) as Promise<ExamSummary[]>,
+      )
+      const usage = await Promise.all(exams.map(async (exam) => {
+        const backend = backendFor(exam.id)
+        const [working, saved] = await Promise.all([backend.read(), backend.readSaved()])
+        const inWorkingCopy = working?.examDraft.questionIds.includes(questionId) ?? false
+        const inSaved = saved?.examDraft.questionIds.includes(questionId) ?? false
+        if (!inWorkingCopy && !inSaved) return null
+        return {
+          examId: exam.id,
+          title: working?.examDraft.title ?? saved?.examDraft.title ?? 'Untitled Exam',
+          saved: inSaved,
+          workingCopy: inWorkingCopy,
+        } satisfies QuestionUsage
+      }))
+      return usage.filter((item): item is QuestionUsage => item !== null)
+    },
+    /** Project a committed canonical record into every referencing Exam. The
+     * registry commit happens first; each Exam write is atomic across its saved
+     * state and Working Copy and does not touch registry recency metadata. */
+    async propagateCanonicalQuestion(question: Question): Promise<void> {
+      const exams = await transact(EXAM_STORE, 'readonly', (transaction) =>
+        requestOf(transaction.objectStore(EXAM_STORE).getAll()) as Promise<ExamSummary[]>,
+      )
+      const affected = (await Promise.all(exams.map(async (exam) => {
+        const backend = backendFor(exam.id)
+        const [working, saved] = await Promise.all([backend.read(), backend.readSaved()])
+        if (!working) return null
+        const referenced = working.examDraft.questionIds.includes(question.id)
+          || saved?.examDraft.questionIds.includes(question.id)
+        return referenced ? { backend, before: { working, saved } } : null
+      }))).filter((item): item is NonNullable<typeof item> => item !== null)
+      try {
+        // Keep this ordered so compensation never races a still-running write.
+        for (const item of affected) {
+          await item.backend.commitCanonicalProjection(
+            withCanonicalQuestionProjection(item.before.working, item.before.saved, question),
+          )
+        }
+      } catch (error) {
+        await Promise.all(affected.map((item) =>
+          item.backend.commitCanonicalProjection(item.before).catch(() => undefined),
+        ))
+        throw error
+      }
     },
     async removePristine(id: string): Promise<boolean> {
       const backend = backendFor(id)

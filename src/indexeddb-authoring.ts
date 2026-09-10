@@ -32,6 +32,11 @@ export const QUESTION_BANK_STORE = 'question-bank'
 export const AUTHORING_STATE_STORE = 'authoring-state'
 export const SAVED_AUTHORING_STORE = 'saved-authoring-state'
 
+export type CanonicalProjectionSnapshot = {
+  working: AuthoringState
+  saved: SavedState | null
+}
+
 const DATABASE_VERSION = VERSIONED_STORAGE_VERSION
 const CURRENT_AUTHORING_KEY = 'current'
 const SAVED_AUTHORING_KEY = 'saved'
@@ -206,7 +211,9 @@ async function transactionally(
  *  name keeps real-browser adapter tests isolated from application state. */
 export function createIndexedDBAuthoringBackend(
   databaseName = VERSIONED_STORAGE_NAME,
-): DurableAuthoringBackend {
+): DurableAuthoringBackend & {
+  commitCanonicalProjection(snapshot: CanonicalProjectionSnapshot): Promise<void>
+} {
   // Opening is shared for this page lifetime. Once startup has loaded the
   // store, later authoring actions can begin their transaction on the next
   // microtask instead of queuing another database open that a reload can beat.
@@ -260,6 +267,18 @@ export function createIndexedDBAuthoringBackend(
         (transaction) => {
           putAuthoringState(transaction, { ...saved, dirty: false })
           transaction.objectStore(SAVED_AUTHORING_STORE).put(saved, SAVED_AUTHORING_KEY)
+        },
+      )
+    },
+
+    commitCanonicalProjection: async ({ working, saved }) => {
+      await transaction(
+        [QUESTION_BANK_STORE, AUTHORING_STATE_STORE, SAVED_AUTHORING_STORE],
+        (transaction) => {
+          putAuthoringState(transaction, working)
+          const savedStore = transaction.objectStore(SAVED_AUTHORING_STORE)
+          if (saved) savedStore.put(saved, SAVED_AUTHORING_KEY)
+          else savedStore.delete(SAVED_AUTHORING_KEY)
         },
       )
     },

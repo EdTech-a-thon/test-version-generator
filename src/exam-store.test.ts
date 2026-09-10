@@ -226,14 +226,14 @@ describe('the Exam Draft references the Question Bank', () => {
     expect(store.getState().examDraft.questionIds).toEqual([])
   })
 
-  test('renders a referenced question under the Question Section for its own type', async () => {
+  test('refuses to change a Question Type after creation', async () => {
     const { store, questions } = await withExamDraft(2)
+    const before = store.getState()
 
     store.updateInQuestionBank({ ...questions[0]!, type: 'open' })
 
-    // The Question Sections are derived, so the question keeps its place on the
-    // Exam Draft and renders under Short Answer instead.
-    expect(renderedIds(store)).toEqual([questions[1]!.id, questions[0]!.id])
+    expect(store.getState()).toBe(before)
+    expect(store.selectedExam().exam.questions[0]!.type).toBe('multiple-choice')
   })
 })
 

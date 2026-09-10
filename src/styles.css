@@ -820,6 +820,11 @@ button { cursor: pointer; }
 .dialog-header, .dialog-actions { padding: 14px 18px; border-bottom: 1px solid #e8dfd2; }
 .dialog-header { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
 .dialog-header h2 { margin: 0; font-size: 18px; }
+.question-owner { margin: 3px 0 0; color: var(--paper-ink-soft); font-size: 12px; }
+.question-usage { max-width: 420px; color: var(--paper-ink-soft); font-size: 13px; }
+.question-usage summary { cursor: pointer; font-weight: 700; }
+.question-usage p, .question-usage ul { margin: 6px 0 0; }
+.question-usage ul { padding-left: 18px; }
 .choice-controls select {
   padding: 7px 30px 7px 9px; border: 1px solid #cdb9a6; border-radius: 6px; background: #fffdf8;
 }

@@ -45,6 +45,7 @@ import {
   reconcileHistoricalDraft,
   type HistoricalQuestionResolution,
 } from './historical-draft'
+import { withCanonicalQuestionProjection } from './canonical-question-projection'
 import {
   EMPTY_PUBLICATION_HISTORY,
   type PublicationCommit,
@@ -482,6 +483,13 @@ export function createExamStore(options: {
     )
   }
 
+  const syncHistoryQuestion = (snapshot: AuthoringState, question: Question): AuthoringState => {
+    const projected = withCanonicalQuestionProjection(snapshot, null, question).working
+    return projected.questionBank === snapshot.questionBank && projected.examDraft === snapshot.examDraft
+      ? snapshot
+      : projected
+  }
+
   const store: ExamStore = {
     getState: () => state,
     selectedExam: () => selected,
@@ -499,11 +507,27 @@ export function createExamStore(options: {
       ),
 
     syncCanonicalQuestions: (questions) => {
-      let bank = state.questionBank
-      for (const question of questions) bank = withQuestionBanked(bank, question)
-      if (bank.questions.length === state.questionBank.questions.length
-        && bank.questions.every((question, index) => question === state.questionBank.questions[index])) return
-      state = { ...state, questionBank: bank }
+      let working = state
+      let nextSaved = saved
+      for (const question of questions) {
+        if (!working.questionBank.questions.some((candidate) => candidate.id === question.id)) {
+          const bank = withQuestionBanked(working.questionBank, question)
+          working = bank === working.questionBank ? working : { ...working, questionBank: bank }
+          continue
+        }
+        const projected = withCanonicalQuestionProjection(working, nextSaved, question)
+        working = projected.working
+        nextSaved = projected.saved
+        for (let index = 0; index < undoStack.length; index += 1) {
+          undoStack[index] = syncHistoryQuestion(undoStack[index]!, question)
+        }
+        for (let index = 0; index < redoStack.length; index += 1) {
+          redoStack[index] = syncHistoryQuestion(redoStack[index]!, question)
+        }
+      }
+      if (working === state) return
+      state = working
+      saved = nextSaved
       selected = selectedExam(state.questionBank, state.examDraft, selected)
       notify()
     },
@@ -532,6 +556,7 @@ export function createExamStore(options: {
         // canonical record, including for working copies written before the
         // setting moved onto the Exam Draft.
         const prior = bankQuestionById(current.questionBank, question.id)
+        if (prior && prior.type !== question.type) return current
         const columns = current.examDraft.columns ?? {}
         const examDraft = current.examDraft.questionIds.includes(question.id)
           && columns[question.id] === undefined

@@ -80,7 +80,7 @@ import { ContextMenu, type MenuPoint } from './context-menu'
 import { BEFORE_NAVIGATE_EVENT, useRoute } from './use-route'
 import { Footer } from './site-chrome'
 import { HomePage } from './home-page'
-import type { ExamWorkspaceService, RecentExam } from './exam-workspaces'
+import type { ExamWorkspaceService, QuestionUsage, RecentExam } from './exam-workspaces'
 import {
   type QuestionBankResourceStore,
   type QuestionBankResource,
@@ -463,6 +463,8 @@ function QuestionDialog({
   question,
   isNew,
   topicSuggestions,
+  ownerName,
+  usage,
   onCancel,
   onSave,
 }: {
@@ -471,6 +473,8 @@ function QuestionDialog({
   /** Every Topic already used in the Question Bank, offered so a teacher picks
    *  the spelling they used last time rather than inventing a near-duplicate. */
   topicSuggestions: readonly string[]
+  ownerName?: string
+  usage?: readonly QuestionUsage[]
   onCancel: () => void
   onSave: (question: Question) => Promise<void>
 }) {
@@ -567,7 +571,23 @@ function QuestionDialog({
         aria-label="Question editor"
       >
         <header className="dialog-header">
-          <h2>{isNew ? 'Add question' : 'Edit question'}</h2>
+          <div>
+            <h2>{isNew ? 'Add question' : 'Edit question'}</h2>
+            {!isNew && ownerName && <p className="question-owner">Question Bank: {ownerName}</p>}
+          </div>
+          {!isNew && usage && (
+            <details className="question-usage">
+              <summary>Used in {usage.length} {usage.length === 1 ? 'Exam' : 'Exams'}</summary>
+              {usage.length === 0 ? <p>Not used in any Exams.</p> : <ul>
+                {usage.map((item) => <li key={item.examId}>
+                  <strong>{item.title}</strong>{' — '}
+                  {item.saved && item.workingCopy
+                    ? 'saved state and Working Copy'
+                    : item.saved ? 'saved state' : 'Working Copy'}
+                </li>)}
+              </ul>}
+            </details>
+          )}
         </header>
         {/* The question's front matter, indented to the document's own margin
             because it is the head of the question rather than a strip bolted
@@ -732,6 +752,9 @@ function QuestionBankTabsPane({
   onRemoveFromExam,
   workspaceDrag,
   resourceRevision = 0,
+  examsService,
+  beforeCanonicalQuestionCommit,
+  onCanonicalQuestionCommitted,
 }: {
   context: BankWorkspaceContext
   service: QuestionBankWorkspaceService
@@ -744,6 +767,9 @@ function QuestionBankTabsPane({
   onRemoveFromExam?: (questionId: string) => void
   workspaceDrag?: ReturnType<typeof useWorkspaceDrag>
   resourceRevision?: number
+  examsService?: ExamWorkspaceService
+  beforeCanonicalQuestionCommit?: () => Promise<void>
+  onCanonicalQuestionCommitted?: (question: Question) => void
 }) {
   const stableContext = useMemo<BankWorkspaceContext>(
     () => ({ mode: context.mode, resourceId: context.resourceId }),
@@ -764,6 +790,8 @@ function QuestionBankTabsPane({
   const [selectedQuestionId, setSelectedQuestionId] = useState<string | null>(null)
   const [choosingType, setChoosingType] = useState<MenuPoint | null>(null)
   const [editing, setEditing] = useState<Question | null>(null)
+  const [editingOwner, setEditingOwner] = useState<QuestionBankResource | null>(null)
+  const [usage, setUsage] = useState<QuestionUsage[] | undefined>()
   const unavailableDrag = useWorkspaceDrag(() => undefined)
   const drag = workspaceDrag ?? unavailableDrag
 
@@ -915,7 +943,18 @@ function QuestionBankTabsPane({
       onCreate={setChoosingType}
       onEdit={(questionId) => {
         const question = active.questions.find((candidate) => candidate.id === questionId)
-        if (question) setEditing(question)
+        if (!question) return
+        if (!examsService) {
+          setEditing(question)
+          setEditingOwner(active)
+          setUsage(undefined)
+          return
+        }
+        void examsService.questionUsage(questionId).then((questionUsage) => {
+          setEditing(question)
+          setEditingOwner(active)
+          setUsage(questionUsage)
+        })
       }}
       onAddToExamDraft={onAddToExam
         ? (questionId) => {
@@ -940,7 +979,11 @@ function QuestionBankTabsPane({
         kind: 'action' as const,
         label: SECTION_LABELS[type],
         icon: QUESTION_TYPE_ICONS[type],
-        onSelect: () => setEditing(createQuestion(type)),
+        onSelect: () => {
+          setEditing(createQuestion(type))
+          setEditingOwner(active ?? null)
+          setUsage(undefined)
+        },
       }))}
       onClose={() => setChoosingType(null)}
     />}
@@ -948,15 +991,24 @@ function QuestionBankTabsPane({
       question={editing}
       isNew={!active.questions.some((question) => question.id === editing.id)}
       topicSuggestions={topicOptions({ questions: active.questions })}
+      ownerName={editingOwner?.name ?? active.name}
+      usage={usage}
       onCancel={() => setEditing(null)}
       onSave={async (question) => {
-        const updated = await service.commit(active.id, {
-          kind: active.questions.some((candidate) => candidate.id === question.id)
-            ? 'update-question'
-            : 'create-question',
-          question,
-        })
+        const existing = active.questions.some((candidate) => candidate.id === question.id)
+        if (existing) await beforeCanonicalQuestionCommit?.()
+        const updated = existing && examsService
+          ? await service.commitCanonicalQuestion(
+              active.id,
+              question,
+              (canonical) => examsService.propagateCanonicalQuestion(canonical),
+            )
+          : await service.commit(active.id, {
+              kind: existing ? 'update-question' : 'create-question',
+              question,
+            })
         updateResource(updated)
+        if (existing) onCanonicalQuestionCommitted?.(question)
         setEditing(null)
       }}
     />}
@@ -966,6 +1018,7 @@ function QuestionBankTabsPane({
 function QuestionBankEditor({
   initialResource,
   bankWorkspaces,
+  workspaces,
   exams,
   onHome,
   onOpenExam,
@@ -974,6 +1027,7 @@ function QuestionBankEditor({
 }: {
   initialResource?: QuestionBankResource
   bankWorkspaces: QuestionBankWorkspaceService
+  workspaces: ExamWorkspaceService
   exams: readonly RecentExam[]
   onHome: () => void
   onOpenExam: (id: string, activeBankId: string | null) => void
@@ -1035,6 +1089,7 @@ function QuestionBankEditor({
           initialResource={activeResource ?? undefined}
           onActiveResourceChange={setActiveResource}
           workspaceDrag={drag}
+          examsService={workspaces}
           onAddToExam={(question) => onNewExam(question)}
         />
       </div>
@@ -1068,6 +1123,7 @@ function ExamEditor({
   store,
   examId,
   bankWorkspaces,
+  workspaces,
   exams,
   onHome,
   onOpenExam,
@@ -1077,6 +1133,7 @@ function ExamEditor({
   store: ExamStore
   examId: string
   bankWorkspaces: QuestionBankWorkspaceService
+  workspaces: ExamWorkspaceService
   exams: readonly RecentExam[]
   onHome: () => void
   onOpenExam: (id: string) => void
@@ -1109,6 +1166,8 @@ function ExamEditor({
     question: Question
     destination: 'question-bank' | 'exam-draft'
     after: string | null
+    owner?: QuestionBankResource
+    usage?: QuestionUsage[]
   } | null>(null)
   // The export dialog, and the configuration it is showing. The configuration
   // lives here rather than inside the dialog so that an export which fails
@@ -1808,6 +1867,9 @@ function ExamEditor({
             }}
             workspaceDrag={drag}
             resourceRevision={bankRevision}
+            examsService={workspaces}
+            beforeCanonicalQuestionCommit={() => store.whenSettled()}
+            onCanonicalQuestionCommitted={(question) => store.syncCanonicalQuestions([question])}
             fallback={<QuestionBankPane
               bank={state.questionBank}
               examDraftIds={examDraftIds}
@@ -1853,9 +1915,13 @@ function ExamEditor({
             onRevealed={clearReveal}
             onEdit={(questionId) => {
               const question = bankQuestionById(state.questionBank, questionId)
-              if (question) {
-                setEditing({ question, destination: 'exam-draft', after: null })
-              }
+              if (!question) return
+              void Promise.all([
+                bankWorkspaces.ownerOfQuestion(questionId),
+                workspaces.questionUsage(questionId),
+              ]).then(([owner, usage]) => {
+                setEditing({ question, destination: 'exam-draft', after: null, owner: owner ?? undefined, usage })
+              })
             }}
             onDuplicate={(questionId) => {
               void (async () => {
@@ -2002,18 +2068,31 @@ function ExamEditor({
           question={editing.question}
           isNew={!bankQuestionById(state.questionBank, editing.question.id)}
           topicSuggestions={topicOptions(state.questionBank)}
+          ownerName={editing.owner?.name}
+          usage={editing.usage}
           onCancel={() => setEditing(null)}
           onSave={async (saved) => {
-            // One authoring action, whichever way the popup was opened, so a
-            // saved question is one undo step and cancelling is none at all.
+            // Existing Questions are committed through their owning bank even
+            // when this canonical editor was opened from an Exam. Exam state
+            // changes only after that durable commit succeeds.
             if (bankQuestionById(state.questionBank, saved.id)) {
-              store.updateInQuestionBank(saved)
+              const owner = editing.owner ?? await bankWorkspaces.ownerOfQuestion(saved.id)
+              if (!owner) throw new Error('The owning Question Bank is unavailable on this device.')
+              await store.whenSettled()
+              await bankWorkspaces.commitCanonicalQuestion(
+                owner.id,
+                saved,
+                (canonical) => workspaces.propagateCanonicalQuestion(canonical),
+              )
+              store.syncCanonicalQuestions([saved])
+              setBankRevision((revision) => revision + 1)
             } else if (editing.destination === 'question-bank') {
               store.createInQuestionBank(saved)
+              await store.whenSettled()
             } else {
               store.createInExamDraft(saved, editing.after)
+              await store.whenSettled()
             }
-            await store.whenSettled()
             setEditing(null)
           }}
         />
@@ -2109,6 +2188,7 @@ export default function App({
   if (editorMode === 'bank') return <QuestionBankEditor
     initialResource={editorBankStore?.getState()}
     bankWorkspaces={bankWorkspaces}
+    workspaces={workspaces}
     exams={exams}
     launchError={initialError}
     onNewExam={(question) => {
@@ -2167,6 +2247,7 @@ export default function App({
     store={editorStore}
     examId={editorId}
     bankWorkspaces={bankWorkspaces}
+    workspaces={workspaces}
     exams={exams}
     launchError={initialError}
     onSaveAs={saveAs}
