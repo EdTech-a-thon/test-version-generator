@@ -104,7 +104,7 @@ test("unused Question uses a lightweight irreversible confirmation", async ({
   page,
 }) => {
   const { bankId } = await seedDeletion(page);
-  await page.goto(`/editor?bank=${bankId}`);
+  await page.goto(`/question-bank?id=${bankId}`);
   await page.getByRole("button", { name: "Edit Unused cell question" }).click();
   const editor = page.getByRole("dialog", { name: "Question editor" });
   await editor.getByRole("button", { name: "Delete Question" }).click();
@@ -119,7 +119,7 @@ test("unused Question uses a lightweight irreversible confirmation", async ({
 
 test("failed deletion leaves canonical and visible state unchanged", async ({ page }) => {
   const { bankId } = await seedDeletion(page);
-  await page.goto(`/editor?bank=${bankId}`);
+  await page.goto(`/question-bank?id=${bankId}`);
   await page.getByRole("button", { name: "Edit Shared cell question" }).click();
   const editor = page.getByRole("dialog", { name: "Question editor" });
   await editor.getByRole("button", { name: "Delete Question" }).click();
@@ -139,7 +139,7 @@ test("failed deletion leaves canonical and visible state unchanged", async ({ pa
   await expect(page.getByRole("region", { name: "Question Bank" }).getByText("Shared cell question")).toBeVisible();
   await page.reload();
   await expect(page.getByRole("region", { name: "Question Bank" }).getByText("Shared cell question")).toBeVisible();
-  await page.getByRole("button", { name: "Home" }).click();
+  await page.getByRole("button", { name: "Test Parrot home" }).click();
   await page.getByRole("button", { name: /^Open Biology final/ }).click();
   await expect(page.locator(".exam-question")).toContainText("Shared cell question");
 });
@@ -175,18 +175,16 @@ test("deleting the final Question from a pristine bank falls back without creati
       id: "only-question", type: "open", columns: 1,
       doc: { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Delete me" }] }] },
     } });
-    await service.openTab({ mode: "bank", resourceId: active.id }, fallback.id);
-    await service.openTab({ mode: "bank", resourceId: active.id }, active.id);
     return active.id;
   });
-  await page.goto(`/editor?bank=${activeId}`);
-  await page.getByRole("button", { name: "Open Question Bank" }).click();
-  await page.getByRole("dialog", { name: "Open Question Bank" }).getByRole("button", { name: /Fallback Bank/ }).click();
-  await page.getByRole("tab", { name: "Untitled Question Bank" }).click();
+  // Deleting the only Question of an Untitled bank disposes of the bank too,
+  // so its page has nothing left to be: it returns to the collection.
+  await page.goto(`/question-bank?id=${activeId}`);
   await page.getByRole("button", { name: "Edit Delete me" }).click();
   await page.getByRole("dialog", { name: "Question editor" }).getByRole("button", { name: "Delete Question" }).click();
   await page.getByRole("dialog", { name: "Permanently delete this Question?" }).getByRole("button", { name: "Delete Question" }).click();
-  await expect(page.getByRole("textbox", { name: "Question Bank name" })).toHaveValue("Fallback Bank");
+  await expect(page).toHaveURL(/\/question-banks$/);
+  await expect(page.getByRole("heading", { name: "Question Banks" })).toBeVisible();
   expect(await page.evaluate(async () => {
     const { createExamWorkspaceService } = await import(/* @vite-ignore */ "/src/exam-workspaces.ts") as typeof import("../src/exam-workspaces");
     return (await createExamWorkspaceService().recent()).length;
@@ -207,7 +205,8 @@ test("empty named bank uses a lighter irreversible confirmation", async ({
     await service.commit(bank.id, { kind: "rename", name: "Empty Biology" });
   });
   await page.goto("/question-banks");
-  await page.locator(".question-bank-card").filter({ hasText: "Empty Biology" }).getByRole("button", { name: "Delete Question Bank" }).click();
+  await page.locator(".question-bank-card").filter({ hasText: "Empty Biology" }).getByRole("button", { name: "Empty Biology actions" }).click();
+  await page.getByRole("menuitem", { name: "Delete" }).click();
   const confirmation = page.getByRole("dialog", {
     name: "Permanently delete “Empty Biology”?",
   });
@@ -229,7 +228,8 @@ test("Home deletes a populated bank after disclosing per-Exam losses and Export 
   const card = page
     .locator(".question-bank-card")
     .filter({ hasText: "Biology" });
-  await card.getByRole("button", { name: "Delete Question Bank" }).click();
+  await card.getByRole("button", { name: /actions$/ }).click();
+  await page.getByRole("menuitem", { name: "Delete" }).click();
   const confirmation = page.getByRole("dialog", {
     name: "Permanently delete “Biology”?",
   });
@@ -243,10 +243,10 @@ test("Home deletes a populated bank after disclosing per-Exam losses and Export 
     .getByRole("button", { name: "Delete Question Bank" })
     .click();
   await expect(card).toHaveCount(0);
-  await expect(page.getByText("No Question Banks")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Create your first Question Bank" })).toBeVisible();
   await page.getByRole("button", { name: /^Open Biology final/ }).click();
   await expect(page.locator(".exam-question")).toHaveCount(0);
-  await page.getByRole("button", { name: "Home" }).click();
+  await page.getByRole("button", { name: "Test Parrot home" }).click();
 
   expect(
     await page.evaluate(async (id) => {

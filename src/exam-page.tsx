@@ -536,7 +536,7 @@ function clearOnBackgroundClick(selection: Selection) {
 // The geometry `export-plan.ts` packed against, handed to CSS. Screen and paper
 // agree only if the sheet is laid out at the size it was packed for, and the
 // only way to be sure of that is for both to read the same numbers.
-const PAGE_GEOMETRY = {
+export const PAGE_GEOMETRY = {
   '--page-width': `${PAGE_WIDTH}px`,
   '--page-height': `${PAGE_HEIGHT}px`,
   '--page-margin': `${PAGE_MARGIN}px`,
@@ -704,6 +704,8 @@ export function ExamPage({
   onShuffleSelectedAnswers,
   onRemove,
   onSetColumns,
+  onTitleChange,
+  titleDisabled = false,
   unsavedDraft = false,
   contentSelection = { test: true, answerKey: true },
 }: {
@@ -723,6 +725,9 @@ export function ExamPage({
   onShuffleSelectedAnswers: (questionIds: readonly string[]) => void
   onRemove: (questionIds: readonly string[]) => void
   onSetColumns: (questionIds: readonly string[], columns: ColumnSetting) => void
+  /** Renames the Exam from its own title line. See `PageHeaderContent`. */
+  onTitleChange?: (title: string) => void
+  titleDisabled?: boolean
   unsavedDraft?: boolean
   contentSelection?: ExportContentSelection
 }) {
@@ -832,6 +837,10 @@ export function ExamPage({
       ? drag.source.type
       : null
 
+  // The name is typed once, on the first sheet that prints it. Every later
+  // repetition — a continuation page's, the answer key's — is that same name
+  // shown again, so it is drawn as text rather than as a second field.
+  const titleLine = pages.findIndex((page) => page.furniture.title !== null)
   const workspaceClasses = ['exam-workspace']
   if (unsavedDraft) workspaceClasses.push('exam-workspace--unsaved')
   if (draggedQuestionIds.size > 0) workspaceClasses.push('exam-workspace--dragging')
@@ -856,6 +865,8 @@ export function ExamPage({
           <PageHeaderContent
             header={page.header}
             furniture={page.furniture}
+            onTitleChange={index === titleLine ? onTitleChange : undefined}
+            titleDisabled={titleDisabled}
           />
           <div className="page-content" onClick={clearOnBackground}>
             {/* An exam with nothing in it yet offers the first question where

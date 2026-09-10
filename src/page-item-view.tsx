@@ -11,6 +11,7 @@
 // reads a page's furniture: a header, a footer and a page number belong to the
 // page, not to the items on it.
 
+import { Check } from 'lucide-react'
 import { DocView } from './doc-view'
 import type {
   AnswerKeyEntryItem,
@@ -54,17 +55,24 @@ export function ChoiceGridView({
               >
                 {choice && (
                   <>
-                    <span className="choice-letter">{choice.letter}.</span>
+                    <span className="choice-letter">
+                      {/* Beside the answer rather than out at the right-hand
+                          margin, where it was read as belonging to the row. It
+                          takes no width and paints into the gutter left of the
+                          letter, so the choice grid measures and prints exactly
+                          as it would without it. */}
+                      {showCorrectness && choice.correct && (
+                        <span
+                          className="choice-correctness-marker"
+                          role="img"
+                          aria-label="Correct answer"
+                        >
+                          <Check aria-hidden="true" />
+                        </span>
+                      )}
+                      {choice.letter}.
+                    </span>
                     <DocView className="choice-body" content={blocksOf(choice.node)} />
-                    {showCorrectness && choice.correct && (
-                      <span
-                        className="choice-correctness-marker"
-                        role="img"
-                        aria-label="Correct answer"
-                      >
-                        ✓
-                      </span>
-                    )}
                   </>
                 )}
               </td>
@@ -147,9 +155,18 @@ export function AnswerKeyEntry({ item }: { item: AnswerKeyEntryItem }) {
 export function PageHeaderContent({
   header,
   furniture,
+  onTitleChange,
+  titleDisabled = false,
 }: {
   header: PageHeader
   furniture: PageFurniture
+  /** Present only in the editor. The Exam's name is furniture on its own first
+   *  page, so it can be typed there as well as in the document bar — one
+   *  value, two places to reach it. Every other caller (measurement, print
+   *  reference, export preview) renders plain text, which is what the DOCX
+   *  adapter prints too. */
+  onTitleChange?: (title: string) => void
+  titleDisabled?: boolean
 }) {
   return (
     <header className={`page-header page-header--${header}`}>
@@ -163,7 +180,26 @@ export function PageHeaderContent({
         <span className="page-id">{furniture.arrangementLabel}</span>
       </div>
       {furniture.title !== null && (
-        <h1 className="exam-title">{furniture.title}</h1>
+        <h1 className="exam-title">
+          {onTitleChange ? (
+            // The underline belongs to the name, not to the width of the
+            // page: the mirrored value behind the input is what sizes it, so
+            // the field is exactly as wide as what has been typed.
+            <span className="exam-title-field" data-value={furniture.title || 'Untitled Exam'}>
+              <input
+                aria-label="Title printed on the exam"
+                className="exam-title-input"
+                size={1}
+                value={furniture.title}
+                disabled={titleDisabled}
+                placeholder="Untitled Exam"
+                onChange={(event) => onTitleChange(event.target.value)}
+              />
+            </span>
+          ) : (
+            furniture.title
+          )}
+        </h1>
       )}
     </header>
   )

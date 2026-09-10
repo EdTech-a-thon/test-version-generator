@@ -35,5 +35,5 @@ test('in-app navigation warns only while a Working Copy backup is pending', asyn
   await page.reload()
   await page.getByRole('textbox', { name: 'Exam name' }).waitFor()
   await page.getByRole('link', { name: 'about' }).click()
-  await expect(page.getByRole('link', { name: 'Back to Home' })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Home' })).toBeVisible()
 })

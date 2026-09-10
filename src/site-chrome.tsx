@@ -28,23 +28,6 @@ export function Link({
   )
 }
 
-/** The bar the About and Privacy pages wear in place of the editor's. */
-export function SiteHeader() {
-  return (
-    <header className="document-bar">
-      <Link href="/" className="site-wordmark">
-        <img className="app-logo" src="/logo.png" alt="" width={36} height={36} />
-        Test Parrot
-      </Link>
-      <div className="header-actions">
-        <Link href="/" className="site-link">
-          ← Back to Home
-        </Link>
-      </div>
-    </header>
-  )
-}
-
 export function Footer() {
   return (
     <footer className="site-footer">

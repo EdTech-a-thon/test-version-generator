@@ -44,7 +44,7 @@ test('Save As moves a changed Working Copy into a named independent Exam', async
   await page.keyboard.press('Control+Shift+S')
   await expect(name).toHaveValue('Original exam Copy')
 
-  await page.getByRole('button', { name: 'Home' }).click()
+  await page.getByRole('button', { name: 'Test Parrot home' }).click()
   await expect(page.getByRole('button', { name: 'Changed exam Copy' })).toBeVisible()
   await page.locator('.exam-card').filter({
     has: page.getByRole('heading', { name: 'Original exam', exact: true }),

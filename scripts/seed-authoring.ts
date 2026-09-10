@@ -14,7 +14,7 @@ export async function seedAuthoringState(
   state: AuthoringState,
 ): Promise<void> {
   await page.goto('/')
-  await page.getByRole('heading', { name: 'Recent Exams', exact: true }).waitFor()
+  await page.getByRole('heading', { name: 'Pick up where you left off', exact: true }).waitFor()
   await page.evaluate(async (snapshot: AuthoringState) => {
     const { createExamWorkspaceService } = await import(
       /* @vite-ignore */ '/src/exam-workspaces.ts'

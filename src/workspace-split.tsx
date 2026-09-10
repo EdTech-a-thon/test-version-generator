@@ -1,10 +1,11 @@
 // The resizable split the authoring workspace is laid out in.
 //
-// The Question Bank opens as the narrower pane. It is a place to pick from
-// rather than a place to read, so the sheet — which has a real printable width
-// and cannot be scaled to fit without lying about what will print — gets the
-// larger share, and the teacher moves the divider when they want more of the
-// bank.
+// The Exam is the document being edited, so it holds the left lane where
+// reading starts. The Question Bank is the drawer beside it: a place to pick
+// from rather than a place to read, so it opens as the narrower right pane and
+// the sheet — which has a real printable width and cannot be scaled to fit
+// without lying about what will print — keeps the larger share. The teacher
+// moves the divider when they want more of the bank.
 //
 // The width lives here and nowhere else. It is a view of the workspace, not
 // authoring data: it never reaches the store, never dirties the exam, never
@@ -53,10 +54,12 @@ export function WorkspaceSplit({
     onBankPercentChange?.(next)
   }, [onBankPercentChange])
 
+  // The bank is the right lane, so its share is measured back from the right
+  // edge: dragging the divider left widens it.
   const resizeTo = useCallback((clientX: number) => {
     const bounds = container.current?.getBoundingClientRect()
     if (!bounds || bounds.width === 0) return
-    changeBankPercent(((clientX - bounds.left) / bounds.width) * 100)
+    changeBankPercent(((bounds.right - clientX) / bounds.width) * 100)
   }, [changeBankPercent])
 
   const dragging = useRef<number | null>(null)
@@ -67,7 +70,7 @@ export function WorkspaceSplit({
 
   return (
     <div className="authoring-workspace" ref={container} style={style}>
-      {bank}
+      <div className="editor-output">{workingCopy}</div>
       {/* The divider is a real control rather than a decorated border: it
           takes focus and answers the arrow keys, so the split is resizable
           without a pointer. */}
@@ -103,12 +106,12 @@ export function WorkspaceSplit({
         onKeyDown={(event) => {
           if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
             event.preventDefault()
-            const step = event.key === 'ArrowLeft' ? -KEYBOARD_STEP : KEYBOARD_STEP
+            const step = event.key === 'ArrowLeft' ? KEYBOARD_STEP : -KEYBOARD_STEP
             changeBankPercent(bankPercent + step)
           }
         }}
       />
-      <div className="editor-output">{workingCopy}</div>
+      {bank}
     </div>
   )
 }

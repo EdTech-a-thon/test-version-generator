@@ -72,12 +72,18 @@ test('Home empty state explains local storage without creating resources', async
     })
   })
   await page.goto('/')
+  const storage = page.getByRole('button', { name: 'Where your work is stored' })
+  await expect(storage).toBeVisible()
+  await storage.hover()
+  await expect(page.getByRole('tooltip')).toContainText(
+    'Your work stays in this browser',
+  )
   await expect(
-    page.getByRole('heading', { name: 'Your work stays in this browser' }),
+    page.getByRole('button', { name: 'Create your first Exam' }),
   ).toBeVisible()
-  await expect(page.getByText('not in the cloud')).toBeVisible()
-  await expect(page.getByText('No recent Exams')).toBeVisible()
-  await expect(page.getByText('No Question Banks')).toBeVisible()
+  await expect(
+    page.getByRole('button', { name: 'Create your first Question Bank' }),
+  ).toBeVisible()
 
   const counts = await page.evaluate(async () => {
     const { createExamWorkspaceService } = (await import(
@@ -101,11 +107,9 @@ test('Home provides keyboard-operable horizontal previews and full collections',
   await page.goto('/')
 
   const exams = page.getByRole('list', { name: 'Recent Exams' })
-  const banks = page.getByRole('list', {
-    name: 'Recently Updated Question Banks',
-  })
+  const banks = page.getByRole('region', { name: 'Question Banks' })
   await expect(exams.getByRole('listitem')).toHaveCount(6)
-  await expect(banks.getByRole('listitem')).toHaveCount(6)
+  await expect(banks.locator('.question-bank-card')).toHaveCount(8)
   await expect(exams.getByText('Unsaved changes')).toBeVisible()
   await expect(banks.getByText('Used in 1 Exam')).toBeVisible()
   expect(
@@ -119,7 +123,7 @@ test('Home provides keyboard-operable horizontal previews and full collections',
     .poll(() => exams.evaluate((element) => element.scrollLeft))
     .toBeGreaterThan(0)
 
-  await page.getByRole('link', { name: 'View all Recent Exams' }).focus()
+  await page.getByRole('link', { name: 'Exams', exact: true }).focus()
   await page.keyboard.press('Enter')
   await expect(page).toHaveURL(/\/exams$/)
   await expect(
@@ -156,7 +160,7 @@ test('Question Bank search matches names and Topics, not Question Content', asyn
   ).toBeVisible()
 })
 
-test('Question Bank usage identifies saved and Working Copy use and opens the Exam', async ({
+test('a Question Bank card states how many Exams depend on it', async ({
   page,
 }) => {
   await seedResources(page, 6)
@@ -166,13 +170,9 @@ test('Question Bank usage identifies saved and Working Copy use and opens the Ex
   const results = page.getByRole('region', {
     name: 'Question Banks search results',
   })
-  await results.getByText('Used in 1 Exam').click()
-  const usageExam = results.getByRole('button', { name: 'Exam 4' })
-  await expect(usageExam.locator('xpath=..')).toContainText('Working Copy')
-  await usageExam.click()
-  await expect(page.getByRole('textbox', { name: 'Exam name' })).toHaveValue(
-    'Exam 4',
-  )
+  await expect(results.getByText('Used in 1 Exam')).toBeVisible()
+  await search.fill('Question Bank 1')
+  await expect(results.getByText('Not used in any Exams')).toBeVisible()
 })
 
 test('meaningful Question Bank changes update recency while browsing, composition, and formatting do not', async ({
