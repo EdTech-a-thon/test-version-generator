@@ -2,8 +2,11 @@ import { describe, expect, test } from 'bun:test'
 import type { Exam, Question, Version } from './exam'
 import {
   DEFAULT_EXPORT_CONFIGURATION,
+  DEFAULT_EXPORT_CONFIGURATION,
   EMPTY_EXPORT_HISTORY,
   prepareExport,
+  readExportPreferences,
+  writeExportPreferences,
   prepareHistoricalExport,
   type ExportHistory,
 } from './export-preparation'
@@ -187,5 +190,33 @@ describe('Export Record preparation', () => {
       .filter((item) => item.kind === 'answer-key-entry')
 
     expect(entries).toEqual([{ kind: 'answer-key-entry', number: 1, letter: null }])
+  })
+})
+
+
+describe('global Export preferences', () => {
+  const values = new Map<string, string>()
+  const storage = {
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => values.set(key, value),
+  }
+
+  test('default to PDF with both documents and retain a valid choice', () => {
+    values.clear()
+    Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: storage })
+    expect(readExportPreferences()).toEqual(DEFAULT_EXPORT_CONFIGURATION)
+    const preferred = {
+      format: 'docx' as const,
+      selection: { test: false, answerKey: true },
+    }
+    writeExportPreferences(preferred)
+    expect(readExportPreferences()).toEqual(preferred)
+  })
+
+  test('ignore malformed and empty Content Selection preferences', () => {
+    values.set('test-parrot-export-preferences-v1', JSON.stringify({
+      format: 'docx', selection: { test: false, answerKey: false },
+    }))
+    expect(readExportPreferences()).toEqual(DEFAULT_EXPORT_CONFIGURATION)
   })
 })

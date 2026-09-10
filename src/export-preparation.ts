@@ -25,6 +25,32 @@ export const DEFAULT_EXPORT_CONFIGURATION: ExportConfiguration = {
   selection: { test: true, answerKey: true },
 }
 
+const EXPORT_PREFERENCES_KEY = 'test-parrot-export-preferences-v1'
+
+/** Export preferences are global UI settings, not authoring persistence. */
+export function readExportPreferences(): ExportConfiguration {
+  if (typeof localStorage === 'undefined') return DEFAULT_EXPORT_CONFIGURATION
+  try {
+    const value = JSON.parse(localStorage.getItem(EXPORT_PREFERENCES_KEY) ?? '') as Partial<ExportConfiguration>
+    if (
+      (value.format === 'pdf' || value.format === 'docx')
+      && typeof value.selection?.test === 'boolean'
+      && typeof value.selection.answerKey === 'boolean'
+      && (value.selection.test || value.selection.answerKey)
+    ) {
+      return { format: value.format, selection: { ...value.selection } }
+    }
+  } catch {
+    // Missing or malformed preferences fall back to the product defaults.
+  }
+  return DEFAULT_EXPORT_CONFIGURATION
+}
+
+export function writeExportPreferences(configuration: ExportConfiguration): void {
+  if (typeof localStorage === 'undefined') return
+  localStorage.setItem(EXPORT_PREFERENCES_KEY, JSON.stringify(configuration))
+}
+
 export type ExportRecord = {
   id: string
   examId: string

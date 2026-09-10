@@ -56,6 +56,8 @@ import {
   DEFAULT_EXPORT_CONFIGURATION,
   prepareExport,
   prepareHistoricalExport,
+  readExportPreferences,
+  writeExportPreferences,
   type ExportConfiguration,
   type PreparationProgress,
   type PreparedExport,
@@ -1394,11 +1396,8 @@ function ExamEditor({
     owner?: QuestionBankResource
     usage?: QuestionUsage[]
   } | null>(null)
-  // The export dialog, and the configuration it is showing. The configuration
-  // lives here rather than inside the dialog so that an export which fails
-  // after the dialog closed can reopen it with the teacher's settings intact;
-  // opening it from the Export button always starts from the defaults, because
-  // export configuration is deliberately not remembered between openings.
+  // The export dialog owns no Exam state. Its globally remembered preferences
+  // survive between Exams without dirtying or saving either Working Copy.
   const [exportDialog, setExportDialog] = useState<{
     configuration: ExportConfiguration
     error: string | null
@@ -1586,7 +1585,7 @@ function ExamEditor({
         ? active
         : exportButton.current
     setExportDialog({
-      configuration: DEFAULT_EXPORT_CONFIGURATION,
+      configuration: readExportPreferences(),
       error: null,
     })
   }, [])
@@ -1965,9 +1964,10 @@ function ExamEditor({
       {exportDialog && (
         <ExportDialog
           configuration={exportDialog.configuration}
-          onConfigurationChange={(configuration) =>
+          onConfigurationChange={(configuration) => {
+            writeExportPreferences(configuration)
             setExportDialog((current) => (current ? { ...current, configuration } : current))
-          }
+          }}
           previewPlans={exportPreview?.documents ?? []}
           empty={exam.questions.length === 0}
           initialError={exportDialog.error ?? previewError}
