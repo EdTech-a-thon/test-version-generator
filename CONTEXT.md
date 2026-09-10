@@ -9,7 +9,7 @@ A canonical record owned by exactly one Question Bank and referenced live by any
 _Avoid_: Exam question, question copy
 
 **Question Content**:
-The rich-text material authored for one question, including its stem and, when present, its answer choices.
+The rich-text material authored for one question, including its stem and, when present, its answer choices or Suggested Answer.
 _Avoid_: Question text, editor content
 
 **Question Metadata**:
@@ -17,8 +17,16 @@ Difficulty and Topics used to organize and find Questions while composing an Exa
 _Avoid_: Question identity, export identity
 
 **Question Bank**:
-An independently reusable, named collection of canonical Questions whose confirmed changes save immediately. A new bank is named “Untitled Question Bank” by default; an Exam may reference Questions from any number of banks, and a bank may contribute Questions to any number of Exams.
+An independently reusable, named collection of canonical Questions whose confirmed changes save immediately. It may carry an optional description, author, and license; a new bank is named “Untitled Question Bank” by default. An Exam may reference Questions from any number of banks, and a bank may contribute Questions to any number of Exams.
 _Avoid_: Question library
+
+**Question Bank File**:
+A self-contained PDF for sharing one complete Question Bank. Its complete teacher-readable preview is derived from its embedded Question Bank Record, which is the authoritative source for importing a new independent Question Bank.
+_Avoid_: Exam export, printable question bank, backup
+
+**Question Bank Record**:
+The versioned, format-owned machine-readable representation embedded in a Question Bank File, containing the complete Question Bank and every Media Asset it needs. Import creates a new independent Question Bank from this record rather than preserving local identities or inferring Question Content from PDF pages.
+_Avoid_: PDF metadata, extracted questions
 
 **Difficulty**:
 An optional classification of a question as easy, medium, or hard.
