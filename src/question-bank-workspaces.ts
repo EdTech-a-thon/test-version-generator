@@ -1,4 +1,5 @@
 import { duplicateQuestion, type Question } from './exam'
+import { requestPersistentStorage } from './durable-storage'
 import { NO_FILTER, type QuestionBankFilter } from './question-bank-view'
 import {
   CANONICAL_QUESTION_STORE,
@@ -442,8 +443,9 @@ export function createQuestionBankWorkspaceService(
       const previous = before.questions.find((candidate) => candidate.id === question.id)
       if (!previous) throw new Error('That Question does not belong to this Question Bank.')
       try {
-        const updated = await service.commit(id, { kind: 'update-question', question })
+        const updated = await service.commit(id, { kind: 'update-question', question }, false)
         await propagate(question)
+        void requestPersistentStorage()
         return updated
       } catch (error) {
         // Exam projection handles its own compensation. Restore the exact
@@ -467,7 +469,11 @@ export function createQuestionBankWorkspaceService(
         throw error
       }
     },
-    async commit(id: string, change: BankChange): Promise<QuestionBankResource> {
+    async commit(
+      id: string,
+      change: BankChange,
+      requestDurability = true,
+    ): Promise<QuestionBankResource> {
       const timestamp = now().toISOString()
       await transact(
         [QUESTION_BANK_REGISTRY_STORE, CANONICAL_QUESTION_STORE],
@@ -521,6 +527,7 @@ export function createQuestionBankWorkspaceService(
       )
       const updated = await readBank(await registry, id)
       if (!updated) throw new Error('That Question Bank is unavailable on this device.')
+      if (requestDurability) void requestPersistentStorage()
       return updated
     },
     async recent(): Promise<QuestionBankSummary[]> {

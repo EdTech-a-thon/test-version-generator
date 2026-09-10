@@ -1,38 +1,66 @@
 import type { RecentExam } from './exam-workspaces'
-import type { QuestionBankSummary } from './question-bank-workspaces'
-import { Link } from './site-chrome'
+import type { PersistentStorageStatus } from './durable-storage'
+import type { QuestionBankCollectionItem } from './resource-collections'
+import { homePreview } from './resource-collections'
+import { ExamCard, QuestionBankCard } from './resource-cards'
+import { Footer, Link } from './site-chrome'
 
-function openedAt(iso: string) {
-  const minutes = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 60_000))
-  return minutes === 0 ? 'Opened just now' : `Opened ${minutes} minute${minutes === 1 ? '' : 's'} ago`
-}
-function updatedAt(iso: string) {
-  const minutes = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 60_000))
-  return minutes === 0 ? 'Updated just now' : `Updated ${minutes} minute${minutes === 1 ? '' : 's'} ago`
+function SectionHeading({ title, description, newLabel, allHref, onNew }: {
+  title: string
+  description: string
+  newLabel: string
+  allHref: string
+  onNew: () => void
+}) {
+  return <div className="home-heading">
+    <div><h1>{title}</h1><p>{description}</p></div>
+    <div className="home-heading-actions">
+      <button type="button" className="primary-button" onClick={onNew}>{newLabel}</button>
+      <Link href={allHref} className="secondary-button">View all {title}</Link>
+    </div>
+  </div>
 }
 
-export function HomePage({ exams, banks, error, onNewExam, onOpen, onNewBank, onOpenBank }: {
+export function HomePage({ exams, banks, error, persistentStorage, onNewExam, onOpen, onNewBank, onOpenBank }: {
   exams: readonly RecentExam[]
-  banks: readonly QuestionBankSummary[]
+  banks: readonly QuestionBankCollectionItem[]
   error: string | null
+  persistentStorage: PersistentStorageStatus
   onNewExam: () => void
   onOpen: (id: string) => void
   onNewBank: () => void
   onOpenBank: (id: string) => void
 }) {
+  const recentExams = homePreview(exams)
+  const recentBanks = homePreview(banks)
   return <div className="home-page">
     <header className="document-bar">
       <Link href="/" className="site-wordmark"><img className="app-logo" src="/logo.png" alt="" width={36} height={36} />Test Parrot</Link>
       <button type="button" className="export-button" onClick={onNewExam}>New Exam</button>
     </header>
     <main className="home-main">
-      <div className="home-heading"><div><h1>Recent Exams</h1><p>Start a new exam or pick up where you left off.</p></div><button type="button" className="primary-button" onClick={onNewExam}>New Exam</button></div>
       {error && <p className="home-error" role="alert">{error}</p>}
-      {exams.length === 0 ? <section className="home-empty" aria-label="Recent Exams"><h2>No recent Exams</h2><p>Your Exams will appear here after you create one.</p><button type="button" className="primary-button" onClick={onNewExam}>Create your first Exam</button></section> :
-        <section className="exam-cards" aria-label="Recent Exams">{exams.map((exam) => <button type="button" className="exam-card" aria-label={`Open ${exam.title}`} key={exam.id} onClick={() => onOpen(exam.id)}><h2>{exam.title}</h2><p>{exam.questionCount} {exam.questionCount === 1 ? 'Question' : 'Questions'}</p><p className="exam-card-preview">{exam.preview ?? 'Empty Exam'}</p><time dateTime={exam.lastOpenedAt}>{openedAt(exam.lastOpenedAt)}</time></button>)}</section>}
-      <div className="home-heading home-heading-section"><div><h1>Recently Updated Question Banks</h1><p>Create reusable Questions without starting an Exam.</p></div><button type="button" className="primary-button" onClick={onNewBank}>New Question Bank</button></div>
-      {banks.length === 0 ? <section className="home-empty" aria-label="Recently Updated Question Banks"><h2>No Question Banks</h2><p>Your Question Banks will appear here after you create one.</p><button type="button" className="primary-button" onClick={onNewBank}>Create your first Question Bank</button></section> :
-        <section className="exam-cards" aria-label="Recently Updated Question Banks">{banks.map((bank) => <button type="button" className="exam-card question-bank-card" aria-label={`Open ${bank.name}`} key={bank.id} onClick={() => onOpenBank(bank.id)}><h2>{bank.name}</h2><p>{bank.questionCount} {bank.questionCount === 1 ? 'Question' : 'Questions'}</p><p className="exam-card-preview">{bank.topics.length > 0 ? bank.topics.slice(0, 3).join(' · ') : 'No Topics'}</p><time dateTime={bank.lastUpdatedAt}>{updatedAt(bank.lastUpdatedAt)}</time></button>)}</section>}
+      <section className="storage-summary" aria-labelledby="storage-heading">
+        <h1 id="storage-heading">Your work stays in this browser</h1>
+        <p>Exams, Question Banks, Working Copies, and Export History are stored locally on this device, not in the cloud. Keep external copies of important work.</p>
+        {persistentStorage === 'denied' && <p className="storage-warning" role="status">Persistent storage was denied. Your browser may clear this local data when space is needed.</p>}
+        {persistentStorage === 'granted' && <p className="storage-status">Persistent browser storage is enabled.</p>}
+      </section>
+
+      <section className="home-resource-section" aria-labelledby="recent-exams-heading">
+        <SectionHeading title="Recent Exams" description="Start a new Exam or pick up where you left off." newLabel="New Exam" allHref="/exams" onNew={onNewExam} />
+        <span id="recent-exams-heading" className="sr-only">Recent Exams</span>
+        {recentExams.length === 0 ? <div className="home-empty"><h2>No recent Exams</h2><p>Your Exams will appear here after you create one.</p><button type="button" className="primary-button" onClick={onNewExam}>Create your first Exam</button></div> :
+          <div className="resource-row" role="list" aria-label="Recent Exams">{recentExams.map((exam) => <div role="listitem" key={exam.id}><ExamCard exam={exam} onOpen={onOpen} /></div>)}</div>}
+      </section>
+
+      <section className="home-resource-section" aria-labelledby="recent-banks-heading">
+        <SectionHeading title="Recently Updated Question Banks" description="Create reusable Questions without starting an Exam." newLabel="New Question Bank" allHref="/question-banks" onNew={onNewBank} />
+        <span id="recent-banks-heading" className="sr-only">Recently Updated Question Banks</span>
+        {recentBanks.length === 0 ? <div className="home-empty"><h2>No Question Banks</h2><p>Your Question Banks will appear here after you create one.</p><button type="button" className="primary-button" onClick={onNewBank}>Create your first Question Bank</button></div> :
+          <div className="resource-row" role="list" aria-label="Recently Updated Question Banks">{recentBanks.map((bank) => <div role="listitem" key={bank.id}><QuestionBankCard bank={bank} onOpen={onOpenBank} onOpenExam={onOpen} /></div>)}</div>}
+      </section>
     </main>
+    <Footer />
   </div>
 }

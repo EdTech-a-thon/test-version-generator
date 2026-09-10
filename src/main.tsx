@@ -9,6 +9,8 @@ import {
   createQuestionBankWorkspaceService,
   type QuestionBankResource,
 } from './question-bank-workspaces'
+import { persistentStorageStatus } from './durable-storage'
+import { questionBankCollection } from './resource-collections'
 import './styles.css'
 
 async function start() {
@@ -99,7 +101,12 @@ async function start() {
       window.history.replaceState(null, '', await restore() ? '/editor' : '/')
     }
   }
-  const [exams, banks] = await Promise.all([workspaces.recent(), bankWorkspaces.recent()])
-  createRoot(document.getElementById('root')!).render(<StrictMode><MilkdownProvider><App store={store} bankStore={bankStore} workspaces={workspaces} bankWorkspaces={bankWorkspaces} initialExams={exams} initialBanks={banks} initialEditorId={editorId} initialEditorMode={editorMode} initialError={error} /></MilkdownProvider></StrictMode>)
+  const [exams, banks, storageStatus] = await Promise.all([
+    workspaces.recent(),
+    bankWorkspaces.recent(),
+    persistentStorageStatus(),
+  ])
+  const collection = await questionBankCollection(banks, bankWorkspaces, workspaces)
+  createRoot(document.getElementById('root')!).render(<StrictMode><MilkdownProvider><App store={store} bankStore={bankStore} workspaces={workspaces} bankWorkspaces={bankWorkspaces} initialExams={exams} initialBankCollection={collection} persistentStorage={storageStatus} initialEditorId={editorId} initialEditorMode={editorMode} initialError={error} /></MilkdownProvider></StrictMode>)
 }
 void start()

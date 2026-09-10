@@ -103,6 +103,9 @@ import {
   historicalReconciliation,
 } from './historical-draft'
 import { AboutPage, PrivacyPage } from './site-pages'
+import { persistentStorageStatus, requestPersistentStorage, type PersistentStorageStatus } from './durable-storage'
+import { ResourceCollectionPage } from './resource-collection-page'
+import { questionBankCollection, type QuestionBankCollectionItem } from './resource-collections'
 
 /** The mark each Question Section goes by, so a type reads the same wherever
  *  it is named — the picker that chooses one, and the dialog that states it. */
@@ -1142,6 +1145,14 @@ function ExamEditor({
 }) {
   const state = useSyncExternalStore(store.subscribe, store.getState)
   const backupStatus = useSyncExternalStore(store.subscribe, store.backupStatus)
+  useEffect(() => {
+    if (state.examDraft.title === 'Untitled Exam' && state.examDraft.questionIds.length === 0) return
+    let current = true
+    void store.whenSettled().then(() => {
+      if (current && store.backupStatus() === 'ready') void requestPersistentStorage()
+    })
+    return () => { current = false }
+  }, [state.examDraft.questionIds.length, state.examDraft.title, store])
   // What the page renders and what an export publishes: the Question Bank
   // records the Exam Draft references, in Exam Draft order, and nothing else.
   // The store derives it once per change, so it is a stable dependency.
@@ -1603,7 +1614,8 @@ function ExamEditor({
       && store.publicationHistory().versions.length === 0
     ) {
       try {
-        durability = await navigator.storage?.persist?.() ? 'granted' : 'denied'
+        const storageResult = await requestPersistentStorage()
+        durability = storageResult === 'unavailable' ? null : storageResult
       } catch {
         durability = 'denied'
       }
@@ -2111,7 +2123,8 @@ export default function App({
   workspaces,
   bankWorkspaces,
   initialExams,
-  initialBanks,
+  initialBankCollection,
+  persistentStorage,
   initialEditorId,
   initialEditorMode,
   initialError,
@@ -2121,14 +2134,16 @@ export default function App({
   workspaces: ExamWorkspaceService
   bankWorkspaces: QuestionBankWorkspaceService
   initialExams: readonly RecentExam[]
-  initialBanks: readonly QuestionBankSummary[]
+  initialBankCollection: readonly QuestionBankCollectionItem[]
+  persistentStorage: PersistentStorageStatus
   initialEditorId: string | null
   initialEditorMode: 'bank' | 'exam' | null
   initialError: string | null
 }) {
   const route = useRoute()
   const [exams, setExams] = useState(initialExams)
-  const [banks, setBanks] = useState(initialBanks)
+  const [bankCollection, setBankCollection] = useState(initialBankCollection)
+  const [storageStatus, setStorageStatus] = useState(persistentStorage)
   const [editorStore, setEditorStore] = useState(store)
   const [editorBankStore] = useState(bankStore)
   const [editorId, setEditorId] = useState(initialEditorId)
@@ -2167,19 +2182,39 @@ export default function App({
         workspaces.recent(),
         bankWorkspaces.recent(),
       ])
+      const [collection, currentStorageStatus] = await Promise.all([
+        questionBankCollection(recentBanks, bankWorkspaces, workspaces),
+        persistentStorageStatus(),
+      ])
       if (current) {
         setExams(recent)
-        setBanks(recentBanks)
+        setBankCollection(collection)
+        setStorageStatus(currentStorageStatus)
       }
     })()
     return () => { current = false }
   }, [route, workspaces, bankWorkspaces])
   if (route === '/about') return <AboutPage />
   if (route === '/privacy') return <PrivacyPage />
+  if (route === '/exams') return <ResourceCollectionPage
+    kind="exams"
+    exams={exams}
+    banks={bankCollection}
+    onOpenExam={(id) => window.location.assign(`/editor?exam=${id}`)}
+    onOpenBank={(id) => window.location.assign(`/editor?bank=${id}`)}
+  />
+  if (route === '/question-banks') return <ResourceCollectionPage
+    kind="question-banks"
+    exams={exams}
+    banks={bankCollection}
+    onOpenExam={(id) => window.location.assign(`/editor?exam=${id}`)}
+    onOpenBank={(id) => window.location.assign(`/editor?bank=${id}`)}
+  />
   if (route === '/') return <HomePage
     exams={exams}
-    banks={banks}
+    banks={bankCollection}
     error={homeError}
+    persistentStorage={storageStatus}
     onNewExam={() => { void workspaces.create().then((exam) => window.location.assign(`/editor?exam=${exam.id}`)) }}
     onOpen={(id) => window.location.assign(`/editor?exam=${id}`)}
     onNewBank={() => { void bankWorkspaces.create().then((bank) => window.location.assign(`/editor?bank=${bank.id}`)) }}

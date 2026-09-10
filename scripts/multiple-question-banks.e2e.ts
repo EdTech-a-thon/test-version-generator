@@ -18,7 +18,7 @@ test('Home creates and independently reopens durable Question Banks', async ({ p
   await name.fill('Biology')
   await createQuestion(page, 'Which animal is a mammal?')
   await expect(page.getByRole('region', { name: 'Question Bank' }).getByRole('listitem')).toContainText('Which animal is a mammal?')
-  await expect(page.getByRole('button', { name: /^Add .* to the exam$/ })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: /^Add .* to the exam$/ })).toBeVisible()
   await expect(page.getByRole('textbox', { name: 'Exam name' })).toHaveCount(0)
 
   await page.reload()
@@ -31,7 +31,10 @@ test('Home creates and independently reopens durable Question Banks', async ({ p
   await name.fill('Chemistry')
   await createQuestion(page, 'What is the symbol for oxygen?', 'Short answer')
   await page.getByRole('button', { name: 'Home' }).click()
-  await expect(page.getByRole('region', { name: 'Recently Updated Question Banks' }).locator('.question-bank-card')).toHaveCount(2)
+  const bankCards = page.getByRole('region', { name: 'Recently Updated Question Banks' }).locator('.question-bank-card')
+  await expect(bankCards).toHaveCount(2)
+  await expect(bankCards.nth(0)).toContainText('Chemistry')
+  await expect(bankCards.nth(1)).toContainText('Biology')
 
   await page.getByRole('button', { name: 'Biology' }).click()
   await expect(name).toHaveValue('Biology')

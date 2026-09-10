@@ -1,4 +1,5 @@
 import type { Question } from './exam'
+import type { ProseMirrorJSON } from './question-doc'
 import type { AuthoringState, SaveAsSnapshot } from './exam-store'
 import { createIndexedDBAuthoringBackend } from './indexeddb-authoring'
 import { withCanonicalQuestionProjection } from './canonical-question-projection'
@@ -19,7 +20,8 @@ type ActiveWorkspace = { key: 'active'; examId: string }
 export type RecentExam = ExamSummary & {
   title: string
   questionCount: number
-  preview: string | null
+  preview: readonly (readonly ProseMirrorJSON[])[] | null
+  unsaved: boolean
 }
 
 export type QuestionUsage = {
@@ -27,6 +29,23 @@ export type QuestionUsage = {
   title: string
   saved: boolean
   workingCopy: boolean
+}
+
+export function resourceUsageOf(
+  exam: ExamSummary,
+  working: AuthoringState | null,
+  saved: Omit<AuthoringState, 'dirty'> | null,
+  questionIds: ReadonlySet<string>,
+): QuestionUsage | null {
+  const inWorkingCopy = working?.examDraft.questionIds.some((id) => questionIds.has(id)) ?? false
+  const inSaved = saved?.examDraft.questionIds.some((id) => questionIds.has(id)) ?? false
+  if (!inWorkingCopy && !inSaved) return null
+  return {
+    examId: exam.id,
+    title: working?.examDraft.title ?? saved?.examDraft.title ?? 'Untitled Exam',
+    saved: inSaved,
+    workingCopy: inWorkingCopy,
+  }
 }
 
 /** Only the disposable placeholder shape may be collected. Any authored
@@ -73,21 +92,13 @@ function openRegistry(): Promise<IDBDatabase> {
   })
 }
 export function examDatabaseName(id: string) { return `${VERSIONED_STORAGE_NAME}-exam-${id}` }
-function previewOf(state: AuthoringState): string | null {
-  const question = state.questionBank.questions.find((item) => state.examDraft.questionIds.includes(item.id))
-  const content = question?.doc.content
-  if (!Array.isArray(content)) return null
-  for (const node of content) {
-    if (typeof node !== 'object' || node === null || node.type !== 'paragraph' || !Array.isArray(node.content)) continue
-    const text = (node.content as unknown[])
-      .filter((child: unknown): child is { type: string; text?: unknown } =>
-        typeof child === 'object' && child !== null && (child as { type?: unknown }).type === 'text',
-      )
-      .map((child) => typeof child.text === 'string' ? child.text : '')
-      .join('')
-    if (text) return text
-  }
-  return null
+function previewOf(state: AuthoringState): readonly (readonly ProseMirrorJSON[])[] | null {
+  const byId = new Map(state.questionBank.questions.map((question) => [question.id, question]))
+  const documents = state.examDraft.questionIds.flatMap((id) => {
+    const content = byId.get(id)?.doc.content
+    return Array.isArray(content) ? [content] : []
+  })
+  return documents.length > 0 ? documents : null
 }
 
 /** Registry and active workspace selection for the multi-Exam shell. */
@@ -220,26 +231,28 @@ export function createExamWorkspaceService(options: { now?: () => Date; createId
       )
       const records = await Promise.all(exams.map(async (exam) => {
         const state = await backendFor(exam.id).read()
-        return { ...exam, title: state?.examDraft.title ?? 'Untitled Exam', questionCount: state?.examDraft.questionIds.length ?? 0, preview: state ? previewOf(state) : null }
+        return {
+          ...exam,
+          title: state?.examDraft.title ?? 'Untitled Exam',
+          questionCount: state?.examDraft.questionIds.length ?? 0,
+          preview: state ? previewOf(state) : null,
+          unsaved: state?.dirty ?? false,
+        }
       }))
       return records.sort((left, right) => right.lastOpenedAt.localeCompare(left.lastOpenedAt))
     },
     async questionUsage(questionId: string): Promise<QuestionUsage[]> {
+      return service.resourceUsage([questionId])
+    },
+    async resourceUsage(questionIds: readonly string[]): Promise<QuestionUsage[]> {
       const exams = await transact(EXAM_STORE, 'readonly', (transaction) =>
         requestOf(transaction.objectStore(EXAM_STORE).getAll()) as Promise<ExamSummary[]>,
       )
+      const ids = new Set(questionIds)
       const usage = await Promise.all(exams.map(async (exam) => {
         const backend = backendFor(exam.id)
         const [working, saved] = await Promise.all([backend.read(), backend.readSaved()])
-        const inWorkingCopy = working?.examDraft.questionIds.includes(questionId) ?? false
-        const inSaved = saved?.examDraft.questionIds.includes(questionId) ?? false
-        if (!inWorkingCopy && !inSaved) return null
-        return {
-          examId: exam.id,
-          title: working?.examDraft.title ?? saved?.examDraft.title ?? 'Untitled Exam',
-          saved: inSaved,
-          workingCopy: inWorkingCopy,
-        } satisfies QuestionUsage
+        return resourceUsageOf(exam, working, saved, ids)
       }))
       return usage.filter((item): item is QuestionUsage => item !== null)
     },

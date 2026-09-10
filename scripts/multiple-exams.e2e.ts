@@ -5,21 +5,18 @@ async function newExam(page: import('@playwright/test').Page) {
   await expect(page.getByRole('textbox', { name: 'Exam name' })).toBeVisible()
 }
 
-async function writeQuestion(page: import('@playwright/test').Page, stem: string) {
-  await page.getByRole('button', { name: 'Insert your first question' }).click()
-  await page.getByRole('menuitem', { name: 'Multiple choice' }).click()
-  await page.keyboard.type(stem)
-  await page.keyboard.press('Control+Enter')
-  await expect(page.locator('.exam-question')).toHaveCount(1)
-}
-
 test('Home opens independently persisted recent Exams and restores the active Exam', async ({ page }) => {
   await page.goto('/')
   await expect(page.getByRole('region', { name: 'Recent Exams' })).toContainText('No recent Exams')
-  await newExam(page)
+  await page.getByRole('button', { name: 'New Question Bank' }).first().click()
+  await page.getByRole('button', { name: 'New question' }).click()
+  await page.getByRole('menuitem', { name: 'Multiple choice' }).click()
+  await page.keyboard.type('First question preview')
+  await page.keyboard.press('Control+Enter')
+  await page.getByRole('button', { name: /^Add First question preview to the exam$/ }).click()
   const name = page.getByRole('textbox', { name: 'Exam name' })
   await name.fill('First Exam')
-  await writeQuestion(page, 'First question preview')
+  await expect(page.locator('.exam-question')).toHaveCount(1)
   await page.reload()
   await expect(name).toHaveValue('First Exam')
   await page.getByRole('button', { name: 'Home' }).click()

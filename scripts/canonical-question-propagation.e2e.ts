@@ -53,7 +53,7 @@ test('a canonical edit propagates to clean and dirty Exams without manufacturing
       dirty: true,
     })
     await bankService.openTab({ mode: 'exam', resourceId: clean.id }, otherBank.id)
-    return { bankId: bank.id, cleanId: clean.id, dirtyId: dirty.id }
+    return { bankId: bank.id, bankUpdatedAt: (await bankService.read(bank.id))!.lastUpdatedAt, cleanId: clean.id, dirtyId: dirty.id }
   }, question)
 
   await page.goto(`/editor?exam=${setup.cleanId}`)
@@ -82,18 +82,22 @@ test('a canonical edit propagates to clean and dirty Exams without manufacturing
   await expect(page.getByLabel('Working Copy status')).toHaveText('Saved')
   await expect(page.getByRole('button', { name: 'Undo' })).toBeDisabled()
 
-  const result = await page.evaluate(async ({ cleanId, dirtyId }) => {
+  const result = await page.evaluate(async ({ cleanId, dirtyId, bankId }) => {
     const examsModule = '/src/exam-workspaces.ts'
+    const banksModule = '/src/question-bank-workspaces.ts'
     const { createExamWorkspaceService } = await import(/* @vite-ignore */ examsModule) as typeof import('../src/exam-workspaces')
+    const { createQuestionBankWorkspaceService } = await import(/* @vite-ignore */ banksModule) as typeof import('../src/question-bank-workspaces')
     const service = createExamWorkspaceService()
     const clean = await service.backendFor(cleanId).read()
     const dirty = await service.backendFor(dirtyId).read()
-    return { clean, dirty, recent: await service.recent() }
-  }, { cleanId: setup.cleanId, dirtyId: setup.dirtyId })
+    const bankUpdatedAt = (await createQuestionBankWorkspaceService().read(bankId))!.lastUpdatedAt
+    return { clean, dirty, recent: await service.recent(), bankUpdatedAt }
+  }, { cleanId: setup.cleanId, dirtyId: setup.dirtyId, bankId: setup.bankId })
   expect(JSON.stringify(result.clean)).toContain('Edited everywhere')
   expect(JSON.stringify(result.dirty)).toContain('Edited everywhere')
   expect(result.dirty?.examDraft.title).toBe('My unsaved title')
   expect(result.dirty?.dirty).toBe(true)
+  expect(result.bankUpdatedAt).not.toBe(setup.bankUpdatedAt)
   expect(result.recent.map(({ id, lastOpenedAt }) => ({ id, lastOpenedAt }))).toEqual(
     recentBefore.map(({ id, lastOpenedAt }) => ({ id, lastOpenedAt })),
   )
