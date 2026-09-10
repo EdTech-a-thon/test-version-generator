@@ -94,7 +94,7 @@ button { cursor: pointer; }
   /* Leave the document actions one stable header row at desktop widths. The
      title remains roomy while Save, Discard and its Working Copy status are
      present instead of making the sticky bar grow after scrolling begins. */
-  width: min(320px, 40vw); padding: 5px 7px; border: 1px solid transparent;
+  width: min(240px, 30vw); padding: 5px 7px; border: 1px solid transparent;
   border-radius: 4px; color: #332a24; background: transparent; font-size: 18px; outline: none;
 }
 .document-title:hover { border-color: #d8cbbb; }

@@ -274,6 +274,9 @@ export type ExamStore = {
   undo(): void
   redo(): void
   save(): Promise<void>
+  /** Creates a separately saved Exam through the caller's one durable
+   * transaction, then leaves this source Exam at its saved composition. */
+  saveAs(commit: (snapshot: SaveAsSnapshot) => Promise<void>): Promise<SaveAsSession>
   /** Atomically records the current Working Copy alongside newly prepared
    * immutable Export History. It never changes the explicitly saved Exam. */
   publish(publication: PublicationCommit): Promise<void>
@@ -363,12 +366,24 @@ function areEquivalentQuestions(left: Question, right: Question): boolean {
   )
 }
 
+export type SaveAsSnapshot = {
+  sourceRestored: AuthoringState
+  targetInitial: AuthoringState
+}
+
+/** Session-only history that moves with Save As rather than being persisted. */
+export type SaveAsSession = {
+  initial: AuthoringState
+  history: { undo: AuthoringState[]; redo: AuthoringState[] }
+}
+
 export function createExamStore(options: {
   backend: Backend<AuthoringState>
   savedBackend?: Backend<SavedState>
   saved?: SavedState | null
   publicationHistory?: PublicationHistory
   initial?: AuthoringState
+  initialHistory?: { undo: AuthoringState[]; redo: AuthoringState[] }
 }): ExamStore {
   const { backend, savedBackend } = options
   const durableBackend = 'commitSaved' in backend
@@ -394,8 +409,8 @@ export function createExamStore(options: {
   let pending: Promise<void> = Promise.resolve()
   let backupStatus: BackupStatus = 'ready'
   let backupRevision = 0
-  const undoStack: AuthoringState[] = []
-  const redoStack: AuthoringState[] = []
+  const undoStack: AuthoringState[] = [...(options.initialHistory?.undo ?? [])]
+  const redoStack: AuthoringState[] = [...(options.initialHistory?.redo ?? [])]
   const HISTORY_LIMIT = 100
 
   // Generic backends are chained so their writes cannot overtake one another.
@@ -736,6 +751,41 @@ export function createExamStore(options: {
     canRedo: () => redoStack.length > 0,
     undo: () => restoreHistory(undoStack, redoStack),
     redo: () => restoreHistory(redoStack, undoStack),
+
+    saveAs: async (commit) => {
+      await pending
+      const working = state
+      const sourceSaved = saved
+      const copiedTitle = `${working.examDraft.title} Copy`
+      const targetInitial: AuthoringState = {
+        ...working,
+        // A newly explicit saved composition must freeze any inherited answer
+        // column settings exactly as Save does.
+        examDraft: { ...withResolvedColumns(working), title: copiedTitle },
+        dirty: false,
+      }
+      delete targetInitial.lastExportedVersionId
+      // Question Content remains live when restoring an arrangement: Save As
+      // must not roll canonical edits back merely because the source's saved
+      // composition predates them.
+      const { lastExportedVersionId: _workingExportedVersionId, ...sourceWithoutCheckpoint } = working
+      const sourceRestored: AuthoringState = {
+        ...sourceWithoutCheckpoint,
+        examDraft: sourceSaved?.examDraft ?? createExamDraft(working.examDraft.title),
+        ...(sourceSaved?.lastExportedVersionId
+          ? { lastExportedVersionId: sourceSaved.lastExportedVersionId }
+          : {}),
+        dirty: false,
+      }
+      const history = { undo: [...undoStack], redo: [...redoStack] }
+      await commit({ sourceRestored, targetInitial })
+      state = withDirtyFlag(sourceRestored, sourceSaved)
+      selected = selectedExam(state.questionBank, state.examDraft, selected)
+      undoStack.length = 0
+      redoStack.length = 0
+      notify()
+      return { initial: targetInitial, history }
+    },
 
     save: async () => {
       if (saved && !state.dirty) return

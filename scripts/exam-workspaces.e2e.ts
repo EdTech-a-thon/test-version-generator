@@ -57,3 +57,62 @@ test('the IndexedDB workspace service keeps UUID identities and recency apart fr
     { id: result.second.id, title: 'Second changed in background' },
   ])
 })
+
+test('a failed Save As leaves the source Exam and active workspace unchanged', async ({ page }) => {
+  await page.goto('/')
+  await page.getByRole('heading', { name: 'Recent Exams', exact: true }).waitFor()
+  const result = await page.evaluate(async () => {
+    const { createExamWorkspaceService } = await import(
+      /* @vite-ignore */ '/src/exam-workspaces.ts'
+    ) as typeof import('../src/exam-workspaces')
+    const sourceId = '33333333-3333-4333-8333-333333333333'
+    const targetId = '44444444-4444-4444-8444-444444444444'
+    const ids = [sourceId, targetId]
+    const workspaces = createExamWorkspaceService({ createId: () => ids.shift()! })
+    await workspaces.create()
+    const sourceBackend = workspaces.backendFor(sourceId)
+    const source = {
+      questionBank: { questions: [] },
+      examDraft: { title: 'Source Exam', questionIds: [] },
+      dirty: false,
+    }
+    await sourceBackend.commitSaved(source)
+
+    const originalPut = IDBObjectStore.prototype.put
+    IDBObjectStore.prototype.put = function (value: unknown, key?: IDBValidKey) {
+      if (this.name === 'exam-workspace'
+        && (value as { examId?: string }).examId === targetId) {
+        throw new DOMException('simulated registry failure', 'QuotaExceededError')
+      }
+      return originalPut.call(this, value, key)
+    } as IDBObjectStore['put']
+    let message = ''
+    try {
+      await workspaces.saveAs(sourceId, {
+        sourceRestored: source,
+        targetInitial: {
+          ...source,
+          examDraft: { ...source.examDraft, title: 'Source Exam Copy' },
+        },
+      })
+    } catch (error) {
+      message = error instanceof Error ? error.message : String(error)
+    } finally {
+      IDBObjectStore.prototype.put = originalPut
+    }
+
+    return {
+      message,
+      active: await workspaces.activeId(),
+      targetExists: await workspaces.exists(targetId),
+      recent: (await workspaces.recent()).map((exam) => exam.id),
+      source: await sourceBackend.read(),
+    }
+  })
+
+  expect(result.message).toBe('simulated registry failure')
+  expect(result.active).toBe('33333333-3333-4333-8333-333333333333')
+  expect(result.targetExists).toBe(false)
+  expect(result.recent).toEqual(['33333333-3333-4333-8333-333333333333'])
+  expect(result.source).toMatchObject({ examDraft: { title: 'Source Exam' }, dirty: false })
+})

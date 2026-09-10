@@ -1231,6 +1231,57 @@ describe('the dirty flag and persistence', () => {
   })
 })
 
+describe('Save As', () => {
+  test('moves a dirty Working Copy and its Undo history into a separately saved Exam', async () => {
+    const { store, questions } = await withExamDraft(2)
+    await store.save()
+    store.setTitle('Biology quiz')
+    store.moveInExamDraft([questions[1]!.id], questions[0]!.id, 'before')
+    const sourceBefore = structuredClone(store.getState())
+    let copied: import('./exam-store').SaveAsSnapshot | undefined
+
+    const session = await store.saveAs(async (snapshot) => { copied = structuredClone(snapshot) })
+
+    expect(copied?.targetInitial).toMatchObject({
+      dirty: false,
+      examDraft: { title: 'Biology quiz Copy', questionIds: [questions[1]!.id, questions[0]!.id] },
+    })
+    expect(copied?.targetInitial.questionBank.questions.map(({ id }) => id)).toEqual(
+      sourceBefore.questionBank.questions.map(({ id }) => id),
+    )
+    expect(copied?.sourceRestored.examDraft).toMatchObject({
+      title: 'Untitled exam', questionIds: [questions[0]!.id, questions[1]!.id], columns: expect.any(Object),
+    })
+    expect(store.getState().examDraft.title).toBe('Untitled exam')
+    expect(renderedIds(store)).toEqual([questions[0]!.id, questions[1]!.id])
+    expect(store.canUndo()).toBe(false)
+    expect(store.canRedo()).toBe(false)
+
+    const target = createExamStore({
+      backend: memory(),
+      saved: copied!.targetInitial,
+      initial: copied!.targetInitial,
+      initialHistory: session.history,
+    })
+    expect(target.getState().dirty).toBe(false)
+    expect(target.canUndo()).toBe(true)
+    target.undo()
+    expect(target.getState().dirty).toBe(true)
+  })
+
+  test('copies a clean Exam and leaves it unchanged if the durable operation fails', async () => {
+    const { store } = await freshStore()
+    await store.save()
+    const before = store.getState()
+
+    await expect(store.saveAs(async () => { throw new Error('disk full') })).rejects.toThrow('disk full')
+
+    expect(store.getState()).toBe(before)
+    expect(store.getState().dirty).toBe(false)
+    expect(store.getState().examDraft.title).toBe('Untitled exam')
+  })
+})
+
 describe('undo and redo', () => {
   test('each authoring action is exactly one step in both directions', async () => {
     const { store } = await freshStore()

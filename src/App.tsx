@@ -46,7 +46,7 @@ import {
 import type { ColumnSetting, Difficulty, Question, QuestionPlacement, QuestionType } from './exam'
 import { DifficultyBadge, TopicBadge } from './badges'
 import { bankQuestionById } from './question-bank'
-import type { ExamStore } from './exam-store'
+import { createExamStore, type ExamStore } from './exam-store'
 import { ExamPage } from './exam-page'
 import { QuestionBankPane } from './question-bank-pane'
 import { NO_FILTER, topicOptions, type QuestionBankFilter } from './question-bank-view'
@@ -616,10 +616,12 @@ function QuestionDialog({
 function ExamEditor({
   store,
   onHome,
+  onSaveAs,
   launchError,
 }: {
   store: ExamStore
   onHome: () => void
+  onSaveAs: () => Promise<void>
   launchError: string | null
 }) {
   const state = useSyncExternalStore(store.subscribe, store.getState)
@@ -917,14 +919,14 @@ function ExamEditor({
         && !event.altKey
       ) {
         event.preventDefault()
-        if (!editing && !exportDialog && !confirmingUseAsDraft && !reviewingHistoricalQuestions) {
-          void store.save()
-        }
+        if (editing || exportDialog || confirmingUseAsDraft || reviewingHistoricalQuestions || isHistoricalBrowsing) return
+        if (event.shiftKey) void onSaveAs()
+        else void store.save()
       }
     }
     document.addEventListener('keydown', onSaveShortcut)
     return () => document.removeEventListener('keydown', onSaveShortcut)
-  }, [confirmingUseAsDraft, editing, exportDialog, reviewingHistoricalQuestions, store])
+  }, [confirmingUseAsDraft, editing, exportDialog, isHistoricalBrowsing, onSaveAs, reviewingHistoricalQuestions, store])
 
   useEffect(() => {
     const backupNeedsWarning = () => store.backupStatus() !== 'ready'
@@ -1038,6 +1040,8 @@ function ExamEditor({
       return
     }
     requestAnimationFrame(() => {
+      const active = document.activeElement
+      if (active && active !== document.body && active !== document.documentElement) return
       if (trigger?.isConnected) trigger.focus()
       else exportButton.current?.focus()
     })
@@ -1250,6 +1254,16 @@ function ExamEditor({
             onClick={() => void store.save()}
           >
             Save
+          </button>
+          <button
+            type="button"
+            className="secondary-button"
+            aria-label="Save As"
+            title="Save As (Ctrl/Cmd+Shift+S)"
+            disabled={isHistoricalBrowsing}
+            onClick={() => void onSaveAs()}
+          >
+            Save As
           </button>
           <button
             ref={historyButton}
@@ -1557,7 +1571,30 @@ export default function App({
 }) {
   const route = useRoute()
   const [exams, setExams] = useState(initialExams)
+  const [editorStore, setEditorStore] = useState(store)
   const homeError = initialError
+  const saveAs = useCallback(async () => {
+    if (!editorStore) return
+    const sourceId = await workspaces.activeId()
+    if (!sourceId) throw new Error('The source Exam is unavailable.')
+    let targetId: string | null = null
+    const session = await editorStore.saveAs(async (snapshot) => {
+      targetId = (await workspaces.saveAs(sourceId, snapshot)).id
+    })
+    if (!targetId) throw new Error('The copied Exam is unavailable.')
+    const target = session.initial
+    const saved = {
+      questionBank: target.questionBank,
+      examDraft: target.examDraft,
+      ...(target.lastExportedVersionId ? { lastExportedVersionId: target.lastExportedVersionId } : {}),
+    }
+    setEditorStore(createExamStore({
+      backend: workspaces.backendFor(targetId),
+      saved,
+      initial: target,
+      initialHistory: session.history,
+    }))
+  }, [editorStore, workspaces])
   useEffect(() => {
     if (route !== '/') return
     let current = true
@@ -1576,7 +1613,7 @@ export default function App({
     onNewExam={() => { void workspaces.create().then((exam) => window.location.assign(`/editor?exam=${exam.id}`)) }}
     onOpen={(id) => window.location.assign(`/editor?exam=${id}`)}
   />
-  return store ? <ExamEditor store={store} launchError={initialError} onHome={() => {
+  return editorStore ? <ExamEditor store={editorStore} launchError={initialError} onSaveAs={saveAs} onHome={() => {
     void workspaces.activeId().then(async (id) => {
       if (id) await workspaces.removePristine(id)
       window.location.assign('/')

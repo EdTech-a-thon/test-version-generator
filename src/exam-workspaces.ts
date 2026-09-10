@@ -1,4 +1,4 @@
-import type { AuthoringState } from './exam-store'
+import type { AuthoringState, SaveAsSnapshot } from './exam-store'
 import { createIndexedDBAuthoringBackend } from './indexeddb-authoring'
 import { createExamDraft } from './question-bank'
 import {
@@ -82,9 +82,16 @@ export function createExamWorkspaceService(options: { now?: () => Date; createId
   const backendFor = (id: string) => createIndexedDBAuthoringBackend(examDatabaseName(id))
   const transact = async <T>(stores: string | string[], mode: IDBTransactionMode, operation: (transaction: IDBTransaction) => Promise<T> | T) => {
     const transaction = (await registry).transaction(stores, mode)
-    const result = await operation(transaction)
-    await complete(transaction)
-    return result
+    const completed = complete(transaction)
+    try {
+      const result = await operation(transaction)
+      await completed
+      return result
+    } catch (error) {
+      try { transaction.abort() } catch { /* The transaction already settled. */ }
+      await completed.catch(() => undefined)
+      throw error
+    }
   }
   const service = {
     backendFor,
@@ -124,6 +131,54 @@ export function createExamWorkspaceService(options: { now?: () => Date; createId
         transaction.objectStore(EXAM_WORKSPACE_STORE).put({ key: 'active', examId: id } satisfies ActiveWorkspace)
       })
       return true
+    },
+    /**
+     * The registry transaction makes the newly saved Exam visible and switches
+     * the active editor as one operation. The Exam stores are independent
+     * IndexedDB databases in this storage generation, so writes around that
+     * registry commit are compensated on failure before this promise rejects.
+     */
+    async saveAs(sourceId: string, snapshot: SaveAsSnapshot): Promise<ExamSummary> {
+      const source = await transact(EXAM_STORE, 'readonly', (transaction) =>
+        requestOf(transaction.objectStore(EXAM_STORE).get(sourceId)) as Promise<ExamSummary | undefined>,
+      )
+      if (!source) throw new Error('The source Exam is unavailable.')
+      const timestamp = now().toISOString()
+      const target = { id: createId(), createdAt: timestamp, lastOpenedAt: timestamp }
+      const sourceBackend = backendFor(sourceId)
+      const targetBackend = backendFor(target.id)
+      const previousWorking = await sourceBackend.read()
+      let targetStarted = false
+      let sourceWritten = false
+      try {
+        targetStarted = true
+        await targetBackend.commitSaved({
+          questionBank: snapshot.targetInitial.questionBank,
+          examDraft: snapshot.targetInitial.examDraft,
+          ...(snapshot.targetInitial.lastExportedVersionId
+            ? { lastExportedVersionId: snapshot.targetInitial.lastExportedVersionId }
+            : {}),
+        })
+        await sourceBackend.write(snapshot.sourceRestored)
+        sourceWritten = true
+        await transact([EXAM_STORE, EXAM_WORKSPACE_STORE], 'readwrite', (transaction) => {
+          transaction.objectStore(EXAM_STORE).put(target)
+          transaction.objectStore(EXAM_WORKSPACE_STORE).put({ key: 'active', examId: target.id } satisfies ActiveWorkspace)
+        })
+        return target
+      } catch (error) {
+        // Neither source state nor a target workspace may escape a failed Save
+        // As. The only operations outside the registry transaction are the two
+        // per-Exam stores, so restore/remove those before reporting failure.
+        if (sourceWritten && previousWorking) await sourceBackend.write(previousWorking).catch(() => undefined)
+        if (targetStarted) {
+          await new Promise<void>((resolve) => {
+            const request = indexedDB.deleteDatabase(examDatabaseName(target.id))
+            request.onsuccess = request.onblocked = request.onerror = () => resolve()
+          })
+        }
+        throw error
+      }
     },
     async recent(): Promise<RecentExam[]> {
       const exams = await transact(EXAM_STORE, 'readonly', (transaction) =>
