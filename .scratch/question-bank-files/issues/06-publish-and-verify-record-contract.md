@@ -6,6 +6,8 @@
 
 **Status:** ready-for-agent
 
+**Published as:** GitHub issue #61
+
 - [ ] A checked-in JSON Schema defines `test-parrot/question-bank` format version `0.1.0` and has a stable public schema identifier.
 - [ ] Prose documentation defines the envelope, version policy, required-feature behavior, Question Types, semantic rich-text vocabulary, marks, links, image references, Media Assets, provenance, and integrity calculation.
 - [ ] Documentation states that patch changes in major version zero are compatible clarifications or additions, while minor changes may be incompatible and require explicit parser or migration support.

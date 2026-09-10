@@ -6,6 +6,8 @@
 
 **Status:** ready-for-agent
 
+**Published as:** GitHub issue #58
+
 - [ ] Semantic inline and block image nodes reference Media Assets by `sha256:<digest>` rather than local URLs or PDF object identifiers.
 - [ ] Image nodes retain optional alt text, optional caption, and optional Authored Image Size constrained from 0.05 through 1.
 - [ ] The record stores each referenced Media Asset exactly once with SHA-256, MIME type, intrinsic width and height, and base64 source bytes.

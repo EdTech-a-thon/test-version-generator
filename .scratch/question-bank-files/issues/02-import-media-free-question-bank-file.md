@@ -6,6 +6,8 @@
 
 **Status:** ready-for-agent
 
+**Published as:** GitHub issue #57
+
 - [ ] A teacher can choose a PDF for import from a Question Bank resource-management surface.
 - [ ] Inspection reads PDF attachments and never uses OCR, page text, visual layout, annotations, or PDF images to reconstruct Questions.
 - [ ] Import requires exactly one attachment whose description is `pdf-canonical-extraction` and whose record format is `test-parrot/question-bank`.

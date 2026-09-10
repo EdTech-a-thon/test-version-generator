@@ -6,6 +6,8 @@
 
 **Status:** ready-for-agent
 
+**Published as:** GitHub issue #62
+
 - [ ] Export and import dialogs have accessible names, initial focus, trapped Tab order, Escape cancellation, and useful focus restoration.
 - [ ] Controls are disabled while record preparation, PDF generation, validation, or persistence is in progress.
 - [ ] Progress and recoverable failures are announced without dismissing the teacher's context.

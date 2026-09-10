@@ -195,4 +195,4 @@ Export constructs and validates the record first, renders the complete PDF previ
 - `pdf-canonical-extraction` identifies the one canonical record under the pdfcx convention. The Test Parrot format identifier and version determine whether that record is a Question Bank Record the application understands.
 - The record digest is required for corruption detection but is not retained for duplicate-import behavior. Every confirmed import creates a new bank.
 - The public format is pre-release. Any incompatible v0 evolution requires a new explicit format version and deliberate importer support rather than permissive version-range matching.
-- This is a local issue draft and has not been published to GitHub.
+- Published to GitHub as #55, with implementation slices #56 through #62.

@@ -6,6 +6,8 @@
 
 **Status:** ready-for-agent
 
+**Published as:** GitHub issue #60
+
 - [ ] The importer maintains an explicit table of exact format versions for which it has a parser or migration.
 - [ ] Numeric version ranges and “accept every 0.x” guesses are not used for compatibility.
 - [ ] Unsupported versions fail before confirmation and identify both the file's version and versions supported by the application.

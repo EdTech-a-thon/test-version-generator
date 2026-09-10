@@ -6,6 +6,8 @@
 
 **Status:** ready-for-agent
 
+**Published as:** GitHub issue #56
+
 - [ ] An export action targets exactly one active Question Bank and cannot include Questions from another bank.
 - [ ] Export is unavailable for an empty Question Bank and explains that at least one Question is required.
 - [ ] An open, unconfirmed Question edit must be saved or cancelled before export can proceed.

@@ -6,6 +6,8 @@
 
 **Status:** ready-for-agent
 
+**Published as:** GitHub issue #59
+
 - [ ] A Question Bank can persist an optional description, author, and license alongside its name.
 - [ ] License is an optional object with a display name and optional safe URL.
 - [ ] Teachers can explicitly edit these attributes through Question Bank management without a bank-level Save workflow.
