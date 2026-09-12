@@ -225,7 +225,7 @@ describe('hostile Question Bank File inspection', () => {
 
   test('rejects malformed PDFs, missing records, ambiguous records, and malformed JSON distinctly', async () => {
     await rejected(inspectQuestionBankFile(encoder.encode('not a PDF')), 'invalid-pdf', 'valid PDF')
-    await rejected(inspectQuestionBankFile(await pdfWith()), 'missing-attachment', 'preview-only')
+    await rejected(inspectQuestionBankFile(await pdfWith()), 'missing-attachment', 'not exported from Test Parrot')
     const good = bytesOf(baseRecord() as QuestionBankRecord & Record<string, unknown>)
     await rejected(inspectQuestionBankFile(await pdfWith(
       { name: 'one.json', description: QUESTION_BANK_ATTACHMENT_DESCRIPTION, bytes: good },

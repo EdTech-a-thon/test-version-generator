@@ -78,6 +78,7 @@ import {
   FileType2,
   FolderOpen,
   Gauge,
+  Import,
   History,
   ListChecks,
   Plus,
@@ -1045,7 +1046,7 @@ function QuestionBankWorkspace({
 function QuestionBankTabsPane({
   context,
   service,
-  fallback,
+  onImportBank,
   workingCopyIds = new Set(),
   onQuestionsChange,
   onAddToExam,
@@ -1059,7 +1060,9 @@ function QuestionBankTabsPane({
 }: {
   context: BankWorkspaceContext
   service: QuestionBankWorkspaceService
-  fallback?: ReactNode
+  /** Opens the import dialog — with a file, when one was dropped on the empty
+   *  pane that the page-wide drop target did not claim. */
+  onImportBank?: (file?: File) => void
   workingCopyIds?: ReadonlySet<string>
   onQuestionsChange?: (questions: readonly Question[]) => void
   onAddToExam?: (question: Question) => void
@@ -1086,6 +1089,7 @@ function QuestionBankTabsPane({
   const [hydrated, setHydrated] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const [creatingBank, setCreatingBank] = useState(false)
+  const [fileOver, setFileOver] = useState(false)
 
   useEffect(() => {
     let current = true
@@ -1254,28 +1258,67 @@ function QuestionBankTabsPane({
       beforeCanonicalQuestionCommit={beforeCanonicalQuestionCommit}
       onCanonicalQuestionCommitted={onCanonicalQuestionCommitted}
       onQuestionDeleted={onQuestionDeleted}
-    /> : fallback ?? <div className="question-bank question-bank-no-tab">
-      <div className="question-bank-no-tab-content">
-        <h2>Question Bank</h2>
-        <p>No Question Bank is open.</p>
-        <div className="question-bank-no-tab-actions">
+    /> : <div
+      className="question-bank question-bank-no-tab"
+      data-over={fileOver ? 'true' : undefined}
+      onDragOver={(event) => {
+        // A Question Bank file is claimed by the page-wide drop target before
+        // it gets here. Anything else the pointer is carrying — a screenshot,
+        // a scan — is taken by the pane so it can be told apart from an
+        // import and answered with the way to convert it.
+        if (!onImportBank || !Array.from(event.dataTransfer.types).includes('Files')) return
+        event.preventDefault()
+        event.dataTransfer.dropEffect = 'copy'
+        setFileOver(true)
+      }}
+      onDragLeave={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFileOver(false)
+      }}
+      onDrop={(event) => {
+        if (!onImportBank) return
+        event.preventDefault()
+        setFileOver(false)
+        const file = event.dataTransfer.files[0]
+        if (file) onImportBank(file)
+      }}
+    >
+      {/* The same chrome as an open bank, so the pane keeps its name while it
+          is empty. What follows is the editor's Get Started page: the three
+          ways a bank gets here, in the order they are reached for, on the
+          dotted ground Home uses for a space a card has not been put in yet.
+          The whole pane is also the drop target for a file. */}
+      <div className="question-bank-toolbar">
+        <header className="question-bank-header"><h2>Question Bank</h2></header>
+      </div>
+      <div className="bank-get-started">
+        <p className="bank-get-started-title">Get started</p>
+        <div className="bank-get-started-actions">
           <button
             type="button"
-            className="secondary-button"
             disabled={!hydrated || creatingBank}
             onClick={() => void openPicker()}
           >
-            Open Question Bank
+            <FolderOpen aria-hidden="true" />
+            <span>Open Question Bank</span>
           </button>
           <button
             type="button"
-            className="primary-button"
             disabled={!hydrated || creatingBank}
             onClick={() => void createBank()}
           >
-            {creatingBank ? 'Creating…' : 'Create new Question Bank'}
+            <Plus aria-hidden="true" />
+            <span>{creatingBank ? 'Creating…' : 'New Question Bank'}</span>
           </button>
+          {onImportBank && <button
+            type="button"
+            disabled={!hydrated || creatingBank}
+            onClick={() => onImportBank()}
+          >
+            <Import aria-hidden="true" />
+            <span>Import Question Bank</span>
+          </button>}
         </div>
+        <p className="bank-get-started-hint">Or drop a Question Bank file anywhere here.</p>
       </div>
     </div>}
     {pickerBanks && <ResourcePicker
@@ -1458,6 +1501,8 @@ function ExamEditor({
   onOpenExam,
   onSaveAs,
   launchError,
+  bankLibraryRevision = 0,
+  onImportBank,
 }: {
   store: ExamStore
   examId: string
@@ -1468,6 +1513,11 @@ function ExamEditor({
   onOpenExam: (id: string) => void
   onSaveAs: () => Promise<void>
   launchError: string | null
+  /** Bumped when something outside the bank pane — an import from the
+   *  page-wide file drop — has opened a tab in this Exam's workspace, so the
+   *  pane reads its tabs back rather than showing a strip that is now stale. */
+  bankLibraryRevision?: number
+  onImportBank?: (file?: File) => void
 }) {
   const state = useSyncExternalStore(store.subscribe, store.getState)
   const backupStatus = useSyncExternalStore(store.subscribe, store.backupStatus)
@@ -2172,6 +2222,7 @@ function ExamEditor({
           <QuestionBankTabsPane
             context={{ examId }}
             service={bankWorkspaces}
+            onImportBank={onImportBank}
             workingCopyIds={workingCopyIds}
             onQuestionsChange={store.syncCanonicalQuestions}
             onAddToExam={addToWorkingCopy}
@@ -2180,7 +2231,7 @@ function ExamEditor({
               if (selection.isSelected(questionId)) selection.toggle(questionId)
             }}
             workspaceDrag={drag}
-            resourceRevision={bankRevision}
+            resourceRevision={bankRevision + bankLibraryRevision}
             examsService={workspaces}
             beforeCanonicalQuestionCommit={() => store.whenSettled()}
             onCanonicalQuestionCommitted={(question) => store.syncCanonicalQuestions([question])}
@@ -2394,17 +2445,28 @@ export default function App({
   const [inspectingBankFile, setInspectingBankFile] = useState(false)
   const [droppedBankFile, setDroppedBankFile] = useState<File | null>(null)
   const homeError = initialError
+  const [bankLibraryRevision, setBankLibraryRevision] = useState(0)
   const importBank = useCallback(async (
     proposal: import('./question-bank-import').QuestionBankImportProposal,
     proposedName: string,
   ) => {
     const imported = await bankWorkspaces.import(proposal, proposedName)
+    // From inside the editor, the imported bank is wanted where the teacher
+    // is: as the active tab of this Exam's bank pane, with the Exam untouched.
+    // Everywhere else it opens on its own page.
+    if (route === '/editor' && editorId) {
+      await bankWorkspaces.openTab({ examId: editorId }, imported.id)
+      setInspectingBankFile(false)
+      setDroppedBankFile(null)
+      setBankLibraryRevision((revision) => revision + 1)
+      return
+    }
     window.sessionStorage.setItem(
       'test-parrot-import-announcement',
       `Imported ${imported.questions.length} ${imported.questions.length === 1 ? 'Question' : 'Questions'} into ${imported.name}.`,
     )
     window.location.assign(`/question-bank?id=${imported.id}`)
-  }, [bankWorkspaces])
+  }, [bankWorkspaces, editorId, route])
   const requestBankDeletion = useCallback((bank: QuestionBankCollectionItem) => {
     void bankWorkspaces.read(bank.id).then(async (resource) => {
       const impact = await workspaces.deletionImpact(resource?.questions.map(({ id }) => id) ?? [])
@@ -2532,6 +2594,8 @@ export default function App({
     workspaces={workspaces}
     exams={exams}
     launchError={initialError}
+    bankLibraryRevision={bankLibraryRevision}
+    onImportBank={(file) => { setDroppedBankFile(file ?? null); setInspectingBankFile(true) }}
     onSaveAs={saveAs}
     onOpenExam={(id) => {
       void (async () => {

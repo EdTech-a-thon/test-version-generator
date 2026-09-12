@@ -732,7 +732,7 @@ export async function inspectQuestionBankFile(
     if (candidates.length === 0) {
       throw new QuestionBankImportError(
         'missing-attachment',
-        'This PDF has no canonical Question Bank Record. It is preview-only; request the original Question Bank File.',
+        'This PDF was not exported from Test Parrot, so there is no Question Bank inside it to import.',
       )
     }
     if (candidates.length > 1) {
