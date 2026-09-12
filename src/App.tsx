@@ -96,6 +96,8 @@ import { ContextMenu, type MenuPoint } from './context-menu'
 import { BEFORE_NAVIGATE_EVENT, useRoute } from './use-route'
 import { Footer } from './site-chrome'
 import { HomePage } from './home-page'
+import { LandingPage, OnboardingPage } from './landing-page'
+import { hasBeenWelcomed } from './welcomed'
 import type { ExamWorkspaceService, QuestionDeletionImpact, QuestionUsage, RecentExam } from './exam-workspaces'
 import {
   type QuestionBankResource,
@@ -2568,6 +2570,15 @@ export default function App({
     onDeleteBank={requestBankDeletion}
     onImportBank={() => setInspectingBankFile(true)}
   />{bankDeletionConfirmation}</>
+  // A device that has never been here gets the front door instead of empty
+  // shelves; the same page stays reachable at /welcome afterwards.
+  const firstVisit = exams.length === 0 && bankCollection.length === 0 && !hasBeenWelcomed()
+  if (route === '/welcome' || (route === '/' && firstVisit)) return <>{globalChrome}<LandingPage returning={!firstVisit} /></>
+  if (route === '/get-started') return <>{globalChrome}<OnboardingPage
+    onNewBank={newBank}
+    onImportBank={() => setInspectingBankFile(true)}
+    onNewExam={newExam}
+  /></>
   if (route === '/') return <>{globalChrome}<HomePage
     exams={exams}
     banks={bankCollection}

@@ -10,7 +10,19 @@ export default defineConfig({
   // retry transient failures so a single flake no longer fails the run.
   workers: 1,
   retries: 2,
-  use: { baseURL: 'http://127.0.0.1:4174' },
+  use: {
+    baseURL: 'http://127.0.0.1:4174',
+    // A fresh browser is a first visit, and a first visit to `/` is the
+    // front door rather than Home. The suites start from Home, so every
+    // context arrives already welcomed.
+    storageState: {
+      cookies: [],
+      origins: [{
+        origin: 'http://127.0.0.1:4174',
+        localStorage: [{ name: 'test-parrot:welcomed', value: 'true' }],
+      }],
+    },
+  },
   webServer: {
     command: 'bunx vite --host 127.0.0.1 --port 4174',
     url: 'http://127.0.0.1:4174',
