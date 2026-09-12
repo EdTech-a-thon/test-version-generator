@@ -34,6 +34,11 @@ export function renderExtractPage(markdown: string): string {
       header a { color: #4e3b2f; font-weight: 600; text-decoration: none; }
       header small { margin-left: auto; color: #6e5b4d; }
       header small a { font-weight: 500; text-decoration: underline; text-underline-offset: 4px; }
+      header button {
+        padding: 6px 12px; border: 1px solid #d8c8b8; border-radius: 8px; background: #f7eee3;
+        color: #4e3b2f; font: inherit; font-size: 14px; font-weight: 600; cursor: pointer;
+      }
+      header button:hover { background: #ebddcd; }
       main { max-width: 760px; margin: 0 auto; padding: 28px 24px 64px; }
       h1 { margin: 0 0 14px; font-size: 26px; }
       h2 { margin: 32px 0 10px; font-size: 19px; }
@@ -51,10 +56,24 @@ export function renderExtractPage(markdown: string): string {
       <img src="/icon-256.png" alt="" />
       <a href="/">Test Parrot</a>
       <small>Also available as <a href="/extract.md">plain Markdown</a></small>
+      <button type="button" id="copy">Copy instructions</button>
     </header>
     <main>
 ${body}
     </main>
+    <script>
+      // Copies the Markdown, not the rendered page, so it pastes into a chat
+      // exactly as an assistant would read it from /extract.md. Closing tags
+      // are escaped so the source can never end this script early.
+      const source = ${JSON.stringify(markdown).replace(/<\//g, '<\\/')}
+      const button = document.getElementById('copy')
+      button.addEventListener('click', () => {
+        navigator.clipboard.writeText(source).then(() => {
+          button.textContent = 'Copied'
+          setTimeout(() => { button.textContent = 'Copy instructions' }, 2000)
+        })
+      })
+    </script>
   </body>
 </html>
 `
