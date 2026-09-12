@@ -45,7 +45,7 @@ import { DEFAULT_COLUMNS, columnsOf, type ColumnSetting, type Exam, type Arrange
 import type { Selection } from './use-selection'
 import type { WorkspaceDrag } from './use-workspace-drag'
 import { dropStateOf, type QuestionDropState } from './workspace-drag'
-import { CircleMinus, Copy, EllipsisVertical, Pencil, RefreshCw, Shuffle } from 'lucide-react'
+import { CircleMinus, Copy, EllipsisVertical, ListRestart, Pencil, Shuffle } from 'lucide-react'
 import {
   ContextMenu,
   type MenuItem,
@@ -152,19 +152,6 @@ function questionMenuItems({
     : [question.id]
   const items: MenuItem[] = [
     {
-      kind: 'submenu',
-      label: 'Vary',
-      icon: <RefreshCw />,
-      items: [
-        {
-          kind: 'action',
-          label: 'Shuffle answer order',
-          icon: <Shuffle />,
-          onSelect: () => onShuffleSelectedAnswers(actedOnIds),
-        },
-      ],
-    },
-    {
       kind: 'action',
       label: 'Edit question',
       icon: <Pencil />,
@@ -201,11 +188,20 @@ function questionMenuItems({
   items.push(
     { kind: 'separator' },
     { kind: 'label', label: 'Vary' },
+    // Both shuffles sit side by side under one heading, each with its own
+    // icon: crossed arrows for reordering questions across the sheet, a list
+    // with a return arrow for reordering the answers inside each question.
     {
       kind: 'action',
       label: 'Shuffle question order',
       icon: <Shuffle />,
       onSelect: () => onShuffleSelected(actedOnIds),
+    },
+    {
+      kind: 'action',
+      label: 'Shuffle answer order',
+      icon: <ListRestart />,
+      onSelect: () => onShuffleSelectedAnswers(actedOnIds),
     },
   )
   // Remove, never Delete: this takes the question off the Working Copy and leaves
