@@ -427,8 +427,8 @@ export function QuestionBankPane({
             >
               <Plus aria-hidden="true" />
             </button>}
-            {onExport && bank.questions.length === 0 && <span id="empty-bank-export-help" className="bank-export-help">At least one Question is required.</span>}
-            {onExport && exportBlocked && <span id="editing-bank-export-help" className="bank-export-help">Save or cancel the open Question edit before exporting.</span>}
+            {onExport && bank.questions.length === 0 && <span id="empty-bank-export-help" className="sr-only">At least one Question is required.</span>}
+            {onExport && exportBlocked && <span id="editing-bank-export-help" className="sr-only">Save or cancel the open Question edit before exporting.</span>}
           </div>
         </header>
 

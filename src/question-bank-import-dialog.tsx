@@ -72,6 +72,11 @@ export function QuestionBankImportDialog({
   const [proposal, setProposal] = useState<QuestionBankImportProposal | null>(null)
   const [proposedName, setProposedName] = useState('')
   const [error, setError] = useState<string | null>(null)
+  // A file this app cannot read at all — a scan, a screenshot, a PDF that
+  // did not come from here — is not a broken import, it is a test that has
+  // not been converted yet. That failure is answered with the way to convert
+  // it rather than with a reading of what went wrong.
+  const [needsConversion, setNeedsConversion] = useState(false)
   const [phase, setPhase] = useState<'choose' | 'inspecting' | 'saving'>('choose')
   const [copied, setCopied] = useState(false)
   useEffect(() => {
@@ -126,6 +131,7 @@ export function QuestionBankImportDialog({
     setPhase('inspecting')
     setProposal(null)
     setError(null)
+    setNeedsConversion(false)
     void file
       .arrayBuffer()
       .then(async (bytes) => {
@@ -145,6 +151,8 @@ export function QuestionBankImportDialog({
         setProposedName(next.summary.bankName)
       })
       .catch((reason) => {
+        const code = reason instanceof Error && 'code' in reason ? reason.code : null
+        setNeedsConversion(code === 'invalid-pdf' || code === 'missing-attachment')
         setError(
           reason instanceof Error && reason.message
             ? reason.message
@@ -243,14 +251,29 @@ export function QuestionBankImportDialog({
               <strong>Question Bank PDF or JSON</strong>
               <span>Drop a file here or click to choose one</span>
             </label>
-            <p className="bank-import-assist">
+            <div
+              className="bank-import-assist"
+              data-emphasis={needsConversion ? 'true' : undefined}
+              role={needsConversion ? 'alert' : undefined}
+            >
               <span>
-                Already have a test? Copy these instructions for an AI to turn
-                any PDF or screenshot into a file you can import here.
+                {needsConversion ? (
+                  <>
+                    <strong>That file isn’t a Question Bank yet.</strong>{' '}
+                    Copy these instructions and give them to an AI along with
+                    your test — as a PDF, scan or screenshot — and it will
+                    produce a file you can drop here.
+                  </>
+                ) : (
+                  <>
+                    Already have a test? Copy these instructions for an AI to
+                    turn any PDF or screenshot into a file you can import here.
+                  </>
+                )}
               </span>
               <button
                 type="button"
-                className="secondary-button"
+                className={needsConversion ? 'primary-button' : 'secondary-button'}
                 disabled={busy}
                 onClick={() => {
                   void navigator.clipboard.writeText(extractInstructions).then(() => setCopied(true))
@@ -259,7 +282,7 @@ export function QuestionBankImportDialog({
                 {copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
                 {copied ? 'Copied' : 'Copy instructions'}
               </button>
-            </p>
+            </div>
           </div>
         )}
 
@@ -270,7 +293,7 @@ export function QuestionBankImportDialog({
         >
           {phase === 'inspecting' && <p role="status">Validating Question Bank…</p>}
           {phase === 'saving' && <p role="status">Creating Question Bank…</p>}
-          {error && <p className="home-error" role="alert">{error}</p>}
+          {error && !needsConversion && <p className="home-error" role="alert">{error}</p>}
         </div>
 
         {proposal && (

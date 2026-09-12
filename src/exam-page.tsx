@@ -831,6 +831,13 @@ export function ExamPage({
   // The Question Section a gesture in flight could start, if it is one the Exam
   // Draft has no questions in. A gesture from within the Working Copy is a
   // reorder and can never reach an empty section, so it is offered nothing.
+  //
+  // The offer is the whole of this pane. An empty section is not drawn on the
+  // sheet — a section is derived from the questions in it — so there is no
+  // position on the paper to aim at, and every question already on it is of
+  // a type the gesture cannot reach. Releasing anywhere over the Working Copy
+  // is therefore unambiguous, and asking for a precise landing would only make
+  // the teacher hunt for it.
   const emptySectionOffer =
     drag.source?.pane === 'question-bank'
       && !exam.questions.some((question) => question.type === drag.source?.type)
@@ -851,6 +858,8 @@ export function ExamPage({
       className={workspaceClasses.join(' ')}
       ref={workspace}
       style={PAGE_GEOMETRY}
+      data-empty-section={emptySectionOffer ?? undefined}
+      data-active={drag.intent?.kind === 'insert-first' ? 'true' : undefined}
       onClick={clearOnBackground}
       onPointerMove={() => {
         if (!drag.source && droppedQuestionIds.size > 0) drag.clearDropFeedback()
@@ -873,11 +882,11 @@ export function ExamPage({
                 the first question will go, rather than leaving a blank sheet
                 and a button in the header as the only way in. It is editing
                 chrome: it appears only while the exam is empty, and it is
-                never part of the printed document. */}
+                never part of the printed document. It lights up with the
+                pane, which is the drop target; it is not one of its own. */}
             {blank && index === 0 && (
               <div
                 className="secondary-button empty-exam-button"
-                data-empty-section={emptySectionOffer ?? undefined}
                 data-active={drag.intent?.kind === 'insert-first' ? 'true' : undefined}
               >
                 Drag or add a Question from an open Question Bank
@@ -907,25 +916,19 @@ export function ExamPage({
 
       {/* The first question of a Question Section the exam has started but has
           none of — a Short Answer question dragged at an exam with only
-          Multiple Choice ones, say.
-
-          An empty Question Section is not drawn on the sheet at all, because a
-          section is derived from the questions in it, so a gesture aimed at one
-          would have nothing to land on. The offer is made as editing chrome
-          pinned to the foot of this pane: it appears only while a compatible
-          gesture is in flight, it is reachable however far the exam has been
-          scrolled, and it never takes a pixel from the paper's own geometry.
+          Multiple Choice ones, say. The whole pane is the target; this is the
+          caption that says so, pinned to its foot so it is read however far
+          the exam has been scrolled, and never a pixel taken from the paper's
+          own geometry.
 
           An exam with nothing in it at all does not need this: the placeholder
-          on the first page is already the first question's position, and it is
-          the drop target. */}
+          on the first page already says where the first question goes. */}
       {emptySectionOffer && !blank && (
         <div
           className="exam-draft-empty-section"
-          data-empty-section={emptySectionOffer}
           data-active={drag.intent?.kind === 'insert-first' ? 'true' : undefined}
         >
-          Drop to add the first question
+          Drop anywhere to add the first question
         </div>
       )}
 

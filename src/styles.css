@@ -344,7 +344,9 @@ button { cursor: pointer; }
    the sheet keeps its printed width, so a narrow lane scrolls sideways rather
    than showing a layout the printer will not produce. */
 .editor-output { min-width: 0; min-height: 0; overflow: auto; }
-.editor-output .exam-workspace { min-height: 0; overflow: visible; }
+/* The workspace fills its lane, so a drop aimed at the pane rather than the
+   paper lands however tall the window is. */
+.editor-output .exam-workspace { min-height: 100%; overflow: visible; }
 
 /* The divider. A real control: it takes focus and answers the arrow keys, so
    the split is resizable without a pointer. */
@@ -414,11 +416,42 @@ button { cursor: pointer; }
 .open-bank-button:hover:not(:disabled) { color: #3d3027; background: #f0e5d5; }
 .open-bank-button svg { width: 17px; height: 17px; }
 .bank-tabs-error { margin: 8px 0 0; }
-.question-bank-no-tab { justify-content: center; text-align: center; }
-.question-bank-no-tab-content { max-width: 310px; margin: auto; }
-.question-bank-no-tab-content h2 { margin: 0 0 7px; font-size: 18px; }
-.question-bank-no-tab-content p { margin: 0 0 18px; color: #7a6a5c; line-height: 1.5; }
-.question-bank-no-tab-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+/* The pane with no bank open. It keeps the chrome an open bank has — the
+   name stays where it always is — and fills the rest with the dotted ground
+   Home draws where a card has not been put yet, carrying a Get Started list:
+   the three ways a bank arrives, in the order they are reached for. The whole
+   pane is the drop target for a file, and it lights up as one. */
+.question-bank-no-tab { justify-content: flex-start; }
+.question-bank-no-tab .question-bank-toolbar { margin-bottom: 0; }
+.question-bank-no-tab[data-over] { border-color: var(--paper-accent); }
+.bank-get-started {
+  flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; justify-content: center;
+  margin: 0 24px; padding: 24px 22px; border: 1px dashed #cdb9a6; border-radius: 10px; background-color: transparent;
+  background-image: radial-gradient(circle at center, #d6c6b3 1.3px, transparent 1.4px);
+  background-size: 15px 15px; overflow: hidden;
+  transition: border-color .12s ease, background-color .12s ease;
+}
+.question-bank-no-tab[data-over] .bank-get-started {
+  border-color: var(--paper-accent); background-color: var(--paper-accent-wash);
+  background-image: radial-gradient(circle at center, #e5c2ae 1.3px, transparent 1.4px);
+}
+.bank-get-started-title {
+  margin: 0 0 10px; color: #6e5b4d; font-size: 13px; font-weight: 700;
+  letter-spacing: .04em; text-transform: uppercase;
+}
+.bank-get-started-actions { display: flex; flex-direction: column; gap: 4px; }
+.bank-get-started-actions button {
+  display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 18px;
+  border: 1px solid var(--paper-outline); border-radius: 8px; background: var(--paper-surface);
+  color: #2f2419; font: inherit; font-size: 15px; font-weight: 600; text-align: left; cursor: pointer;
+  transition: border-color .12s ease, color .12s ease;
+}
+.bank-get-started-actions button svg { flex: none; width: 18px; height: 18px; stroke-width: 2; color: var(--paper-accent); }
+.bank-get-started-actions button:hover, .bank-get-started-actions button:focus-visible {
+  border-color: var(--paper-accent); color: var(--paper-accent);
+}
+.bank-get-started-actions button:disabled { cursor: progress; opacity: .6; }
+.bank-get-started-hint { margin: 18px 0 0; color: #6e5b4d; font-size: 13px; line-height: 1.4; }
 .question-bank {
   display: flex; flex-direction: column;
   height: 100%; min-height: 0; padding: 0 16px 18px; overflow: hidden;
@@ -775,22 +808,33 @@ button { cursor: pointer; }
 /* The first question of a Question Section that has none.
 
    An empty section is not drawn on the sheet — a section is derived from the
-   questions in it — so a composition gesture would have nothing to aim at. This
-   is the offer, pinned to the foot of the Working Copy pane while a compatible
-   gesture is in flight: reachable however far the exam has been scrolled, and
-   never a pixel taken from the paper's own geometry. */
+   questions in it — so a composition gesture would have nothing to aim at.
+   The whole Working Copy pane is the target instead, and it says so: a dashed
+   frame while a compatible gesture is in flight, filled in once the pointer is
+   over it. The frame is painted on an inset pseudo-element pinned to the
+   scrolling lane, so it stays in view however far the exam has been scrolled
+   and never takes a pixel from the paper's own geometry. */
+.exam-workspace[data-empty-section]::before {
+  content: ''; position: fixed; z-index: 890; pointer-events: none;
+  top: 58px; left: 0; right: calc(var(--bank-column) + var(--bank-divider)); bottom: 0;
+  margin: 12px;
+  border: 2px dashed #c9b49b; border-radius: 10px;
+  background: rgb(255 250 243 / 35%);
+}
+.exam-workspace[data-empty-section][data-active]::before {
+  border-color: #9f5037; border-style: solid; background: rgb(247 226 213 / 45%);
+}
+
+/* The caption to that frame: a label sitting inside its bottom edge, not a
+   second box, centred on the pane's lane the same way the frame is. */
 .exam-draft-empty-section {
-  position: fixed; z-index: 900;
-  left: 0; right: calc(var(--bank-column) + var(--bank-divider)); bottom: 0;
-  display: flex; align-items: center; justify-content: center;
-  height: 68px; margin: 0 18px 18px; border-radius: 8px;
-  border: 2px dashed #c9b49b; background: #fffaf3f2; color: #6d5a45;
-  font: 600 14px/1.4 Arial, Helvetica, sans-serif;
-  box-shadow: 0 6px 18px rgb(55 42 33 / 12%);
+  position: fixed; z-index: 900; pointer-events: none;
+  left: 0; right: calc(var(--bank-column) + var(--bank-divider)); bottom: 28px;
+  width: max-content; margin: 0 auto; padding: 7px 14px; border-radius: 999px;
+  color: #6d5a45; background: #fffaf3; box-shadow: 0 2px 8px rgb(55 42 33 / 14%);
+  font: 600 13px/1.4 Arial, Helvetica, sans-serif;
 }
-.exam-draft-empty-section[data-active] {
-  border-color: #9f5037; border-style: solid; color: #9f5037; background: #f7e2d5;
-}
+.exam-draft-empty-section[data-active] { color: #9f5037; background: #f7e2d5; }
 
 /* The drop line: where the question would land if it were let go now. It sits
    in the 26px gap between questions, so it never covers what it is pointing
@@ -1233,7 +1277,8 @@ button { cursor: pointer; }
     border-width: 1px 0 0; border-radius: 0;
   }
   .workspace-resizer { display: none; }
-  .exam-draft-empty-section { right: 0; }
+  .exam-draft-empty-section,
+  .exam-workspace[data-empty-section]::before { right: 0; }
   .exam-workspace { padding: 16px 0; }
   .dialog-backdrop { padding: 0; }
   /* Keep the output-faithful paper available: the dialog stacks rather than
@@ -1634,7 +1679,6 @@ button { cursor: pointer; }
   color: #9f5037; text-decoration: underline; text-underline-offset: 4px;
 }
 
-.bank-export-help { align-self: center; max-width: 150px; color: #6e5b4d; font-size: 11px; line-height: 1.2; }
 .question-bank-export-dialog {
   display: flex; flex-direction: column; width: min(760px, calc(100vw - 32px));
   max-height: calc(100vh - 40px); padding: 22px; border-radius: 12px;
@@ -1746,8 +1790,17 @@ button { cursor: pointer; }
   display: flex; align-items: center; justify-content: space-between; gap: 16px;
   margin: 14px 0 16px; color: var(--paper-ink-soft); font-size: 13px; line-height: 1.45;
 }
-.bank-import-assist .secondary-button { flex: none; display: inline-flex; align-items: center; gap: 6px; }
-.bank-import-assist .secondary-button svg { width: 15px; height: 15px; }
+.bank-import-assist .secondary-button,
+.bank-import-assist .primary-button { flex: none; display: inline-flex; align-items: center; gap: 6px; }
+.bank-import-assist .secondary-button svg,
+.bank-import-assist .primary-button svg { width: 15px; height: 15px; }
+/* The same note, brought forward: the file just dropped cannot be read, and
+   this is the way to make one that can. */
+.bank-import-assist[data-emphasis] {
+  padding: 14px 16px; border: 1px solid var(--paper-accent); border-radius: 10px;
+  color: #2f2419; background: var(--paper-accent-wash);
+}
+.bank-import-assist[data-emphasis] strong { display: block; margin-bottom: 3px; color: var(--paper-accent); font-size: 14px; }
 .bank-import-announcements { padding: 0 18px; }
 
 .bank-import-body {
