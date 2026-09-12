@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 
 async function createQuestion(page: Page, stem: string, type = 'Multiple choice') {
-  await page.getByRole('button', { name: 'New question' }).click()
+  await page.getByRole('button', { name: 'Add Question' }).click()
   await page.getByRole('menuitem', { name: type }).click()
   await page.keyboard.type(stem)
   await page.keyboard.press('Control+Enter')

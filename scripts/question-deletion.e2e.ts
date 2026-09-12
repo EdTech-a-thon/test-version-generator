@@ -88,7 +88,8 @@ test("full Question editor discloses impact, cancels safely, and permanently del
   await expect(page.locator(".exam-question")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Undo" })).toBeDisabled();
   await expect(page.getByLabel("Working Copy status")).toContainText("Unsaved changes");
-  await page.getByRole("button", { name: "Discard changes" }).click();
+  await page.getByRole("button", { name: "File" }).click();
+  await page.getByRole("menuitem", { name: "Discard changes" }).click();
   await expect(page.getByRole("textbox", { name: "Exam name" })).toHaveValue("Biology final");
   await expect(page.locator(".exam-question")).toHaveCount(0);
 
@@ -150,7 +151,7 @@ test("a named bank remains after its final Question is deleted", async ({ page }
   const name = page.getByRole("textbox", { name: "Question Bank name" });
   await name.fill("Keep Biology");
   await name.press("Enter");
-  await page.getByRole("button", { name: "New question" }).click();
+  await page.getByRole("button", { name: "Add Question" }).click();
   await page.getByRole("menuitem", { name: "Short answer" }).click();
   await page.keyboard.type("Only question");
   await page.keyboard.press("Control+Enter");

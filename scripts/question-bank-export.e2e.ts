@@ -132,7 +132,7 @@ test('teacher exports the complete active Question Bank without Exam or history 
   await page
     .getByRole('searchbox', { name: 'Search question stems' })
     .fill('neutral')
-  await page.getByRole('button', { name: 'Share bank PDF' }).click()
+  await page.getByRole('button', { name: 'Export Question Bank' }).click()
 
   const preview = page.getByRole('dialog', { name: 'Export Question Bank' })
   await expect(preview).toContainText(
@@ -160,7 +160,7 @@ test('teacher exports the complete active Question Bank without Exam or history 
 test('export dialog traps focus and cancellation produces no download', async ({ page }) => {
   const bankId = await seed(page)
   await page.goto(`/question-bank?id=${bankId}`)
-  const trigger = page.getByRole('button', { name: 'Share bank PDF' })
+  const trigger = page.getByRole('button', { name: 'Export Question Bank' })
   await trigger.focus()
   await trigger.click()
   const dialog = page.getByRole('dialog', { name: 'Export Question Bank' })
@@ -193,7 +193,7 @@ test('empty bank explains why export is unavailable and an open edit must be res
     ).id
   })
   await page.goto(`/question-bank?id=${emptyId}`)
-  await expect(page.getByRole('button', { name: 'Share bank PDF' })).toBeDisabled()
+  await expect(page.getByRole('button', { name: 'Export Question Bank' })).toBeDisabled()
   await expect(
     page.getByText('At least one Question is required.'),
   ).toBeVisible()
@@ -206,10 +206,10 @@ test('empty bank explains why export is unavailable and an open edit must be res
   await expect(
     page.getByRole('dialog', { name: 'Question editor' }),
   ).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Share bank PDF' })).toBeDisabled()
+  await expect(page.getByRole('button', { name: 'Export Question Bank' })).toBeDisabled()
   await expect(
     page.getByText('Save or cancel the open Question edit before exporting.'),
   ).toBeVisible()
   await page.getByRole('button', { name: 'Cancel' }).click()
-  await expect(page.getByRole('button', { name: 'Share bank PDF' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Export Question Bank' })).toBeVisible()
 })

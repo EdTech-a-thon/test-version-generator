@@ -1,11 +1,11 @@
 // Browsing the Question Bank.
 //
 // The Question Bank stores questions in the order they were authored. A teacher
-// browsing it wants the opposite — the question just written, first — and wants
-// to narrow it by wording, Question Type, Difficulty and Topic. All of that is
-// a *view*: it derives what to show from the bank and the filter, and changes
-// nothing. Search and filter values are transient UI state and never enter the
-// authoring history. The editor workspace may persist it independently.
+// browsing it starts with the opposite — the question just written, first —
+// and may sort or narrow it by wording, Question Type, Difficulty and Topic.
+// All of that is a *view*: it derives what to show from the bank and its view
+// settings, and changes nothing. Search, filter and sort values never enter the
+// authoring history. The editor workspace may persist them independently.
 
 import {
   topicsOf,
@@ -20,6 +20,9 @@ import { stemPreview } from './stem-preview'
  *  classified: optional Difficulty must never make a question unreachable. */
 export type DifficultyFilter = Difficulty | 'unspecified'
 
+/** The ordering applied after search and filters have chosen the visible rows. */
+export type QuestionBankSort = 'newest' | 'type' | 'difficulty' | 'topic'
+
 /**
  * What the teacher has narrowed the Question Bank to.
  *
@@ -33,6 +36,7 @@ export type QuestionBankFilter = {
   difficulties: readonly DifficultyFilter[]
   /** Exact, trimmed Topic strings — the ones `topicOptions` offered. */
   topics: readonly string[]
+  sort: QuestionBankSort
 }
 
 /** The unfiltered bank: every question, newest first. */
@@ -41,6 +45,7 @@ export const NO_FILTER: QuestionBankFilter = {
   types: [],
   difficulties: [],
   topics: [],
+  sort: 'newest',
 }
 
 /** Whether anything is currently narrowing the bank — what tells "no questions
@@ -100,12 +105,30 @@ function matches(question: Question, filter: QuestionBankFilter): boolean {
   )
 }
 
+const TYPE_RANK: Record<QuestionType, number> = {
+  'multiple-choice': 0,
+  open: 1,
+}
+
+const DIFFICULTY_RANK: Record<DifficultyFilter, number> = {
+  easy: 0,
+  medium: 1,
+  hard: 2,
+  unspecified: 3,
+}
+
+function firstTopic(question: Question): string | null {
+  const topics = topicsOf(question)
+    .map((topic) => topic.trim())
+    .filter(Boolean)
+    .sort((left, right) => left.localeCompare(right))
+  return topics[0] ?? null
+}
+
 /**
- * The Question Bank as the pane shows it: newest first, narrowed by the filter.
- *
- * Filtering hides rows; it never reorders them. Clearing the filter therefore
- * restores exactly the order that was there before, because that order was
- * never anything but the bank's own, reversed.
+ * The Question Bank as the pane shows it: narrowed by the filters, then ordered
+ * by the selected field. Equal values retain newest-first order, so sorting
+ * never makes rows within one group jump back to authoring order.
  */
 export function browseQuestionBank(
   bank: QuestionBank,
@@ -116,5 +139,24 @@ export function browseQuestionBank(
     const question = bank.questions[index]!
     if (matches(question, filter)) shown.push(question)
   }
-  return shown
+
+  switch (filter.sort ?? 'newest') {
+    case 'type':
+      return shown.sort((left, right) => TYPE_RANK[left.type] - TYPE_RANK[right.type])
+    case 'difficulty':
+      return shown.sort((left, right) =>
+        DIFFICULTY_RANK[left.difficulty ?? 'unspecified']
+        - DIFFICULTY_RANK[right.difficulty ?? 'unspecified'],
+      )
+    case 'topic':
+      return shown.sort((left, right) => {
+        const leftTopic = firstTopic(left)
+        const rightTopic = firstTopic(right)
+        if (leftTopic === null) return rightTopic === null ? 0 : 1
+        if (rightTopic === null) return -1
+        return leftTopic.localeCompare(rightTopic)
+      })
+    case 'newest':
+      return shown
+  }
 }

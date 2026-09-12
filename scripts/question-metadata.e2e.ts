@@ -22,7 +22,7 @@ const search = (page: Page, label: string) =>
 
 /** The bank's New question, and the Question Section it asks for. */
 async function newQuestion(page: Page, type = 'Multiple choice') {
-  await page.getByRole('button', { name: 'New question' }).click()
+  await page.getByRole('button', { name: 'Add Question' }).click()
   await page.getByRole('menuitem', { name: type }).click()
   await expect(dialog(page)).toBeVisible()
 }

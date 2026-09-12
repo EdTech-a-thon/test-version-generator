@@ -30,6 +30,8 @@ import {
   columnsOf,
   orderedChoices,
   questionsInSection,
+  topicsOf,
+  type Difficulty,
   type Exam,
   type Question,
   type QuestionType,
@@ -102,6 +104,10 @@ export type PlannedQuestion = {
   choices: PlannedChoice[]
   /** How those answers lay out, or `null` when there are none. */
   grid: ChoiceGrid | null
+  /** Optional organizational metadata, retained so the Answer Key can help a
+   *  teacher identify and review the Questions without exposing it to students. */
+  difficulty?: Difficulty
+  topics?: string[]
 }
 
 export type SectionHeadingItem = {
@@ -150,14 +156,16 @@ export type AnswerKeySectionItem = {
   title: string
 }
 
-// One line of the key: a question's number and, for multiple choice, the
-// correct letter under this arrangement's ordering. `letter` is `null` for a
-// free-response question — the key still gives it a blank so the numbering
-// lines up with the test.
+// One line of the key: a question's number, its organizational metadata and,
+// for multiple choice, the correct letter under this arrangement's ordering.
+// `letter` is `null` for a free-response question — the key still gives it a
+// blank so the numbering lines up with the test.
 export type AnswerKeyEntryItem = {
   kind: 'answer-key-entry'
   number: number
   letter: string | null
+  difficulty?: Difficulty
+  topics?: string[]
 }
 
 // One thing that occupies vertical space on a page, in print order.
@@ -350,6 +358,8 @@ function deriveQuestion(
     stem: stemNodesOf(question.doc),
     choices,
     grid: layOutGrid(choices, columnsOf(question)),
+    ...(question.difficulty ? { difficulty: question.difficulty } : {}),
+    ...(topicsOf(question).length > 0 ? { topics: [...topicsOf(question)] } : {}),
   }
 }
 
@@ -566,6 +576,8 @@ function deriveAnswerKey(testItems: readonly PageItem[]): PageItem[] {
       kind: 'answer-key-entry',
       number: item.question.number,
       letter: item.question.choices.find((choice) => choice.correct)?.letter ?? null,
+      ...(item.question.difficulty ? { difficulty: item.question.difficulty } : {}),
+      ...(item.question.topics?.length ? { topics: [...item.question.topics] } : {}),
     })
   }
   return items

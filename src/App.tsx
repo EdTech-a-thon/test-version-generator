@@ -76,11 +76,15 @@ import {
   Check,
   CircleDot,
   FileType2,
+  FolderOpen,
   Gauge,
+  History,
   ListChecks,
   Plus,
   Redo2,
   RefreshCw,
+  Save,
+  SaveAll,
   Tags,
   Trash2,
   TriangleAlert,
@@ -1081,6 +1085,7 @@ function QuestionBankTabsPane({
   const [pickerBanks, setPickerBanks] = useState<QuestionBankSummary[] | null>(null)
   const [hydrated, setHydrated] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
+  const [creatingBank, setCreatingBank] = useState(false)
 
   useEffect(() => {
     let current = true
@@ -1120,6 +1125,22 @@ function QuestionBankTabsPane({
     setResources((current) => ({ ...current, [resource.id]: resource }))
   }
   const openPicker = async () => setPickerBanks(await service.recent())
+  const createBank = async () => {
+    setCreatingBank(true)
+    setMessage(null)
+    try {
+      const bank = await service.create()
+      const opened = await service.openTab(stableContext, bank.id)
+      if (!opened) throw new Error('The new Question Bank could not be opened.')
+      setWorkspace(opened.workspace)
+      updateResource(opened.bank)
+      requestAnimationFrame(() => document.querySelector<HTMLElement>(`[role="tab"][data-bank-id="${CSS.escape(bank.id)}"]`)?.focus())
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'The Question Bank could not be created.')
+    } finally {
+      setCreatingBank(false)
+    }
+  }
   const chooseBank = async (id: string) => {
     const opened = await service.openTab(stableContext, id)
     if (!opened) {
@@ -1203,15 +1224,16 @@ function QuestionBankTabsPane({
         })}
       </div>
       {/* Where Chrome keeps it: a plus at the end of the strip, next to the
-          tab that was opened last. */}
-      <button
+          tab that was opened last. With no tabs, the empty state below offers
+          the same action with a full label instead. */}
+      {workspace.openBankIds.length > 0 && <button
         type="button"
         className="open-bank-button"
         aria-label="Open Question Bank"
         title="Open Question Bank"
         disabled={!hydrated}
         onClick={() => void openPicker()}
-      ><Plus /></button>
+      ><Plus /></button>}
     </div>
     {active ? <QuestionBankWorkspace
       key={active.id}
@@ -1232,7 +1254,30 @@ function QuestionBankTabsPane({
       beforeCanonicalQuestionCommit={beforeCanonicalQuestionCommit}
       onCanonicalQuestionCommitted={onCanonicalQuestionCommitted}
       onQuestionDeleted={onQuestionDeleted}
-    /> : fallback ?? <div className="question-bank question-bank-no-tab"><p>No Question Bank is open.</p></div>}
+    /> : fallback ?? <div className="question-bank question-bank-no-tab">
+      <div className="question-bank-no-tab-content">
+        <h2>Question Bank</h2>
+        <p>No Question Bank is open.</p>
+        <div className="question-bank-no-tab-actions">
+          <button
+            type="button"
+            className="secondary-button"
+            disabled={!hydrated || creatingBank}
+            onClick={() => void openPicker()}
+          >
+            Open Question Bank
+          </button>
+          <button
+            type="button"
+            className="primary-button"
+            disabled={!hydrated || creatingBank}
+            onClick={() => void createBank()}
+          >
+            {creatingBank ? 'Creating…' : 'Create new Question Bank'}
+          </button>
+        </div>
+      </div>
+    </div>}
     {pickerBanks && <ResourcePicker
       title="Open Question Bank"
       closeLabel="Close Question Bank picker"
@@ -1475,6 +1520,10 @@ function ExamEditor({
   const isHistoricalBrowsing = historyOpen || viewingRecord !== null
   const [storageNotice, setStorageNotice] = useState<string | null>(null)
   const [choosingExam, setChoosingExam] = useState(false)
+  const [documentMenu, setDocumentMenu] = useState<{
+    kind: 'file' | 'edit'
+    point: MenuPoint
+  } | null>(null)
   const closeExportHistory = useCallback(() => {
     setHistoryOpen(false)
     requestAnimationFrame(() => historyButton.current?.focus())
@@ -1492,11 +1541,6 @@ function ExamEditor({
   const selection = useSelection()
   const clearSelection = selection.clear
   const selectOnWorkingCopy = selection.select
-  // The legacy per-Exam bank fallback keeps its filter here; real bank tabs
-  // persist theirs through the separate workspace service. Neither path is an
-  // authoring action, dirties the Exam, or appears in Undo history.
-  const [bankFilter, setBankFilter] = useState<QuestionBankFilter>(NO_FILTER)
-  const [selectedBankId, setSelectedBankId] = useState<string | null>(null)
   const [bankPercent, setBankPercent] = useState(33)
   const [bankRevision, setBankRevision] = useState(0)
   useEffect(() => {
@@ -1547,21 +1591,6 @@ function ExamEditor({
     )
     return () => window.clearTimeout(timer)
   }, [storageNotice])
-  // A highlighted bank row is a place to read from, not a thing being acted
-  // against, so it lasts exactly as long as the teacher is looking at it: the
-  // next press anywhere but on a row takes it back, and so does Escape (with
-  // the workspace's other selections, in the keyboard handler below).
-  useEffect(() => {
-    if (!selectedBankId) return
-    const onPointerDown = (event: PointerEvent) => {
-      const target = event.target as HTMLElement | null
-      if (target?.closest('.question-bank-row')) return
-      setSelectedBankId(null)
-    }
-    document.addEventListener('pointerdown', onPointerDown)
-    return () => document.removeEventListener('pointerdown', onPointerDown)
-  }, [selectedBankId])
-
   // One composition, however it was asked for.
   //
   // A pointer gesture, the row's Add button and the row menu's Insert and
@@ -1751,7 +1780,6 @@ function ExamEditor({
         return
       }
       clearSelection()
-      setSelectedBankId(null)
     }
     document.addEventListener('keydown', onKeyDown)
     return () => document.removeEventListener('keydown', onKeyDown)
@@ -1902,41 +1930,63 @@ function ExamEditor({
           >
             <img className="app-logo" src="/logo.png" alt="" width={36} height={36} />
           </button>
-          <input
-            aria-label="Exam name"
-            className="document-title"
-            value={state.workingCopy.title}
-            disabled={isHistoricalBrowsing}
-            placeholder="Untitled Exam"
-            onChange={(event) => store.setTitle(event.target.value)}
-          />
+          <div className="document-title-stack">
+            <input
+              aria-label="Exam name"
+              className="document-title"
+              value={state.workingCopy.title}
+              disabled={isHistoricalBrowsing}
+              placeholder="Untitled Exam"
+              onChange={(event) => store.setTitle(event.target.value)}
+            />
+            <nav className="document-menus" aria-label="Exam menus">
+              {(['file', 'edit'] as const).map((kind) => (
+                <button
+                  key={kind}
+                  type="button"
+                  className="document-menu-button"
+                  aria-haspopup="menu"
+                  aria-expanded={documentMenu?.kind === kind}
+                  onClick={(event) => {
+                    const bounds = event.currentTarget.getBoundingClientRect()
+                    setDocumentMenu((current) => current?.kind === kind
+                      ? null
+                      : { kind, point: { x: bounds.left, y: bounds.bottom + 4 } })
+                  }}
+                >
+                  {kind === 'file' ? 'File' : 'Edit'}
+                </button>
+              ))}
+            </nav>
+          </div>
         </div>
         <div className="header-actions">
-          <button type="button" className="site-link" onClick={() => setChoosingExam(true)}>Open Exam</button>
-          <button
-            type="button"
-            className="toolbar-icon-button"
-            aria-label="Undo"
-            title="Undo (Ctrl/Cmd+Z)"
-            disabled={isHistoricalBrowsing || !store.canUndo()}
-            onClick={() => {
-              if (!isHistoricalBrowsing) store.undo()
-            }}
-          >
-            <Undo2 />
-          </button>
-          <button
-            type="button"
-            className="toolbar-icon-button"
-            aria-label="Redo"
-            title="Redo (Ctrl/Cmd+Shift+Z)"
-            disabled={isHistoricalBrowsing || !store.canRedo()}
-            onClick={() => {
-              if (!isHistoricalBrowsing) store.redo()
-            }}
-          >
-            <Redo2 />
-          </button>
+          <div className="document-edit-actions" aria-label="Editing actions">
+            <button
+              type="button"
+              className="toolbar-icon-button"
+              aria-label="Undo"
+              title="Undo (Ctrl/Cmd+Z)"
+              disabled={isHistoricalBrowsing || !store.canUndo()}
+              onClick={() => {
+                if (!isHistoricalBrowsing) store.undo()
+              }}
+            >
+              <Undo2 />
+            </button>
+            <button
+              type="button"
+              className="toolbar-icon-button"
+              aria-label="Redo"
+              title="Redo (Ctrl/Cmd+Shift+Z)"
+              disabled={isHistoricalBrowsing || !store.canRedo()}
+              onClick={() => {
+                if (!isHistoricalBrowsing) store.redo()
+              }}
+            >
+              <Redo2 />
+            </button>
+          </div>
           {/* A mark, not a sentence. It changes on every keystroke, and four
               different sentences in a flex row that wraps means the whole bar
               reflowing under the teacher's hands while they type. The text is
@@ -1944,37 +1994,11 @@ function ExamEditor({
               but the slot it lives in never changes size. */}
           <WorkingCopyStatus dirty={state.dirty} backupStatus={backupStatus} />
           <button
-            type="button"
-            className="secondary-button"
-            aria-label="Discard changes"
-            disabled={!state.dirty}
-            onClick={() => void store.discard()}
-          >
-            Discard
-          </button>
-          <button
-            type="button"
-            className="primary-button"
-            aria-label="Save"
-            disabled={isHistoricalBrowsing || !state.dirty || backupStatus !== 'ready'}
-            onClick={() => void store.save()}
-          >
-            Save
-          </button>
-          <button
-            type="button"
-            className="secondary-button"
-            aria-label="Save As"
-            title="Save As (Ctrl/Cmd+Shift+S)"
-            disabled={isHistoricalBrowsing}
-            onClick={() => void onSaveAs()}
-          >
-            Save As
-          </button>
-          <button
             ref={historyButton}
             type="button"
-            className="secondary-button"
+            className="toolbar-icon-button"
+            aria-label="Export History"
+            title="Export History"
             aria-expanded={historyOpen}
             aria-controls="export-history"
             onPointerDown={() => {
@@ -1986,12 +2010,21 @@ function ExamEditor({
             }}
             onClick={() => setHistoryOpen((open) => !open)}
           >
-            Export History
+            <History aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            className="primary-button"
+            aria-label="Save"
+            disabled={isHistoricalBrowsing || !state.dirty || backupStatus !== 'ready'}
+            onClick={() => void store.save()}
+          >
+            Save
           </button>
           <button
             ref={exportButton}
             type="button"
-            className="export-button"
+            className="secondary-button"
             disabled={backupStatus !== 'ready' || isHistoricalBrowsing}
             aria-haspopup="dialog"
             aria-expanded={exportDialog !== null}
@@ -2001,6 +2034,77 @@ function ExamEditor({
           </button>
         </div>
       </header>
+
+      {documentMenu && <ContextMenu
+        point={documentMenu.point}
+        ariaLabel={`${documentMenu.kind === 'file' ? 'File' : 'Edit'} menu`}
+        items={documentMenu.kind === 'file' ? [
+          {
+            kind: 'action',
+            label: 'Open Exam',
+            icon: <FolderOpen />,
+            onSelect: () => setChoosingExam(true),
+          },
+          { kind: 'separator' },
+          {
+            kind: 'action',
+            label: 'Save',
+            icon: <Save />,
+            disabled: isHistoricalBrowsing || !state.dirty || backupStatus !== 'ready',
+            onSelect: () => { void store.save() },
+          },
+          {
+            kind: 'action',
+            label: 'Save As',
+            icon: <SaveAll />,
+            disabled: isHistoricalBrowsing,
+            onSelect: () => { void onSaveAs() },
+          },
+          {
+            kind: 'action',
+            label: 'Discard changes',
+            icon: <RefreshCw />,
+            disabled: !state.dirty,
+            onSelect: () => { void store.discard() },
+          },
+          { kind: 'separator' },
+          {
+            kind: 'action',
+            label: 'Export',
+            icon: <FileType2 />,
+            disabled: backupStatus !== 'ready' || isHistoricalBrowsing,
+            onSelect: openExport,
+          },
+          {
+            kind: 'action',
+            label: 'Export History',
+            icon: <History />,
+            onSelect: () => {
+              if (viewingRecord === null) {
+                const active = document.activeElement
+                priorDraftFocus.current = active instanceof HTMLElement ? active : null
+              }
+              setHistoryOpen(true)
+            },
+          },
+        ] : [
+          {
+            kind: 'action',
+            label: 'Undo',
+            icon: <Undo2 />,
+            disabled: isHistoricalBrowsing || !store.canUndo(),
+            onSelect: () => store.undo(),
+          },
+          {
+            kind: 'action',
+            label: 'Redo',
+            icon: <Redo2 />,
+            disabled: isHistoricalBrowsing || !store.canRedo(),
+            onSelect: () => store.redo(),
+          },
+        ]}
+        onClose={() => setDocumentMenu(null)}
+      />}
 
       {choosingExam && <ResourcePicker
         title="Open Exam"
@@ -2083,33 +2187,9 @@ function ExamEditor({
             onQuestionDeleted={(questionId) => {
               store.acceptForcedDeletion([questionId])
               clearSelection()
-              setSelectedBankId(null)
               drag.cancel()
               setBankRevision((revision) => revision + 1)
             }}
-            fallback={<QuestionBankPane
-              bank={state.questionBank}
-              workingCopyIds={workingCopyIds}
-              filter={bankFilter}
-              onFilterChange={setBankFilter}
-              selectedQuestionId={selectedBankId}
-              onSelect={setSelectedBankId}
-              drag={drag}
-              onEdit={(questionId) => {
-                const question = bankQuestionById(state.questionBank, questionId)
-                if (question) {
-                  setEditing({ question, destination: 'question-bank', after: null })
-                }
-              }}
-              onAddToWorkingCopy={(questionId) => {
-                const question = bankQuestionById(state.questionBank, questionId)
-                if (question) addToWorkingCopy(question)
-              }}
-              onRemoveFromWorkingCopy={(questionId) => {
-                store.removeFromWorkingCopy([questionId])
-                if (selection.isSelected(questionId)) selection.toggle(questionId)
-              }}
-            />}
           />
           </div>
         }
@@ -2268,7 +2348,6 @@ function ExamEditor({
           )
           store.acceptForcedDeletion([editing.question.id])
           clearSelection()
-          setSelectedBankId(null)
           drag.cancel()
           setBankRevision((revision) => revision + 1)
           setConfirmingQuestionDeletion(false)

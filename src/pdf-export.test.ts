@@ -60,6 +60,24 @@ describe('PDF Export Adapter', () => {
     expect(document.getCreator()).toBe('Test Parrot')
   })
 
+  test('prints Difficulty and Topic tags beside Answer Key entries', async () => {
+    const { plans } = plansOf('both sections with the answer key')
+    const bytes = await createPublicationPdf(plans, noImages, fonts)
+    const document = await getDocument({ data: bytes, disableWorker: true }).promise
+    const text = (await Promise.all(
+      Array.from({ length: document.numPages }, async (_, index) =>
+        (await (await document.getPage(index + 1)).getTextContent()).items
+          .map((item) => ('str' in item ? item.str : ''))
+          .join(' '),
+      ),
+    )).join(' ')
+
+    expect(text).toContain('Easy')
+    expect(text).toContain('Acids')
+    expect(text).toContain('Hard')
+    expect(text).toContain('Titration')
+  })
+
   test('writes authored hyperlinks as PDF link annotations', async () => {
     const { plans } = plansOf('a link and its destination')
     const bytes = await createPublicationPdf(plans, noImages, fonts)

@@ -21,7 +21,7 @@ const examQuestions = (page: Page) => page.locator('.exam-question')
 /** The bank's New question, and the Question Section it asks for. A question's
  *  type is settled when it is created, so this is where it is said. */
 async function newBankQuestion(page: Page, type = 'Multiple choice') {
-  await page.getByRole('button', { name: 'New question' }).click()
+  await page.getByRole('button', { name: 'Add Question' }).click()
   await page.getByRole('menuitem', { name: type }).click()
 }
 

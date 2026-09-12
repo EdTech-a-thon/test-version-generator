@@ -90,6 +90,36 @@ describe('the Question Bank a teacher browses', () => {
   test('is empty when nothing has been written into it', () => {
     expect(browseQuestionBank(createQuestionBank(), NO_FILTER)).toEqual([])
   })
+
+  test('sorts by Question Type, Difficulty, or first alphabetical Topic', () => {
+    const shortAnswer = question('Short answer', {
+      difficulty: 'hard',
+      topics: ['Geometry'],
+    })
+    const multipleChoice = question('Multiple choice', {
+      type: 'multiple-choice',
+      difficulty: 'easy',
+      topics: ['Algebra'],
+    })
+    const unspecified = question('Unspecified')
+    const bank = banked(shortAnswer, multipleChoice, unspecified)
+
+    expect(idsOf(browseQuestionBank(bank, filter({ sort: 'type' })))).toEqual([
+      multipleChoice.id,
+      unspecified.id,
+      shortAnswer.id,
+    ])
+    expect(idsOf(browseQuestionBank(bank, filter({ sort: 'difficulty' })))).toEqual([
+      multipleChoice.id,
+      shortAnswer.id,
+      unspecified.id,
+    ])
+    expect(idsOf(browseQuestionBank(bank, filter({ sort: 'topic' })))).toEqual([
+      multipleChoice.id,
+      shortAnswer.id,
+      unspecified.id,
+    ])
+  })
 })
 
 describe('stem search', () => {
