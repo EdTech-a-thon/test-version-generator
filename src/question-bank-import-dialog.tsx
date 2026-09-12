@@ -1,6 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
-import { Check } from 'lucide-react'
+import { Check, Sparkles } from 'lucide-react'
 import { DocView } from './doc-view'
+import extractInstructions from '../public/extract.md?raw'
 import {
   recordDocumentToEditorNodes,
   type SemanticDocument,
@@ -72,6 +73,12 @@ export function QuestionBankImportDialog({
   const [proposedName, setProposedName] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [phase, setPhase] = useState<'choose' | 'inspecting' | 'saving'>('choose')
+  const [copied, setCopied] = useState(false)
+  useEffect(() => {
+    if (!copied) return
+    const timer = window.setTimeout(() => setCopied(false), 2000)
+    return () => window.clearTimeout(timer)
+  }, [copied])
   const busy = phase !== 'choose'
   const busyRef = useRef(busy)
   busyRef.current = busy
@@ -209,10 +216,7 @@ export function QuestionBankImportDialog({
         <header className="dialog-header">
           <div>
             <h2 id={titleId}>Import Question Bank</h2>
-            <p>
-              Inspection reads the file&rsquo;s canonical record—not its visible
-              pages—and changes nothing until you import.
-            </p>
+            {!proposal && <p>You will see what is inside before anything is added.</p>}
           </div>
         </header>
 
@@ -234,6 +238,26 @@ export function QuestionBankImportDialog({
                 }}
               />
             </label>
+            {/* The other way in: no file yet, just an existing test. The
+                instructions live at /extract; copying them is the whole
+                hand-off, so the button says so and nothing more. */}
+            <aside className="bank-import-assist" aria-label="Convert an existing test">
+              <Sparkles aria-hidden="true" />
+              <p>
+                <strong>Have a test already?</strong> Paste these instructions into
+                any AI chat along with it, and you will get a file to import here.
+              </p>
+              <button
+                type="button"
+                className="secondary-button"
+                disabled={busy}
+                onClick={() => {
+                  void navigator.clipboard.writeText(extractInstructions).then(() => setCopied(true))
+                }}
+              >
+                {copied ? 'Copied' : 'Copy instructions'}
+              </button>
+            </aside>
           </div>
         )}
 

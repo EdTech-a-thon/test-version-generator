@@ -1390,6 +1390,25 @@ button { cursor: pointer; }
   color: var(--paper-accent); border-color: var(--paper-accent); background-color: var(--paper-accent-wash);
   background-image: radial-gradient(circle at center, #e5c2ae 1.3px, transparent 1.4px);
 }
+/* The next card's place on a shelf: the same dotted ground as an empty shelf,
+   but at the size of the card that will stand there. */
+.new-resource-card {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+  padding: 16px; border: 1px dashed #cdb9a6; border-radius: 9px; color: #6e5b4d; background-color: transparent;
+  background-image: radial-gradient(circle at center, #d6c6b3 1.3px, transparent 1.4px);
+  background-size: 15px 15px; font: inherit; font-size: 15px; font-weight: 600; cursor: pointer;
+  transition: color .12s ease, border-color .12s ease, background-color .12s ease;
+}
+.new-resource-card svg { width: 26px; height: 26px; stroke-width: 2; }
+.new-resource-card:hover, .new-resource-card:focus-visible {
+  color: var(--paper-accent); border-color: var(--paper-accent); background-color: var(--paper-accent-wash);
+  background-image: radial-gradient(circle at center, #e5c2ae 1.3px, transparent 1.4px);
+}
+.new-resource-card--card { width: 100%; min-height: 190px; }
+.new-resource-card--sheet {
+  width: var(--sheet-width); height: calc(var(--sheet-width) * 11 / 8.5); border-radius: 2px;
+}
+
 /* The Question Bank page: one bank, full screen, in the dashboard's chrome.
    Like the editor it is a frame rather than a document — the name and the
    toolbar stay put and the list of Questions scrolls inside its window. */
@@ -1704,6 +1723,15 @@ button { cursor: pointer; }
    sits apart from the pair that resolve the dialog. */
 .bank-import-back { margin-right: auto; }
 .bank-import-choose { padding: 4px 18px 0; }
+.bank-import-assist {
+  display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 4px 12px;
+  margin: 6px 0 16px; padding: 12px 14px; border: 1px dashed #cdb9a6; border-radius: 9px;
+  background: #fdf8f0;
+}
+.bank-import-assist svg { width: 20px; height: 20px; color: var(--paper-accent); }
+.bank-import-assist p { margin: 0; color: var(--paper-ink-soft); font-size: 13px; line-height: 1.45; }
+.bank-import-assist strong { color: #2f2419; }
+.bank-import-assist .secondary-button { grid-column: 2; justify-self: start; }
 .bank-import-announcements { padding: 0 18px; }
 
 .bank-import-body {

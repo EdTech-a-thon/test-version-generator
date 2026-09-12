@@ -2514,6 +2514,7 @@ export default function App({
     onNewExam={newExam}
     onOpen={openExam}
     onNewBank={newBank}
+    onImportBank={() => setInspectingBankFile(true)}
     onOpenBank={openBank}
     onDeleteBank={requestBankDeletion}
   />{bankDeletionConfirmation}</>
