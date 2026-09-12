@@ -111,7 +111,6 @@ import {
 } from './export-history'
 import { AppShell } from './app-shell'
 import { AboutPage, PrivacyPage } from './site-pages'
-import { ExtractPage } from './extract-page'
 import { persistentStorageStatus, requestPersistentStorage, type PersistentStorageStatus } from './durable-storage'
 import { ResourceCollectionPage } from './resource-collection-page'
 import { BankFileDropTarget } from './bank-file-drop'
@@ -2487,7 +2486,6 @@ export default function App({
   </>
   if (route === '/about') return <>{globalChrome}<AboutPage persistentStorage={storageStatus} /></>
   if (route === '/privacy') return <>{globalChrome}<PrivacyPage persistentStorage={storageStatus} /></>
-  if (route === '/extract') return <>{globalChrome}<ExtractPage persistentStorage={storageStatus} /></>
   if (route === '/exams') return <>{globalChrome}<ResourceCollectionPage
     kind="exams"
     exams={exams}

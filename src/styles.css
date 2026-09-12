@@ -1584,24 +1584,6 @@ button { cursor: pointer; }
 .site-card-heading img { flex: none; }
 .site-promise { margin: 0; padding-left: 20px; font-size: 15px; line-height: 1.8; }
 
-/* Markdown rendered from public/extract.md: the same prose rhythm as the
-   hand-written site pages, plus headings, lists and code the others lack. */
-.site-markdown h1 { margin: 0 0 14px; font-size: 24px; }
-.site-markdown h2 { margin: 28px 0 10px; font-size: 18px; }
-.site-markdown h3 { margin: 20px 0 8px; font-size: 15.5px; }
-.site-markdown p, .site-markdown li { font-size: 15px; line-height: 1.6; }
-.site-markdown ul, .site-markdown ol { margin: 0 0 14px; padding-left: 24px; }
-.site-markdown li { margin-bottom: 4px; }
-.site-markdown code {
-  padding: 1px 5px; border-radius: 4px; background: #f2e9dc;
-  font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace; font-size: 13px;
-}
-.site-markdown pre {
-  margin: 0 0 14px; padding: 12px 14px; border: 1px solid #e8dfd2; border-radius: 8px;
-  background: #fdf8f0; overflow-x: auto; line-height: 1.5;
-}
-.site-markdown pre code { padding: 0; background: none; }
-
 /* The group photo, pinned up like a print someone brought back from the event. */
 .site-photo {
   width: 100%; max-width: 520px; margin: 24px auto 0; padding: 12px 12px 8px;
