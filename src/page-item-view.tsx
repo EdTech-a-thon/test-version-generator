@@ -12,6 +12,7 @@
 // page, not to the items on it.
 
 import { Check } from 'lucide-react'
+import { DifficultyBadge, TopicBadge } from './badges'
 import { DocView } from './doc-view'
 import type {
   AnswerKeyEntryItem,
@@ -137,6 +138,12 @@ export function AnswerKeyEntry({ item }: { item: AnswerKeyEntryItem }) {
       <span className="answer-key-answer" aria-label={item.letter ?? 'Blank answer'}>
         {item.letter}
       </span>
+      {(item.difficulty || (item.topics?.length ?? 0) > 0) && (
+        <span className="answer-key-metadata" aria-label="Question Metadata">
+          {item.difficulty && <DifficultyBadge difficulty={item.difficulty} />}
+          {(item.topics ?? []).map((topic) => <TopicBadge topic={topic} key={topic} />)}
+        </span>
+      )}
     </div>
   )
 }

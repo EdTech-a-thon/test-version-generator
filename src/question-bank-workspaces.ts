@@ -81,6 +81,7 @@ const copyFilter = (filter: QuestionBankFilter = NO_FILTER): QuestionBankFilter 
   types: [...filter.types],
   difficulties: [...filter.difficulties],
   topics: [...filter.topics],
+  sort: filter.sort ?? 'newest',
 })
 
 const copyTabsWorkspace = (workspace: QuestionBankTabsWorkspace): QuestionBankTabsWorkspace => ({

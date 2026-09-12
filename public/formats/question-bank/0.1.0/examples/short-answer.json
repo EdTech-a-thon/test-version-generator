@@ -6,10 +6,6 @@
     "version": "1.0.0"
   },
   "requiredFeatures": [],
-  "integrity": {
-    "algorithm": "sha-256",
-    "digest": "e11c963108451d35a470faa4efea008a914bf29c0b0d83276939aadd284365bc"
-  },
   "bank": {
     "name": "Short Answer",
     "questions": [

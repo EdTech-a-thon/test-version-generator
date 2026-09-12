@@ -439,7 +439,7 @@ export async function createQuestionBankPdf(
   }
   document.setTitle(prepared.record.bank.name)
   document.setSubject(
-    `Teacher Question Bank containing answers; format ${prepared.record.formatVersion}; SHA-256 ${prepared.record.integrity.digest.slice(0, 12)}`,
+    `Teacher Question Bank containing answers; format ${prepared.record.formatVersion}`,
   )
   document.setCreator('Test Parrot')
   drawText(context, prepared.record.bank.name || 'Untitled Question Bank', {

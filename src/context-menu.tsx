@@ -41,6 +41,7 @@ export type MenuItem =
       onSelect: () => void
       icon?: ReactNode
       destructive?: boolean
+      disabled?: boolean
     }
   | {
       kind: 'radio'
@@ -62,7 +63,8 @@ type SubmenuItem = Extract<MenuItem, { kind: 'action' | 'radio' }>
 
 /** The rows a keyboard can land on. Labels and separators are skipped over. */
 function isFocusable(item: MenuItem): boolean {
-  return item.kind === 'action' || item.kind === 'radio' || item.kind === 'submenu'
+  return (item.kind === 'action' || item.kind === 'radio' || item.kind === 'submenu')
+    && !('disabled' in item && item.disabled)
 }
 
 /** The last row End should land on. Written out rather than `findLastIndex`,
@@ -125,7 +127,8 @@ export function ContextMenu({
   // Roving tabindex: exactly one row is tabbable and it is the one that holds
   // focus, so arrow keys move a real focus ring rather than a painted-on one.
   useEffect(() => {
-    itemElements.current[active]?.focus()
+    if (active >= 0) itemElements.current[active]?.focus()
+    else menu.current?.focus()
   }, [active])
 
   useEffect(() => {
@@ -255,6 +258,7 @@ export function ContextMenu({
       className="context-menu"
       role="menu"
       aria-label={ariaLabel}
+      tabIndex={-1}
       data-side={side}
       style={{ left: position.x, top: position.y }}
       onKeyDown={onKeyDown}
@@ -364,11 +368,13 @@ export function ContextMenu({
                 : 'context-menu-item'
             }
             tabIndex={index === active ? 0 : -1}
+            disabled={'disabled' in item && item.disabled}
             // Hovering moves the keyboard's place too, so the mouse and the
             // arrow keys never disagree about which row is next. A sibling row
             // also ends a hover-open submenu; otherwise its flyout outlives
             // the row that opened it.
             onMouseEnter={() => {
+              if ('disabled' in item && item.disabled) return
               setActive(index)
               setOpenSubmenu(null)
             }}

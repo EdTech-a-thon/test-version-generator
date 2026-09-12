@@ -536,16 +536,24 @@ export const FIXTURES: readonly Fixture[] = [
     {
       title: 'Full paper',
       questions: [
-        multipleChoice(
-          'm1',
-          2,
-          [paragraph(text('Which is an acid?'))],
-          [
-            choice('c1', false, paragraph(text('NaOH'))),
-            choice('c2', true, paragraph(text('HCl'))),
-          ],
-        ),
-        open('o1', paragraph(text('Describe a titration.'))),
+        {
+          ...multipleChoice(
+            'm1',
+            2,
+            [paragraph(text('Which is an acid?'))],
+            [
+              choice('c1', false, paragraph(text('NaOH'))),
+              choice('c2', true, paragraph(text('HCl'))),
+            ],
+          ),
+          difficulty: 'easy',
+          topics: ['Acids'],
+        },
+        {
+          ...open('o1', paragraph(text('Describe a titration.'))),
+          difficulty: 'hard',
+          topics: ['Titration'],
+        },
       ],
     },
     arrangement(['o1', 'm1']),

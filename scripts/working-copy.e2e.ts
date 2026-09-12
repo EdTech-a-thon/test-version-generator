@@ -18,7 +18,8 @@ test('Save, local recovery, and Discard keep an Exam Working Copy distinct from 
   await expect(name).toHaveValue('Recovered Working Copy')
   await expect(workingCopyStatus).toHaveText('Unsaved changes · backed up locally')
 
-  await page.getByRole('button', { name: 'Discard changes' }).click()
+  await page.getByRole('button', { name: 'File' }).click()
+  await page.getByRole('menuitem', { name: 'Discard changes' }).click()
   await expect(name).toHaveValue('Saved composition')
   await expect(workingCopyStatus).toHaveText('Saved')
 })
@@ -31,7 +32,8 @@ test('Save As moves a changed Working Copy into a named independent Exam', async
   await page.keyboard.press('Control+S')
   await name.fill('Changed exam')
 
-  await page.getByRole('button', { name: 'Save As' }).click()
+  await page.getByRole('button', { name: 'File' }).click()
+  await page.getByRole('menuitem', { name: 'Save As' }).click()
 
   await expect(name).toHaveValue('Changed exam Copy')
   await expect(page.getByLabel('Working Copy status')).toHaveText('Saved')

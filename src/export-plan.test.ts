@@ -456,13 +456,20 @@ describe('answer key', () => {
       .flatMap((page) => page.items)
   }
 
-  test('correct letters follow the current arrangement choice ordering', () => {
-    const exam = examOf([multipleChoice('m1', ['a', 'b', 'c'], 'a')])
+  test('correct letters follow the current arrangement and carry Question Metadata', () => {
+    const question = {
+      ...multipleChoice('m1', ['a', 'b', 'c'], 'a'),
+      difficulty: 'hard' as const,
+      topics: ['Cells', 'Division'],
+    }
+    const exam = examOf([question])
     const arrangement = arrangementOf(['m1'], { m1: ['c', 'a', 'b'] })
     expect(keyItems(exam, arrangement)).toContainEqual({
       kind: 'answer-key-entry',
       number: 1,
       letter: 'B',
+      difficulty: 'hard',
+      topics: ['Cells', 'Division'],
     })
   })
 

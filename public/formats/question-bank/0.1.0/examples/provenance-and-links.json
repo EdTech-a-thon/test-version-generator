@@ -6,10 +6,6 @@
     "version": "1.0.0"
   },
   "requiredFeatures": [],
-  "integrity": {
-    "algorithm": "sha-256",
-    "digest": "a6dfef6eb65b4ff12cd3354aac8af9ba8a096e73a290f480c52652f6f398dea4"
-  },
   "bank": {
     "name": "Published Provenance",
     "description": "A bank published to demonstrate declared provenance.",

@@ -110,6 +110,13 @@ button { cursor: pointer; }
   border-bottom: 1px solid #e8dfd2; background: #fffaf3;
 }
 .document-identity { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.document-title-stack { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; }
+.document-menus { display: flex; align-items: center; gap: 2px; padding-left: 3px; }
+.document-menu-button {
+  padding: 2px 6px; border: 0; border-radius: 4px;
+  color: #5f4d40; background: transparent; font-size: 13px;
+}
+.document-menu-button:hover, .document-menu-button[aria-expanded='true'] { background: #f2e6d8; }
 /* Fixed box, `contain` fit: the mark keeps its aspect ratio whatever the
    source file's proportions turn out to be. */
 .app-logo {
@@ -120,13 +127,14 @@ button { cursor: pointer; }
   /* Leave the document actions one stable header row at desktop widths. The
      title remains roomy while Save, Discard and its Working Copy status are
      present instead of making the sticky bar grow after scrolling begins. */
-  width: min(240px, 30vw); padding: 5px 7px; border: 1px solid transparent;
+  width: min(280px, 34vw); padding: 1px 7px 2px; border: 1px solid transparent;
   border-radius: 4px; color: #332a24; background: transparent; font-size: 18px; outline: none;
 }
 .document-title:hover { border-color: #d8cbbb; }
 .document-title:focus { border-color: #b65f43; box-shadow: inset 0 0 0 1px #b65f43; }
 .header-actions, .dialog-actions { display: flex; align-items: center; gap: 10px; }
 .header-actions { flex-wrap: wrap; justify-content: flex-end; gap: 7px; }
+.document-edit-actions { display: flex; align-items: center; gap: 1px; padding-right: 6px; border-right: 1px solid var(--paper-outline); }
 /* Its own width, whatever it is saying. The four states are four different
    sentences, and this changes on every keystroke: as text in a wrapping flex
    row it reflowed the whole bar under the teacher's hands while they typed. */
@@ -381,7 +389,7 @@ button { cursor: pointer; }
   overflow-x: auto; overflow-y: hidden; scrollbar-width: thin;
 }
 .bank-tab {
-  display: flex; flex: 0 1 auto; align-items: center; min-width: 40px;
+  display: flex; flex: 0 1 auto; align-items: center; min-width: 40px; overflow: hidden;
   border: 1px solid transparent; border-bottom: 0; border-radius: 9px 9px 0 0;
   color: #6b5949; background: transparent;
 }
@@ -391,7 +399,10 @@ button { cursor: pointer; }
 }
 .bank-tab > button { border: 0; color: inherit; background: transparent; }
 .bank-tab > button[role='tab'] { flex: 0 1 auto; max-width: 180px; min-width: 0; padding: 8px 5px 8px 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.bank-tab > button:last-child { display: inline-flex; flex: none; padding: 7px 8px 7px 3px; border-radius: 5px; }
+.bank-tab > button:last-child {
+  display: inline-flex; flex: none; align-items: center; justify-content: center;
+  width: 24px; height: 24px; margin: 0 4px 0 1px; padding: 0; border-radius: 50%;
+}
 .bank-tab > button:last-child:hover { background: #e2d3bf; }
 .bank-tab svg { width: 14px; height: 14px; }
 .bank-tab > button:focus-visible, .open-bank-button:focus-visible { outline: 2px solid #8a6a4c; outline-offset: -2px; }
@@ -404,6 +415,10 @@ button { cursor: pointer; }
 .open-bank-button svg { width: 17px; height: 17px; }
 .bank-tabs-error { margin: 8px 0 0; }
 .question-bank-no-tab { justify-content: center; text-align: center; }
+.question-bank-no-tab-content { max-width: 310px; margin: auto; }
+.question-bank-no-tab-content h2 { margin: 0 0 7px; font-size: 18px; }
+.question-bank-no-tab-content p { margin: 0 0 18px; color: #7a6a5c; line-height: 1.5; }
+.question-bank-no-tab-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
 .question-bank {
   display: flex; flex-direction: column;
   height: 100%; min-height: 0; padding: 0 16px 18px; overflow: hidden;
@@ -439,6 +454,7 @@ button { cursor: pointer; }
 .question-bank-header .secondary-button {
   display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 6px 11px;
 }
+.question-bank-header .toolbar-icon-button { width: 32px; height: 32px; }
 .question-bank-header svg { width: 16px; height: 16px; stroke-width: 2; }
 /* The filter bar: a stem search and one dropdown per filter category. Nothing
    here is authoring data — it narrows what is shown and is forgotten on
@@ -481,6 +497,20 @@ button { cursor: pointer; }
 }
 .bank-filter-option:hover { background: #f5eade; }
 .bank-filter-empty { margin: 0; padding: 6px 7px; color: #8a7868; font-size: 13px; }
+.bank-sort {
+  position: relative; display: inline-flex; align-items: center;
+  color: #5b4839;
+}
+.bank-sort svg {
+  position: absolute; left: 8px; width: 14px; height: 14px;
+  pointer-events: none; stroke-width: 2;
+}
+.bank-sort select {
+  min-height: 30px; padding: 5px 25px 5px 27px;
+  border: 1px solid #ddcdb9; border-radius: 6px;
+  color: inherit; background: #fffdf8; font-size: 13px;
+}
+.bank-sort select:hover { border-color: #cdb9a6; background: #f7ede0; }
 .bank-filter-clear {
   padding: 5px 8px; border: 0; border-radius: 6px; color: #6b5a4c;
   background: transparent; font-size: 13px; text-decoration: underline;
@@ -637,9 +667,13 @@ button { cursor: pointer; }
 .answer-key-heading { margin: 0 0 18px; font: 700 20px/1.3 Georgia, serif; }
 .answer-key-section { margin: 0 0 10px; font: 700 17px/1.3 Georgia, serif; }
 .answer-key-entry {
-  display: grid; grid-template-columns: 42px 56px; gap: 8px; margin: 0 0 8px;
+  display: grid; grid-template-columns: 42px 56px minmax(0, 1fr);
+  align-items: center; gap: 8px; margin: 0 0 8px;
 }
 .answer-key-answer { min-height: 1.45em; border-bottom: 1px solid #332a24; text-align: center; }
+.answer-key-metadata { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; min-width: 0; }
+.answer-key-metadata .badge { padding: 0 7px; font: 11px/1.55 Arial, Helvetica, sans-serif; }
+.answer-key-metadata .badge svg { width: 11px; height: 11px; }
 .exam-question {
   position: relative; display: grid; grid-template-columns: 92px 1fr; gap: 6px;
   margin-bottom: 26px; border-radius: 4px; cursor: grab;
@@ -854,6 +888,7 @@ button { cursor: pointer; }
   color: #4e3b2f; background: transparent; font: inherit; text-align: left;
 }
 .context-menu-item:hover, .context-menu-item:focus { background: #f2e6d8; outline: none; }
+.context-menu-item:disabled { color: #b8aa9e; background: transparent; cursor: not-allowed; }
 /* Destructive rows read like every other row until the cursor is on them:
    colouring the whole menu's odd one out at rest makes the menu look alarming
    rather than the action. */
@@ -1153,13 +1188,14 @@ button { cursor: pointer; }
 @keyframes mc-caret-blink { 50% { opacity: 0; } }
 
 /* Short Answer: the Suggested Answer is one inline editing region at the end
-   of the same document. Its label occupies the control lane used by a
-   multiple-choice radio, while its optional rich text stays in the question's
-   normal writing lane. */
+   of the same document. Its dashed outline matches the Multiple Choice answer
+   section, so both question types present answers as one bounded input area.
+   The label occupies the control lane used by a multiple-choice radio, while
+   its optional rich text stays in the question's normal writing lane. */
 .milkdown [data-type="suggested-answer"] {
   display: flex; align-items: flex-start; gap: 14px;
-  margin: 28px 0 8px; padding-top: 14px;
-  border-top: 1px solid #d8c8b7;
+  margin: 20px 0; padding: 10px 12px;
+  border: 1px dashed #bda995; border-radius: 6px;
 }
 .sa-label {
   flex: 0 0 112px; padding-top: 4px;
@@ -1354,6 +1390,25 @@ button { cursor: pointer; }
   color: var(--paper-accent); border-color: var(--paper-accent); background-color: var(--paper-accent-wash);
   background-image: radial-gradient(circle at center, #e5c2ae 1.3px, transparent 1.4px);
 }
+/* The next card's place on a shelf: the same dotted ground as an empty shelf,
+   but at the size of the card that will stand there. */
+.new-resource-card {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+  padding: 16px; border: 1px dashed #cdb9a6; border-radius: 9px; color: #6e5b4d; background-color: transparent;
+  background-image: radial-gradient(circle at center, #d6c6b3 1.3px, transparent 1.4px);
+  background-size: 15px 15px; font: inherit; font-size: 15px; font-weight: 600; cursor: pointer;
+  transition: color .12s ease, border-color .12s ease, background-color .12s ease;
+}
+.new-resource-card svg { width: 26px; height: 26px; stroke-width: 2; }
+.new-resource-card:hover, .new-resource-card:focus-visible {
+  color: var(--paper-accent); border-color: var(--paper-accent); background-color: var(--paper-accent-wash);
+  background-image: radial-gradient(circle at center, #e5c2ae 1.3px, transparent 1.4px);
+}
+.new-resource-card--card { width: 100%; min-height: 190px; }
+.new-resource-card--sheet {
+  width: var(--sheet-width); height: calc(var(--sheet-width) * 11 / 8.5); border-radius: 2px;
+}
+
 /* The Question Bank page: one bank, full screen, in the dashboard's chrome.
    Like the editor it is a frame rather than a document — the name and the
    toolbar stay put and the list of Questions scrolls inside its window. */
@@ -1668,14 +1723,16 @@ button { cursor: pointer; }
    sits apart from the pair that resolve the dialog. */
 .bank-import-back { margin-right: auto; }
 .bank-import-choose { padding: 4px 18px 0; }
-.bank-import-announcements { padding: 0 18px; }
-
-.bank-import-integrity {
-  display: flex; align-items: flex-start; gap: 8px; max-width: 310px; margin: 0;
-  color: var(--paper-ink-soft); font-size: 12px; line-height: 1.4;
+.bank-import-assist {
+  display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 4px 12px;
+  margin: 6px 0 16px; padding: 12px 14px; border: 1px dashed #cdb9a6; border-radius: 9px;
+  background: #fdf8f0;
 }
-.bank-import-integrity svg { flex: none; width: 18px; height: 18px; color: #27643a; }
-.bank-import-integrity strong { display: block; color: #27643a; font-size: 13px; }
+.bank-import-assist svg { width: 20px; height: 20px; color: var(--paper-accent); }
+.bank-import-assist p { margin: 0; color: var(--paper-ink-soft); font-size: 13px; line-height: 1.45; }
+.bank-import-assist strong { color: #2f2419; }
+.bank-import-assist .secondary-button { grid-column: 2; justify-self: start; }
+.bank-import-announcements { padding: 0 18px; }
 
 .bank-import-body {
   flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 320px;

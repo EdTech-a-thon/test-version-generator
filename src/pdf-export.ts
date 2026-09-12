@@ -34,6 +34,7 @@ import type {
   PageItem,
   QuestionItem,
 } from './export-plan'
+import { DIFFICULTY_LABELS } from './exam'
 import type { ProseMirrorJSON } from './question-doc'
 
 const PDF_MIME = 'application/pdf'
@@ -47,6 +48,8 @@ const QUESTION_INDENT = (92 + 6) * POINTS_PER_PX
 const INK = rgb(0.2, 0.165, 0.14)
 const LINK = rgb(0.08, 0.3, 0.7)
 const RULE = rgb(0.55, 0.5, 0.45)
+const TAG_FILL = rgb(0.95, 0.91, 0.86)
+const TAG_BORDER = rgb(0.82, 0.75, 0.66)
 export type PdfFontStyle = 'regular' | 'bold' | 'italic' | 'boldItalic' | 'mono'
 export type PdfFontLoader = (style: PdfFontStyle) => Promise<ArrayBuffer | Uint8Array>
 
@@ -612,18 +615,65 @@ function drawItem(context: DrawContext, item: PageItem): void {
 }
 
 function drawAnswerKeyEntry(context: DrawContext, item: AnswerKeyEntryItem): void {
-  ensureRoom(context, BODY_LINE + 2)
+  const metadata = [
+    ...(item.difficulty ? [DIFFICULTY_LABELS[item.difficulty]] : []),
+    ...(item.topics ?? []),
+  ]
+  const tagStart = context.x + 88
+  const tagWidth = context.width - 88
+  const gap = 5
+  const padding = 5
+  let tagX = tagStart
+  let tagLine = 0
+  const tags = metadata.map((label) => {
+    assertSupported(label, context.fonts.regular)
+    const width = Math.min(
+      context.fonts.regular.widthOfTextAtSize(label, SMALL_SIZE) + padding * 2,
+      tagWidth,
+    )
+    if (tagX > tagStart && tagX + width > tagStart + tagWidth) {
+      tagLine += 1
+      tagX = tagStart
+    }
+    const tag = { label, x: tagX, line: tagLine, width }
+    tagX += width + gap
+    return tag
+  })
+  const lines = Math.max(1, tagLine + 1)
+  ensureRoom(context, lines * BODY_LINE + 2)
+  const rowY = context.y
+
   drawTextLine(context, `${item.number}.`, { width: 32 })
-  context.y += BODY_LINE
+  context.y = rowY
   if (item.letter) drawTextLine(context, item.letter, { font: 'bold', x: context.x + 38, width: 42 })
   else context.y -= BODY_LINE
   context.page.drawLine({
-    start: { x: context.x + 36, y: context.y + 3 },
-    end: { x: context.x + 78, y: context.y + 3 },
+    start: { x: context.x + 36, y: rowY - BODY_LINE + 3 },
+    end: { x: context.x + 78, y: rowY - BODY_LINE + 3 },
     thickness: 0.6,
     color: INK,
   })
-  context.y -= 2
+
+  for (const tag of tags) {
+    const y = rowY - tag.line * BODY_LINE - SMALL_SIZE - 1
+    context.page.drawRectangle({
+      x: tag.x,
+      y,
+      width: tag.width,
+      height: SMALL_SIZE + 4,
+      color: TAG_FILL,
+      borderColor: TAG_BORDER,
+      borderWidth: 0.5,
+    })
+    context.page.drawText(tag.label, {
+      x: tag.x + padding,
+      y: y + 2.5,
+      font: context.fonts.regular,
+      size: SMALL_SIZE,
+      color: INK,
+    })
+  }
+  context.y = rowY - lines * BODY_LINE - 2
 }
 
 function drawFurniture(

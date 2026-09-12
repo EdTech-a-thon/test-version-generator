@@ -9,7 +9,6 @@
     "formatVersion",
     "generator",
     "requiredFeatures",
-    "integrity",
     "bank",
     "media"
   ],
@@ -28,14 +27,6 @@
       "type": "array",
       "items": { "type": "string" },
       "uniqueItems": true
-    },
-    "integrity": {
-      "type": "object",
-      "required": ["algorithm", "digest"],
-      "properties": {
-        "algorithm": { "const": "sha-256" },
-        "digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
-      }
     },
     "bank": {
       "type": "object",

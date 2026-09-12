@@ -1,5 +1,6 @@
 import { defineConfig, loadEnv, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
+import { extractPage } from './extract-page'
 
 /**
  * Injects the Cloudflare Web Analytics beacon into the built index.html.
@@ -32,7 +33,7 @@ function cloudflareAnalytics(token: string | undefined): Plugin {
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), 'VITE_')
   return {
-    plugins: [react(), cloudflareAnalytics(env.VITE_CF_BEACON_TOKEN)],
+    plugins: [react(), extractPage(), cloudflareAnalytics(env.VITE_CF_BEACON_TOKEN)],
     server: {
       host: '0.0.0.0',
       port: 8000,

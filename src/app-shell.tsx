@@ -1,15 +1,14 @@
 import type { ReactNode } from 'react'
-import { FileText, HardDrive, House, Library, SquarePen } from 'lucide-react'
+import { FileText, HardDrive, House, Library } from 'lucide-react'
 import type { PersistentStorageStatus } from './durable-storage'
 import { Footer, Link } from './site-chrome'
 import { useRoute } from './use-route'
 
 /**
  * The utility-app chrome every page outside the editor wears: a fixed left nav
- * naming the four places, breadcrumbs across the top, and the page itself in
- * between. The editor keeps its own full-width document bar — it is the
- * workspace, not a destination in a list — and the nav's Editor entry is how
- * you get back to it.
+ * naming the resource destinations, breadcrumbs across the top, and the page
+ * itself in between. The editor keeps its own full-width document bar and is
+ * reached by opening or creating an Exam rather than by a separate nav entry.
  */
 
 export type Crumb = { label: string; href?: string }
@@ -92,15 +91,6 @@ export function AppShell({
                 </Link>
               </li>
             ))}
-            <li>
-              {/* A full document load, not a routed one: the editor's workspace
-                  is restored at start-up, so there is nothing for the router to
-                  mount on its own. */}
-              <a href="/editor" className="app-nav-link">
-                <SquarePen aria-hidden="true" />
-                Editor
-              </a>
-            </li>
           </ul>
         </nav>
       </aside>

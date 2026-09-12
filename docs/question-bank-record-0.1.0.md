@@ -10,7 +10,6 @@ The **Question Bank Record** is the authoritative, portable representation of on
 - Checked-in schema: [`/formats/question-bank/0.1.0/schema.json`](../public/formats/question-bank/0.1.0/schema.json)
 - [Canonical examples](../public/formats/question-bank/0.1.0/examples/)
 - [Invalid counterexamples](../public/formats/question-bank/0.1.0/invalid/)
-- [RFC 8785 conformance vectors](../public/formats/question-bank/0.1.0/conformance/)
 
 The schema is the machine-readable structural contract; this document supplies semantics that JSON Schema cannot express. Implementations must perform both structural and semantic validation.
 
@@ -24,7 +23,6 @@ Every record has these required members:
 | `formatVersion`    | The exact version of this contract, `0.1.0`.                                                                                                        |
 | `generator`        | Informational producer name and version. Consumers must not gate conformance on either value.                                                       |
 | `requiredFeatures` | Semantic capabilities required to consume the record without loss. An importer must reject an unknown entry. It may ignore unknown optional fields. |
-| `integrity`        | Required SHA-256 corruption check described below.                                                                                                  |
 | `bank`             | Name, optional provenance, and non-empty ordered Questions.                                                                                         |
 | `media`            | Media Asset declarations used by Question Content; empty when no image is used.                                                                     |
 
@@ -89,20 +87,6 @@ Every image reference must resolve, every declaration must be referenced, IDs mu
 
 Image bytes intentionally have up to two physical representations in a Question Bank File: canonical source bytes inside the JSON attachment and renderer-oriented image data in the PDF preview. This supports exact, editable offline import while allowing ordinary PDF viewing. PDF image XObjects are unstable under rewriting and are never referenced by the public record; repeated preview occurrences should reuse one PDF image object where possible.
 
-## Integrity
-
-`integrity.algorithm` is `sha-256`. To calculate `integrity.digest`:
-
-1. Take the complete parsed record, including unknown optional fields.
-2. Omit only the `integrity.digest` member; keep `integrity.algorithm`.
-3. Canonicalize the resulting JSON according to [RFC 8785, JSON Canonicalization Scheme](https://www.rfc-editor.org/rfc/rfc8785).
-4. UTF-8 encode those canonical bytes.
-5. Calculate SHA-256 and encode the result as 64 lowercase hexadecimal characters.
-
-Integrity detects accidental or malicious record changes. It does **not** authenticate the declared author, prove authorship or license ownership, compare the independently editable PDF pages with the record, or identify duplicate imports.
-
-The fixed conformance files are copied from the upstream `cyberphone/json-canonicalization` JCS `testdata/values.json` vector at commit `19d51d7fe467d4706a3ff08adf8a748f29fc21e0` (Apache-2.0). The expected SHA-256 of its canonical output is `2d5e01a318d0f0879ab568c4be289c8b1f64ef8921a53c6277d5e069978baacb`.
-
 ## Question Bank File carrier
 
 A conforming Question Bank File is an ordinary, unencrypted PDF. It carries exactly one authoritative UTF-8 JSON attachment with all of this metadata:
@@ -120,13 +104,13 @@ The PDF preview is a teacher aid containing answers. It is generated from the re
 
 The canonical examples cover a minimal Multiple Choice bank, Short Answer with Suggested Answer, every supported rich-text node and mark, provenance and external links, and referenced Media Assets. Their formatting and generator values are deliberately not Test Parrot output requirements.
 
-The invalid fixture manifest records the expected application-level rejection category for unsupported versions and required features, unsafe URLs, malformed Questions, dangling references, integrity mismatch, and invalid Media Assets. Conformance tests validate examples directly with an independent JSON Schema implementation, inspect them through Test Parrot's public import seam, validate Test Parrot-generated records against the published schema, and assert that schema vocabulary, adapters, and examples remain aligned.
+The invalid fixture manifest records the expected application-level rejection category for unsupported versions and required features, unsafe URLs, malformed Questions, dangling references, and invalid Media Assets. Conformance tests validate examples directly with an independent JSON Schema implementation, inspect them through Test Parrot's public import seam, validate Test Parrot-generated records against the published schema, and assert that schema vocabulary, adapters, and examples remain aligned.
 
 
 ## Implementation status
 
 The Question Bank File workflow described by ADR-0018 and GitHub issue #55 is
-implemented by the `0.1.0` exporter, importer, public fixtures, and conformance
+implemented by the `0.1.0` exporter, importer, public fixtures, and contract
 tests. Question Bank Files remain a resource-exchange format: they do not use
 Exam Export Documents or Layout Plans and do not create Exam Export Records or
 Question Bank export history.

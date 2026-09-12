@@ -1,5 +1,4 @@
 {
-  "bad-integrity.json": "integrity-mismatch",
   "bad-reference.json": "dangling-reference",
   "invalid-media.json": "invalid-media",
   "malformed-question.json": "invalid-structure",

@@ -27,7 +27,7 @@ import {
   type ReactNode,
 } from 'react'
 import { createPortal } from 'react-dom'
-import { Check, CircleMinus, Download, Pencil, Plus, Search } from 'lucide-react'
+import { ArrowDownAZ, Check, CircleMinus, Pencil, Plus, Search, Upload } from 'lucide-react'
 import { DifficultyBadge, TopicBadge } from './badges'
 import type { MenuPoint } from './context-menu'
 import { stemPreview, type StemPreviewBadge } from './stem-preview'
@@ -49,6 +49,7 @@ import {
   topicOptions,
   type DifficultyFilter,
   type QuestionBankFilter,
+  type QuestionBankSort,
 } from './question-bank-view'
 
 /** The width the filter list is laid out at, and the gap it keeps from the
@@ -217,6 +218,13 @@ const DIFFICULTY_OPTIONS: FilterOption<DifficultyFilter>[] = [
   ...DIFFICULTIES.map((value) => ({ value, label: DIFFICULTY_LABELS[value] })),
   // Optional classification must never put a question out of reach.
   { value: 'unspecified', label: 'Unspecified' },
+]
+
+const SORT_OPTIONS: readonly FilterOption<QuestionBankSort>[] = [
+  { value: 'newest', label: 'Newest' },
+  { value: 'type', label: 'Question Type' },
+  { value: 'difficulty', label: 'Difficulty' },
+  { value: 'topic', label: 'Topic' },
 ]
 
 export function QuestionBankPane({
@@ -394,18 +402,21 @@ export function QuestionBankPane({
             {extraActions}
             {onExport && <button
               type="button"
-              className="secondary-button"
+              className="toolbar-icon-button"
+              aria-label="Export Question Bank"
+              title="Export Question Bank"
               aria-haspopup="dialog"
               aria-describedby={bank.questions.length === 0 ? 'empty-bank-export-help' : exportBlocked ? 'editing-bank-export-help' : undefined}
               disabled={bank.questions.length === 0 || exportBlocked}
               onClick={onExport}
             >
-              <Download />
-              Share bank PDF
+              <Upload aria-hidden="true" />
             </button>}
             {onCreate && <button
               type="button"
-              className="secondary-button"
+              className="toolbar-icon-button"
+              aria-label="Add Question"
+              title="Add Question"
               aria-haspopup="menu"
               onClick={(event) => {
                 // Below the button and aligned with it, so the list of types
@@ -414,8 +425,7 @@ export function QuestionBankPane({
                 onCreate({ x: bounds.left, y: bounds.bottom + 4 })
               }}
             >
-              <Plus />
-              New question
+              <Plus aria-hidden="true" />
             </button>}
             {onExport && bank.questions.length === 0 && <span id="empty-bank-export-help" className="bank-export-help">At least one Question is required.</span>}
             {onExport && exportBlocked && <span id="editing-bank-export-help" className="bank-export-help">Save or cancel the open Question edit before exporting.</span>}
@@ -456,11 +466,27 @@ export function QuestionBankPane({
             emptyMessage="No Topics yet"
             onChange={(topics) => onFilterChange({ ...filter, topics })}
           />
+          <label className="bank-sort">
+            <ArrowDownAZ aria-hidden="true" />
+            <span className="sr-only">Sort Questions</span>
+            <select
+              aria-label="Sort Questions"
+              value={filter.sort ?? 'newest'}
+              onChange={(event) => onFilterChange({
+                ...filter,
+                sort: event.target.value as QuestionBankSort,
+              })}
+            >
+              {SORT_OPTIONS.map((option) => (
+                <option value={option.value} key={option.value}>{option.label}</option>
+              ))}
+            </select>
+          </label>
           {filtered && (
             <button
               type="button"
               className="bank-filter-clear"
-              onClick={() => onFilterChange(NO_FILTER)}
+              onClick={() => onFilterChange({ ...NO_FILTER, sort: filter.sort ?? 'newest' })}
             >
               Clear filters
             </button>
@@ -478,8 +504,8 @@ export function QuestionBankPane({
           </p>
         ) : (
           <p className="question-bank-empty" data-empty="no-questions">
-            No questions yet. New question writes one into the bank without
-            putting it on the exam.
+            No questions yet. Add Question writes one into the bank without
+            putting it on the Exam.
           </p>
         )
       ) : (

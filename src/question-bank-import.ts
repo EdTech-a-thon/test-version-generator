@@ -4,7 +4,6 @@ import questionBankSchema from './question-bank-record-0.1.0.schema.json'
 import {
   QUESTION_BANK_ATTACHMENT_DESCRIPTION,
   QUESTION_BANK_FORMAT,
-  canonicalizeJson,
   recordDocumentToEditorNodes,
   type QuestionBankRecord,
   type QuestionBankRecordQuestion,
@@ -38,7 +37,6 @@ export type QuestionBankImportErrorCode =
   | 'unsupported-version'
   | 'invalid-structure'
   | 'unsupported-feature'
-  | 'integrity-mismatch'
   | 'duplicate-id'
   | 'dangling-reference'
   | 'invalid-question'
@@ -67,7 +65,6 @@ type ParsedRecord = {
   formatVersion: '0.1.0'
   generator: { name: string; version: string }
   requiredFeatures: string[]
-  integrity: { algorithm: 'sha-256'; digest: string }
   bank: {
     name: string
     description?: string
@@ -97,7 +94,6 @@ export type QuestionBankImportProposal = {
     decodedMediaBytes: number
     externalLinks: boolean
     formatVersion: string
-    integrity: 'verified'
   }
 }
 
@@ -249,7 +245,6 @@ function parser010(value: unknown): ParsedRecord {
       version: record.generator.version,
     },
     requiredFeatures: [...record.requiredFeatures],
-    integrity: { ...record.integrity },
     bank: {
       name: record.bank.name,
       ...(record.bank.description !== undefined
@@ -310,9 +305,7 @@ function requiredString(object: unknown, key: string): string | undefined {
   return typeof value === 'string' ? value : undefined
 }
 
-function structuralParse(
-  value: unknown,
-): { source: ParsedRecord; sanitized: ParsedRecord } {
+function structuralParse(value: unknown): ParsedRecord {
   const format = requiredString(value, 'format')
   if (format !== QUESTION_BANK_FORMAT) {
     throw new QuestionBankImportError(
@@ -328,7 +321,7 @@ function structuralParse(
       `Question Bank format version “${version}” is unsupported. Supported versions: ${Object.keys(SUPPORTED_QUESTION_BANK_VERSIONS).join(', ')}.`,
     )
   }
-  return { source: value as ParsedRecord, sanitized: parser(value) }
+  return parser(value)
 }
 
 function byteHex(bytes: ArrayBuffer): string {
@@ -337,22 +330,6 @@ function byteHex(bytes: ArrayBuffer): string {
   ).join('')
 }
 
-async function verifyIntegrity(record: ParsedRecord): Promise<void> {
-  const digestless = structuredClone(record) as ParsedRecord
-  delete (digestless.integrity as { digest?: string }).digest
-  const actual = byteHex(
-    await crypto.subtle.digest(
-      'SHA-256',
-      new TextEncoder().encode(canonicalizeJson(digestless)),
-    ),
-  )
-  if (actual !== record.integrity.digest) {
-    throw new QuestionBankImportError(
-      'integrity-mismatch',
-      'The Question Bank Record integrity digest does not match its content.',
-    )
-  }
-}
 
 const SAFE_PROTOCOLS = new Set(['http:', 'https:'])
 
@@ -695,7 +672,6 @@ async function validateSemantics(
     decodedMediaBytes,
     externalLinks,
     formatVersion: record.formatVersion,
-    integrity: 'verified',
   }
 }
 
@@ -710,12 +686,9 @@ export async function inspectQuestionBankRecord(
       `The decoded canonical JSON attachment exceeds the ${limits.recordBytes} byte limit.`,
     )
   }
-  const parsed = structuralParse(decodeJson(bytes))
-  // Integrity covers the complete source record, including harmless optional
-  // additions. Discard those fields only after corruption has been ruled out.
-  await verifyIntegrity(parsed.source)
-  const summary = await validateSemantics(parsed.sanitized, limits)
-  return { record: parsed.sanitized, summary }
+  const record = structuralParse(decodeJson(bytes))
+  const summary = await validateSemantics(record, limits)
+  return { record, summary }
 }
 
 export async function inspectQuestionBankFile(

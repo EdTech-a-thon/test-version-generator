@@ -13,7 +13,7 @@ The rich-text material authored for one question, including its stem and, when p
 _Avoid_: Question text, editor content
 
 **Question Metadata**:
-Difficulty and Topics used to organize and find Questions while composing an Exam. Question Metadata does not affect exported output.
+Difficulty and Topics used to organize and find Questions while composing an Exam. Question Metadata appears as tags beside each entry in an exported Answer Key, but does not appear on the student test.
 _Avoid_: Question identity, export identity
 
 **Question Bank**:

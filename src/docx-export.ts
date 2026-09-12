@@ -71,6 +71,7 @@ import {
   type PlannedPage,
   type QuestionItem,
 } from './export-plan'
+import { DIFFICULTY_LABELS } from './exam'
 import type { ProseMirrorJSON } from './question-doc'
 
 const DOCX_MIME =
@@ -716,12 +717,19 @@ function answerKeySection(item: AnswerKeySectionItem): Paragraph {
 }
 
 function answerKeyEntry(item: AnswerKeyEntryItem): Paragraph {
+  const metadata = [
+    ...(item.difficulty ? [{ label: DIFFICULTY_LABELS[item.difficulty], fill: 'E6F0E3' }] : []),
+    ...(item.topics ?? []).map((topic) => ({ label: topic, fill: 'F2E6D8' })),
+  ]
   return new Paragraph({
     children: [
       new TextRun({ text: `${item.number}. ` }),
       // A free-response question still takes a line, so the key's numbering
       // matches the paper's; it simply has no letter to print.
       ...(item.letter ? [new TextRun({ text: item.letter, bold: true })] : []),
+      ...metadata.map(({ label, fill }) =>
+        new TextRun({ text: ` ${label} `, size: 18, shading: { fill } }),
+      ),
     ],
   })
 }

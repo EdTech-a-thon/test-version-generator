@@ -481,7 +481,13 @@ export function planItemLines(
       return ['heading:1 Answer Section']
     case 'answer-key-section':
       return [`heading:2 ${item.title}`]
-    case 'answer-key-entry':
+    case 'answer-key-entry': {
+      const metadata = [
+        ...(item.difficulty
+          ? [item.difficulty[0]!.toUpperCase() + item.difficulty.slice(1)]
+          : []),
+        ...(item.topics ?? []),
+      ]
       return [
         line(
           'para',
@@ -490,9 +496,13 @@ export function planItemLines(
             ...(item.letter
               ? [{ kind: 'text' as const, text: item.letter, marks: ['strong'] }]
               : []),
+            ...(metadata.length > 0
+              ? [{ kind: 'text' as const, text: ` ${metadata.join(' ')}`, marks: [] }]
+              : []),
           ]),
         ),
       ]
+    }
     default: {
       const unreachable: never = item
       return unreachable

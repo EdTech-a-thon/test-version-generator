@@ -45,6 +45,34 @@ export function CreateFirstCard({
 }
 
 /**
+ * The space where the next card goes, drawn at a card's own size in the shelf
+ * or grid it belongs to. Creating a resource happens where the resource will
+ * appear, and an empty shelf is simply this card on its own — so there is no
+ * separate empty state to design or explain.
+ */
+export function NewResourceCard({
+  label,
+  shape,
+  onClick,
+}: {
+  label: string
+  /** A `sheet` is the shape of an Exam's first page; a `card` a bank tile. */
+  shape: 'sheet' | 'card'
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      className={`new-resource-card new-resource-card--${shape}`}
+      onClick={onClick}
+    >
+      <Plus aria-hidden="true" />
+      <span>{label}</span>
+    </button>
+  )
+}
+
+/**
  * A horizontally scrolling shelf of resource cards. The arrows sit in the
  * shelf's own heading row rather than over the cards, so nothing is ever
  * covered by a control, and each is present only while that direction has

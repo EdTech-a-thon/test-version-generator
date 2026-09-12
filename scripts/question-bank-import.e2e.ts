@@ -1,6 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
 import { PDFDocument } from 'pdf-lib'
-import { canonicalizeJson } from '../src/question-bank-export'
 
 async function resourceCount(page: Page) {
   return page.evaluate(async () => {
@@ -17,7 +16,6 @@ async function questionBankPdf(name = 'Portable chemistry') {
     formatVersion: '0.1.0',
     generator: { name: 'Independent Generator', version: '1' },
     requiredFeatures: [],
-    integrity: { algorithm: 'sha-256', digest: '' },
     bank: {
       name,
       description: 'A shared chemistry bank.',
@@ -34,10 +32,6 @@ async function questionBankPdf(name = 'Portable chemistry') {
     },
     media: [],
   }
-  const digestless = structuredClone(record)
-  delete (digestless.integrity as { digest?: string }).digest
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(canonicalizeJson(digestless)))
-  record.integrity.digest = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('')
   const pdf = await PDFDocument.create()
   pdf.addPage()
   await pdf.attach(new TextEncoder().encode(JSON.stringify(record)), 'pdfcx.json', {
@@ -55,8 +49,6 @@ test('imports a validated PDF as a durable independent bank and allows duplicate
   const dialog = page.getByRole('dialog', { name: 'Import Question Bank' })
   await expect(dialog.getByLabel('Question Bank PDF')).toBeFocused()
   await dialog.getByLabel('Question Bank PDF').setInputFiles({ name: 'chemistry.pdf', mimeType: 'application/pdf', buffer: await questionBankPdf() })
-  await expect(dialog.getByRole('region', { name: 'Import confirmation' })).toContainText('Record integrity verified')
-  await expect(dialog).toContainText('Author identity and the visible PDF pages are not verified')
   await expect(dialog).toContainText('1')
   await dialog.getByLabel('New Question Bank name').fill('My Chemistry')
   await dialog.getByRole('button', { name: 'Import Question Bank' }).click()

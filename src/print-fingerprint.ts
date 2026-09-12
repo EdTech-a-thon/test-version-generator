@@ -171,8 +171,15 @@ function blockLines(
   // bold in print by stylesheet, bold in Word by run property.
   if (has(node, 'answer-key-entry')) {
     const answer = find(node, 'answer-key-answer')
-    const number = node.children.find((child) => child !== answer)
+    const metadata = find(node, 'answer-key-metadata')
+    const number = node.children.find((child) => child !== answer && child !== metadata)
     const letter = answer ? normalizeSpace(textOf(answer)).trim() : ''
+    const metadataText = metadata
+      ? metadata.children
+          .map((child) => normalizeSpace(textOf(child)).trim())
+          .filter(Boolean)
+          .join(' ')
+      : ''
     return [
       line(
         'para',
@@ -183,6 +190,9 @@ function blockLines(
             marks: [],
           },
           ...(letter ? [{ kind: 'text' as const, text: letter, marks: ['strong'] }] : []),
+          ...(metadataText
+            ? [{ kind: 'text' as const, text: ` ${metadataText}`, marks: [] }]
+            : []),
         ]),
       ),
     ]

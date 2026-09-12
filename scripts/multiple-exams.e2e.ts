@@ -9,7 +9,7 @@ test('Home opens independently persisted recent Exams and restores the active Ex
   await page.goto('/')
   await expect(page.getByRole('region', { name: 'Pick up where you left off' })).toContainText('Create your first Exam')
   await page.getByRole('button', { name: 'New Question Bank' }).first().click()
-  await page.getByRole('button', { name: 'New question' }).click()
+  await page.getByRole('button', { name: 'Add Question' }).click()
   await page.getByRole('menuitem', { name: 'Multiple choice' }).click()
   await page.keyboard.type('First question preview')
   await page.keyboard.press('Control+Enter')

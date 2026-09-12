@@ -5,7 +5,6 @@ import {
   QUESTION_BANK_ATTACHMENT_DESCRIPTION,
   QUESTION_BANK_ATTACHMENT_NAME,
   QUESTION_BANK_FORMAT,
-  canonicalizeJson,
   type QuestionBankRecord,
 } from './question-bank-export'
 import {
@@ -31,7 +30,6 @@ function baseRecord(): QuestionBankRecord {
     formatVersion: '0.1.0',
     generator: { name: 'Independent Generator', version: '9.4.2' },
     requiredFeatures: [],
-    integrity: { algorithm: 'sha-256', digest: '0'.repeat(64) },
     bank: {
       name: 'Portable chemistry',
       questions: [
@@ -52,21 +50,7 @@ function baseRecord(): QuestionBankRecord {
   }
 }
 
-async function sign(record: QuestionBankRecord & Record<string, unknown>) {
-  const digestless = structuredClone(record)
-  delete (digestless.integrity as { digest?: string }).digest
-  const digest = await crypto.subtle.digest(
-    'SHA-256',
-    encoder.encode(canonicalizeJson(digestless)),
-  )
-  record.integrity.digest = Array.from(new Uint8Array(digest), (byte) =>
-    byte.toString(16).padStart(2, '0'),
-  ).join('')
-  return record
-}
-
-async function bytesOf(record: QuestionBankRecord & Record<string, unknown>) {
-  await sign(record)
+function bytesOf(record: QuestionBankRecord & Record<string, unknown>) {
   return encoder.encode(JSON.stringify(record))
 }
 
@@ -156,13 +140,12 @@ describe('hostile Question Bank File inspection', () => {
     source.futureEnvelopeNote = 'ignore me'
     ;(source.bank as Record<string, unknown>).futureBankNote = { opaque: true }
     ;(source.bank.questions[0] as unknown as Record<string, unknown>).futureQuestionNote = 42
-    const proposal = await inspectQuestionBankRecord(await bytesOf(source))
+    const proposal = await inspectQuestionBankRecord(bytesOf(source))
 
     expect(proposal.summary).toMatchObject({
       bankName: 'Portable chemistry',
       questionCounts: { 'multiple-choice': 1, 'short-answer': 0 },
       formatVersion: '0.1.0',
-      integrity: 'verified',
     })
     expect(proposal.record.generator.name).toBe('Independent Generator')
     expect(JSON.stringify(proposal.record)).not.toContain('future')
@@ -173,12 +156,12 @@ describe('hostile Question Bank File inspection', () => {
     source.formatVersion = '0.2.0'
     source.requiredFeatures = ['also-unknown']
     await rejected(
-      inspectQuestionBankRecord(await bytesOf(source)),
+      inspectQuestionBankRecord(bytesOf(source)),
       'unsupported-version',
       '0.2.0',
     )
     await rejected(
-      inspectQuestionBankRecord(await bytesOf(source)),
+      inspectQuestionBankRecord(bytesOf(source)),
       'unsupported-version',
       '0.1.0',
     )
@@ -189,7 +172,7 @@ describe('hostile Question Bank File inspection', () => {
     delete (source.bank.questions[0] as unknown as { stem?: unknown }).stem
     source.requiredFeatures = ['unknown-feature']
     await rejected(
-      inspectQuestionBankRecord(await bytesOf(source)),
+      inspectQuestionBankRecord(bytesOf(source)),
       'invalid-structure',
       'schema',
     )
@@ -205,39 +188,34 @@ describe('hostile Question Bank File inspection', () => {
     const source = baseRecord()
     mutate(source)
     await rejected(
-      inspectQuestionBankRecord(await bytesOf(source as QuestionBankRecord & Record<string, unknown>)),
+      inspectQuestionBankRecord(bytesOf(source as QuestionBankRecord & Record<string, unknown>)),
       code,
       code === 'unsupported-feature' ? 'future-meaning' : 'schema',
     )
   })
 
-  test('validates package IDs, references, cardinality, links, and integrity', async () => {
+  test('validates package IDs, references, cardinality, and links', async () => {
     const duplicate = baseRecord()
     duplicate.bank.questions.push(structuredClone(duplicate.bank.questions[0]!))
-    await rejected(inspectQuestionBankRecord(await bytesOf(duplicate as QuestionBankRecord & Record<string, unknown>)), 'duplicate-id', 'q1')
+    await rejected(inspectQuestionBankRecord(bytesOf(duplicate as QuestionBankRecord & Record<string, unknown>)), 'duplicate-id', 'q1')
 
     const cardinality = baseRecord()
     cardinality.bank.questions[0]!.choices![0]!.correct = true
-    await rejected(inspectQuestionBankRecord(await bytesOf(cardinality as QuestionBankRecord & Record<string, unknown>)), 'invalid-question', 'one correct')
+    await rejected(inspectQuestionBankRecord(bytesOf(cardinality as QuestionBankRecord & Record<string, unknown>)), 'invalid-question', 'one correct')
 
     const wrongContent = baseRecord()
     wrongContent.bank.questions[0]!.suggestedAnswer = paragraph('Not allowed')
-    await rejected(inspectQuestionBankRecord(await bytesOf(wrongContent as QuestionBankRecord & Record<string, unknown>)), 'invalid-question', 'Suggested Answer')
+    await rejected(inspectQuestionBankRecord(bytesOf(wrongContent as QuestionBankRecord & Record<string, unknown>)), 'invalid-question', 'Suggested Answer')
 
     const unsafe = baseRecord()
     unsafe.bank.questions[0]!.stem.content[0] = {
       type: 'text', text: 'click', marks: [{ type: 'link', href: 'javascript:alert(1)' }],
     }
-    await rejected(inspectQuestionBankRecord(await bytesOf(unsafe as QuestionBankRecord & Record<string, unknown>)), 'unsafe-url', 'HTTP or HTTPS')
-
-    const corruptBytes = await bytesOf(baseRecord() as QuestionBankRecord & Record<string, unknown>)
-    const corrupt = JSON.parse(new TextDecoder().decode(corruptBytes))
-    corrupt.bank.name = 'Changed after signing'
-    await rejected(inspectQuestionBankRecord(encoder.encode(JSON.stringify(corrupt))), 'integrity-mismatch', 'integrity')
+    await rejected(inspectQuestionBankRecord(bytesOf(unsafe as QuestionBankRecord & Record<string, unknown>)), 'unsafe-url', 'HTTP or HTTPS')
   })
 
   test('checks PDF and decoded record byte boundaries before parsing', async () => {
-    const recordBytes = await bytesOf(baseRecord() as QuestionBankRecord & Record<string, unknown>)
+    const recordBytes = bytesOf(baseRecord() as QuestionBankRecord & Record<string, unknown>)
     const pdf = await pdfWith({ name: QUESTION_BANK_ATTACHMENT_NAME, description: QUESTION_BANK_ATTACHMENT_DESCRIPTION, bytes: recordBytes })
 
     await expect(inspectQuestionBankFile(pdf, { limits: limits({ pdfBytes: pdf.byteLength, recordBytes: recordBytes.byteLength }) })).resolves.toBeDefined()
@@ -248,7 +226,7 @@ describe('hostile Question Bank File inspection', () => {
   test('rejects malformed PDFs, missing records, ambiguous records, and malformed JSON distinctly', async () => {
     await rejected(inspectQuestionBankFile(encoder.encode('not a PDF')), 'invalid-pdf', 'valid PDF')
     await rejected(inspectQuestionBankFile(await pdfWith()), 'missing-attachment', 'preview-only')
-    const good = await bytesOf(baseRecord() as QuestionBankRecord & Record<string, unknown>)
+    const good = bytesOf(baseRecord() as QuestionBankRecord & Record<string, unknown>)
     await rejected(inspectQuestionBankFile(await pdfWith(
       { name: 'one.json', description: QUESTION_BANK_ATTACHMENT_DESCRIPTION, bytes: good },
       { name: 'two.json', description: QUESTION_BANK_ATTACHMENT_DESCRIPTION, bytes: good },
@@ -262,11 +240,11 @@ describe('hostile Question Bank File inspection', () => {
     const source = baseRecord() as QuestionBankRecord & Record<string, unknown>
     source.media = []
     await expect(
-      inspectQuestionBankRecord(await bytesOf(source), { limits: limits({ mediaAssets: 0 }) }),
+      inspectQuestionBankRecord(bytesOf(source), { limits: limits({ mediaAssets: 0 }) }),
     ).resolves.toBeDefined()
     source.media = [{ id: `sha256:${'0'.repeat(64)}`, mimeType: 'image/png', width: 1, height: 1, bytes: '' }]
     await rejected(
-      inspectQuestionBankRecord(await bytesOf(source), { limits: limits({ mediaAssets: 0 }) }),
+      inspectQuestionBankRecord(bytesOf(source), { limits: limits({ mediaAssets: 0 }) }),
       'media-count-limit',
       '0',
     )
@@ -276,13 +254,13 @@ describe('hostile Question Bank File inspection', () => {
     const source = baseRecord() as QuestionBankRecord & Record<string, unknown>
     source.media = [{ id: `sha256:${'0'.repeat(64)}`, mimeType: 'image/png', width: 20_001, height: 1, bytes: '' }]
     await rejected(
-      inspectQuestionBankRecord(await bytesOf(source), { limits: limits({ imageWidth: 20_000 }) }),
+      inspectQuestionBankRecord(bytesOf(source), { limits: limits({ imageWidth: 20_000 }) }),
       'image-dimension-limit',
       '20000 by 20000',
     )
     source.media = [{ id: `sha256:${'0'.repeat(64)}`, mimeType: 'image/png', width: 1, height: 20_001, bytes: '' }]
     await rejected(
-      inspectQuestionBankRecord(await bytesOf(source), { limits: limits({ imageHeight: 20_000 }) }),
+      inspectQuestionBankRecord(bytesOf(source), { limits: limits({ imageHeight: 20_000 }) }),
       'image-dimension-limit',
       '20000 by 20000',
     )
@@ -292,12 +270,12 @@ describe('hostile Question Bank File inspection', () => {
     const source = baseRecord() as QuestionBankRecord & Record<string, unknown>
     source.media = [{ id: `sha256:${'0'.repeat(64)}`, mimeType: 'image/png', width: 1, height: 1, bytes: 'AAAA' }]
     await rejected(
-      inspectQuestionBankRecord(await bytesOf(source), { limits: limits({ mediaAssetBytes: 2 }) }),
+      inspectQuestionBankRecord(bytesOf(source), { limits: limits({ mediaAssetBytes: 2 }) }),
       'media-asset-size-limit',
       '2',
     )
     await rejected(
-      inspectQuestionBankRecord(await bytesOf(source), { limits: limits({ totalMediaBytes: 2 }) }),
+      inspectQuestionBankRecord(bytesOf(source), { limits: limits({ totalMediaBytes: 2 }) }),
       'total-media-size-limit',
       '2',
     )
@@ -318,7 +296,7 @@ describe('hostile Question Bank File inspection', () => {
       bytes: Buffer.from(PIXEL_PNG.data).toString('base64'),
     }]
     ;(source.bank.questions[0]!.stem.content as unknown[]) = [{ type: 'block-image', asset: id }]
-    await expect(inspectQuestionBankRecord(await bytesOf(source), {
+    await expect(inspectQuestionBankRecord(bytesOf(source), {
       limits: limits({
         mediaAssetBytes: PIXEL_PNG.data.byteLength,
         totalMediaBytes: PIXEL_PNG.data.byteLength,
@@ -331,23 +309,23 @@ describe('hostile Question Bank File inspection', () => {
   test('rejects malformed base64 without decoding it', async () => {
     const source = baseRecord() as QuestionBankRecord & Record<string, unknown>
     source.media = [{ id: `sha256:${'0'.repeat(64)}`, mimeType: 'image/png', width: 1, height: 1, bytes: '!!!!' }]
-    await rejected(inspectQuestionBankRecord(await bytesOf(source)), 'invalid-media', 'malformed base64')
+    await rejected(inspectQuestionBankRecord(bytesOf(source)), 'invalid-media', 'malformed base64')
   })
 
   test('checks Question count, semantic node count, and nesting exactly at and immediately over each configured limit', async () => {
     const source = baseRecord()
     source.bank.questions.push({ id: 'q2', type: 'short-answer', stem: paragraph('Second') })
-    await expect(inspectQuestionBankRecord(await bytesOf(source as QuestionBankRecord & Record<string, unknown>), { limits: limits({ questions: 2 }) })).resolves.toBeDefined()
-    await rejected(inspectQuestionBankRecord(await bytesOf(source as QuestionBankRecord & Record<string, unknown>), { limits: limits({ questions: 1 }) }), 'question-count-limit', '1')
+    await expect(inspectQuestionBankRecord(bytesOf(source as QuestionBankRecord & Record<string, unknown>), { limits: limits({ questions: 2 }) })).resolves.toBeDefined()
+    await rejected(inspectQuestionBankRecord(bytesOf(source as QuestionBankRecord & Record<string, unknown>), { limits: limits({ questions: 1 }) }), 'question-count-limit', '1')
 
     const nodes = baseRecord()
     nodes.bank.questions[0]!.stem = { type: 'document', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'one' }, { type: 'text', text: 'two' }] }] }
-    await expect(inspectQuestionBankRecord(await bytesOf(nodes as QuestionBankRecord & Record<string, unknown>), { limits: limits({ questionNodes: 7 }) })).resolves.toBeDefined()
-    await rejected(inspectQuestionBankRecord(await bytesOf(nodes as QuestionBankRecord & Record<string, unknown>), { limits: limits({ questionNodes: 6 }) }), 'question-node-limit', '6')
+    await expect(inspectQuestionBankRecord(bytesOf(nodes as QuestionBankRecord & Record<string, unknown>), { limits: limits({ questionNodes: 7 }) })).resolves.toBeDefined()
+    await rejected(inspectQuestionBankRecord(bytesOf(nodes as QuestionBankRecord & Record<string, unknown>), { limits: limits({ questionNodes: 6 }) }), 'question-node-limit', '6')
 
     const nested = baseRecord()
     nested.bank.questions[0]!.stem = { type: 'document', content: [{ type: 'blockquote', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'deep' }] }] }] }
-    await expect(inspectQuestionBankRecord(await bytesOf(nested as QuestionBankRecord & Record<string, unknown>), { limits: limits({ richTextDepth: 3 }) })).resolves.toBeDefined()
-    await rejected(inspectQuestionBankRecord(await bytesOf(nested as QuestionBankRecord & Record<string, unknown>), { limits: limits({ richTextDepth: 2 }) }), 'rich-text-depth-limit', '2')
+    await expect(inspectQuestionBankRecord(bytesOf(nested as QuestionBankRecord & Record<string, unknown>), { limits: limits({ richTextDepth: 3 }) })).resolves.toBeDefined()
+    await rejected(inspectQuestionBankRecord(bytesOf(nested as QuestionBankRecord & Record<string, unknown>), { limits: limits({ richTextDepth: 2 }) }), 'rich-text-depth-limit', '2')
   })
 })

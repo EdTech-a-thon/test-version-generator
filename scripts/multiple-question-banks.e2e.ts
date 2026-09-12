@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 
 async function createQuestion(page: Page, stem: string, type = 'Multiple choice') {
-  await page.getByRole('button', { name: 'New question' }).click()
+  await page.getByRole('button', { name: 'Add Question' }).click()
   await page.getByRole('menuitem', { name: type }).click()
   await page.keyboard.type(stem)
   await page.keyboard.press('Control+Enter')
@@ -10,7 +10,7 @@ async function createQuestion(page: Page, stem: string, type = 'Multiple choice'
 
 test('Home creates and independently reopens durable Question Banks', async ({ page }) => {
   await page.goto('/')
-  await expect(page.getByRole('region', { name: 'Question Banks' })).toContainText('Create your first Question Bank')
+  await expect(page.getByRole('region', { name: 'Question Banks' }).getByRole('button', { name: 'New Question Bank' })).toBeVisible()
 
   await page.getByRole('button', { name: 'New Question Bank' }).first().click()
   const name = page.getByRole('textbox', { name: 'Question Bank name' })
@@ -120,7 +120,7 @@ test('an abandoned placeholder bank is removed, while a renamed empty bank remai
   await page.goto('/')
   await page.getByRole('button', { name: 'New Question Bank' }).first().click()
   await page.getByRole('button', { name: 'Test Parrot home' }).click()
-  await expect(page.getByRole('region', { name: 'Question Banks' })).toContainText('Create your first Question Bank')
+  await expect(page.getByRole('region', { name: 'Question Banks' }).getByRole('button', { name: 'New Question Bank' })).toBeVisible()
 
   await page.getByRole('button', { name: 'New Question Bank' }).first().click()
   const name = page.getByRole('textbox', { name: 'Question Bank name' })

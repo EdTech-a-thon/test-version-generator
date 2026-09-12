@@ -6,10 +6,6 @@
     "version": "1.0.0"
   },
   "requiredFeatures": [],
-  "integrity": {
-    "algorithm": "sha-256",
-    "digest": "593b2994d7d2da9f633f03d0aa438615f83ce61c2d1f67f97871129442e5ce78"
-  },
   "bank": {
     "name": "Minimal Multiple Choice",
     "questions": [

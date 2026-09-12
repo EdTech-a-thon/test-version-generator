@@ -160,7 +160,7 @@ test('Question Metadata and bank-only content survive a user-visible reload', as
 }) => {
   await page.goto('/')
   await page.getByRole('button', { name: 'New Exam' }).first().click()
-  await page.getByRole('button', { name: 'New question', exact: true }).click()
+  await page.getByRole('button', { name: 'Add Question', exact: true }).click()
   await page.getByRole('menuitem', { name: 'Multiple choice' }).click()
   const dialog = page.getByRole('dialog', { name: 'Question editor' })
   await dialog.waitFor()

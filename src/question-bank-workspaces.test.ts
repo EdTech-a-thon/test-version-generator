@@ -109,6 +109,7 @@ test('bank tabs retain independent filters and choose an adjacent tab when close
     types: [],
     difficulties: ['hard'],
     topics: ['Biology'],
+    sort: 'difficulty',
   })
 
   expect(filtered.openBankIds).toEqual(['bank-a', 'bank-b'])
@@ -118,9 +119,10 @@ test('bank tabs retain independent filters and choose an adjacent tab when close
     types: [],
     difficulties: ['hard'],
     topics: ['Biology'],
+    sort: 'difficulty',
   })
   expect(filtered.filters['bank-b']).toEqual({
-    search: '', types: [], difficulties: [], topics: [],
+    search: '', types: [], difficulties: [], topics: [], sort: 'newest',
   })
 
   const focused = openBankTab(filtered, 'bank-a')

@@ -9,6 +9,8 @@ test-results
 # tsc -b output for the vite config
 vite.config.js
 vite.config.d.ts
+extract-page.js
+extract-page.d.ts
 
 # Diagnostic output from `bun run test:exports` — never committed.
 export-artifacts
