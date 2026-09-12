@@ -6,10 +6,6 @@
     "version": "1.0.0"
   },
   "requiredFeatures": ["essay-rubrics"],
-  "integrity": {
-    "algorithm": "sha-256",
-    "digest": "3e283d4e71159a0f58c504877d2dedb718c1b84e678caf7024f4c0833254c15b"
-  },
   "bank": {
     "name": "Minimal Multiple Choice",
     "questions": [

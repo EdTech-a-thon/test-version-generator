@@ -7,7 +7,6 @@ import applicationSchema from './question-bank-record-0.1.0.schema.json'
 import {
   SUPPORTED_SEMANTIC_MARK_TYPES,
   SUPPORTED_SEMANTIC_NODE_TYPES,
-  canonicalizeJson,
   prepareQuestionBankExport,
   serializeQuestionBankRecord,
   type QuestionBankRecord,
@@ -141,7 +140,6 @@ describe('public Question Bank Record 0.1.0 contract', () => {
       string
     >
     expect(Object.keys(manifest).sort()).toEqual([
-      'bad-integrity.json',
       'bad-reference.json',
       'invalid-media.json',
       'malformed-question.json',
@@ -241,30 +239,5 @@ describe('public Question Bank Record 0.1.0 contract', () => {
       validate(JSON.parse(decoder.decode(prepared.recordBytes))),
       JSON.stringify(validate.errors),
     ).toBe(true)
-  })
-})
-
-describe('external RFC 8785 and SHA-256 conformance vectors', () => {
-  test('matches the upstream JCS values vector byte for byte', async () => {
-    const input = await fixture(
-      join(fixtureRoot, 'conformance'),
-      'rfc8785-values-input.json',
-    )
-    const expected = await Bun.file(
-      join(fixtureRoot, 'conformance', 'rfc8785-values-canonical.json'),
-    ).text()
-    expect(canonicalizeJson(input)).toBe(expected)
-  })
-
-  test('matches the fixed SHA-256 digest of the upstream canonical bytes', async () => {
-    const bytes = await Bun.file(
-      join(fixtureRoot, 'conformance', 'rfc8785-values-canonical.json'),
-    ).bytes()
-    const digest = Buffer.from(
-      await crypto.subtle.digest('SHA-256', bytes),
-    ).toString('hex')
-    expect(digest).toBe(
-      '2d5e01a318d0f0879ab568c4be289c8b1f64ef8921a53c6277d5e069978baacb',
-    )
   })
 })

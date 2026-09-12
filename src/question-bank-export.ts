@@ -82,7 +82,6 @@ export type QuestionBankRecord = {
   formatVersion: typeof QUESTION_BANK_FORMAT_VERSION
   generator: { name: string; version: string }
   requiredFeatures: string[]
-  integrity: { algorithm: 'sha-256'; digest: string }
   bank: {
     name: string
     description?: string
@@ -335,68 +334,10 @@ function portableQuestion(
   }
 }
 
-function assertUnicode(value: string): void {
-  for (let index = 0; index < value.length; index += 1) {
-    const unit = value.charCodeAt(index)
-    if (unit >= 0xd800 && unit <= 0xdbff) {
-      const next = value.charCodeAt(index + 1)
-      if (next < 0xdc00 || next > 0xdfff)
-        throw new Error('Canonical JSON cannot contain an unpaired surrogate.')
-      index += 1
-    } else if (unit >= 0xdc00 && unit <= 0xdfff) {
-      throw new Error('Canonical JSON cannot contain an unpaired surrogate.')
-    }
-  }
-}
-
-/** RFC 8785 / JSON Canonicalization Scheme for JSON-compatible values. */
-export function canonicalizeJson(value: unknown): string {
-  if (value === null || typeof value === 'boolean') return JSON.stringify(value)
-  if (typeof value === 'number') {
-    if (!Number.isFinite(value))
-      throw new Error('Canonical JSON cannot contain a non-finite number.')
-    return JSON.stringify(value)
-  }
-  if (typeof value === 'string') {
-    assertUnicode(value)
-    return JSON.stringify(value)
-  }
-  if (Array.isArray(value)) return `[${value.map(canonicalizeJson).join(',')}]`
-  if (typeof value === 'object') {
-    const object = value as Record<string, unknown>
-    return `{${Object.keys(object)
-      .sort()
-      .filter((key) => object[key] !== undefined)
-      .map((key) => {
-        assertUnicode(key)
-        return `${JSON.stringify(key)}:${canonicalizeJson(object[key])}`
-      })
-      .join(',')}}`
-  }
-  throw new Error(`Canonical JSON cannot contain ${typeof value}.`)
-}
-
 function hex(bytes: ArrayBuffer): string {
   return Array.from(new Uint8Array(bytes), (byte) =>
     byte.toString(16).padStart(2, '0'),
   ).join('')
-}
-
-async function digestOf(record: QuestionBankRecord): Promise<string> {
-  const digestless = structuredClone(record)
-  delete (digestless.integrity as Partial<QuestionBankRecord['integrity']>)
-    .digest
-  const bytes = new TextEncoder().encode(canonicalizeJson(digestless))
-  return hex(await crypto.subtle.digest('SHA-256', bytes))
-}
-
-export async function verifyQuestionBankRecordIntegrity(
-  record: QuestionBankRecord,
-): Promise<boolean> {
-  return (
-    record.integrity.algorithm === 'sha-256' &&
-    record.integrity.digest === (await digestOf(record))
-  )
 }
 
 /** Serialize semantic record content at the public exchange boundary. */
@@ -408,11 +349,9 @@ export async function serializeQuestionBankRecord(
     formatVersion: QUESTION_BANK_FORMAT_VERSION,
     generator: { name: 'Test Parrot', version: '0.1.0' },
     requiredFeatures: [...content.requiredFeatures],
-    integrity: { algorithm: 'sha-256', digest: '' },
     bank: structuredClone(content.bank),
     media: structuredClone(content.media),
   }
-  record.integrity.digest = await digestOf(record)
   const bytes = new TextEncoder().encode(JSON.stringify(record))
   return {
     record: JSON.parse(new TextDecoder().decode(bytes)) as QuestionBankRecord,

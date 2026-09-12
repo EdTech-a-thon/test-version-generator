@@ -1706,13 +1706,6 @@ button { cursor: pointer; }
 .bank-import-choose { padding: 4px 18px 0; }
 .bank-import-announcements { padding: 0 18px; }
 
-.bank-import-integrity {
-  display: flex; align-items: flex-start; gap: 8px; max-width: 310px; margin: 0;
-  color: var(--paper-ink-soft); font-size: 12px; line-height: 1.4;
-}
-.bank-import-integrity svg { flex: none; width: 18px; height: 18px; color: #27643a; }
-.bank-import-integrity strong { display: block; color: #27643a; font-size: 13px; }
-
 .bank-import-body {
   flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 320px;
   overflow: hidden; border-top: 1px solid var(--paper-outline);

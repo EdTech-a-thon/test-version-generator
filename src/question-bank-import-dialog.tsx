@@ -1,5 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
-import { Check, ShieldCheck } from 'lucide-react'
+import { Check } from 'lucide-react'
 import { DocView } from './doc-view'
 import {
   recordDocumentToEditorNodes,
@@ -214,16 +214,6 @@ export function QuestionBankImportDialog({
               pages—and changes nothing until you import.
             </p>
           </div>
-          {proposal && (
-            <p className="bank-import-integrity">
-              <ShieldCheck aria-hidden="true" />
-              <span>
-                <strong>Record integrity verified</strong>
-                Author identity is not verified, and neither are the visible
-                pages of a PDF.
-              </span>
-            </p>
-          )}
         </header>
 
         {!proposal && (

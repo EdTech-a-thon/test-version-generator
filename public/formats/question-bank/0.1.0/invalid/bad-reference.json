@@ -6,10 +6,6 @@
     "version": "1.0.0"
   },
   "requiredFeatures": [],
-  "integrity": {
-    "algorithm": "sha-256",
-    "digest": "b17bc10b867e80762929dcbde0341afa53b5764076e4c396e0144f74289de8ab"
-  },
   "bank": {
     "name": "Media Rich",
     "questions": [

@@ -6,10 +6,8 @@ import type { QuestionBankResource } from './question-bank-workspaces'
 import {
   QUESTION_BANK_FORMAT,
   QUESTION_BANK_FORMAT_VERSION,
-  canonicalizeJson,
   prepareQuestionBankExport,
   questionBankFilename,
-  verifyQuestionBankRecordIntegrity,
   type QuestionBankRecord,
 } from './question-bank-export'
 import {
@@ -187,11 +185,6 @@ describe('Question Bank exchange export seam', () => {
     expect(JSON.stringify(parsed)).not.toContain('createdAt')
     expect(JSON.stringify(parsed)).not.toContain('multipleChoiceChoice')
     expect(parsed.media).toEqual([])
-    expect(await verifyQuestionBankRecordIntegrity(parsed)).toBe(true)
-
-    const changed = structuredClone(parsed)
-    changed.bank.questions.reverse()
-    expect(await verifyQuestionBankRecordIntegrity(changed)).toBe(false)
   })
 
   test('exports only explicitly stored provenance', async () => {
@@ -308,14 +301,6 @@ describe('Question Bank exchange export seam', () => {
     }])
     expect(JSON.stringify(prepared.record.bank)).toContain(`sha256:${digest}`)
     expect(JSON.stringify(prepared.record.bank)).toContain('"authoredSize":0.5')
-  })
-
-  test('uses RFC 8785 canonical JSON ordering and ECMAScript number serialization', () => {
-    // RFC 8785 section 3.2.2/3.2.3 properties: recursive UTF-16 key sorting,
-    // JSON string escaping, and ECMAScript number formatting.
-    expect(
-      canonicalizeJson({ z: 1e30, a: { '\r': 'line\nfeed', b: 0.000001 } }),
-    ).toBe('{"a":{"\\r":"line\\nfeed","b":0.000001},"z":1e+30}')
   })
 
   test('requires a non-empty bank and creates safe filenames', async () => {

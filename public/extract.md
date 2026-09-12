@@ -42,10 +42,6 @@ The required top-level shape is:
     "version": "Version or model name"
   },
   "requiredFeatures": [],
-  "integrity": {
-    "algorithm": "sha-256",
-    "digest": "64 lowercase hexadecimal characters"
-  },
   "bank": {
     "name": "Question Bank name",
     "questions": []
@@ -62,7 +58,7 @@ Unless the user explicitly asks for a subset, attempt to convert **every questio
 
 > **If you cannot reliably determine the type of question, do not force it into a specific form. Just leave it and explicitly warn that you could not convert.**
 
-Completeness means accounting for every source question, not pretending every question was converted successfully. Never classify an ambiguous question as Multiple Choice or Short Answer merely to make the output appear complete. Leave that question out of the JSON, identify it by source page and visible number or opening words, explain why its type could not be determined, and include it in the final conversion report as unconverted. Ask the user for clarification when possible; after clarification, add the question in its correct form and recalculate the integrity digest.
+Completeness means accounting for every source question, not pretending every question was converted successfully. Never classify an ambiguous question as Multiple Choice or Short Answer merely to make the output appear complete. Leave that question out of the JSON, identify it by source page and visible number or opening words, explain why its type could not be determined, and include it in the final conversion report as unconverted. Ask the user for clarification when possible; after clarification, add the question in its correct form.
 
 ### Before conversion
 
@@ -99,7 +95,6 @@ Perform a second pass against the original source and verify all of the followin
 - all Question and choice IDs are unique and sequential;
 - every image reference resolves to exactly one Media Asset;
 - every Media Asset is referenced;
-- the integrity digest was calculated after the final edit;
 - the final JSON passes the public schema and semantic rules.
 
 If any check fails, fix the record or disclose the precise limitation. Never say the extraction is complete when it is not.
@@ -372,50 +367,9 @@ A bank may have:
 
 Include only information explicitly present in the source or supplied by the user. Declared author and license information are not proof of identity or ownership.
 
-## Integrity digest
-
-The final JSON must have a valid SHA-256 integrity digest. Calculate it **after all content and formatting edits**:
-
-1. Copy the complete record, including unknown optional fields.
-2. Remove only `integrity.digest`; keep `integrity.algorithm`.
-3. Canonicalize the result according to RFC 8785 JSON Canonicalization Scheme.
-4. SHA-256 hash the canonical UTF-8 bytes.
-5. Store the 64-character lowercase hexadecimal result in `integrity.digest`.
-
-If Python execution is available, this lightweight signer requires no PDF libraries:
-
-```bash
-python -m pip install "rfc8785>=0.1,<1"
-python - <<'PY'
-import copy
-import hashlib
-import json
-from pathlib import Path
-
-import rfc8785
-
-path = Path("my-bank.question-bank.json")
-record = json.loads(path.read_text(encoding="utf-8"))
-digest_input = copy.deepcopy(record)
-del digest_input["integrity"]["digest"]
-record["integrity"]["digest"] = hashlib.sha256(
-    rfc8785.dumps(digest_input)
-).hexdigest()
-path.write_text(
-    json.dumps(record, ensure_ascii=False, indent=2) + "\n",
-    encoding="utf-8",
-)
-print(record["integrity"]["digest"])
-PY
-```
-
-Any edit after signing invalidates the digest. Sign again after the final edit.
-
-Do not invent a digest. If the assistant cannot calculate it, it must say so clearly rather than represent the JSON as import-ready.
-
 ## Final validation and delivery
 
-Validate the final record against the [public JSON Schema](./formats/question-bank/0.1.0/schema.json). Schema validation alone is not sufficient: also verify Question cardinality, unique IDs, safe links, resolved media references, decoded image properties, and integrity.
+Validate the final record against the [public JSON Schema](./formats/question-bank/0.1.0/schema.json). Schema validation alone is not sufficient: also verify Question cardinality, unique IDs, safe links, resolved media references, and decoded image properties.
 
 Relevant import limits include:
 
