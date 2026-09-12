@@ -1,5 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
-import { Check, Sparkles } from 'lucide-react'
+import { Check, Copy, UploadCloud } from 'lucide-react'
 import { DocView } from './doc-view'
 import extractInstructions from '../public/extract.md?raw'
 import {
@@ -216,17 +216,19 @@ export function QuestionBankImportDialog({
         <header className="dialog-header">
           <div>
             <h2 id={titleId}>Import Question Bank</h2>
-            {!proposal && <p>You will see what is inside before anything is added.</p>}
           </div>
         </header>
 
         {!proposal && (
           <div className="bank-import-choose">
-            <label className="bank-import-file">
-              <span>Question Bank PDF or JSON</span>
+            {/* The whole dashed zone is the file control: dropping on it lands
+                in the window-level drop target, clicking it opens the picker,
+                and the input itself stays in the tab order under the zone. */}
+            <label className="bank-import-drop">
               <input
                 ref={input}
                 type="file"
+                aria-label="Question Bank PDF or JSON"
                 accept="application/pdf,.pdf,application/json,.json"
                 disabled={busy}
                 onChange={(event) => {
@@ -237,16 +239,15 @@ export function QuestionBankImportDialog({
                   if (file) inspect(file)
                 }}
               />
+              <UploadCloud aria-hidden="true" />
+              <strong>Question Bank PDF or JSON</strong>
+              <span>Drop a file here or click to choose one</span>
             </label>
-            {/* The other way in: no file yet, just an existing test. The
-                instructions live at /extract; copying them is the whole
-                hand-off, so the button says so and nothing more. */}
-            <aside className="bank-import-assist" aria-label="Convert an existing test">
-              <Sparkles aria-hidden="true" />
-              <p>
-                <strong>Have a test already?</strong> Paste these instructions into
-                any AI chat along with it, and you will get a file to import here.
-              </p>
+            <p className="bank-import-assist">
+              <span>
+                Already have a test? Copy these instructions for an AI to turn
+                any PDF or screenshot into a file you can import here.
+              </span>
               <button
                 type="button"
                 className="secondary-button"
@@ -255,9 +256,10 @@ export function QuestionBankImportDialog({
                   void navigator.clipboard.writeText(extractInstructions).then(() => setCopied(true))
                 }}
               >
+                {copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
                 {copied ? 'Copied' : 'Copy instructions'}
               </button>
-            </aside>
+            </p>
           </div>
         )}
 
