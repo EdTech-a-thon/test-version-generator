@@ -2042,7 +2042,7 @@ button { cursor: pointer; }
 .onboarding-choice {
   display: flex; flex-direction: column; align-items: flex-start; gap: 8px;
   padding: 24px 24px 22px; border: 1px solid #e0d3c2; border-radius: 14px;
-  color: inherit; background: #fffdf8; text-align: left;
+  color: inherit; background: #fffdf8; text-align: left; text-decoration: none;
   box-shadow: 0 1px 0 rgb(91 68 47 / 5%);
   transition: border-color 120ms, box-shadow 120ms, transform 120ms;
 }
@@ -2076,4 +2076,66 @@ button { cursor: pointer; }
   .landing-steps, .onboarding-choices { grid-template-columns: minmax(0, 1fr); }
   .landing-local-card { padding: 32px 20px 30px; }
   .onboarding { padding: 36px 20px 56px; }
+}
+
+/* ---------------------------------------------------------------------------
+   The conversion page: the five steps of the trip out to an AI and back,
+   with the two the app can do — copy, open — done from the step. One column,
+   one screen; nothing on it is worth scrolling past.
+   --------------------------------------------------------------------------- */
+.landing--convert .landing-header { padding-top: 14px; padding-bottom: 10px; }
+.convert {
+  display: flex; flex-direction: column; justify-content: center;
+  width: 100%; max-width: 720px; margin: 0 auto; padding: 8px 28px 32px;
+}
+.convert-head h1 { margin: 0 0 8px; font-size: clamp(26px, 3.2vw, 36px); line-height: 1.1; }
+.convert-head .landing-lede { font-size: 16px; }
+.convert-body { margin-top: 26px; }
+
+.convert-steps { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.convert-steps li {
+  display: grid; grid-template-columns: 30px minmax(0, 1fr) auto; column-gap: 14px; align-items: center;
+  padding: 12px 14px; border: 1px solid #e8dfd2; border-radius: 12px; background: #fffdf8;
+}
+.convert-step-mark {
+  display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px;
+  border-radius: 50%; color: var(--paper-accent); background: var(--paper-accent-wash);
+  font-family: Georgia, 'Times New Roman', serif; font-size: 14px; font-weight: 700;
+}
+.convert-step-mark[data-done] { color: #fffaf3; background: var(--easy-ink); }
+.convert-step-mark svg { width: 16px; height: 16px; stroke-width: 2.8; }
+.convert-step-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.convert-step-text strong { font-size: 15px; }
+.convert-step-text span { color: #5f4d40; font-size: 13.5px; line-height: 1.45; }
+.convert-step-text code { font-size: 12.5px; color: #332a24; }
+.convert-step-action { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.convert-step-action svg { width: 15px; height: 15px; }
+.convert-select {
+  min-height: 36px; padding: 7px 30px 7px 12px; border: 1px solid #bda995; border-radius: 8px;
+  color: #4e3b2f; background: #f7eee3; font-weight: 600; cursor: pointer;
+}
+.convert-select:hover { background: #ebddcd; }
+
+/* The one thing that moves: a note in the middle of the screen that the copy
+   happened, gone again before it is in the way. */
+.copied-toast {
+  position: fixed; top: 50%; left: 50%; z-index: 50; transform: translate(-50%, -50%);
+  display: inline-flex; align-items: center; gap: 8px; padding: 12px 20px; border-radius: 12px;
+  color: #fffaf3; background: #332a24; font-size: 15px; font-weight: 600; white-space: nowrap;
+  box-shadow: 0 14px 36px rgb(58 42 30 / 28%); pointer-events: none;
+  animation: copied-toast 2s ease both;
+}
+.copied-toast svg { width: 18px; height: 18px; }
+@keyframes copied-toast {
+  0% { opacity: 0; transform: translate(-50%, -50%) scale(0.94); }
+  10%, 80% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  100% { opacity: 0; transform: translate(-50%, -50%) scale(1); }
+}
+
+@media (max-width: 900px) {
+  .convert { padding: 8px 20px 40px; justify-content: flex-start; }
+}
+@media (max-width: 640px) {
+  .convert-steps li { grid-template-columns: 30px minmax(0, 1fr); }
+  .convert-step-action { grid-column: 2; justify-self: start; }
 }

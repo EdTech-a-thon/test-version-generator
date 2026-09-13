@@ -10,13 +10,7 @@ import { DifficultyBadge, TopicBadge } from './badges'
 import type { Difficulty } from './exam'
 import type { ProseMirrorJSON } from './question-doc'
 import type { QuestionBankImportProposal } from './question-bank-import'
-
-/** A JSON file carries the canonical record directly; a PDF carries it as an
- *  attachment. Nothing downstream can tell the two apart, because what is
- *  inspected, verified and imported is the same record either way. */
-function isRecordFile(file: File): boolean {
-  return file.type === 'application/json' || /\.json$/i.test(file.name)
-}
+import { inspectUploadedQuestionBank, needsConversion as fileNeedsConversion } from './question-bank-upload'
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
@@ -132,27 +126,13 @@ export function QuestionBankImportDialog({
     setProposal(null)
     setError(null)
     setNeedsConversion(false)
-    void file
-      .arrayBuffer()
-      .then(async (bytes) => {
-        const importer = await import('./question-bank-import')
-        if (isRecordFile(file)) {
-          return importer.inspectQuestionBankRecord(new Uint8Array(bytes))
-        }
-        const pdf = await import('pdfjs-dist/legacy/build/pdf.mjs')
-        pdf.GlobalWorkerOptions.workerSrc = new URL(
-          'pdfjs-dist/legacy/build/pdf.worker.min.mjs',
-          import.meta.url,
-        ).href
-        return importer.inspectQuestionBankFile(new Uint8Array(bytes))
-      })
+    void inspectUploadedQuestionBank(file)
       .then((next) => {
         setProposal(next)
         setProposedName(next.summary.bankName)
       })
       .catch((reason) => {
-        const code = reason instanceof Error && 'code' in reason ? reason.code : null
-        setNeedsConversion(code === 'invalid-pdf' || code === 'missing-attachment')
+        setNeedsConversion(fileNeedsConversion(reason))
         setError(
           reason instanceof Error && reason.message
             ? reason.message

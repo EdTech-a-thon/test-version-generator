@@ -97,6 +97,7 @@ import { BEFORE_NAVIGATE_EVENT, useRoute } from './use-route'
 import { Footer } from './site-chrome'
 import { HomePage } from './home-page'
 import { LandingPage, OnboardingPage } from './landing-page'
+import { ConvertPage } from './convert-page'
 import { hasBeenWelcomed } from './welcomed'
 import type { ExamWorkspaceService, QuestionDeletionImpact, QuestionUsage, RecentExam } from './exam-workspaces'
 import {
@@ -2463,12 +2464,20 @@ export default function App({
       setBankLibraryRevision((revision) => revision + 1)
       return
     }
+    // From onboarding, the bank was imported in order to write an Exam from
+    // it: a fresh Exam opens with the bank as its pane's one tab.
+    if (route.startsWith('/get-started')) {
+      const exam = await workspaces.create()
+      await bankWorkspaces.openTab({ examId: exam.id }, imported.id)
+      window.location.assign(`/editor?exam=${exam.id}`)
+      return
+    }
     window.sessionStorage.setItem(
       'test-parrot-import-announcement',
       `Imported ${imported.questions.length} ${imported.questions.length === 1 ? 'Question' : 'Questions'} into ${imported.name}.`,
     )
     window.location.assign(`/question-bank?id=${imported.id}`)
-  }, [bankWorkspaces, editorId, route])
+  }, [bankWorkspaces, editorId, route, workspaces])
   const requestBankDeletion = useCallback((bank: QuestionBankCollectionItem) => {
     void bankWorkspaces.read(bank.id).then(async (resource) => {
       const impact = await workspaces.deletionImpact(resource?.questions.map(({ id }) => id) ?? [])
@@ -2574,11 +2583,10 @@ export default function App({
   // shelves; the same page stays reachable at /welcome afterwards.
   const firstVisit = exams.length === 0 && bankCollection.length === 0 && !hasBeenWelcomed()
   if (route === '/welcome' || (route === '/' && firstVisit)) return <>{globalChrome}<LandingPage returning={!firstVisit} /></>
-  if (route === '/get-started') return <>{globalChrome}<OnboardingPage
-    onNewBank={newBank}
-    onImportBank={() => setInspectingBankFile(true)}
-    onNewExam={newExam}
-  /></>
+  if (route === '/get-started') return <>{globalChrome}<OnboardingPage onNewBank={newBank} onNewExam={newExam} /></>
+  // Its last step is "drop the file anywhere", which the page-wide drop
+  // target in the global chrome already is.
+  if (route === '/get-started/convert') return <>{globalChrome}<ConvertPage /></>
   if (route === '/') return <>{globalChrome}<HomePage
     exams={exams}
     banks={bankCollection}
