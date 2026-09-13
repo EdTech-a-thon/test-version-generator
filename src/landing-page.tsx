@@ -44,7 +44,7 @@ function GetStartedButton({
   )
 }
 
-function LandingHeader({ children }: { children?: ReactNode }) {
+export function LandingHeader({ children }: { children?: ReactNode }) {
   return (
     <header className="landing-header">
       <Link href="/welcome" className="site-wordmark">
@@ -230,15 +230,14 @@ export function LandingPage({ returning }: {
 /**
  * The one page between "Get started" and the app. Its job is a single
  * sentence — an Exam is built from a Question Bank — and the two ways to get
- * a first bank, with the blank Exam kept as the quiet way past it.
+ * a first bank, with the blank Exam kept as the quiet way past it. Converting
+ * has a page of its own, because it is a trip out of the app and back.
  */
 export function OnboardingPage({
   onNewBank,
-  onImportBank,
   onNewExam,
 }: {
   onNewBank: () => void
-  onImportBank: () => void
   onNewExam: () => void
 }) {
   useEffect(markWelcomed, [])
@@ -265,15 +264,15 @@ export function OnboardingPage({
             <span>Open an empty Question Bank and add questions in the editor, one at a time.</span>
             <em>New Question Bank</em>
           </button>
-          <button type="button" className="onboarding-choice" onClick={onImportBank}>
+          <Link href="/get-started/convert" className="onboarding-choice">
             <Sparkles aria-hidden="true" />
             <strong>Convert what I already have</strong>
             <span>
               Give a PDF, scan or screenshot to an AI with our instructions, then import the file
               it produces.
             </span>
-            <em>Import Question Bank</em>
-          </button>
+            <em>Convert a test</em>
+          </Link>
         </div>
 
         <p className="onboarding-skip">
