@@ -1,5 +1,7 @@
+import { useEffect, useId, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import { FileText, HardDrive, House, Library } from 'lucide-react'
+import { createPortal } from 'react-dom'
+import { CircleQuestionMark, FileText, HardDrive, House, Library, X } from 'lucide-react'
 import type { PersistentStorageStatus } from './durable-storage'
 import { Footer, Link } from './site-chrome'
 import { useRoute } from './use-route'
@@ -57,6 +59,91 @@ function StorageBadge({ status }: { status: PersistentStorageStatus }) {
   )
 }
 
+const SUPPORT_EMAIL = 'support@teacher.dev'
+
+/**
+ * The one way to reach a person. It lives at the foot of the nav, out of the
+ * way of the work but on every page, and says a single thing when opened.
+ */
+function HelpDialog({ onClose }: { onClose: () => void }) {
+  const titleId = useId()
+  const dialog = useRef<HTMLElement>(null)
+  const onCloseRef = useRef(onClose)
+  useEffect(() => { onCloseRef.current = onClose }, [onClose])
+  useEffect(() => {
+    const previous = document.activeElement as HTMLElement | null
+    const focusable = () => Array.from(dialog.current?.querySelectorAll<HTMLElement>('a[href], button:not(:disabled)') ?? [])
+    requestAnimationFrame(() => focusable()[0]?.focus())
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        onCloseRef.current()
+        return
+      }
+      if (event.key !== 'Tab') return
+      const controls = focusable()
+      if (controls.length === 0) return
+      const first = controls[0]!
+      const last = controls.at(-1)!
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault()
+        first.focus()
+      }
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('keydown', onKeyDown)
+      requestAnimationFrame(() => { if (previous?.isConnected) previous.focus() })
+    }
+  }, [])
+  return createPortal(
+    <div
+      className="dialog-backdrop"
+      role="presentation"
+      onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}
+    >
+      <section
+        ref={dialog}
+        className="help-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+      >
+        <header className="resource-picker-header">
+          <h2 id={titleId}>Need a hand?</h2>
+          <button type="button" className="question-bank-action" aria-label="Close help" onClick={onClose}><X /></button>
+        </header>
+        <p>
+          If you’re running into trouble or have suggestions, email us at{' '}
+          <a href={`mailto:${SUPPORT_EMAIL}?subject=Test%20Parrot`}>{SUPPORT_EMAIL}</a>.
+        </p>
+      </section>
+    </div>,
+    document.body,
+  )
+}
+
+function HelpButton() {
+  const [open, setOpen] = useState(false)
+  return (
+    <>
+      <button
+        type="button"
+        className="help-button"
+        aria-label="Help"
+        aria-haspopup="dialog"
+        onClick={() => setOpen(true)}
+      >
+        <CircleQuestionMark aria-hidden="true" />
+      </button>
+      {open && <HelpDialog onClose={() => setOpen(false)} />}
+    </>
+  )
+}
+
 export function AppShell({
   crumbs,
   persistentStorage,
@@ -93,6 +180,7 @@ export function AppShell({
             ))}
           </ul>
         </nav>
+        <HelpButton />
       </aside>
       <div className="app-frame">
         <header className="app-topbar">

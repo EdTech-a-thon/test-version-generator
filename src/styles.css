@@ -1367,6 +1367,21 @@ button { cursor: pointer; }
 .app-nav-link:hover { background: #f2e6d8; }
 .app-nav-link[aria-current='page'] { color: var(--paper-accent); background: var(--paper-accent-wash); }
 .app-nav-link[aria-current='page'] svg { color: var(--paper-accent); }
+/* The question mark at the foot of the nav. `margin-top: auto` puts it at
+   the bottom of the column; in the one-row layout it simply ends the row. */
+.help-button {
+  margin-top: auto; align-self: flex-start; display: inline-flex; align-items: center; justify-content: center;
+  width: 38px; height: 38px; padding: 0; border: 0; border-radius: 50%;
+  color: #90786a; background: transparent;
+}
+.help-button svg { width: 22px; height: 22px; }
+.help-button:hover, .help-button:focus-visible { color: var(--paper-accent); background: #f2e6d8; }
+.help-dialog {
+  width: min(440px, calc(100vw - 32px)); padding: 20px; border-radius: 12px; background: #fffdf8;
+  box-shadow: 0 18px 60px rgb(58 42 30 / 24%);
+}
+.help-dialog p { margin: 0; font-size: 15px; line-height: 1.6; }
+.help-dialog a { color: var(--paper-accent); font-weight: 600; text-underline-offset: 4px; }
 .app-frame { display: flex; flex-direction: column; min-width: 0; min-height: 100vh; }
 .app-topbar {
   position: sticky; top: 0; z-index: 20; min-height: 54px;
@@ -1726,6 +1741,7 @@ button { cursor: pointer; }
   }
   .app-nav-list { grid-auto-flow: column; justify-content: start; }
   .app-nav-link { white-space: nowrap; }
+  .help-button { margin-top: 0; margin-left: auto; align-self: center; flex: none; }
   .app-frame { min-height: 0; }
 }
 
