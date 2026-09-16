@@ -44,12 +44,15 @@ import { stemNodesOf, type ProseMirrorJSON } from './question-doc'
 // prints under "Short Answer".
 export const SECTION_TITLE: Record<QuestionType, string> = {
   'multiple-choice': 'Multiple Choice',
+  'true-false': 'True/False',
   open: 'Short Answer',
 }
 
 export const SECTION_INSTRUCTIONS: Record<QuestionType, string> = {
   'multiple-choice':
     'Identify the choice that best completes the statement or answers the question.',
+  'true-false':
+    'Write T if the statement is true and F if it is false.',
   open: 'Answer the following questions in the space provided. Show all work.',
 }
 
@@ -96,13 +99,19 @@ export type PlannedQuestion = {
   type: QuestionType
   /** Position on the printed test, counted continuously across sections. */
   number: number
-  /** Multiple-choice questions print a blank for the student's letter. */
+  /** Multiple Choice and True/False questions print a blank: the student writes
+   *  a choice letter in one, T or F in the other. */
   answerBlank: boolean
   /** The question document's top-level blocks, without the choice list. */
   stem: ProseMirrorJSON[]
-  /** The answers in this arrangement's order, lettered. Empty for short answer. */
+  /** The answers in this arrangement's order, lettered. Empty for short answer.
+   *  A True/False question carries its pair here — lettered `T` and `F`, which
+   *  is what the Answer Key reports — even though the test prints only a blank
+   *  for them. */
   choices: PlannedChoice[]
-  /** How those answers lay out, or `null` when there are none. */
+  /** How those answers lay out, or `null` when the test does not print them —
+   *  a short answer question has none, and a True/False question's pair is
+   *  stated by the section's directions instead. */
   grid: ChoiceGrid | null
   /** Optional organizational metadata, retained so the Answer Key can help a
    *  teacher identify and review the Questions without exposing it to students. */
@@ -310,6 +319,12 @@ export const CHOICE_AREA_WIDTH =
 
 const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
 
+/** What a student writes in a True/False question's blank, by the position of
+ *  the answer in the authored pair. A longer pair cannot happen — the editor
+ *  fixes it at two — so anything past it falls back to a choice letter rather
+ *  than printing nothing. */
+const TRUE_FALSE_LETTERS = ['T', 'F']
+
 /** The letter of the choice at `index` — 'A', 'B', … then 'AA', 'AB', …. */
 function letterAt(index: number): string {
   let letter = ''
@@ -343,10 +358,13 @@ function deriveQuestion(
   arrangement: Arrangement,
   number: number,
 ): PlannedQuestion {
+  const trueFalse = question.type === 'true-false'
   const ordered = orderedChoices(question, arrangement)
   const choices: PlannedChoice[] = ordered.map((choice, index) => ({
     id: choice.id,
-    letter: letterAt(index),
+    // A True/False answer is written the way the student writes it in the
+    // blank, so the Answer Key reads T or F rather than A or B.
+    letter: trueFalse ? TRUE_FALSE_LETTERS[index] ?? letterAt(index) : letterAt(index),
     correct: choice.correct,
     node: choice.node,
   }))
@@ -354,10 +372,13 @@ function deriveQuestion(
     id: question.id,
     type: question.type,
     number,
-    answerBlank: question.type === 'multiple-choice',
+    answerBlank: question.type !== 'open',
     stem: stemNodesOf(question.doc),
     choices,
-    grid: layOutGrid(choices, columnsOf(question)),
+    // A True/False question never prints its pair: the section's directions
+    // already say what goes in the blank, so repeating "True / False" under
+    // every statement would be furniture rather than content.
+    grid: trueFalse ? null : layOutGrid(choices, columnsOf(question)),
     ...(question.difficulty ? { difficulty: question.difficulty } : {}),
     ...(topicsOf(question).length > 0 ? { topics: [...topicsOf(question)] } : {}),
   }

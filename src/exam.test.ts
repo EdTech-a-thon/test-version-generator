@@ -50,6 +50,27 @@ function multipleChoice(id: string, choiceIds: string[], correctId = ''): Questi
   }
 }
 
+function trueFalse(id: string, correct: 'true' | 'false' = 'true'): Question {
+  return {
+    id,
+    type: 'true-false',
+    doc: {
+      type: 'doc',
+      content: [
+        { type: 'paragraph' },
+        {
+          type: 'multipleChoice',
+          content: [
+            choice(`${id}-t`, correct === 'true'),
+            choice(`${id}-f`, correct === 'false'),
+          ],
+        },
+      ],
+    },
+    columns: 2,
+  }
+}
+
 function open(id: string): Question {
   return { id, type: 'open', doc: { type: 'doc', content: [] }, columns: 2 }
 }
@@ -68,6 +89,23 @@ describe('question and arrangement construction', () => {
   test('a new question falls back to the default answer columns', () => {
     expect(createQuestion('multiple-choice').columns).toBe(DEFAULT_COLUMNS)
     expect(createQuestion('open').columns).toBe(DEFAULT_COLUMNS)
+  })
+
+  test('a new true/false question opens with the fixed pair, nothing marked correct', () => {
+    const question = createQuestion('true-false')
+    expect(question.type).toBe('true-false')
+    const answers = choicesOf(question)
+    expect(answers).toHaveLength(2)
+    expect(
+      answers.map((answer) => (answer.node.content as ProseMirrorJSON[])[0]),
+    ).toEqual([
+      { type: 'paragraph', content: [{ type: 'text', text: 'True' }] },
+      { type: 'paragraph', content: [{ type: 'text', text: 'False' }] },
+    ])
+    // Which one is true is the teacher's to say, so a fresh question states
+    // neither rather than guessing.
+    expect(answers.every((answer) => !answer.correct)).toBe(true)
+    expect(new Set(answers.map((answer) => answer.id)).size).toBe(2)
   })
 
   test('a new question can be given the layout of the one it is written beside', () => {
@@ -205,6 +243,28 @@ describe('choice ordering', () => {
       q1: ['b', 'a'],
     })
     expect(shuffleSelectedAnswers(exam, arrangement, ['q2', 'o1'], () => 0)).toBe(arrangement)
+  })
+
+  test('leaves a true/false question alone: True before False is not an authored order', () => {
+    const exam = examOf([trueFalse('t1'), multipleChoice('q1', ['a', 'b'], 'a')])
+    const arrangement = arrangementOf(['q1', 't1'])
+
+    expect(shuffleSelectedAnswers(exam, arrangement, ['t1'], () => 0)).toBe(arrangement)
+    expect(
+      shuffleSelectedAnswers(exam, arrangement, ['t1', 'q1'], () => 0).choiceOrder,
+    ).toEqual({ q1: ['b', 'a'] })
+  })
+
+  test('shuffles true/false questions among their own positions, in their own section', () => {
+    const exam = examOf([
+      multipleChoice('q1', ['a', 'b']),
+      trueFalse('t1'),
+      trueFalse('t2'),
+    ])
+    const arrangement = arrangementOf(['q1', 't1', 't2'])
+    const shuffled = shuffleSelectedQuestions(exam, arrangement, ['t1', 't2'], () => 0)
+
+    expect(shuffled.questionOrder).toEqual(['q1', 't2', 't1'])
   })
 })
 

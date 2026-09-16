@@ -107,7 +107,8 @@ function matches(question: Question, filter: QuestionBankFilter): boolean {
 
 const TYPE_RANK: Record<QuestionType, number> = {
   'multiple-choice': 0,
-  open: 1,
+  'true-false': 1,
+  open: 2,
 }
 
 const DIFFICULTY_RANK: Record<DifficultyFilter, number> = {

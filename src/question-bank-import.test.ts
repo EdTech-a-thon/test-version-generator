@@ -1,10 +1,12 @@
 import { describe, expect, test } from 'bun:test'
 import { PDFDocument } from 'pdf-lib'
 import { PIXEL_PNG } from './export-fixtures'
+import { choicesOf } from './exam'
 import {
   QUESTION_BANK_ATTACHMENT_DESCRIPTION,
   QUESTION_BANK_ATTACHMENT_NAME,
   QUESTION_BANK_FORMAT,
+  QUESTION_BANK_FORMAT_VERSION,
   type QuestionBankRecord,
 } from './question-bank-export'
 import {
@@ -27,7 +29,7 @@ const paragraph = (value = 'Question') => ({
 function baseRecord(): QuestionBankRecord {
   return {
     format: QUESTION_BANK_FORMAT,
-    formatVersion: '0.1.0',
+    formatVersion: QUESTION_BANK_FORMAT_VERSION,
     generator: { name: 'Independent Generator', version: '9.4.2' },
     requiredFeatures: [],
     bank: {
@@ -120,7 +122,7 @@ describe('Question Bank import mapping', () => {
 
 describe('hostile Question Bank File inspection', () => {
   test('publishes exact compatibility and production resource limits', () => {
-    expect(Object.keys(SUPPORTED_QUESTION_BANK_VERSIONS)).toEqual(['0.1.0'])
+    expect(Object.keys(SUPPORTED_QUESTION_BANK_VERSIONS)).toEqual(['0.1.0', '0.2.0'])
     expect(DEFAULT_QUESTION_BANK_IMPORT_LIMITS).toEqual({
       pdfBytes: 100 * 1024 * 1024,
       recordBytes: 75 * 1024 * 1024,
@@ -144,8 +146,8 @@ describe('hostile Question Bank File inspection', () => {
 
     expect(proposal.summary).toMatchObject({
       bankName: 'Portable chemistry',
-      questionCounts: { 'multiple-choice': 1, 'short-answer': 0 },
-      formatVersion: '0.1.0',
+      questionCounts: { 'multiple-choice': 1, 'true-false': 0, 'short-answer': 0 },
+      formatVersion: QUESTION_BANK_FORMAT_VERSION,
     })
     expect(proposal.record.generator.name).toBe('Independent Generator')
     expect(JSON.stringify(proposal.record)).not.toContain('future')
@@ -153,17 +155,77 @@ describe('hostile Question Bank File inspection', () => {
 
   test('reports the file version and exact supported versions before semantic validation', async () => {
     const source = baseRecord() as QuestionBankRecord & Record<string, unknown>
-    source.formatVersion = '0.2.0'
+    source.formatVersion = '0.3.0'
     source.requiredFeatures = ['also-unknown']
     await rejected(
       inspectQuestionBankRecord(bytesOf(source)),
       'unsupported-version',
-      '0.2.0',
+      '0.3.0',
     )
     await rejected(
       inspectQuestionBankRecord(bytesOf(source)),
       'unsupported-version',
-      '0.1.0',
+      '0.1.0, 0.2.0',
+    )
+  })
+
+  test('reads a 0.1.0 record and reports the version the file actually declared', async () => {
+    const source = baseRecord() as QuestionBankRecord & Record<string, unknown>
+    source.formatVersion = '0.1.0'
+    const proposal = await inspectQuestionBankRecord(bytesOf(source))
+
+    // Migrated forward for every reader downstream, but a teacher is told what
+    // they opened rather than what the app rewrote it to.
+    expect(proposal.record.formatVersion).toBe(QUESTION_BANK_FORMAT_VERSION)
+    expect(proposal.summary.formatVersion).toBe('0.1.0')
+    expect(importedQuestionsFromRecord(proposal.record)[0]!.type).toBe(
+      'multiple-choice',
+    )
+  })
+
+  test('refuses a True/False Question in a 0.1.0 record', async () => {
+    const source = baseRecord() as QuestionBankRecord & Record<string, unknown>
+    source.formatVersion = '0.1.0'
+    ;(source.bank.questions[0] as { type: string }).type = 'true-false'
+    await rejected(
+      inspectQuestionBankRecord(bytesOf(source)),
+      'invalid-structure',
+      'schema',
+    )
+  })
+
+  test('reads a True/False Question and imports it as one', async () => {
+    const source = baseRecord() as QuestionBankRecord & Record<string, unknown>
+    const question = source.bank.questions[0]!
+    question.type = 'true-false'
+    question.choices = [
+      { id: 'q1-c1', content: paragraph('True'), correct: true },
+      { id: 'q1-c2', content: paragraph('False'), correct: false },
+    ]
+    const proposal = await inspectQuestionBankRecord(bytesOf(source))
+
+    expect(proposal.summary.questionCounts['true-false']).toBe(1)
+    const [imported] = importedQuestionsFromRecord(proposal.record)
+    expect(imported!.type).toBe('true-false')
+    expect(choicesOf(imported!).map((choice) => choice.correct)).toEqual([
+      true,
+      false,
+    ])
+  })
+
+  test('refuses a True/False Question that does not ask with exactly two answers', async () => {
+    const source = baseRecord() as QuestionBankRecord & Record<string, unknown>
+    const question = source.bank.questions[0]!
+    question.type = 'true-false'
+    question.choices = [
+      { id: 'q1-c1', content: paragraph('True'), correct: true },
+      { id: 'q1-c2', content: paragraph('False'), correct: false },
+      { id: 'q1-c3', content: paragraph('Sometimes'), correct: false },
+    ]
+    await rejected(
+      inspectQuestionBankRecord(bytesOf(source)),
+      'invalid-structure',
+      'schema',
     )
   })
 

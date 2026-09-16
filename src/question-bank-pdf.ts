@@ -13,6 +13,7 @@ import {
 import {
   QUESTION_BANK_ATTACHMENT_DESCRIPTION,
   QUESTION_BANK_ATTACHMENT_NAME,
+  RECORD_TYPE_LABELS,
   type PreparedQuestionBankExport,
   type SemanticDocument,
   type SemanticNode,
@@ -494,11 +495,7 @@ export async function createQuestionBankPdf(
       size: 15,
       line: 20,
     })
-    drawLabel(
-      context,
-      'Question Type',
-      question.type === 'multiple-choice' ? 'Multiple Choice' : 'Short Answer',
-    )
+    drawLabel(context, 'Question Type', RECORD_TYPE_LABELS[question.type])
     drawLabel(
       context,
       'Difficulty',

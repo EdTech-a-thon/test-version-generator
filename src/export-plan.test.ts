@@ -56,6 +56,27 @@ function multipleChoice(
   }
 }
 
+function trueFalse(id: string, correct: 'true' | 'false' | null = null): Question {
+  return {
+    id,
+    type: 'true-false',
+    doc: {
+      type: 'doc',
+      content: [
+        { type: 'paragraph', content: [{ type: 'text', text: `stem ${id}` }] },
+        {
+          type: 'multipleChoice',
+          content: [
+            choice(`${id}-t`, correct === 'true'),
+            choice(`${id}-f`, correct === 'false'),
+          ],
+        },
+      ],
+    },
+    columns: DEFAULT_COLUMNS,
+  }
+}
+
 function open(id: string): Question {
   return {
     id,
@@ -177,6 +198,26 @@ describe('sections', () => {
     expect(SECTION_INSTRUCTIONS.open.length).toBeGreaterThan(0)
   })
 
+  test('true/false prints between multiple choice and short answer, with its own directions', () => {
+    const exam = examOf([
+      open('q1'),
+      trueFalse('q2'),
+      multipleChoice('q3', ['a', 'b']),
+    ])
+    const pages = render(exam, arrangementOf(['q1', 'q2', 'q3']))
+    expect(headings(pages).map((heading) => heading.kind === 'section-heading' && heading.title))
+      .toEqual(['Multiple Choice', 'True/False', 'Short Answer'])
+    expect(headings(pages)[1]).toMatchObject({
+      section: 'true-false',
+      instructions: SECTION_INSTRUCTIONS['true-false'],
+    })
+    // The complaint that started this: each section says what to do with its
+    // own questions rather than borrowing the Multiple Choice line.
+    expect(SECTION_INSTRUCTIONS['true-false']).not.toBe(
+      SECTION_INSTRUCTIONS['multiple-choice'],
+    )
+  })
+
   test('a section with no questions is omitted, heading and all', () => {
     const pages = render(examOf([multipleChoice('q1', ['a', 'b'])]))
     expect(headings(pages)).toHaveLength(1)
@@ -226,6 +267,22 @@ describe('questions', () => {
     const exam = examOf([multipleChoice('m1', ['a', 'b']), open('o1')])
     const rendered = plannedQuestions(render(exam))
     expect(rendered.map((question) => question.answerBlank)).toEqual([true, false])
+  })
+
+  test('true/false is prefixed with an answer blank and prints no choice grid', () => {
+    const [rendered] = plannedQuestions(render(examOf([trueFalse('t1', 'true')])))
+    expect(rendered!.answerBlank).toBe(true)
+    // The pair is stated by the section's directions, so the statement stands
+    // alone on the page.
+    expect(rendered!.grid).toBeNull()
+    expect(rendered!.stem).toEqual([
+      { type: 'paragraph', content: [{ type: 'text', text: 'stem t1' }] },
+    ])
+  })
+
+  test('true/false answers are lettered the way a student writes them', () => {
+    const [rendered] = plannedQuestions(render(examOf([trueFalse('t1', 'false')])))
+    expect(rendered!.choices.map((answer) => answer.letter)).toEqual(['T', 'F'])
   })
 
   test('the stem is the question document without its choice list', () => {
@@ -485,6 +542,27 @@ describe('answer key', () => {
     expect(firstKey).toBeGreaterThan(0)
     expect(pages[firstKey - 1]!.header).not.toBe('answer-key')
     expect(pages[firstKey]!.number).toBe(1)
+  })
+
+  test('records a true/false answer as T or F under its own grouping', () => {
+    const items = keyItems(
+      examOf([trueFalse('t1', 'true'), trueFalse('t2', 'false')]),
+      arrangementOf(['t1', 't2']),
+    )
+    expect(items).toEqual([
+      { kind: 'answer-key-heading' },
+      { kind: 'answer-key-section', section: 'true-false', title: 'True/False' },
+      { kind: 'answer-key-entry', number: 1, letter: 'T' },
+      { kind: 'answer-key-entry', number: 2, letter: 'F' },
+    ])
+  })
+
+  test('lists a true/false question with no correct answer marked as blank', () => {
+    expect(keyItems(examOf([trueFalse('t1')]))).toContainEqual({
+      kind: 'answer-key-entry',
+      number: 1,
+      letter: null,
+    })
   })
 
   test('lists free-response questions with a blank answer', () => {

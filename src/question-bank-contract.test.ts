@@ -2,9 +2,12 @@ import { describe, expect, test } from 'bun:test'
 import Ajv2020 from 'ajv/dist/2020'
 import { readdir } from 'node:fs/promises'
 import { join } from 'node:path'
-import publicSchema from '../public/formats/question-bank/0.1.0/schema.json'
-import applicationSchema from './question-bank-record-0.1.0.schema.json'
+import publicSchema010 from '../public/formats/question-bank/0.1.0/schema.json'
+import applicationSchema010 from './question-bank-record-0.1.0.schema.json'
+import publicSchema from '../public/formats/question-bank/0.2.0/schema.json'
+import applicationSchema from './question-bank-record-0.2.0.schema.json'
 import {
+  QUESTION_BANK_FORMAT_VERSION,
   SUPPORTED_SEMANTIC_MARK_TYPES,
   SUPPORTED_SEMANTIC_NODE_TYPES,
   prepareQuestionBankExport,
@@ -17,14 +20,11 @@ import {
 } from './question-bank-import'
 import type { QuestionBankResource } from './question-bank-workspaces'
 
-const fixtureRoot = join(
-  import.meta.dir,
-  '..',
-  'public',
-  'formats',
-  'question-bank',
-  '0.1.0',
-)
+function fixtureRootFor(version: string): string {
+  return join(import.meta.dir, '..', 'public', 'formats', 'question-bank', version)
+}
+
+const fixtureRoot = fixtureRootFor(QUESTION_BANK_FORMAT_VERSION)
 const exampleRoot = join(fixtureRoot, 'examples')
 const invalidRoot = join(fixtureRoot, 'invalid')
 const decoder = new TextDecoder()
@@ -46,10 +46,10 @@ function schemaEnum(definition: 'node' | 'mark', property: string): string[] {
   return schema.$defs[definition]!.properties[property]!.enum
 }
 
-describe('public Question Bank Record 0.1.0 contract', () => {
+describe('public Question Bank Record 0.2.0 contract', () => {
   test('canonical examples validate independently against the published schema', async () => {
     expect(publicSchema.$id).toBe(
-      'https://testparrot.com/formats/question-bank/0.1.0/schema.json',
+      'https://testparrot.com/formats/question-bank/0.2.0/schema.json',
     )
     expect(
       await Bun.file(
@@ -57,7 +57,7 @@ describe('public Question Bank Record 0.1.0 contract', () => {
           import.meta.dir,
           '..',
           'public',
-          'question-bank-record-0.1.0.schema.json',
+          'question-bank-record-0.2.0.schema.json',
         ),
       ).json(),
     ).toEqual(publicSchema)
@@ -73,6 +73,7 @@ describe('public Question Bank Record 0.1.0 contract', () => {
       'minimal-multiple-choice.json',
       'provenance-and-links.json',
       'short-answer.json',
+      'true-false.json',
     ])
     for (const name of names) {
       expect(
@@ -80,6 +81,23 @@ describe('public Question Bank Record 0.1.0 contract', () => {
         `${name}: ${JSON.stringify(validate.errors)}`,
       ).toBe(true)
     }
+  })
+
+  test('a True/False Question states its fixed pair and nothing else', async () => {
+    const proposal = await inspectQuestionBankRecord(
+      await Bun.file(join(exampleRoot, 'true-false.json')).bytes(),
+    )
+
+    expect(proposal.summary.questionCounts).toEqual({
+      'multiple-choice': 0,
+      'true-false': 2,
+      'short-answer': 0,
+    })
+    expect(proposal.record.bank.questions[0]).toMatchObject({
+      type: 'true-false',
+      choices: [{ correct: true }, { correct: false }],
+    })
+    expect(proposal.record.bank.questions[0]!.suggestedAnswer).toBeUndefined()
   })
 
   test('canonical examples pass Test Parrot inspection and retain documented semantics', async () => {
@@ -143,6 +161,7 @@ describe('public Question Bank Record 0.1.0 contract', () => {
       'bad-reference.json',
       'invalid-media.json',
       'malformed-question.json',
+      'malformed-true-false.json',
       'unsafe-url.json',
       'unsupported-required-feature.json',
       'unsupported-version.json',
@@ -239,5 +258,88 @@ describe('public Question Bank Record 0.1.0 contract', () => {
       validate(JSON.parse(decoder.decode(prepared.recordBytes))),
       JSON.stringify(validate.errors),
     ).toBe(true)
+  })
+})
+
+// 0.1.0 is retired as a producer version and retained as a consumer one: every
+// Question Bank File a teacher has already shared must still open. Its published
+// contract is therefore frozen — these are the assertions that keep it that way.
+describe('retained Question Bank Record 0.1.0 contract', () => {
+  const root010 = fixtureRootFor('0.1.0')
+
+  test('the published 0.1.0 schema is unchanged and still checked in twice', async () => {
+    expect(publicSchema010.$id).toBe(
+      'https://testparrot.com/formats/question-bank/0.1.0/schema.json',
+    )
+    expect(publicSchema010.properties.formatVersion.const).toBe('0.1.0')
+    expect(applicationSchema010).toEqual(publicSchema010)
+    expect(
+      await Bun.file(
+        join(
+          import.meta.dir,
+          '..',
+          'public',
+          'question-bank-record-0.1.0.schema.json',
+        ),
+      ).json(),
+    ).toEqual(publicSchema010)
+  })
+
+  test('0.1.0 does not know the Question Types 0.2.0 added', () => {
+    const typeEnum = (schema: typeof publicSchema010 | typeof publicSchema) =>
+      (schema as {
+        $defs: { question: { properties: { type: { enum: string[] } } } }
+      }).$defs.question.properties.type.enum
+
+    expect(typeEnum(publicSchema010)).toEqual([
+      'multiple-choice',
+      'short-answer',
+    ])
+    expect(typeEnum(publicSchema)).toEqual([
+      'multiple-choice',
+      'true-false',
+      'short-answer',
+    ])
+  })
+
+  test('every 0.1.0 canonical example still imports, migrated to the current version', async () => {
+    const names = await filesIn(join(root010, 'examples'))
+
+    expect(names).toEqual([
+      'complete-rich-text.json',
+      'media-rich.json',
+      'minimal-multiple-choice.json',
+      'provenance-and-links.json',
+      'short-answer.json',
+    ])
+    for (const name of names) {
+      const proposal = await inspectQuestionBankRecord(
+        await Bun.file(join(root010, 'examples', name)).bytes(),
+      )
+      expect(proposal.record.formatVersion, name).toBe(
+        QUESTION_BANK_FORMAT_VERSION,
+      )
+      // What the teacher opened, not what the app rewrote it to.
+      expect(proposal.summary.formatVersion, name).toBe('0.1.0')
+    }
+  })
+
+  test('0.1.0 counterexamples are still rejected with their documented errors', async () => {
+    const manifest = (await fixture(
+      join(root010, 'invalid'),
+      'manifest.json',
+    )) as Record<string, string>
+
+    for (const [name, code] of Object.entries(manifest)) {
+      try {
+        await inspectQuestionBankRecord(
+          await Bun.file(join(root010, 'invalid', name)).bytes(),
+        )
+        throw new Error(`${name} unexpectedly conformed`)
+      } catch (error) {
+        expect(error, name).toBeInstanceOf(QuestionBankImportError)
+        expect((error as QuestionBankImportError).code, name).toBe(code)
+      }
+    }
   })
 })

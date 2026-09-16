@@ -74,6 +74,31 @@ function multipleChoice(
   }
 }
 
+function trueFalse(
+  id: string,
+  stem: ProseMirrorJSON[],
+  correct: 'true' | 'false',
+): Question {
+  return {
+    id,
+    type: 'true-false',
+    columns: DEFAULT_COLUMNS,
+    doc: {
+      type: 'doc',
+      content: [
+        ...stem,
+        {
+          type: 'multipleChoice',
+          content: [
+            choice(`${id}-t`, correct === 'true', paragraph(text('True'))),
+            choice(`${id}-f`, correct === 'false', paragraph(text('False'))),
+          ],
+        },
+      ],
+    },
+  }
+}
+
 function arrangement(
   questionOrder: string[],
   choiceOrder: Record<string, string[]> = {},
@@ -206,6 +231,46 @@ const COMPOSITE_EXAM: Exam = {
 }
 
 export const FIXTURES: readonly Fixture[] = [
+  // A True/False question is the one shape where an answer blank prints with no
+  // choice grid behind it, and where the key letter is not a choice letter.
+  // Both adapters have to agree about that on their own.
+  fixture(
+    'a true/false question and its T or F key entry',
+    {
+      title: 'True/False',
+      questions: [
+        trueFalse('t1', [paragraph(text('Mitochondria produce ATP.'))], 'true'),
+        trueFalse(
+          't2',
+          [paragraph(text('Enzymes are consumed by the reactions they catalyze.'))],
+          'false',
+        ),
+      ],
+    },
+    arrangement(['t1', 't2']),
+  ),
+
+  fixture(
+    'all three sections on one paper',
+    {
+      title: 'Mixed sections',
+      questions: [
+        open('o1', paragraph(text('Explain osmosis.'))),
+        trueFalse('t1', [paragraph(text('Water is a compound.'))], 'true'),
+        multipleChoice(
+          'm1',
+          2,
+          [paragraph(text('Which particle is neutral?'))],
+          [
+            choice('m1-a', false, paragraph(text('Proton'))),
+            choice('m1-b', true, paragraph(text('Neutron'))),
+          ],
+        ),
+      ],
+    },
+    arrangement(['o1', 't1', 'm1']),
+  ),
+
   fixture(
     'a plain short-answer question',
     {

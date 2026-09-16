@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { DocView } from './doc-view'
 import {
+  RECORD_TYPE_LABELS,
   prepareQuestionBankExport,
   recordDocumentToEditorNodes,
   type PreparedQuestionBankExport,
@@ -174,9 +175,7 @@ export function QuestionBankExportDialog({
                     <div>
                       <dt>Question Type</dt>
                       <dd>
-                        {question.type === 'multiple-choice'
-                          ? 'Multiple Choice'
-                          : 'Short Answer'}
+                        {RECORD_TYPE_LABELS[question.type]}
                       </dd>
                     </div>
                     <div>

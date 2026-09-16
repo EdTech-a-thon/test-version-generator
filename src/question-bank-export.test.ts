@@ -138,8 +138,27 @@ const multipleChoice: Question = {
   },
 }
 
+const trueFalse: Question = {
+  id: 'local-true-false-id',
+  type: 'true-false',
+  columns: 2,
+  doc: {
+    type: 'doc',
+    content: [
+      paragraph(text('Sound travels faster in water than in air.')),
+      {
+        type: 'multipleChoice',
+        content: [
+          choice('local-choice-true', false, 'True'),
+          choice('local-choice-false', true, 'False'),
+        ],
+      },
+    ],
+  },
+}
+
 describe('Question Bank exchange export seam', () => {
-  test('builds the authoritative 0.1.0 semantic record in canonical stored order', async () => {
+  test('builds the authoritative semantic record in canonical stored order', async () => {
     const prepared = await prepareQuestionBankExport(
       bank([shortAnswer, multipleChoice]),
     )
@@ -185,6 +204,49 @@ describe('Question Bank exchange export seam', () => {
     expect(JSON.stringify(parsed)).not.toContain('createdAt')
     expect(JSON.stringify(parsed)).not.toContain('multipleChoiceChoice')
     expect(parsed.media).toEqual([])
+  })
+
+  test('writes a True/False Question as its own type, carrying the fixed pair', async () => {
+    const { record } = await prepareQuestionBankExport(bank([trueFalse]))
+
+    expect(record.bank.questions[0]).toMatchObject({
+      id: 'q1',
+      type: 'true-false',
+      choices: [
+        { id: 'q1-c1', correct: false },
+        { id: 'q1-c2', correct: true },
+      ],
+    })
+    // The pair goes out as authored content so an importer needs no table of
+    // what True/False means, and no Suggested Answer rides along with it.
+    expect(record.bank.questions[0]!.choices![0]!.content).toEqual({
+      type: 'document',
+      content: [{ type: 'paragraph', content: [{ type: 'text', text: 'True' }] }],
+    })
+    expect(record.bank.questions[0]!.suggestedAnswer).toBeUndefined()
+  })
+
+  test('refuses a True/False Question that does not ask with exactly two answers', async () => {
+    const extra: Question = {
+      ...trueFalse,
+      doc: {
+        type: 'doc',
+        content: [
+          paragraph(text('Sound travels faster in water than in air.')),
+          {
+            type: 'multipleChoice',
+            content: [
+              choice('tf-t', false, 'True'),
+              choice('tf-f', true, 'False'),
+              choice('tf-x', false, 'Sometimes'),
+            ],
+          },
+        ],
+      },
+    }
+    await expect(prepareQuestionBankExport(bank([extra]))).rejects.toThrow(
+      /True\/False and must have exactly two choices/,
+    )
   })
 
   test('exports only explicitly stored provenance', async () => {

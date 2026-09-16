@@ -1,9 +1,15 @@
-import { choicesOf, topicsOf, type Difficulty, type Question } from './exam'
+import {
+  choicesOf,
+  topicsOf,
+  type Difficulty,
+  type Question,
+  type QuestionType,
+} from './exam'
 import { stemNodesOf, type ProseMirrorJSON } from './question-doc'
 import type { QuestionBankResource } from './question-bank-workspaces'
 
 export const QUESTION_BANK_FORMAT = 'test-parrot/question-bank'
-export const QUESTION_BANK_FORMAT_VERSION = '0.1.0'
+export const QUESTION_BANK_FORMAT_VERSION = '0.2.0'
 export const QUESTION_BANK_ATTACHMENT_NAME = 'pdfcx.json'
 export const QUESTION_BANK_ATTACHMENT_DESCRIPTION = 'pdf-canonical-extraction'
 
@@ -67,9 +73,34 @@ export type SemanticNode = {
 
 export type SemanticDocument = { type: 'document'; content: SemanticNode[] }
 
+/** The Question Types the exchange format names. They are the same Question
+ *  Sections the app authors, spelled the way the published contract spells
+ *  them: a Short Answer question is `'short-answer'` rather than the `'open'`
+ *  the local model calls it. */
+export type QuestionBankRecordQuestionType =
+  | 'multiple-choice'
+  | 'true-false'
+  | 'short-answer'
+
+/** How each record Question Type is written wherever a teacher reads one — the
+ *  export preview, the import preview, and the Question Bank File's own pages. */
+export const RECORD_TYPE_LABELS: Record<QuestionBankRecordQuestionType, string> = {
+  'multiple-choice': 'Multiple Choice',
+  'true-false': 'True/False',
+  'short-answer': 'Short Answer',
+}
+
+/** The order a summary counts the Question Types off in — the order a test
+ *  prints its sections, so an import preview reads like the exam it will make. */
+export const RECORD_TYPE_ORDER: readonly QuestionBankRecordQuestionType[] = [
+  'multiple-choice',
+  'true-false',
+  'short-answer',
+]
+
 export type QuestionBankRecordQuestion = {
   id: string
-  type: 'multiple-choice' | 'short-answer'
+  type: QuestionBankRecordQuestionType
   stem: SemanticDocument
   difficulty?: Difficulty
   topics?: string[]
@@ -288,6 +319,15 @@ function semanticDocument(
   return { type: 'document', content: nodes.map((node) => semanticNode(node, mediaIds)) }
 }
 
+/** The local Question Type each record Question Type is written as. The one
+ *  place the two vocabularies meet on the way out; `LOCAL_TYPES` in the
+ *  importer is its inverse. */
+const RECORD_TYPES: Record<QuestionType, QuestionBankRecordQuestionType> = {
+  'multiple-choice': 'multiple-choice',
+  'true-false': 'true-false',
+  open: 'short-answer',
+}
+
 function portableQuestion(
   question: Question,
   index: number,
@@ -295,7 +335,7 @@ function portableQuestion(
 ): QuestionBankRecordQuestion {
   const base: QuestionBankRecordQuestion = {
     id: `q${index + 1}`,
-    type: question.type === 'open' ? 'short-answer' : 'multiple-choice',
+    type: RECORD_TYPES[question.type],
     stem: semanticDocument(stemNodesOf(question.doc), mediaIds),
     ...(question.difficulty ? { difficulty: question.difficulty } : {}),
     ...(topicsOf(question).length > 0
@@ -318,6 +358,11 @@ function portableQuestion(
   const choices = choicesOf(question)
   if (choices.length < 2) {
     throw new Error(`Question ${index + 1} must have at least two choices.`)
+  }
+  if (question.type === 'true-false' && choices.length !== 2) {
+    throw new Error(
+      `Question ${index + 1} is True/False and must have exactly two choices.`,
+    )
   }
   if (choices.filter((choice) => choice.correct).length > 1) {
     throw new Error(
@@ -347,7 +392,7 @@ export async function serializeQuestionBankRecord(
   const record: QuestionBankRecord = {
     format: QUESTION_BANK_FORMAT,
     formatVersion: QUESTION_BANK_FORMAT_VERSION,
-    generator: { name: 'Test Parrot', version: '0.1.0' },
+    generator: { name: 'Test Parrot', version: QUESTION_BANK_FORMAT_VERSION },
     requiredFeatures: [...content.requiredFeatures],
     bank: structuredClone(content.bank),
     media: structuredClone(content.media),

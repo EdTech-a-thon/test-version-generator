@@ -1193,6 +1193,13 @@ button { cursor: pointer; }
   color: #a8988c; pointer-events: none;
 }
 
+/* A True/False question's pair is drawn, not typed into: no placeholder, a
+   cursor that never lands there, and a solid label beside the radio the teacher
+   does pick. The dashed cell below still frames it, so it reads as the same
+   kind of answer control with nothing to fill in. */
+.mc-choice--fixed .mc-choice-body { user-select: none; cursor: default; }
+.mc-choice--fixed .mc-choice-body::before { content: none; }
+
 /* In the editor, draw each answer as a dashed table-like cell so it's clear an
    option is a multi-line region you can type into (Enter = newline). The radio
    sits inside the cell, hard against the left. Previews/print stay borderless. */
