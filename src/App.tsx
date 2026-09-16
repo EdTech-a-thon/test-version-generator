@@ -12,6 +12,7 @@ import { uploadConfig } from '@milkdown/kit/plugin/upload'
 import '@milkdown/crepe/theme/common/style.css'
 import '@milkdown/crepe/theme/frame.css'
 import {
+  keepFixedChoices,
   multipleChoiceChoiceSchema,
   multipleChoiceChoiceView,
   multipleChoiceKeymap,
@@ -81,6 +82,7 @@ import {
   Import,
   History,
   ListChecks,
+  ToggleLeft,
   Plus,
   Redo2,
   RefreshCw,
@@ -132,6 +134,7 @@ import {
  *  it is named — the picker that chooses one, and the dialog that states it. */
 const QUESTION_TYPE_ICONS: Record<QuestionType, ReactNode> = {
   'multiple-choice': <ListChecks />,
+  'true-false': <ToggleLeft />,
   open: <AlignLeft />,
 }
 
@@ -371,11 +374,15 @@ function CrepeQuestion({
   onChange,
   onReady,
   suggestedAnswer = false,
+  fixedChoices = false,
 }: {
   value: ProseMirrorJSON
   onChange: (doc: ProseMirrorJSON) => void
   onReady: (readDocument: () => ProseMirrorJSON) => void
   suggestedAnswer?: boolean
+  /** Whether the answer list is a True/False question's fixed pair, which the
+   *  teacher chooses between rather than writes. */
+  fixedChoices?: boolean
 }) {
   useEditor((root) => {
     const safeValue = cleanDocument(value)
@@ -424,7 +431,7 @@ function CrepeQuestion({
       },
     })
     crepe.editor
-      .use(multipleChoiceMode(true))
+      .use(multipleChoiceMode(true, fixedChoices))
       .use(suggestedAnswerMode(suggestedAnswer))
       .use(subscriptSchema)
       .use(superscriptSchema)
@@ -437,6 +444,7 @@ function CrepeQuestion({
       .use(multipleChoiceChoiceView)
       .use(multipleChoiceKeymap)
       .use(uniqueChoiceIds)
+      .use(keepFixedChoices)
       .use(suggestedAnswerSchema)
       .use(suggestedAnswerView)
       .use(keepSuggestedAnswer)
@@ -463,6 +471,9 @@ function CrepeQuestion({
             node?.type?.name === 'multipleChoiceChoice'
             || node?.type?.name === 'suggestedAnswer'
           ) return false
+          // A True/False question's pair is not the teacher's to move: it has
+          // one place in the question and no second place to put it.
+          if (fixedChoices && node?.type?.name === 'multipleChoice') return false
           return true
         },
       }))
@@ -683,6 +694,7 @@ function QuestionDialog({
           <CrepeQuestion
             value={doc}
             suggestedAnswer={type === 'open'}
+            fixedChoices={type === 'true-false'}
             onReady={(readDocument) => {
               readEditorDocument.current = readDocument
             }}

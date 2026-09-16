@@ -1,7 +1,11 @@
 import { describe, expect, test } from 'bun:test'
 import { Schema } from '@milkdown/kit/prose/model'
 import { EditorState } from '@milkdown/kit/prose/state'
-import { selectCorrectChoice } from './multiple-choice'
+import {
+  TRUE_FALSE_LABELS,
+  newTrueFalseNode,
+  selectCorrectChoice,
+} from './multiple-choice'
 
 const schema = new Schema({
   nodes: {
@@ -62,5 +66,28 @@ describe('multiple-choice', () => {
     selectCorrectChoice(editor.view, choicePos(editor.state, 2))
     const list = editor.state.doc.firstChild!
     expect([0, 1, 2].map((i) => list.child(i).attrs.correct)).toEqual([false, false, true])
+  })
+})
+
+describe('the True/False pair', () => {
+  test('is exactly two answers, written out, with neither marked correct', () => {
+    const node = newTrueFalseNode()
+
+    expect(TRUE_FALSE_LABELS).toEqual(['True', 'False'])
+    expect(node.content).toHaveLength(2)
+    expect(
+      node.content.map((answer) => answer.content[0]!.content?.[0]?.text),
+    ).toEqual(['True', 'False'])
+    expect(node.content.every((answer) => answer.attrs.correct === false)).toBe(
+      true,
+    )
+  })
+
+  test('gives each answer its own stable id, as a multiple-choice answer has', () => {
+    const ids = [...newTrueFalseNode().content, ...newTrueFalseNode().content]
+      .map((answer) => answer.attrs.id)
+
+    expect(new Set(ids).size).toBe(4)
+    expect(ids.every((id) => id.length > 0)).toBe(true)
   })
 })

@@ -18,9 +18,17 @@ import {
   withFreshChoiceIds,
   type ProseMirrorJSON,
 } from './question-doc'
-import { newMultipleChoiceNode } from './multiple-choice'
+import { newMultipleChoiceNode, newTrueFalseNode } from './multiple-choice'
 
-export type QuestionType = 'multiple-choice' | 'open'
+export type QuestionType = 'multiple-choice' | 'true-false' | 'open'
+
+/** Whether a question of this type answers with choices a teacher picks from.
+ *  True/False answers with choices too — two fixed ones — so anything that
+ *  cares about correctness living on a choice asks this rather than naming
+ *  Multiple Choice and quietly leaving True/False out. */
+export function hasChoices(type: QuestionType): boolean {
+  return type === 'multiple-choice' || type === 'true-false'
+}
 
 // How many columns a multiple-choice question's answers lay out in. A plain
 // count, chosen by the teacher and never inferred: a layout that changed itself
@@ -44,6 +52,7 @@ export const DIFFICULTIES: readonly Difficulty[] = ['easy', 'medium', 'hard']
  *  bank row, the filter and the Working Copy's own chrome can never disagree. */
 export const SECTION_LABELS: Record<QuestionType, string> = {
   'multiple-choice': 'Multiple choice',
+  'true-false': 'True/False',
   open: 'Short answer',
 }
 
@@ -92,14 +101,18 @@ export type Choice = {
 
 // Sections are derived from question type, never stored, and always appear in
 // this order. `'open'` is the section a school test calls "Short Answer".
-export const SECTION_ORDER: readonly QuestionType[] = ['multiple-choice', 'open']
+export const SECTION_ORDER: readonly QuestionType[] = [
+  'multiple-choice',
+  'true-false',
+  'open',
+]
 
 export const DEFAULT_EXAM_TITLE = 'Untitled Exam'
 
 function newQuestionDoc(type: QuestionType): ProseMirrorJSON {
-  return type === 'multiple-choice'
-    ? { type: 'doc', content: [{ type: 'paragraph' }, newMultipleChoiceNode()] }
-    : structuredClone(emptyDoc)
+  if (type === 'open') return structuredClone(emptyDoc)
+  const choices = type === 'true-false' ? newTrueFalseNode() : newMultipleChoiceNode()
+  return { type: 'doc', content: [{ type: 'paragraph' }, choices] }
 }
 
 /** A question's Topics, always a list. The single reader, so an absent list and
@@ -422,7 +435,9 @@ export function shuffleSelectedQuestions(
  * the choice it was authored on.
  *
  * A selected Short Answer question, an unknown question, and a Multiple Choice
- * question with fewer than two choices cannot vary and are left alone. As with
+ * question with fewer than two choices cannot vary and are left alone. So does
+ * a True/False question: True before False is a convention a student reads
+ * rather than an authored order, and reversing it varies nothing. As with
  * question shuffling, an identity Fisher–Yates draw is rotated so every
  * eligible selected question visibly changes order.
  */

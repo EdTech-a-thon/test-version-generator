@@ -4,7 +4,7 @@ Use these instructions to convert questions from a PDF, image, scan, screenshot,
 
 ## Required result
 
-Create one complete UTF-8 JSON file using the **Test Parrot Question Bank Record `0.1.0`** format.
+Create one complete UTF-8 JSON file using the **Test Parrot Question Bank Record `0.2.0`** format.
 
 Name the downloaded file:
 
@@ -24,19 +24,20 @@ Do not generate a PDF. Do not return a summary in place of the JSON file.
 
 Use these resources as the source of truth:
 
-- [JSON Schema](./formats/question-bank/0.1.0/schema.json)
-- [Minimal Multiple Choice example](./formats/question-bank/0.1.0/examples/minimal-multiple-choice.json)
-- [Short Answer example](./formats/question-bank/0.1.0/examples/short-answer.json)
-- [Complete rich-text example](./formats/question-bank/0.1.0/examples/complete-rich-text.json)
-- [Provenance and links example](./formats/question-bank/0.1.0/examples/provenance-and-links.json)
-- [Media-rich example](./formats/question-bank/0.1.0/examples/media-rich.json)
+- [JSON Schema](./formats/question-bank/0.2.0/schema.json)
+- [Minimal Multiple Choice example](./formats/question-bank/0.2.0/examples/minimal-multiple-choice.json)
+- [True/False example](./formats/question-bank/0.2.0/examples/true-false.json)
+- [Short Answer example](./formats/question-bank/0.2.0/examples/short-answer.json)
+- [Complete rich-text example](./formats/question-bank/0.2.0/examples/complete-rich-text.json)
+- [Provenance and links example](./formats/question-bank/0.2.0/examples/provenance-and-links.json)
+- [Media-rich example](./formats/question-bank/0.2.0/examples/media-rich.json)
 
 The required top-level shape is:
 
 ```json
 {
   "format": "test-parrot/question-bank",
-  "formatVersion": "0.1.0",
+  "formatVersion": "0.2.0",
   "generator": {
     "name": "Name of the assistant or conversion tool",
     "version": "Version or model name"
@@ -58,7 +59,7 @@ Unless the user explicitly asks for a subset, attempt to convert **every questio
 
 > **If you cannot reliably determine the type of question, do not force it into a specific form. Just leave it and explicitly warn that you could not convert.**
 
-Completeness means accounting for every source question, not pretending every question was converted successfully. Never classify an ambiguous question as Multiple Choice or Short Answer merely to make the output appear complete. Leave that question out of the JSON, identify it by source page and visible number or opening words, explain why its type could not be determined, and include it in the final conversion report as unconverted. Ask the user for clarification when possible; after clarification, add the question in its correct form.
+Completeness means accounting for every source question, not pretending every question was converted successfully. Never classify an ambiguous question as Multiple Choice, True/False or Short Answer merely to make the output appear complete. Leave that question out of the JSON, identify it by source page and visible number or opening words, explain why its type could not be determined, and include it in the final conversion report as unconverted. Ask the user for clarification when possible; after clarification, add the question in its correct form.
 
 ### Before conversion
 
@@ -70,7 +71,7 @@ Completeness means accounting for every source question, not pretending every qu
 
 ### During conversion
 
-1. Classify a question as `multiple-choice` or `short-answer` only when the source supports that classification. Version `0.1.0` supports only those two types. If its type is uncertain or it cannot be represented without material loss, leave it out and report it explicitly; never coerce it into the closest supported type.
+1. Classify a question as `multiple-choice`, `true-false` or `short-answer` only when the source supports that classification. Version `0.2.0` supports only those three types. If its type is uncertain or it cannot be represented without material loss, leave it out and report it explicitly; never coerce it into the closest supported type.
 2. Preserve the exact wording, punctuation, capitalization, symbols, units, and meaningful whitespace.
 3. Preserve authored question and choice order.
 4. Preserve paragraphs, headings, blockquotes, lists, code, rules, tables, equations, hard breaks, links, images, captions, and text formatting when present.
@@ -101,7 +102,7 @@ If any check fails, fix the record or disclose the precise limitation. Never say
 
 ## Question types
 
-Version `0.1.0` supports only `multiple-choice` and `short-answer` Questions. Do not use either as a fallback for an unknown, mixed, or unsupported Question Type. In particular, do not turn an uncertain question into Short Answer merely because it has no clearly detected choices. Leave it unconverted and warn the user instead.
+Version `0.2.0` supports `multiple-choice`, `true-false`, and `short-answer` Questions. Do not use any of them as a fallback for an unknown, mixed, or unsupported Question Type. In particular, do not turn an uncertain question into Short Answer merely because it has no clearly detected choices, and do not turn a two-choice question into True/False unless those two choices really are true and false. Leave it unconverted and warn the user instead.
 
 ### Multiple Choice
 
@@ -162,17 +163,84 @@ Zero correct choices is valid and means the source did not identify a correct an
 }
 ```
 
+### True/False
+
+A True/False Question is a statement the student judges true or false. Convert a source question to `true-false` when it is presented under a True/False heading or instruction, or when its only two answers are true and false — including `T`/`F`, `True`/`False`, and the same pair in the source's own language.
+
+A True/False Question:
+
+- has an ID such as `q2`;
+- has exactly two choices, the affirmative first and the negative second, whatever order the source printed them in;
+- writes those choices out as ordinary content — `True` then `False` — rather than copying the source's `T`/`F` shorthand;
+- uses choice IDs such as `q2-c1` and `q2-c2`;
+- has zero or one choice whose `correct` value is `true`;
+- does not have `suggestedAnswer`.
+
+Mark `correct` on the choice the source's answer key gives: a key of `T` or `True` marks the first choice, and `F` or `False` marks the second. Zero correct choices is valid and means the source did not identify an answer. Do not guess one.
+
+```json
+{
+  "id": "q2",
+  "type": "true-false",
+  "stem": {
+    "type": "document",
+    "content": [
+      {
+        "type": "paragraph",
+        "content": [
+          {
+            "type": "text",
+            "text": "Water boils at 100 degrees Celsius at sea level."
+          }
+        ]
+      }
+    ]
+  },
+  "topics": ["States of matter"],
+  "choices": [
+    {
+      "id": "q2-c1",
+      "content": {
+        "type": "document",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [{ "type": "text", "text": "True" }]
+          }
+        ]
+      },
+      "correct": true
+    },
+    {
+      "id": "q2-c2",
+      "content": {
+        "type": "document",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [{ "type": "text", "text": "False" }]
+          }
+        ]
+      },
+      "correct": false
+    }
+  ]
+}
+```
+
+Keep the statement itself in the stem. A leading `T  F` pair, a blank line, or a numbered answer column printed beside the statement is answer-sheet furniture, not part of the question: leave it out.
+
 ### Short Answer
 
 A Short Answer Question:
 
-- has an ID such as `q2`;
+- has an ID such as `q3`;
 - has no `choices` member;
 - may have a rich-text `suggestedAnswer` only when the source or user supplies one.
 
 ```json
 {
-  "id": "q2",
+  "id": "q3",
   "type": "short-answer",
   "stem": {
     "type": "document",
@@ -369,7 +437,7 @@ Include only information explicitly present in the source or supplied by the use
 
 ## Final validation and delivery
 
-Validate the final record against the [public JSON Schema](./formats/question-bank/0.1.0/schema.json). Schema validation alone is not sufficient: also verify Question cardinality, unique IDs, safe links, resolved media references, and decoded image properties.
+Validate the final record against the [public JSON Schema](./formats/question-bank/0.2.0/schema.json). Schema validation alone is not sufficient: also verify Question cardinality, unique IDs, safe links, resolved media references, and decoded image properties.
 
 Relevant import limits include:
 

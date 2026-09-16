@@ -21,6 +21,7 @@ import {
   layoutFingerprint,
   type ExportFingerprint,
 } from './export-fingerprint'
+import { SECTION_ORDER } from './exam'
 import {
   buildExportDocument,
   unmeasured,
@@ -200,7 +201,9 @@ describe('the supported document vocabulary', () => {
         fixture.exam.questions.map((question) => question.type),
       ),
     )
-    expect([...types].sort()).toEqual(['multiple-choice', 'open'])
+    // Taken from the vocabulary rather than written out, so a new Question
+    // Section owes the corpus a fixture the day it is added.
+    expect([...types].sort()).toEqual([...SECTION_ORDER].sort())
   })
 
   test('every page-header variant appears in a fixture', () => {

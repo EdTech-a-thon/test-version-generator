@@ -3,6 +3,8 @@ import { Check, Copy, UploadCloud } from 'lucide-react'
 import { DocView } from './doc-view'
 import extractInstructions from '../public/extract.md?raw'
 import {
+  RECORD_TYPE_LABELS,
+  RECORD_TYPE_ORDER,
   recordDocumentToEditorNodes,
   type SemanticDocument,
 } from './question-bank-export'
@@ -298,9 +300,7 @@ export function QuestionBankImportDialog({
                       {index + 1}
                     </span>
                     <span className="bank-import-question-type">
-                      {question.type === 'multiple-choice'
-                        ? 'Multiple Choice'
-                        : 'Short Answer'}
+                      {RECORD_TYPE_LABELS[question.type]}
                     </span>
                     {question.difficulty && (
                       <DifficultyBadge
@@ -358,18 +358,16 @@ export function QuestionBankImportDialog({
               </label>
 
               <dl className="bank-import-summary">
-                <div>
-                  <dt>Multiple Choice</dt>
-                  <dd>{proposal.summary.questionCounts['multiple-choice']}</dd>
-                </div>
-                <div>
-                  <dt>Short Answer</dt>
-                  <dd>{proposal.summary.questionCounts['short-answer']}</dd>
-                </div>
-                {proposal.summary.incompleteMultipleChoice > 0 && (
+                {RECORD_TYPE_ORDER.map((type) => (
+                  <div key={type}>
+                    <dt>{RECORD_TYPE_LABELS[type]}</dt>
+                    <dd>{proposal.summary.questionCounts[type]}</dd>
+                  </div>
+                ))}
+                {proposal.summary.questionsWithoutCorrectAnswer > 0 && (
                   <div className="is-warning">
-                    <dt>Incomplete Multiple Choice</dt>
-                    <dd>{proposal.summary.incompleteMultipleChoice}</dd>
+                    <dt>No correct answer marked</dt>
+                    <dd>{proposal.summary.questionsWithoutCorrectAnswer}</dd>
                   </div>
                 )}
                 <div>

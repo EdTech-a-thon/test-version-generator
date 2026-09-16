@@ -69,6 +69,14 @@ _Avoid_: Swap, substitute
 **Delete**:
 To permanently remove Question Content from its Question Bank, every Exam that references it, and their Working Copies. Deletion requires showing the affected Exams and explicit confirmation; existing Export Records remain unchanged.
 
+**Question Type**:
+What a Question asks for, settled when it is created and never changed afterwards: Multiple Choice, True/False, or Short Answer. It decides the Question Section the Question prints in, the directions printed above it, and what its Answer Key entry records.
+_Avoid_: Question format, question kind
+
+**True/False**:
+A Question Type whose answer is one of exactly two fixed choices, True and False, which the teacher picks between rather than writes. The pair is never printed on the student test — the section's directions ask for a T or an F in the answer blank — and the Answer Key records T or F rather than a choice letter. It does not Vary: True before False is a convention a student reads, not an authored order.
+_Avoid_: Binary question, T/F question, two-choice multiple choice
+
 **Short Answer**:
 A Question Type whose response is intentionally brief and does not present answer choices.
 _Avoid_: Open, Open ended, Open Response, Short Response
@@ -78,7 +86,7 @@ Optional rich-text material authored for a Short Answer question to represent it
 _Avoid_: Correct answer, sample response, rubric
 
 **Question Section**:
-A group of questions of the same type whose boundary remains fixed within an Exam and its exported output, such as Multiple Choice or Short Answer.
+A group of questions of the same Question Type whose boundary remains fixed within an Exam and its exported output, such as Multiple Choice, True/False, or Short Answer. A Section prints its own heading and its own directions, and is omitted entirely when it holds no Questions.
 _Avoid_: Question category
 
 **Vary**:

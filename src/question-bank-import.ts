@@ -1,12 +1,16 @@
 import Ajv2020, { type ErrorObject } from 'ajv/dist/2020'
-import type { Question } from './exam'
-import questionBankSchema from './question-bank-record-0.1.0.schema.json'
+import type { Question, QuestionType } from './exam'
+import questionBankSchema010 from './question-bank-record-0.1.0.schema.json'
+import questionBankSchema020 from './question-bank-record-0.2.0.schema.json'
 import {
   QUESTION_BANK_ATTACHMENT_DESCRIPTION,
   QUESTION_BANK_FORMAT,
+  QUESTION_BANK_FORMAT_VERSION,
+  RECORD_TYPE_LABELS,
   recordDocumentToEditorNodes,
   type QuestionBankRecord,
   type QuestionBankRecordQuestion,
+  type QuestionBankRecordQuestionType,
   type SemanticDocument,
   type SemanticNode,
 } from './question-bank-export'
@@ -60,9 +64,17 @@ export class QuestionBankImportError extends Error {
   }
 }
 
+/**
+ * One record, parsed. Every supported version parses into the current shape:
+ * migration happens in the version's own parser, so everything downstream reads
+ * one vocabulary and a new version costs a parser rather than a branch in each
+ * reader. `sourceVersion` is what the file actually said, kept because that is
+ * what a teacher is told they are importing.
+ */
 type ParsedRecord = {
   format: typeof QUESTION_BANK_FORMAT
-  formatVersion: '0.1.0'
+  formatVersion: typeof QUESTION_BANK_FORMAT_VERSION
+  sourceVersion: string
   generator: { name: string; version: string }
   requiredFeatures: string[]
   bank: {
@@ -87,14 +99,25 @@ export type QuestionBankImportProposal = {
   record: ParsedRecord
   summary: {
     bankName: string
-    questionCounts: { 'multiple-choice': number; 'short-answer': number }
+    questionCounts: Record<QuestionBankRecordQuestionType, number>
     topics: string[]
-    incompleteMultipleChoice: number
+    /** Questions that answer with choices but have none marked correct. That is
+     *  conforming — a bank may be shared mid-authoring — so it is reported
+     *  rather than refused. */
+    questionsWithoutCorrectAnswer: number
     mediaAssets: number
     decodedMediaBytes: number
     externalLinks: boolean
     formatVersion: string
   }
+}
+
+/** The local Question Type each record Question Type reads as — the inverse of
+ *  the exporter's `RECORD_TYPES`. */
+const LOCAL_TYPES: Record<QuestionBankRecordQuestionType, QuestionType> = {
+  'multiple-choice': 'multiple-choice',
+  'true-false': 'true-false',
+  'short-answer': 'open',
 }
 
 /** Map a validated portable record into fresh local authoring identities. */
@@ -106,17 +129,17 @@ export function importedQuestionsFromRecord(
     const stem = recordDocumentToEditorNodes(question.stem)
     const imported: Question = {
       id: createId(),
-      type: question.type === 'short-answer' ? 'open' : 'multiple-choice',
+      type: LOCAL_TYPES[question.type],
       columns: 1,
       doc: {
         type: 'doc',
         content:
-          question.type === 'multiple-choice'
+          question.choices
             ? [
                 ...stem,
                 {
                   type: 'multipleChoice',
-                  content: question.choices!.map((choice) => ({
+                  content: question.choices.map((choice) => ({
                     type: 'multipleChoiceChoice',
                     attrs: { id: createId(), correct: choice.correct },
                     content: recordDocumentToEditorNodes(choice.content),
@@ -143,7 +166,8 @@ export function importedQuestionsFromRecord(
 type Parser = (value: unknown) => ParsedRecord
 
 const ajv = new Ajv2020({ allErrors: true, strict: false })
-const validate010 = ajv.compile(questionBankSchema)
+const validate010 = ajv.compile(questionBankSchema010)
+const validate020 = ajv.compile(questionBankSchema020)
 
 function schemaMessage(errors: ErrorObject[] | null | undefined): string {
   const first = errors?.[0]
@@ -208,9 +232,25 @@ function copyQuestion(question: QuestionBankRecordQuestion): QuestionBankRecordQ
   }
 }
 
-function parser010(value: unknown): ParsedRecord {
-  if (!validate010(value)) {
-    const unsafeLink = validate010.errors?.find(
+type SchemaValidator = (value: unknown) => boolean
+
+/**
+ * Structural validation against one version's schema, then the same copy into
+ * the parsed shape. Versions differ in what their schema admits, not in how a
+ * conforming record is read, so both parsers share this and each supplies its
+ * own validator.
+ *
+ * The unsafe-link case is lifted out of the generic structural failure because
+ * a bad `href` is the one schema violation a teacher can act on: it names the
+ * link rather than a JSON pointer.
+ */
+function parseWith(
+  validate: SchemaValidator & { errors?: ErrorObject[] | null },
+  sourceVersion: string,
+  value: unknown,
+): ParsedRecord {
+  if (!validate(value)) {
+    const unsafeLink = validate.errors?.find(
       (error) =>
         error.keyword === 'pattern' &&
         error.instancePath.endsWith('/href'),
@@ -230,7 +270,7 @@ function parser010(value: unknown): ParsedRecord {
     }
     throw new QuestionBankImportError(
       'invalid-structure',
-      schemaMessage(validate010.errors),
+      schemaMessage(validate.errors),
     )
   }
   const record = value as QuestionBankRecord & {
@@ -239,7 +279,8 @@ function parser010(value: unknown): ParsedRecord {
   }
   return {
     format: QUESTION_BANK_FORMAT,
-    formatVersion: '0.1.0',
+    formatVersion: QUESTION_BANK_FORMAT_VERSION,
+    sourceVersion,
     generator: {
       name: record.generator.name,
       version: record.generator.version,
@@ -273,9 +314,19 @@ function parser010(value: unknown): ParsedRecord {
   }
 }
 
+/**
+ * 0.1.0 migrates forward without rewriting anything. The version added
+ * `true-false`, which no 0.1.0 record can contain, and changed nothing a 0.1.0
+ * record already says — so a record that satisfies the older schema is already
+ * a conforming 0.2.0 record once its version is restated.
+ */
+const parser010: Parser = (value) => parseWith(validate010, '0.1.0', value)
+
+const parser020: Parser = (value) => parseWith(validate020, '0.2.0', value)
+
 /** Exact versions only: adding compatibility requires adding an explicit parser or migration. */
 export const SUPPORTED_QUESTION_BANK_VERSIONS: Readonly<Record<string, Parser>> =
-  Object.freeze({ '0.1.0': parser010 })
+  Object.freeze({ '0.1.0': parser010, '0.2.0': parser020 })
 
 const utf8 = new TextDecoder('utf-8', { fatal: true })
 
@@ -498,9 +549,13 @@ async function validateSemantics(
   const ids = new Set<string>()
   const references = new Set<string>()
   const topics = new Set<string>()
-  let incompleteMultipleChoice = 0
+  let questionsWithoutCorrectAnswer = 0
   let externalLinks = false
-  const counts = { 'multiple-choice': 0, 'short-answer': 0 }
+  const counts: Record<QuestionBankRecordQuestionType, number> = {
+    'multiple-choice': 0,
+    'true-false': 0,
+    'short-answer': 0,
+  }
 
   for (const question of record.bank.questions) {
     if (ids.has(question.id)) {
@@ -513,32 +568,44 @@ async function validateSemantics(
     counts[question.type] += 1
     for (const topic of question.topics ?? []) topics.add(topic)
 
-    if (question.type === 'multiple-choice') {
+    if (question.type === 'short-answer') {
+      if (question.choices !== undefined) {
+        throw new QuestionBankImportError(
+          'invalid-question',
+          `Short Answer Question “${question.id}” cannot contain choices.`,
+        )
+      }
+    } else {
+      // Multiple Choice and True/False both answer with choices, and the same
+      // three rules govern both: enough answers to choose between, at most one
+      // of them correct, and no Suggested Answer — that is what the choices are.
+      const label = RECORD_TYPE_LABELS[question.type]
       if (!question.choices || question.choices.length < 2) {
         throw new QuestionBankImportError(
           'invalid-question',
-          `Multiple Choice Question “${question.id}” must have at least two choices.`,
+          `${label} Question “${question.id}” must have at least two choices.`,
+        )
+      }
+      if (question.type === 'true-false' && question.choices.length !== 2) {
+        throw new QuestionBankImportError(
+          'invalid-question',
+          `True/False Question “${question.id}” must have exactly two choices.`,
         )
       }
       const correct = question.choices.filter((choice) => choice.correct).length
       if (correct > 1) {
         throw new QuestionBankImportError(
           'invalid-question',
-          `Multiple Choice Question “${question.id}” may have at most one correct choice.`,
+          `${label} Question “${question.id}” may have at most one correct choice.`,
         )
       }
-      if (correct === 0) incompleteMultipleChoice += 1
+      if (correct === 0) questionsWithoutCorrectAnswer += 1
       if (question.suggestedAnswer !== undefined) {
         throw new QuestionBankImportError(
           'invalid-question',
-          `Multiple Choice Question “${question.id}” cannot contain a Suggested Answer.`,
+          `${label} Question “${question.id}” cannot contain a Suggested Answer.`,
         )
       }
-    } else if (question.choices !== undefined) {
-      throw new QuestionBankImportError(
-        'invalid-question',
-        `Short Answer Question “${question.id}” cannot contain choices.`,
-      )
     }
 
     const documents = [
@@ -667,11 +734,11 @@ async function validateSemantics(
     bankName: record.bank.name,
     questionCounts: counts,
     topics: [...topics].sort((left, right) => left.localeCompare(right)),
-    incompleteMultipleChoice,
+    questionsWithoutCorrectAnswer,
     mediaAssets: record.media.length,
     decodedMediaBytes,
     externalLinks,
-    formatVersion: record.formatVersion,
+    formatVersion: record.sourceVersion,
   }
 }
 

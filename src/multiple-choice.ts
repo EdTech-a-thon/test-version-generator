@@ -14,12 +14,21 @@ export const multipleChoiceEditableCtx = createSlice(
   'multipleChoiceEditable',
 )
 
-export const multipleChoiceMode = (editable: boolean): MilkdownPlugin => (
-  ctx,
-) => {
+// Whether the answer list is the fixed pair a True/False question asks with.
+// On for a True/False question in the editor, off everywhere else: its two
+// answers are the question type rather than authored content, so the teacher
+// picks which of them is correct and nothing else about the pair is editable.
+export const multipleChoiceFixedCtx = createSlice(false, 'multipleChoiceFixed')
+
+export const multipleChoiceMode = (
+  editable: boolean,
+  fixedChoices = false,
+): MilkdownPlugin => (ctx) => {
   ctx.inject(multipleChoiceEditableCtx, editable)
+  ctx.inject(multipleChoiceFixedCtx, fixedChoices)
   return () => () => {
     ctx.remove(multipleChoiceEditableCtx)
+    ctx.remove(multipleChoiceFixedCtx)
   }
 }
 
@@ -166,26 +175,34 @@ const armAddAnswerOnDown: Command = (state, _dispatch, view) => {
   return true
 }
 
+// A fixed list has no editable cells at all, so every command that types into
+// one, walks between them or grows the list stands down and lets normal editing
+// through.
+function unlessFixed(ctx: Ctx, command: Command): Command {
+  return (state, dispatch, view) =>
+    ctx.get(multipleChoiceFixedCtx) ? false : command(state, dispatch, view)
+}
+
 export const multipleChoiceKeymap = $useKeymap('multipleChoiceKeymap', {
   NewlineInChoice: {
     shortcuts: 'Enter',
     priority: 100,
-    command: () => newlineInChoice,
+    command: (ctx) => unlessFixed(ctx, newlineInChoice),
   },
   ArmAddAnswer: {
     shortcuts: 'ArrowDown',
     priority: 100,
-    command: () => armAddAnswerOnDown,
+    command: (ctx) => unlessFixed(ctx, armAddAnswerOnDown),
   },
   NextChoice: {
     shortcuts: 'Tab',
     priority: 100,
-    command: () => moveBetweenChoices(1, true),
+    command: (ctx) => unlessFixed(ctx, moveBetweenChoices(1, true)),
   },
   PrevChoice: {
     shortcuts: 'Shift-Tab',
     priority: 100,
-    command: () => moveBetweenChoices(-1, false),
+    command: (ctx) => unlessFixed(ctx, moveBetweenChoices(-1, false)),
   },
 })
 
@@ -216,11 +233,15 @@ export const uniqueChoiceIds = $prose(
   }),
 )
 
-function choiceJSON(correct = false) {
+function choiceJSON(text?: string, correct = false) {
   return {
     type: 'multipleChoiceChoice',
     attrs: { correct, id: crypto.randomUUID() },
-    content: [{ type: 'paragraph' }],
+    content: [
+      text
+        ? { type: 'paragraph', content: [{ type: 'text', text }] }
+        : { type: 'paragraph' },
+    ],
   }
 }
 
@@ -231,6 +252,57 @@ export function newMultipleChoiceNode() {
   }
 }
 
+/** The two answers a True/False question asks with, in the order a student
+ *  reads them. They are the question type spelled out rather than authored
+ *  content: the teacher picks which one is correct and never rewrites either,
+ *  and the printed test shows a blank instead of the pair. */
+export const TRUE_FALSE_LABELS = ['True', 'False'] as const
+
+export function newTrueFalseNode() {
+  return {
+    type: 'multipleChoice',
+    content: TRUE_FALSE_LABELS.map((label) => choiceJSON(label)),
+  }
+}
+
+/**
+ * Keep the fixed pair on the page. A True/False question without its two
+ * answers is not a True/False question, and the editor offers no way to put
+ * them back, so a selection that swallowed the block — a select-all delete, a
+ * paste over everything, a drag of the whole node out of the document — regrows
+ * it at the end rather than leaving a question that cannot be answered or
+ * exported. Off for every other question type, whose answer list is authored.
+ */
+export const keepFixedChoices = $prose((ctx: Ctx) =>
+  new Plugin({
+    appendTransaction(transactions, _oldState, newState) {
+      if (!ctx.get(multipleChoiceFixedCtx)) return null
+      if (!transactions.some((tr) => tr.docChanged)) return null
+      let present = false
+      newState.doc.forEach((node) => {
+        if (node.type.name === 'multipleChoice') present = true
+      })
+      if (present) return null
+      const list = newState.schema.nodes.multipleChoice
+      const choice = newState.schema.nodes.multipleChoiceChoice
+      const paragraph = newState.schema.nodes.paragraph
+      if (!list || !choice || !paragraph) return null
+      return newState.tr.insert(
+        newState.doc.content.size,
+        list.create(
+          null,
+          TRUE_FALSE_LABELS.map((label) =>
+            choice.create(
+              { correct: false, id: crypto.randomUUID() },
+              paragraph.create(null, newState.schema.text(label)),
+            ),
+          ),
+        ),
+      )
+    },
+  }),
+)
+
 // Node view for a choice: a non-editable radio button on the left plus the
 // editable answer content. Everything else (add/remove/navigate) is handled by
 // ProseMirror's native list and block editing.
@@ -240,9 +312,13 @@ export const multipleChoiceChoiceView = $view(
     return (initialNode, view, getPos): NodeView => {
       let node: ProseNode = initialNode
       const editable = () => ctx.get(multipleChoiceEditableCtx)
+      // Read once, at construction: a node view lives as long as the editor,
+      // and the mode is a property of the question being edited rather than
+      // something that changes under it.
+      const fixed = ctx.get(multipleChoiceFixedCtx)
 
       const dom = document.createElement('div')
-      dom.className = 'mc-choice'
+      dom.className = fixed ? 'mc-choice mc-choice--fixed' : 'mc-choice'
       dom.dataset.type = 'multiple-choice-choice'
 
       const control = document.createElement('label')
@@ -255,15 +331,20 @@ export const multipleChoiceChoiceView = $view(
       radio.setAttribute('aria-label', 'Mark this answer correct')
       control.append(radio)
 
-      const contentDOM = document.createElement('div')
-      contentDOM.className = 'mc-choice-body'
+      // A fixed answer is drawn rather than edited: with no contentDOM,
+      // ProseMirror has nowhere to put a cursor, so the pair cannot be
+      // retyped, split or deleted while the radios still work normally.
+      const contentDOM = fixed ? undefined : document.createElement('div')
+      const body = contentDOM ?? document.createElement('div')
+      body.className = 'mc-choice-body'
 
-      dom.append(control, contentDOM)
+      dom.append(control, body)
 
       const render = () => {
         radio.checked = node.attrs.correct === true
         radio.disabled = !editable()
         dom.dataset.correct = String(node.attrs.correct === true)
+        if (fixed) body.textContent = node.textContent
       }
 
       const activate = () => {
@@ -294,8 +375,9 @@ export const multipleChoiceChoiceView = $view(
           render()
           return true
         },
-        ignoreMutation: (mutation) => control.contains(mutation.target),
-        stopEvent: (event) => control.contains(event.target as Node),
+        ignoreMutation: (mutation) =>
+          fixed || control.contains(mutation.target),
+        stopEvent: (event) => fixed || control.contains(event.target as Node),
       }
     }
   },
@@ -310,9 +392,11 @@ export const multipleChoiceView = $view(
     return (initialNode, view, getPos): NodeView => {
       let node: ProseNode = initialNode
       const editable = () => ctx.get(multipleChoiceEditableCtx)
+      const fixed = ctx.get(multipleChoiceFixedCtx)
 
       const dom = document.createElement('div')
       dom.dataset.type = 'multiple-choice'
+      if (fixed) dom.dataset.fixed = 'true'
 
       const contentDOM = document.createElement('div')
       contentDOM.className = 'mc-choices'
@@ -393,7 +477,9 @@ export const multipleChoiceView = $view(
       })
 
       const render = () => {
-        addButton.style.display = editable() ? '' : 'none'
+        // A True/False question's pair is not a list to add to, so the
+        // affordance is absent rather than present and inert.
+        addButton.style.display = editable() && !fixed ? '' : 'none'
       }
 
       dom.append(contentDOM, addButton)
