@@ -544,6 +544,14 @@ button { cursor: pointer; }
   color: inherit; background: #fffdf8; font-size: 13px;
 }
 .bank-sort select:hover { border-color: #cdb9a6; background: #f7ede0; }
+.bank-add-all {
+  display: inline-flex; align-items: center; gap: 5px; min-height: 30px; padding: 5px 9px;
+  border: 1px solid #b99a78; border-radius: 6px; color: #fffdf8;
+  background: #8a6a4c; font-size: 13px; font-weight: 600;
+}
+.bank-add-all:hover:not(:disabled) { background: #74563e; }
+.bank-add-all:disabled { border-color: #d8cbbb; color: #a59382; background: #f1e8dc; cursor: default; }
+.bank-add-all svg { width: 14px; height: 14px; stroke-width: 2; }
 .bank-filter-clear {
   padding: 5px 8px; border: 0; border-radius: 6px; color: #6b5a4c;
   background: transparent; font-size: 13px; text-decoration: underline;

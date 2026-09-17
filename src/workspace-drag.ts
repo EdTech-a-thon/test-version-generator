@@ -24,8 +24,10 @@ import type { QuestionPlacement, QuestionType } from './exam'
 export type DragSource =
   | {
       pane: 'question-bank'
-      /** The unused Question Bank record being composed onto the Working Copy. */
-      questionId: string
+      /** The unused Question Bank records being composed onto the Working Copy,
+       *  in the order they appeared in the filtered bank. A single-row drag
+       *  carries a one-item list through this same boundary. */
+      questionIds: readonly string[]
       type: QuestionType
     }
   | {
@@ -110,10 +112,12 @@ export function dropIntent(
 
   if (!sameSection(source, candidate.type)) return null
 
-  if (source.pane === 'exam-draft') {
+  if (source.pane === 'exam-draft' || source.questionIds.length > 1) {
     // A question cannot be dropped onto itself, and a multi-question gesture
-    // cannot be dropped onto any of its own members.
-    if (source.questionIds.includes(candidate.questionId)) return null
+    // cannot be dropped onto any of its own members. Several bank questions
+    // insert as a group; replacing one position with several would make the
+    // centre of the target ambiguous.
+    if (source.pane === 'exam-draft' && source.questionIds.includes(candidate.questionId)) return null
     return {
       kind: 'insert',
       targetQuestionId: candidate.questionId,

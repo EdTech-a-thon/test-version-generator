@@ -23,6 +23,7 @@ import {
   useEffect,
   useRef,
   useState,
+  type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from 'react'
@@ -234,13 +235,15 @@ export function QuestionBankPane({
   workingCopyIds,
   filter,
   onFilterChange,
-  selectedQuestionId,
+  selectedQuestionIds,
   onSelect,
+  onClearSelection,
   onCreate,
   onExport,
   exportBlocked = false,
   onEdit,
   onAddToWorkingCopy,
+  onAddManyToWorkingCopy,
   onRemoveFromWorkingCopy,
   drag,
 }: {
@@ -256,10 +259,15 @@ export function QuestionBankPane({
   workingCopyIds: ReadonlySet<string>
   filter: QuestionBankFilter
   onFilterChange: (filter: QuestionBankFilter) => void
-  /** The row a teacher has clicked, if any. Transient: selecting is not an
-   *  authoring action. */
-  selectedQuestionId: string | null
-  onSelect: (questionId: string) => void
+  /** The rows a teacher has clicked. Transient: selecting is not an authoring
+   *  action. */
+  selectedQuestionIds: ReadonlySet<string>
+  onSelect: (
+    questionId: string,
+    orderedIds: readonly string[],
+    modifiers: { shiftKey: boolean; metaKey: boolean; ctrlKey: boolean },
+  ) => void
+  onClearSelection: () => void
   onCreate?: (point: MenuPoint) => void
   /** Exports this complete active bank, never the filtered row projection. */
   onExport?: () => void
@@ -267,6 +275,8 @@ export function QuestionBankPane({
   exportBlocked?: boolean
   onEdit: (questionId: string) => void
   onAddToWorkingCopy?: (questionId: string) => void
+  /** Adds every supplied, currently visible bank record as one composition. */
+  onAddManyToWorkingCopy?: (questionIds: readonly string[]) => void
   /** Takes the question back off the Working Copy, leaving its bank record be. */
   onRemoveFromWorkingCopy?: (questionId: string) => void
   /** The gesture in flight. A row that is not already on the Working Copy is a
@@ -277,6 +287,8 @@ export function QuestionBankPane({
 }) {
   const [scrolled, setScrolled] = useState(false)
   const questions = browseQuestionBank(bank, filter)
+  const orderedIds = questions.map(({ id }) => id)
+  const addableQuestions = questions.filter(({ id }) => !workingCopyIds.has(id))
   const filtered = isFilterActive(filter)
   // A gesture that has not yet moved far enough to be a drag. One pointer
   // drags at a time, so this is the pane's rather than each row's — and until
@@ -336,10 +348,31 @@ export function QuestionBankPane({
         if (distance < 5) return
         held.dragging = true
         suppressClickFor.current = held.questionId
+        const questionIds = selectedQuestionIds.has(held.questionId)
+          ? questions
+              .filter((candidate) =>
+                candidate.type === held.type
+                && selectedQuestionIds.has(candidate.id)
+                && !workingCopyIds.has(candidate.id),
+              )
+              .map(({ id }) => id)
+          : [held.questionId]
+        if (!selectedQuestionIds.has(held.questionId)) {
+          onSelect(held.questionId, orderedIds, {
+            shiftKey: false,
+            metaKey: false,
+            ctrlKey: false,
+          })
+        }
+        const elements = Array.from(
+          event.currentTarget.parentElement?.querySelectorAll<HTMLElement>(
+            '.question-bank-row[data-question-id]',
+          ) ?? [],
+        ).filter((candidate) => questionIds.includes(candidate.dataset.questionId ?? ''))
         drag.begin(
-          { pane: 'question-bank', questionId: held.questionId, type: held.type },
+          { pane: 'question-bank', questionIds, type: held.type },
           {
-            elements: [event.currentTarget],
+            elements,
             bounds: event.currentTarget.getBoundingClientRect(),
             point: { x: held.startX, y: held.startY },
           },
@@ -389,6 +422,15 @@ export function QuestionBankPane({
       // The rule under the toolbar is drawn only while there is something
       // above it to have scrolled past.
       data-scrolled={scrolled ? 'true' : undefined}
+      onClick={(event) => {
+        const target = event.target as HTMLElement
+        if (!target.closest('.question-bank-row, button, input, select, a')) {
+          onClearSelection()
+        }
+      }}
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') onClearSelection()
+      }}
     >
       {/* What the bank is, what you can do to it, and what is currently hidden
           are all answers to questions you ask while looking at the list, so
@@ -482,6 +524,18 @@ export function QuestionBankPane({
               ))}
             </select>
           </label>
+          {onAddManyToWorkingCopy && (
+            <button
+              type="button"
+              className="bank-add-all"
+              title={filtered ? 'Add all matching questions to the exam' : 'Add all questions to the exam'}
+              disabled={addableQuestions.length === 0}
+              onClick={() => onAddManyToWorkingCopy(addableQuestions.map(({ id }) => id))}
+            >
+              <Plus aria-hidden="true" />
+              Add all
+            </button>
+          )}
           {filtered && (
             <button
               type="button"
@@ -528,23 +582,22 @@ export function QuestionBankPane({
                 // An unused row is a drag source; a row already on the Exam
                 // Draft is not one, and says so before the gesture starts.
                 data-draggable={draggable ? 'true' : undefined}
-                data-dragging={
-                  drag.source?.pane === 'question-bank'
-                  && drag.source.questionId === question.id
-                    ? 'true'
-                    : undefined
-                }
-                aria-current={selectedQuestionId === question.id ? 'true' : undefined}
+                data-dragging={drag.draggedQuestionIds.has(question.id) ? 'true' : undefined}
+                aria-current={selectedQuestionIds.has(question.id) ? 'true' : undefined}
                 tabIndex={0}
                 {...(draggable ? dragHandlers(question) : {})}
-                onClick={() => {
+                onClick={(event: ReactMouseEvent<HTMLElement>) => {
                   // The press that has just finished dragging is not a click —
                   // that press, on that row, and no other click anywhere.
                   if (suppressClickFor.current === question.id) {
                     suppressClickFor.current = null
                     return
                   }
-                  onSelect(question.id)
+                  onSelect(question.id, orderedIds, {
+                    shiftKey: event.shiftKey,
+                    metaKey: event.metaKey,
+                    ctrlKey: event.ctrlKey,
+                  })
                 }}
                 // Single-click selects, so opening the whole question needs a
                 // second click, the Enter key, or the Edit action.

@@ -166,6 +166,44 @@ describe('the Working Copy references the Question Bank', () => {
     expect(bankIds(store)).toEqual([question.id])
   })
 
+  test('adds several bank questions in order as one undoable action', () => {
+    const questions = [
+      createQuestion('multiple-choice'),
+      createQuestion('multiple-choice'),
+      createQuestion('open'),
+    ]
+    const initial: AuthoringState = {
+      questionBank: { questions },
+      workingCopy: { title: 'Bulk composition', questionIds: [questions[0]!.id] },
+      dirty: false,
+    }
+    const store = createExamStore({ backend: memory(initial), initial })
+
+    store.addManyToWorkingCopy([questions[1]!.id, questions[2]!.id, questions[0]!.id])
+
+    expect(renderedIds(store)).toEqual(questions.map(({ id }) => id))
+    store.undo()
+    expect(renderedIds(store)).toEqual([questions[0]!.id])
+  })
+
+  test('inserts several questions beside a target without reversing them', () => {
+    const questions = Array.from({ length: 4 }, () => createQuestion('multiple-choice'))
+    const initial: AuthoringState = {
+      questionBank: { questions },
+      workingCopy: { title: 'Bulk insertion', questionIds: [questions[0]!.id, questions[3]!.id] },
+      dirty: false,
+    }
+    const store = createExamStore({ backend: memory(initial), initial })
+
+    store.addManyToWorkingCopy(
+      [questions[1]!.id, questions[2]!.id],
+      questions[0]!.id,
+      'after',
+    )
+
+    expect(renderedIds(store)).toEqual(questions.map(({ id }) => id))
+  })
+
   test('holds a question at most once, however often it is added', async () => {
     const { store, questions } = await withExamWorkingCopy(2)
     const before = store.getState()

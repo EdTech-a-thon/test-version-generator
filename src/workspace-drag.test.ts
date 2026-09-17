@@ -3,7 +3,13 @@ import { dropIntent, type DragSource, type DropCandidate } from './workspace-dra
 
 const fromQuestionBank: DragSource = {
   pane: 'question-bank',
-  questionId: 'bank-1',
+  questionIds: ['bank-1'],
+  type: 'multiple-choice',
+}
+
+const severalFromQuestionBank: DragSource = {
+  pane: 'question-bank',
+  questionIds: ['bank-1', 'bank-2'],
   type: 'multiple-choice',
 }
 
@@ -79,6 +85,19 @@ describe('a Question Bank question dropped on a rendered question', () => {
       outgoingQuestionId: 'q1',
     })
     expect(dropIntent(fromQuestionBank, short, 56)).toEqual({
+      kind: 'insert',
+      targetQuestionId: 'q1',
+      placement: 'after',
+    })
+  })
+
+  test('inserts a multi-row selection without offering an ambiguous Replace', () => {
+    expect(dropIntent(severalFromQuestionBank, rendered(), 110)).toEqual({
+      kind: 'insert',
+      targetQuestionId: 'q1',
+      placement: 'before',
+    })
+    expect(dropIntent(severalFromQuestionBank, rendered(), 210)).toEqual({
       kind: 'insert',
       targetQuestionId: 'q1',
       placement: 'after',

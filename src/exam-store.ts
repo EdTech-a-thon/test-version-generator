@@ -220,6 +220,13 @@ export type ExamStore = {
     targetQuestionId?: string | null,
     placement?: QuestionPlacement,
   ): void
+  /** Adds several unused records in the supplied order as one undoable
+   *  composition. Used by filtered Add all and multi-row bank drags. */
+  addManyToWorkingCopy(
+    questions: readonly (string | Question)[],
+    targetQuestionId?: string | null,
+    placement?: QuestionPlacement,
+  ): void
   /** Replaces one Working Copy reference with an unused Question Bank record of
    *  the same Question Type, in the outgoing question's exact position. Nothing
    *  is copied and nothing is deleted: the outgoing question keeps its Question
@@ -332,6 +339,56 @@ function withColumnResolved(
 function withDirtyFlag(current: AuthoringState, saved: SavedState | null): AuthoringState {
   const dirty = !saved || !sameExamWorkingCopy(current.workingCopy, saved.workingCopy)
   return current.dirty === dirty ? current : { ...current, dirty }
+}
+
+/** Adds one canonical reference without crossing the history boundary. Keeping
+ * this transformation separate lets a bulk composition apply it repeatedly
+ * while the public store still records exactly one action. */
+function withQuestionAdded(
+  current: AuthoringState,
+  questionOrId: string | Question,
+  targetQuestionId: string | null,
+  placement: QuestionPlacement,
+): AuthoringState {
+  const supplied = typeof questionOrId === 'string' ? null : questionOrId
+  const questionId = typeof questionOrId === 'string' ? questionOrId : questionOrId.id
+  const question = supplied ?? bankQuestionById(current.questionBank, questionId)
+  if (!question) return current
+  const target = targetQuestionId
+    ? bankQuestionById(current.questionBank, targetQuestionId)
+    : null
+  if (target && target.type !== question.type) return current
+  const bank = supplied
+    ? withQuestionBanked(current.questionBank, supplied)
+    : current.questionBank
+  let workingCopy = withReferenceAdded(
+    current.workingCopy,
+    questionId,
+    targetQuestionId,
+    placement,
+  )
+  if (workingCopy === current.workingCopy) return current
+  if (question.type === 'multiple-choice') {
+    const selected = selectedExam(bank, current.workingCopy)
+    const rendered = orderedQuestions(selected.exam, selected.arrangement)
+      .filter(({ type }) => type === question.type)
+    const targetIndex = targetQuestionId
+      ? rendered.findIndex(({ id }) => id === targetQuestionId)
+      : -1
+    const neighbor = targetIndex < 0
+      ? rendered.at(-1)
+      : placement === 'before'
+        ? rendered[targetIndex - 1] ?? rendered[targetIndex]
+        : rendered[targetIndex]
+    workingCopy = {
+      ...workingCopy,
+      columns: {
+        ...(workingCopy.columns ?? {}),
+        [questionId]: neighbor ? columnsOf(neighbor) : 1,
+      },
+    }
+  }
+  return { ...current, questionBank: bank, workingCopy }
 }
 
 export type SaveAsSnapshot = {
@@ -593,48 +650,29 @@ export function createExamStore(options: {
       }),
 
     addToWorkingCopy: (questionOrId, targetQuestionId = null, placement = 'after') =>
+      change((current) => withQuestionAdded(
+        current,
+        questionOrId,
+        targetQuestionId,
+        placement,
+      )),
+
+    addManyToWorkingCopy: (questions, targetQuestionId = null, placement = 'after') =>
       change((current) => {
-        const supplied = typeof questionOrId === 'string' ? null : questionOrId
-        const questionId = typeof questionOrId === 'string' ? questionOrId : questionOrId.id
-        const question = supplied ?? bankQuestionById(current.questionBank, questionId)
-        if (!question) return current
-        // An insertion point in another Question Section is refused rather than
-        // quietly honoured somewhere else.
-        const target = targetQuestionId
-          ? bankQuestionById(current.questionBank, targetQuestionId)
-          : null
-        if (target && target.type !== question.type) return current
-        const bank = supplied
-          ? withQuestionBanked(current.questionBank, supplied)
-          : current.questionBank
-        let workingCopy = withReferenceAdded(
-          current.workingCopy,
-          questionId,
-          targetQuestionId,
-          placement,
-        )
-        if (workingCopy === current.workingCopy) return current
-        if (question.type === 'multiple-choice') {
-          const selected = selectedExam(bank, current.workingCopy)
-          const rendered = orderedQuestions(selected.exam, selected.arrangement)
-            .filter(({ type }) => type === question.type)
-          const targetIndex = targetQuestionId
-            ? rendered.findIndex(({ id }) => id === targetQuestionId)
-            : -1
-          const neighbor = targetIndex < 0
-            ? rendered.at(-1)
-            : placement === 'before'
-              ? rendered[targetIndex - 1] ?? rendered[targetIndex]
-              : rendered[targetIndex]
-          workingCopy = {
-            ...workingCopy,
-            columns: {
-              ...(workingCopy.columns ?? {}),
-              [questionId]: neighbor ? columnsOf(neighbor) : 1,
-            },
+        let next = current
+        let target = targetQuestionId
+        for (const question of questions) {
+          const added = withQuestionAdded(next, question, target, placement)
+          if (added === next) continue
+          next = added
+          // Repeated "after" insertions need to advance past the question just
+          // added; repeated "before" insertions naturally retain their order
+          // when they all stay before the original target.
+          if (placement === 'after' && target !== null) {
+            target = typeof question === 'string' ? question : question.id
           }
         }
-        return { ...current, questionBank: bank, workingCopy }
+        return next
       }),
 
     replaceInWorkingCopy: (outgoingQuestionId, incomingQuestion) =>

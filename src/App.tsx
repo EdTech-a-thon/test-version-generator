@@ -957,6 +957,7 @@ function QuestionBankWorkspace({
   drag: providedDrag,
   examsService,
   onAddToExam,
+  onAddManyToExam,
   onRemoveFromExam,
   beforeCanonicalQuestionCommit,
   onCanonicalQuestionCommitted,
@@ -978,12 +979,13 @@ function QuestionBankWorkspace({
   drag?: ReturnType<typeof useWorkspaceDrag>
   examsService?: ExamWorkspaceService
   onAddToExam?: (question: Question) => void
+  onAddManyToExam?: (questions: readonly Question[]) => void
   onRemoveFromExam?: (questionId: string) => void
   beforeCanonicalQuestionCommit?: () => Promise<void>
   onCanonicalQuestionCommitted?: (question: Question) => void
   onQuestionDeleted?: (questionId: string) => void
 }) {
-  const [selectedQuestionId, setSelectedQuestionId] = useState<string | null>(null)
+  const selection = useSelection()
   const [choosingType, setChoosingType] = useState<MenuPoint | null>(null)
   const [editing, setEditing] = useState<Question | null>(null)
   const [usage, setUsage] = useState<QuestionUsage[] | undefined>()
@@ -1000,8 +1002,9 @@ function QuestionBankWorkspace({
       workingCopyIds={workingCopyIds}
       filter={filter}
       onFilterChange={onFilterChange}
-      selectedQuestionId={selectedQuestionId}
-      onSelect={setSelectedQuestionId}
+      selectedQuestionIds={selection.selectedIds}
+      onSelect={selection.selectOne}
+      onClearSelection={selection.clear}
       drag={drag}
       onCreate={setChoosingType}
       onExport={() => setExporting(true)}
@@ -1023,6 +1026,15 @@ function QuestionBankWorkspace({
         ? (questionId) => {
             const question = bank.questions.find(({ id }) => id === questionId)
             if (question) onAddToExam(question)
+          }
+        : undefined}
+      onAddManyToWorkingCopy={onAddManyToExam
+        ? (questionIds) => {
+            const questions = questionIds.flatMap((id) => {
+              const question = bank.questions.find((candidate) => candidate.id === id)
+              return question ? [question] : []
+            })
+            onAddManyToExam(questions)
           }
         : undefined}
       onRemoveFromWorkingCopy={onRemoveFromExam}
@@ -1081,7 +1093,7 @@ function QuestionBankWorkspace({
         if (updated) onBankChange(updated)
         else onBankGone()
         onQuestionDeleted?.(editing.id)
-        setSelectedQuestionId(null)
+        selection.clear()
         drag.cancel()
         setConfirmingDeletion(false)
         setEditing(null)
@@ -1097,6 +1109,7 @@ function QuestionBankTabsPane({
   workingCopyIds = new Set(),
   onQuestionsChange,
   onAddToExam,
+  onAddManyToExam,
   onRemoveFromExam,
   workspaceDrag,
   resourceRevision = 0,
@@ -1113,6 +1126,7 @@ function QuestionBankTabsPane({
   workingCopyIds?: ReadonlySet<string>
   onQuestionsChange?: (questions: readonly Question[]) => void
   onAddToExam?: (question: Question) => void
+  onAddManyToExam?: (questions: readonly Question[]) => void
   onRemoveFromExam?: (questionId: string) => void
   workspaceDrag?: ReturnType<typeof useWorkspaceDrag>
   resourceRevision?: number
@@ -1301,6 +1315,7 @@ function QuestionBankTabsPane({
       drag={workspaceDrag}
       examsService={examsService}
       onAddToExam={onAddToExam}
+      onAddManyToExam={onAddManyToExam}
       onRemoveFromExam={onRemoveFromExam}
       beforeCanonicalQuestionCommit={beforeCanonicalQuestionCommit}
       onCanonicalQuestionCommitted={onCanonicalQuestionCommitted}
@@ -1705,13 +1720,14 @@ function ExamEditor({
     store.addToWorkingCopy(question)
     selectAndReveal(question.id)
   }
-  const insertIntoWorkingCopy = (
-    question: Question,
-    targetQuestionId: string,
-    placement: QuestionPlacement,
+  const addManyToWorkingCopy = (
+    questions: readonly Question[],
+    targetQuestionId: string | null = null,
+    placement: QuestionPlacement = 'after',
   ) => {
-    store.addToWorkingCopy(question, targetQuestionId, placement)
-    selectAndReveal(question.id)
+    if (questions.length === 0) return
+    store.addManyToWorkingCopy(questions, targetQuestionId, placement)
+    selectAndReveal(questions.at(-1)!.id)
   }
   const replaceInWorkingCopy = (outgoingQuestionId: string, incoming: Question) => {
     store.replaceInWorkingCopy(outgoingQuestionId, incoming)
@@ -1741,15 +1757,16 @@ function ExamEditor({
       store.moveInWorkingCopy(source.questionIds, intent.targetQuestionId, intent.placement)
       return
     }
+    const questions = source.questionIds.flatMap((questionId) => {
+      const question = bankQuestionById(store.getState().questionBank, questionId)
+      return question ? [question] : []
+    })
     if (intent.kind === 'insert') {
-      const question = bankQuestionById(store.getState().questionBank, source.questionId)
-      if (question) insertIntoWorkingCopy(question, intent.targetQuestionId, intent.placement)
-    } else if (intent.kind === 'replace') {
-      const question = bankQuestionById(store.getState().questionBank, source.questionId)
-      if (question) replaceInWorkingCopy(intent.outgoingQuestionId, question)
-    } else {
-      const question = bankQuestionById(store.getState().questionBank, source.questionId)
-      if (question) addToWorkingCopy(question)
+      addManyToWorkingCopy(questions, intent.targetQuestionId, intent.placement)
+    } else if (intent.kind === 'replace' && questions.length === 1) {
+      replaceInWorkingCopy(intent.outgoingQuestionId, questions[0]!)
+    } else if (intent.kind === 'insert-first') {
+      addManyToWorkingCopy(questions)
     }
   })
 
@@ -2273,6 +2290,7 @@ function ExamEditor({
             workingCopyIds={workingCopyIds}
             onQuestionsChange={store.syncCanonicalQuestions}
             onAddToExam={addToWorkingCopy}
+            onAddManyToExam={addManyToWorkingCopy}
             onRemoveFromExam={(questionId) => {
               store.removeFromWorkingCopy([questionId])
               if (selection.isSelected(questionId)) selection.toggle(questionId)

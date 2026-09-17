@@ -260,8 +260,7 @@ export function useWorkspaceDrag(
   return {
     source,
     intent,
-    draggedQuestionIds:
-      source?.pane === 'exam-draft' ? new Set(source.questionIds) : EMPTY,
+    draggedQuestionIds: source ? new Set(source.questionIds) : EMPTY,
     droppedQuestionIds,
     clearDropFeedback,
     begin,

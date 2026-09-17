@@ -119,6 +119,35 @@ test('the bottom edge of a rendered question Inserts after it', async ({ page })
   await expect(bankRow(page, 'Spare choice question')).toContainText('In exam')
 })
 
+test('Shift-selected bank rows drag into the Working Copy together', async ({ page }) => {
+  const selected = [
+    question('target', 'Existing question', 'multiple-choice'),
+    question('first', 'First selected question', 'multiple-choice'),
+    question('second', 'Second selected question', 'multiple-choice'),
+  ]
+  await seedAuthoringState(page, {
+    questionBank: { questions: selected },
+    workingCopy: { title: 'Bulk drag', questionIds: ['target'] },
+    dirty: false,
+  })
+  await expect(examQuestions(page)).toHaveCount(1)
+
+  // Newest first: Shift-clicking from the second row to the first selects both.
+  await bankRow(page, 'First selected question').click()
+  await bankRow(page, 'Second selected question').click({ modifiers: ['Shift'] })
+  await expect(bankRow(page, 'First selected question')).toHaveAttribute('aria-current', 'true')
+  await expect(bankRow(page, 'Second selected question')).toHaveAttribute('aria-current', 'true')
+
+  const target = rendered(page, 'target')
+  await pickUp(page, 'Second selected question', await zonePoint(target, 'centre'))
+  await expect(page.locator('.question-drag-preview')).toHaveAttribute('data-count', '2')
+  await page.mouse.up()
+
+  expect(await renderedIds(page)).toEqual(['target', 'second', 'first'])
+  await page.keyboard.press('Control+z')
+  expect(await renderedIds(page)).toEqual(['target'])
+})
+
 test('the top edge of a rendered question Inserts before it', async ({ page }) => {
   await openWorkspace(page)
 

@@ -200,6 +200,25 @@ test('filter values combine with OR inside a category and AND across them', asyn
   await expect(rows(page)).toHaveCount(0)
 })
 
+test('Add all composes only the filtered questions as one action', async ({ page }) => {
+  await openBank(page, [])
+  await filterBy(page, 'Topic', 'Biology')
+  await expect(rows(page)).toHaveCount(2)
+
+  await bank(page).getByRole('button', { name: 'Add all', exact: true }).click()
+
+  const examQuestions = page.locator('.exam-question[data-question-id]')
+  await expect(examQuestions).toHaveCount(2)
+  await expect(examQuestions).toContainText(['Photosynthesis at night', 'Photosynthesis in leaves'])
+  await expect(page.locator('.exam-question[data-question-id="q2"]')).toHaveCount(0)
+  await expect(page.locator('.exam-question[data-question-id="q4"]')).toHaveCount(0)
+  await expect(bank(page).getByRole('button', { name: 'Add all', exact: true })).toBeDisabled()
+
+  // One bulk command, one undo step.
+  await page.keyboard.press('Control+z')
+  await expect(examQuestions).toHaveCount(0)
+})
+
 test('browsing the Question Bank is not an authoring action', async ({ page }) => {
   await openBank(page)
   const undo = page.getByRole('button', { name: 'Undo' })
