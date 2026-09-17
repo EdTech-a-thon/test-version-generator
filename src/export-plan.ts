@@ -22,13 +22,14 @@
 // Packing is atomic by default: a question that fits stays whole, and one that
 // does not fit moves to the next page whole. Only a question that alone exceeds
 // a full content box is ever split, and then only at the boundaries between its
-// top-level stem blocks — never through a choice grid, and never leaving a bare
-// question number at the foot of a page.
+// top-level stem blocks — never through a choice grid or a matching set, and
+// never leaving a bare question number at the foot of a page.
 
 import {
   SECTION_ORDER,
   columnsOf,
   orderedChoices,
+  promptsOf,
   questionsInSection,
   topicsOf,
   type Difficulty,
@@ -45,6 +46,7 @@ import { stemNodesOf, type ProseMirrorJSON } from './question-doc'
 export const SECTION_TITLE: Record<QuestionType, string> = {
   'multiple-choice': 'Multiple Choice',
   'true-false': 'True/False',
+  matching: 'Matching',
   open: 'Short Answer',
 }
 
@@ -53,6 +55,8 @@ export const SECTION_INSTRUCTIONS: Record<QuestionType, string> = {
     'Identify the choice that best completes the statement or answers the question.',
   'true-false':
     'Write T if the statement is true and F if it is false.',
+  matching:
+    'Match each item with the correct answer from the word bank. Write its letter in the blank.',
   open: 'Answer the following questions in the space provided. Show all work.',
 }
 
@@ -94,29 +98,96 @@ export type ChoiceGrid = {
   cells: (PlannedChoice | null)[][]
 }
 
+// One item of a matching set as it prints: its own number on the test, the
+// letter of the Word Bank answer it matches under this arrangement's bank
+// order — `null` when the teacher has not matched it — and the node to render.
+export type PlannedPrompt = {
+  id: string
+  number: number
+  letter: string | null
+  node: ProseMirrorJSON
+}
+
+// A Word Bank answer as it prints: its letter is its position in this
+// arrangement's ordering, which is what a student writes in a prompt's blank
+// and what the answer key records for that prompt.
+export type PlannedBankAnswer = {
+  id: string
+  letter: string
+  node: ProseMirrorJSON
+}
+
+// A long Word Bank laid out in columns above the items, column-major like a
+// choice grid: reading a column top to bottom gives consecutive letters.
+// `cells[row][column]` is `null` where the last column runs out of answers.
+export type BankGrid = {
+  columns: number
+  rows: number
+  cells: (PlannedBankAnswer | null)[][]
+}
+
+// A matching set as it prints. Drawn as one block and never split across
+// pages — a bank on a different page from its prompts is no use to a student.
+// A short bank prints beside the numbered prompts, in a column of its own to
+// their right; a long one prints above them in `bankGrid`, as the source tests
+// lay it out once it no longer fits down the side.
+export type MatchingSet = {
+  prompts: PlannedPrompt[]
+  /** The Word Bank in this arrangement's order, lettered. */
+  bank: PlannedBankAnswer[]
+  /** The bank in columns, when it prints above the prompts; `null` when it
+   *  prints beside them. */
+  bankGrid: BankGrid | null
+}
+
+/** The longest Word Bank that prints beside its items. Past this, the bank
+ *  moves above them into `MATCHING_BANK_COLUMNS` columns. */
+export const MATCHING_BESIDE_LIMIT = 5
+export const MATCHING_BANK_COLUMNS = 2
+
 export type PlannedQuestion = {
   id: string
   type: QuestionType
-  /** Position on the printed test, counted continuously across sections. */
+  /** Position on the printed test, counted continuously across sections. A
+   *  matching set's number is its first prompt's: its prompts take the run of
+   *  numbers from there, one each, and the set's stem prints unnumbered. */
   number: number
   /** Multiple Choice and True/False questions print a blank: the student writes
    *  a choice letter in one, T or F in the other. */
   answerBlank: boolean
   /** The question document's top-level blocks, without the choice list. */
   stem: ProseMirrorJSON[]
-  /** The answers in this arrangement's order, lettered. Empty for short answer.
-   *  A True/False question carries its pair here — lettered `T` and `F`, which
-   *  is what the Answer Key reports — even though the test prints only a blank
-   *  for them. */
+  /** The answers in this arrangement's order, lettered. Empty for short answer
+   *  and for a matching set, whose Word Bank is in `matching`. A True/False
+   *  question carries its pair here — lettered `T` and `F`, which is what the
+   *  Answer Key reports — even though the test prints only a blank for them. */
   choices: PlannedChoice[]
   /** How those answers lay out, or `null` when the test does not print them —
    *  a short answer question has none, and a True/False question's pair is
    *  stated by the section's directions instead. */
   grid: ChoiceGrid | null
+  /** The prompts and Word Bank of a matching set; `null` for every other
+   *  Question Type. */
+  matching: MatchingSet | null
   /** Optional organizational metadata, retained so the Answer Key can help a
    *  teacher identify and review the Questions without exposing it to students. */
   difficulty?: Difficulty
   topics?: string[]
+}
+
+/** How many numbers a question takes on the test: one, or one per prompt for
+ *  a matching set. What continuous numbering advances by. */
+export function numbersTakenBy(question: PlannedQuestion): number {
+  return question.matching ? question.matching.prompts.length : 1
+}
+
+/** The question's number as a teacher would say it — `22`, or `22–25` for a
+ *  matching set whose prompts run over several. */
+export function numberLabelOf(question: PlannedQuestion): string {
+  const span = numbersTakenBy(question)
+  return span > 1
+    ? `${question.number}–${question.number + span - 1}`
+    : String(question.number)
 }
 
 export type SectionHeadingItem = {
@@ -144,11 +215,20 @@ export type QuestionItem = {
   question: PlannedQuestion
   /** The top-level stem blocks this piece prints, in order. */
   stem: ProseMirrorJSON[]
-  /** Whether this piece prints the number line and answer blank. Only the first
-   *  piece does, and never alone: it always carries stem or grid with it. */
+  /** Whether this piece is the question's first: the one that prints the
+   *  number line and answer blank (see `printsNumberLine`) and carries its
+   *  editing handles. Never alone: it always carries stem, grid or set with it. */
   numbered: boolean
   /** The choice grid, on the single piece that prints it. Never split. */
   grid: ChoiceGrid | null
+  /** The matching set, on the single piece that prints it. Never split. */
+  matching: MatchingSet | null
+}
+
+/** Whether this piece prints the question's number line: the first piece of
+ *  any question but a matching set, whose numbers print on its prompts. */
+export function printsNumberLine(item: QuestionItem): boolean {
+  return item.numbered && item.question.matching === null
 }
 
 // The answer key's own content items. The repeated title lives in the page's
@@ -317,6 +397,12 @@ const QUESTION_NUMBER_COLUMN_GAP = 6
 export const CHOICE_AREA_WIDTH =
   PAGE_CONTENT_WIDTH - QUESTION_NUMBER_COLUMN_WIDTH - QUESTION_NUMBER_COLUMN_GAP
 
+// A matching set spans the whole content width — its prompts carry their own
+// number column — and gives its Word Bank this much of it, on the right. The
+// print stylesheet's `.matching-bank` width is this number; the DOCX adapter
+// reads it from here.
+export const MATCHING_BANK_WIDTH = 240
+
 const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
 
 /** What a student writes in a True/False question's blank, by the position of
@@ -336,21 +422,56 @@ function letterAt(index: number): string {
   return letter
 }
 
-// Column-major: `rows = ceil(n / columns)`, and the choices fill down the first
+// Column-major: `rows = ceil(n / columns)`, and the items fill down the first
 // column before starting the second.
+function layOutColumns<T>(
+  items: T[],
+  columns: number,
+): { rows: number; cells: (T | null)[][] } {
+  const rows = Math.ceil(items.length / columns)
+  const cells = Array.from({ length: rows }, (_unused, row) =>
+    Array.from(
+      { length: columns },
+      (_empty, column) => items[column * rows + row] ?? null,
+    ),
+  )
+  return { rows, cells }
+}
+
 function layOutGrid(
   choices: PlannedChoice[],
   columns: ColumnCount,
 ): ChoiceGrid | null {
   if (choices.length === 0) return null
-  const rows = Math.ceil(choices.length / columns)
-  const cells = Array.from({ length: rows }, (_unused, row) =>
-    Array.from(
-      { length: columns },
-      (_empty, column) => choices[column * rows + row] ?? null,
-    ),
+  return { columns, ...layOutColumns(choices, columns) }
+}
+
+// A matching set under this arrangement: the Word Bank in the arrangement's
+// order, lettered by position, and each prompt numbered from `number` on and
+// given the letter its answer now carries. A prompt that names no answer, or
+// one the bank no longer holds, is unmatched and gets no letter.
+function deriveMatching(
+  question: Question,
+  arrangement: Arrangement,
+  number: number,
+): MatchingSet {
+  const bank: PlannedBankAnswer[] = orderedChoices(question, arrangement).map(
+    (answer, index) => ({ id: answer.id, letter: letterAt(index), node: answer.node }),
   )
-  return { columns, rows, cells }
+  const letters = new Map(bank.map((answer) => [answer.id, answer.letter]))
+  return {
+    prompts: promptsOf(question).map((prompt, index) => ({
+      id: prompt.id,
+      number: number + index,
+      letter: letters.get(prompt.answerId) ?? null,
+      node: prompt.node,
+    })),
+    bank,
+    bankGrid:
+      bank.length > MATCHING_BESIDE_LIMIT
+        ? { columns: MATCHING_BANK_COLUMNS, ...layOutColumns(bank, MATCHING_BANK_COLUMNS) }
+        : null,
+  }
 }
 
 function deriveQuestion(
@@ -359,7 +480,8 @@ function deriveQuestion(
   number: number,
 ): PlannedQuestion {
   const trueFalse = question.type === 'true-false'
-  const ordered = orderedChoices(question, arrangement)
+  const matching = question.type === 'matching'
+  const ordered = matching ? [] : orderedChoices(question, arrangement)
   const choices: PlannedChoice[] = ordered.map((choice, index) => ({
     id: choice.id,
     // A True/False answer is written the way the student writes it in the
@@ -372,13 +494,15 @@ function deriveQuestion(
     id: question.id,
     type: question.type,
     number,
-    answerBlank: question.type !== 'open',
+    // A matching set's blanks are on its prompts, one each, not beside its stem.
+    answerBlank: question.type !== 'open' && !matching,
     stem: stemNodesOf(question.doc),
     choices,
     // A True/False question never prints its pair: the section's directions
     // already say what goes in the blank, so repeating "True / False" under
     // every statement would be furniture rather than content.
-    grid: trueFalse ? null : layOutGrid(choices, columnsOf(question)),
+    grid: trueFalse || matching ? null : layOutGrid(choices, columnsOf(question)),
+    matching: matching ? deriveMatching(question, arrangement, number) : null,
     ...(question.difficulty ? { difficulty: question.difficulty } : {}),
     ...(topicsOf(question).length > 0 ? { topics: [...topicsOf(question)] } : {}),
   }
@@ -402,8 +526,9 @@ function deriveItems(exam: Exam, arrangement: Arrangement): PageItem[] {
       })
     }
     for (const question of questions) {
-      items.push(wholeQuestion(deriveQuestion(question, arrangement, number)))
-      number += 1
+      const planned = deriveQuestion(question, arrangement, number)
+      items.push(wholeQuestion(planned))
+      number += numbersTakenBy(planned)
     }
   }
   return items
@@ -417,28 +542,48 @@ function wholeQuestion(question: PlannedQuestion): QuestionItem {
     stem: question.stem,
     numbered: true,
     grid: question.grid,
+    matching: question.matching,
   }
 }
 
 // The indivisible parts a question may be broken between: its number line glued
 // to the first stem block, so a split can never strand a bare number at the foot
 // of a page; then one part per remaining top-level block; then the choice grid
-// whole, since a grid is never split. A question with no stem at all is a single
-// part, so it moves rather than coming apart.
+// whole, since a grid is never split. A question with no stem at all is a
+// single part, so it moves rather than coming apart — and so is a matching
+// set, always: its stem is the set's directions, and directions on one page
+// with the items and Word Bank on the next is no matching set at all.
 type QuestionPart = {
   stem: ProseMirrorJSON[]
   numbered: boolean
   grid: ChoiceGrid | null
+  matching: MatchingSet | null
 }
 
 function partsOf(question: PlannedQuestion): QuestionPart[] {
   const [first, ...rest] = question.stem
-  if (first === undefined) {
-    return [{ stem: [], numbered: true, grid: question.grid }]
+  if (first === undefined || question.matching) {
+    return [
+      {
+        stem: question.stem,
+        numbered: true,
+        grid: question.grid,
+        matching: question.matching,
+      },
+    ]
   }
-  const parts: QuestionPart[] = [{ stem: [first], numbered: true, grid: null }]
-  for (const block of rest) parts.push({ stem: [block], numbered: false, grid: null })
-  if (question.grid) parts.push({ stem: [], numbered: false, grid: question.grid })
+  const parts: QuestionPart[] = [
+    { stem: [first], numbered: true, grid: null, matching: null },
+  ]
+  for (const block of rest) {
+    parts.push({ stem: [block], numbered: false, grid: null, matching: null })
+  }
+  if (question.grid) {
+    parts.push({ stem: [], numbered: false, grid: question.grid, matching: null })
+  }
+  if (question.matching) {
+    parts.push({ stem: [], numbered: false, grid: null, matching: question.matching })
+  }
   return parts
 }
 
@@ -453,6 +598,7 @@ function pieceOf(
     stem: parts.flatMap((part) => part.stem),
     numbered: parts.some((part) => part.numbered),
     grid: parts.find((part) => part.grid !== null)?.grid ?? null,
+    matching: parts.find((part) => part.matching !== null)?.matching ?? null,
   }
 }
 
@@ -502,7 +648,13 @@ function paginate(
   // Breaks one question across as many pages as it needs, each page taking as
   // many consecutive parts as still fit. A part taller than a whole page is
   // placed alone and overflows rather than looping forever — there is nothing
-  // smaller to break it into.
+  // smaller to break it into. A section heading is kept with its first
+  // question whatever that question does: when the first piece does not fit
+  // under a heading that shares its page with earlier content, the heading
+  // moves to the next page along with the piece rather than staying behind.
+  // A heading alone on its page has nothing to move away from: the piece goes
+  // on ahead of it only when a fresh page would actually hold it, and an
+  // oversized piece overflows under the heading instead.
   const split = (question: PlannedQuestion) => {
     const parts = partsOf(question)
     let start = 0
@@ -511,8 +663,19 @@ function paginate(
       let piece = pieceOf(question, parts.slice(start, end))
       let height = measure.itemHeight(piece)
       if (height > box - used && current.length > 0) {
-        flush()
-        continue
+        const last = current.at(-1)
+        if (last?.kind !== 'section-heading') {
+          flush()
+          continue
+        }
+        if (current.length > 1) {
+          current.pop()
+          flush()
+          place(last, measure.itemHeight(last))
+        } else if (height <= pageContentHeight(continuedHeader)) {
+          flush()
+          continue
+        }
       }
       while (end < parts.length) {
         const grown = pieceOf(question, parts.slice(start, end + 1))
@@ -530,9 +693,10 @@ function paginate(
   for (const [index, item] of items.entries()) {
     const height = measure.itemHeight(item)
     // A section heading must share a page with at least the first indivisible
-    // piece of its first question. Reserve that space before committing the
-    // heading; otherwise a heading can fit in the last few lines of a page
-    // after every question in its section has moved forward.
+    // piece of its first question — the whole question, when it is one piece.
+    // Reserve that space before committing the heading; otherwise a heading
+    // can fit in the last few lines of a page after every question in its
+    // section has moved forward.
     if (item.kind === 'section-heading') {
       const firstQuestion = items[index + 1]
       if (firstQuestion?.kind === 'question') {
@@ -576,7 +740,9 @@ function paginate(
 // Derive the key from the exact rendered questions that students see, so its
 // numbering and arrangement-relative choice letters cannot drift from the test. A
 // question that later splits across pages still contributes exactly one answer
-// line, because the key is derived before layout and the id set guards repeats.
+// line — or, for a matching set, exactly one line per prompt, since each prompt
+// is a number on the test — because the key is derived before layout and the
+// id set guards repeats.
 function deriveAnswerKey(testItems: readonly PageItem[]): PageItem[] {
   const items: PageItem[] = [{ kind: 'answer-key-heading' }]
   const seen = new Set<string>()
@@ -593,12 +759,26 @@ function deriveAnswerKey(testItems: readonly PageItem[]): PageItem[] {
         title: SECTION_TITLE[section],
       })
     }
+    const metadata = {
+      ...(item.question.difficulty ? { difficulty: item.question.difficulty } : {}),
+      ...(item.question.topics?.length ? { topics: [...item.question.topics] } : {}),
+    }
+    if (item.question.matching) {
+      for (const prompt of item.question.matching.prompts) {
+        items.push({
+          kind: 'answer-key-entry',
+          number: prompt.number,
+          letter: prompt.letter,
+          ...metadata,
+        })
+      }
+      continue
+    }
     items.push({
       kind: 'answer-key-entry',
       number: item.question.number,
       letter: item.question.choices.find((choice) => choice.correct)?.letter ?? null,
-      ...(item.question.difficulty ? { difficulty: item.question.difficulty } : {}),
-      ...(item.question.topics?.length ? { topics: [...item.question.topics] } : {}),
+      ...metadata,
     })
   }
   return items

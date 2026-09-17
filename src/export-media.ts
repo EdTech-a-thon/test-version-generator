@@ -69,6 +69,33 @@ export const browserMedia: MediaLoader = async (src) => {
   }
 }
 
+// How big a teacher made a picture.
+//
+// Crepe's image block records a drag of its resize handle as `ratio`: the size
+// the picture was left at, over the size it fits its column at (its natural
+// size, or the column's width when it is wider than that). Both dimensions
+// scale by it, so `0.5` is "half the size it fit at", `1` is untouched, and a
+// picture can be dragged larger than it fit as well as smaller.
+//
+// Every surface that draws the picture has to agree on what that means, or the
+// exam page paginates one size and prints another: `doc-view.tsx` says it in
+// CSS, and the PDF and Word adapters say it through `authoredImageWidth`.
+export function authoredImageRatio(attrs: Record<string, unknown>): number {
+  const ratio = Number(attrs.ratio)
+  return Number.isFinite(ratio) && ratio > 0 ? ratio : 1
+}
+
+/** The width a picture prints at inside a column: the size it fits the column
+ *  at, scaled by its ratio — but never wider than the column, however far it
+ *  was dragged. Height follows from the picture's own proportions. */
+export function authoredImageWidth(
+  naturalWidth: number,
+  columnWidth: number,
+  ratio: number,
+): number {
+  return Math.min(naturalWidth * ratio, columnWidth * Math.min(1, ratio))
+}
+
 function attrsOf(node: ProseMirrorJSON): Record<string, unknown> {
   return typeof node.attrs === 'object' && node.attrs !== null
     ? (node.attrs as Record<string, unknown>)

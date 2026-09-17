@@ -6,9 +6,10 @@
 // are the Crepe/Milkdown ones, and anything unrecognised falls back to its
 // children rather than disappearing.
 
-import type { ReactNode } from 'react'
+import type { CSSProperties, ReactNode } from 'react'
 import katex from 'katex'
 import type { ProseMirrorJSON } from './question-doc'
+import { authoredImageRatio } from './export-media'
 
 function attrsOf(node: ProseMirrorJSON): Record<string, unknown> {
   const attrs = node.attrs
@@ -42,6 +43,19 @@ function Tex({ value, display }: { value: string; display: boolean }) {
       dangerouslySetInnerHTML={{ __html: html }}
     />
   )
+}
+
+// A picture at the size the teacher dragged it to (see `authoredImageRatio`).
+//
+// This has to be plain markup, with no script behind it: the exam page is
+// paginated by measuring this same markup off-screen (`dom-measure.ts`), where
+// no load handler ever runs. `zoom` is the one CSS property that scales a
+// picture's own size while leaving it in the flow, and it leaves percentages
+// alone — so the cap is the column scaled by the same ratio, which is exactly
+// "the size it fit at, times the ratio", the size the editor showed. A picture
+// dragged larger than it fit still stops at the column's edge.
+function authoredImageStyle(ratio: number): CSSProperties {
+  return { zoom: ratio, maxWidth: `calc(100% * ${Math.min(1, ratio)})` }
 }
 
 function withMarks(node: ProseMirrorJSON, content: ReactNode): ReactNode {
@@ -139,9 +153,14 @@ function renderNode(node: ProseMirrorJSON, key: number): ReactNode {
       )
     case 'image-block': {
       const caption = text(attrs.caption)
+      const ratio = authoredImageRatio(attrs)
       return (
         <figure key={key} className="doc-figure">
-          <img src={text(attrs.src)} alt={caption} />
+          <img
+            src={text(attrs.src)}
+            alt={caption}
+            style={ratio === 1 ? undefined : authoredImageStyle(ratio)}
+          />
           {caption && <figcaption>{caption}</figcaption>}
         </figure>
       )

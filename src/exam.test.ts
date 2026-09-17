@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import {
   DEFAULT_COLUMNS,
+  SECTION_ORDER,
   choicesOf,
   columnsOf,
   createExam,
@@ -14,6 +15,7 @@ import {
   shuffleSelectedQuestions,
   orderedChoices,
   orderedQuestions,
+  promptsOf,
   questionById,
   questionsInSection,
   topicsOf,
@@ -75,6 +77,37 @@ function open(id: string): Question {
   return { id, type: 'open', doc: { type: 'doc', content: [] }, columns: 2 }
 }
 
+// A matching set whose prompts name answers by id: `matches` is each prompt's
+// answer id in prompt order, '' for an unmatched one.
+function matching(id: string, matches: string[], bankIds: string[]): Question {
+  return {
+    id,
+    type: 'matching',
+    doc: {
+      type: 'doc',
+      content: [
+        { type: 'paragraph' },
+        {
+          type: 'matching',
+          content: [
+            ...matches.map((answer, index) => ({
+              type: 'matchingPrompt',
+              attrs: { id: `${id}-p${index + 1}`, answer },
+              content: [{ type: 'paragraph' }],
+            })),
+            ...bankIds.map((bankId) => ({
+              type: 'matchingAnswer',
+              attrs: { id: bankId },
+              content: [{ type: 'paragraph', content: [{ type: 'text', text: bankId }] }],
+            })),
+          ],
+        },
+      ],
+    },
+    columns: 2,
+  }
+}
+
 function examOf(questions: Question[]): Exam {
   return { title: 'Test', questions }
 }
@@ -106,6 +139,21 @@ describe('question and arrangement construction', () => {
     // neither rather than guessing.
     expect(answers.every((answer) => !answer.correct)).toBe(true)
     expect(new Set(answers.map((answer) => answer.id)).size).toBe(2)
+  })
+
+  test('a new matching set opens with blank items and a blank word bank, nothing matched', () => {
+    const question = createQuestion('matching')
+    expect(question.type).toBe('matching')
+    const prompts = promptsOf(question)
+    const bank = choicesOf(question)
+    expect(prompts).toHaveLength(4)
+    expect(bank).toHaveLength(4)
+    expect(prompts.every((prompt) => prompt.answerId === '')).toBe(true)
+    // A Word Bank answer is never correct on its own.
+    expect(bank.every((answer) => !answer.correct)).toBe(true)
+    expect(new Set([...prompts, ...bank].map((cell) => cell.id)).size).toBe(8)
+    // Only a matching set has prompts.
+    expect(promptsOf(createQuestion('multiple-choice'))).toEqual([])
   })
 
   test('a new question can be given the layout of the one it is written beside', () => {
@@ -155,6 +203,12 @@ describe('question ordering', () => {
   test('sections are ordered multiple choice first, then short answer', () => {
     const exam = examOf([open('o1'), multipleChoice('q1', ['a'])])
     expect(ids(orderedQuestions(exam, arrangementOf(['o1', 'q1'])))).toEqual(['q1', 'o1'])
+  })
+
+  test('matching prints after true/false and before short answer', () => {
+    expect(SECTION_ORDER).toEqual(['multiple-choice', 'true-false', 'matching', 'open'])
+    const exam = examOf([open('o1'), matching('x1', [''], ['a', 'b']), multipleChoice('q1', ['a'])])
+    expect(ids(orderedQuestions(exam, arrangementOf(['o1', 'x1', 'q1'])))).toEqual(['q1', 'x1', 'o1'])
   })
 
   test('a question missing from the ordering is appended to the end of its section', () => {
@@ -253,6 +307,21 @@ describe('choice ordering', () => {
     expect(
       shuffleSelectedAnswers(exam, arrangement, ['t1', 'q1'], () => 0).choiceOrder,
     ).toEqual({ q1: ['b', 'a'] })
+  })
+
+  test('shuffles a matching set\'s word bank, and every item still names the same answer', () => {
+    const exam = examOf([matching('x1', ['b', ''], ['a', 'b', 'c'])])
+    const arrangement = arrangementOf(['x1'])
+    const shuffled = shuffleSelectedAnswers(exam, arrangement, ['x1'], () => 0)
+
+    expect(shuffled.choiceOrder.x1).toEqual(['b', 'c', 'a'])
+    expect(orderedChoices(exam.questions[0]!, shuffled).map((answer) => answer.id)).toEqual([
+      'b',
+      'c',
+      'a',
+    ])
+    // The match is content, not arrangement: it is untouched.
+    expect(promptsOf(exam.questions[0]!).map((prompt) => prompt.answerId)).toEqual(['b', ''])
   })
 
   test('shuffles true/false questions among their own positions, in their own section', () => {
@@ -379,6 +448,24 @@ describe('duplicating a question', () => {
     expect(copiedIds).not.toContain('c1')
     expect(copiedIds).not.toContain('c2')
     expect(choicesOf(original).map((choice) => choice.id)).toEqual(['c1', 'c2'])
+  })
+
+  test('renames a matching set\'s word bank and keeps every item matched to the same answer', () => {
+    const original = matching('x1', ['b', '', 'b'], ['a', 'b'])
+    const copy = duplicateQuestion(original)
+    const copiedBank = choicesOf(copy).map((answer) => answer.id)
+    const copiedPrompts = promptsOf(copy)
+
+    expect(copiedBank).not.toContain('a')
+    expect(copiedBank).not.toContain('b')
+    expect(copiedPrompts.map((prompt) => prompt.id)).not.toContain('x1-p1')
+    // What was matched to the second answer is matched to the copy's second.
+    expect(copiedPrompts.map((prompt) => prompt.answerId)).toEqual([
+      copiedBank[1],
+      '',
+      copiedBank[1],
+    ])
+    expect(promptsOf(original).map((prompt) => prompt.answerId)).toEqual(['b', '', 'b'])
   })
 
   test('keeps the type and the column setting', () => {

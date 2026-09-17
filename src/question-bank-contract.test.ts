@@ -4,8 +4,10 @@ import { readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import publicSchema010 from '../public/formats/question-bank/0.1.0/schema.json'
 import applicationSchema010 from './question-bank-record-0.1.0.schema.json'
-import publicSchema from '../public/formats/question-bank/0.2.0/schema.json'
-import applicationSchema from './question-bank-record-0.2.0.schema.json'
+import publicSchema020 from '../public/formats/question-bank/0.2.0/schema.json'
+import applicationSchema020 from './question-bank-record-0.2.0.schema.json'
+import publicSchema from '../public/formats/question-bank/0.3.0/schema.json'
+import applicationSchema from './question-bank-record-0.3.0.schema.json'
 import {
   QUESTION_BANK_FORMAT_VERSION,
   SUPPORTED_SEMANTIC_MARK_TYPES,
@@ -46,10 +48,10 @@ function schemaEnum(definition: 'node' | 'mark', property: string): string[] {
   return schema.$defs[definition]!.properties[property]!.enum
 }
 
-describe('public Question Bank Record 0.2.0 contract', () => {
+describe('public Question Bank Record 0.3.0 contract', () => {
   test('canonical examples validate independently against the published schema', async () => {
     expect(publicSchema.$id).toBe(
-      'https://testparrot.com/formats/question-bank/0.2.0/schema.json',
+      'https://testparrot.com/formats/question-bank/0.3.0/schema.json',
     )
     expect(
       await Bun.file(
@@ -57,7 +59,7 @@ describe('public Question Bank Record 0.2.0 contract', () => {
           import.meta.dir,
           '..',
           'public',
-          'question-bank-record-0.2.0.schema.json',
+          'question-bank-record-0.3.0.schema.json',
         ),
       ).json(),
     ).toEqual(publicSchema)
@@ -69,6 +71,7 @@ describe('public Question Bank Record 0.2.0 contract', () => {
 
     expect(names).toEqual([
       'complete-rich-text.json',
+      'matching.json',
       'media-rich.json',
       'minimal-multiple-choice.json',
       'provenance-and-links.json',
@@ -91,6 +94,7 @@ describe('public Question Bank Record 0.2.0 contract', () => {
     expect(proposal.summary.questionCounts).toEqual({
       'multiple-choice': 0,
       'true-false': 2,
+      matching: 0,
       'short-answer': 0,
     })
     expect(proposal.record.bank.questions[0]).toMatchObject({
@@ -98,6 +102,41 @@ describe('public Question Bank Record 0.2.0 contract', () => {
       choices: [{ correct: true }, { correct: false }],
     })
     expect(proposal.record.bank.questions[0]!.suggestedAnswer).toBeUndefined()
+  })
+
+  test('a Matching Question names its answers from its own Word Bank, distractors and unmatched items included', async () => {
+    const proposal = await inspectQuestionBankRecord(
+      await Bun.file(join(exampleRoot, 'matching.json')).bytes(),
+    )
+
+    expect(proposal.summary.questionCounts).toEqual({
+      'multiple-choice': 0,
+      'true-false': 0,
+      matching: 2,
+      'short-answer': 0,
+    })
+    // The second set leaves an item unmatched; that is reported, not refused.
+    expect(proposal.summary.questionsWithoutCorrectAnswer).toBe(1)
+    const [events, terms] = proposal.record.bank.questions
+    expect(events).toMatchObject({
+      type: 'matching',
+      prompts: [
+        { id: 'q1-p1', answer: 'q1-a3' },
+        { id: 'q1-p2', answer: 'q1-a1' },
+        { id: 'q1-p3', answer: 'q1-a2' },
+        { id: 'q1-p4', answer: 'q1-a4' },
+      ],
+    })
+    expect(events!.wordBank!.map((answer) => answer.id)).toEqual([
+      'q1-a1',
+      'q1-a2',
+      'q1-a3',
+      'q1-a4',
+    ])
+    expect(events!.choices).toBeUndefined()
+    expect(events!.suggestedAnswer).toBeUndefined()
+    expect(terms!.prompts!.map((prompt) => prompt.answer)).toEqual(['q2-a2', undefined])
+    expect(terms!.wordBank).toHaveLength(3)
   })
 
   test('canonical examples pass Test Parrot inspection and retain documented semantics', async () => {
@@ -160,6 +199,7 @@ describe('public Question Bank Record 0.2.0 contract', () => {
     expect(Object.keys(manifest).sort()).toEqual([
       'bad-reference.json',
       'invalid-media.json',
+      'malformed-matching.json',
       'malformed-question.json',
       'malformed-true-false.json',
       'unsafe-url.json',
@@ -222,6 +262,8 @@ describe('public Question Bank Record 0.2.0 contract', () => {
       '/local-images/',
       'ProseMirror',
       'multipleChoiceChoice',
+      'matchingPrompt',
+      'matchingAnswer',
       'Exam Layout Plan',
       'Working Copy',
     ])
@@ -261,9 +303,73 @@ describe('public Question Bank Record 0.2.0 contract', () => {
   })
 })
 
-// 0.1.0 is retired as a producer version and retained as a consumer one: every
-// Question Bank File a teacher has already shared must still open. Its published
-// contract is therefore frozen — these are the assertions that keep it that way.
+// 0.1.0 and 0.2.0 are retired as producer versions and retained as consumer
+// ones: every Question Bank File a teacher has already shared must still open.
+// Their published contracts are therefore frozen — these are the assertions
+// that keep them that way.
+describe('retained Question Bank Record 0.2.0 contract', () => {
+  const root020 = fixtureRootFor('0.2.0')
+
+  test('the published 0.2.0 schema is unchanged and still checked in twice', async () => {
+    expect(publicSchema020.$id).toBe(
+      'https://testparrot.com/formats/question-bank/0.2.0/schema.json',
+    )
+    expect(publicSchema020.properties.formatVersion.const).toBe('0.2.0')
+    expect(applicationSchema020).toEqual(publicSchema020)
+    expect(
+      await Bun.file(
+        join(
+          import.meta.dir,
+          '..',
+          'public',
+          'question-bank-record-0.2.0.schema.json',
+        ),
+      ).json(),
+    ).toEqual(publicSchema020)
+  })
+
+  test('every 0.2.0 canonical example still imports, migrated to the current version', async () => {
+    const names = await filesIn(join(root020, 'examples'))
+
+    expect(names).toEqual([
+      'complete-rich-text.json',
+      'media-rich.json',
+      'minimal-multiple-choice.json',
+      'provenance-and-links.json',
+      'short-answer.json',
+      'true-false.json',
+    ])
+    for (const name of names) {
+      const proposal = await inspectQuestionBankRecord(
+        await Bun.file(join(root020, 'examples', name)).bytes(),
+      )
+      expect(proposal.record.formatVersion, name).toBe(
+        QUESTION_BANK_FORMAT_VERSION,
+      )
+      expect(proposal.summary.formatVersion, name).toBe('0.2.0')
+    }
+  })
+
+  test('0.2.0 counterexamples are still rejected with their documented errors', async () => {
+    const manifest = (await fixture(
+      join(root020, 'invalid'),
+      'manifest.json',
+    )) as Record<string, string>
+
+    for (const [name, code] of Object.entries(manifest)) {
+      try {
+        await inspectQuestionBankRecord(
+          await Bun.file(join(root020, 'invalid', name)).bytes(),
+        )
+        throw new Error(`${name} unexpectedly conformed`)
+      } catch (error) {
+        expect(error, name).toBeInstanceOf(QuestionBankImportError)
+        expect((error as QuestionBankImportError).code, name).toBe(code)
+      }
+    }
+  })
+})
+
 describe('retained Question Bank Record 0.1.0 contract', () => {
   const root010 = fixtureRootFor('0.1.0')
 
@@ -285,8 +391,10 @@ describe('retained Question Bank Record 0.1.0 contract', () => {
     ).toEqual(publicSchema010)
   })
 
-  test('0.1.0 does not know the Question Types 0.2.0 added', () => {
-    const typeEnum = (schema: typeof publicSchema010 | typeof publicSchema) =>
+  test('each retained version knows only the Question Types of its day', () => {
+    const typeEnum = (
+      schema: typeof publicSchema010 | typeof publicSchema020 | typeof publicSchema,
+    ) =>
       (schema as {
         $defs: { question: { properties: { type: { enum: string[] } } } }
       }).$defs.question.properties.type.enum
@@ -295,9 +403,15 @@ describe('retained Question Bank Record 0.1.0 contract', () => {
       'multiple-choice',
       'short-answer',
     ])
+    expect(typeEnum(publicSchema020)).toEqual([
+      'multiple-choice',
+      'true-false',
+      'short-answer',
+    ])
     expect(typeEnum(publicSchema)).toEqual([
       'multiple-choice',
       'true-false',
+      'matching',
       'short-answer',
     ])
   })

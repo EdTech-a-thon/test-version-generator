@@ -14,6 +14,7 @@ import {
   QUESTION_BANK_ATTACHMENT_DESCRIPTION,
   QUESTION_BANK_ATTACHMENT_NAME,
   RECORD_TYPE_LABELS,
+  wordBankLettersOf,
   type PreparedQuestionBankExport,
   type SemanticDocument,
   type SemanticNode,
@@ -530,6 +531,43 @@ export async function createQuestionBankPdf(
           { x: MARGIN + 18, width: CONTENT_WIDTH - 18 },
         )
         for (const image of imagesIn(choice.content.content)) {
+          drawImage(context, image, MARGIN + 18, CONTENT_WIDTH - 18)
+        }
+      })
+    }
+    if (question.prompts && question.wordBank) {
+      // The set as its answer key reads it: each item under the letter it
+      // matches, then the lettered Word Bank it was matched against.
+      const letters = wordBankLettersOf(question)
+      question.prompts.forEach((prompt) => {
+        drawPieces(
+          context,
+          [
+            {
+              text: `${letters.get(prompt.answer ?? '') ?? '—'}  `,
+              font: 'bold',
+              size: BODY_SIZE,
+            },
+            ...inlinePieces(prompt.content.content),
+          ],
+          { x: MARGIN + 18, width: CONTENT_WIDTH - 18 },
+        )
+        for (const image of imagesIn(prompt.content.content)) {
+          drawImage(context, image, MARGIN + 18, CONTENT_WIDTH - 18)
+        }
+      })
+      context.y -= 3
+      drawText(context, 'Word Bank', { font: 'bold', size: 12 })
+      question.wordBank.forEach((answer) => {
+        drawPieces(
+          context,
+          [
+            { text: `${letters.get(answer.id)!}. `, font: 'bold', size: BODY_SIZE },
+            ...inlinePieces(answer.content.content),
+          ],
+          { x: MARGIN + 18, width: CONTENT_WIDTH - 18 },
+        )
+        for (const image of imagesIn(answer.content.content)) {
           drawImage(context, image, MARGIN + 18, CONTENT_WIDTH - 18)
         }
       })

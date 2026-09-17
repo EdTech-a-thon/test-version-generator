@@ -157,6 +157,37 @@ const trueFalse: Question = {
   },
 }
 
+const matching: Question = {
+  id: 'local-matching-id',
+  type: 'matching',
+  columns: 2,
+  topics: ['Intertestamental period'],
+  doc: {
+    type: 'doc',
+    content: [
+      paragraph(text('Match each event to the correct time period.')),
+      {
+        type: 'matching',
+        content: [
+          {
+            type: 'matchingPrompt',
+            attrs: { id: 'local-prompt-1', answer: 'local-answer-c' },
+            content: [paragraph(text('The Septuagint was completed.'))],
+          },
+          {
+            type: 'matchingPrompt',
+            attrs: { id: 'local-prompt-2', answer: 'gone' },
+            content: [paragraph(text('Herod the Great rose to power.'))],
+          },
+          { type: 'matchingAnswer', attrs: { id: 'local-answer-a' }, content: [paragraph(text('Persian'))] },
+          { type: 'matchingAnswer', attrs: { id: 'local-answer-b' }, content: [paragraph(text('Roman'))] },
+          { type: 'matchingAnswer', attrs: { id: 'local-answer-c' }, content: [paragraph(text('Grecian'))] },
+        ],
+      },
+    ],
+  },
+}
+
 describe('Question Bank exchange export seam', () => {
   test('builds the authoritative semantic record in canonical stored order', async () => {
     const prepared = await prepareQuestionBankExport(
@@ -246,6 +277,57 @@ describe('Question Bank exchange export seam', () => {
     }
     await expect(prepareQuestionBankExport(bank([extra]))).rejects.toThrow(
       /True\/False and must have exactly two choices/,
+    )
+  })
+
+  test('writes a matching set as its items and Word Bank, each item naming its answer by package-local id', async () => {
+    const { record } = await prepareQuestionBankExport(bank([matching]))
+
+    expect(record.bank.questions[0]).toMatchObject({
+      id: 'q1',
+      type: 'matching',
+      stem: {
+        content: [
+          {
+            type: 'paragraph',
+            content: [{ type: 'text', text: 'Match each event to the correct time period.' }],
+          },
+        ],
+      },
+      prompts: [
+        { id: 'q1-p1', answer: 'q1-a3' },
+        // An answer the Word Bank no longer holds is no answer.
+        { id: 'q1-p2' },
+      ],
+      wordBank: [{ id: 'q1-a1' }, { id: 'q1-a2' }, { id: 'q1-a3' }],
+    })
+    expect(record.bank.questions[0]!.prompts![1]).not.toHaveProperty('answer')
+    expect(record.bank.questions[0]!.choices).toBeUndefined()
+    const encoded = JSON.stringify(record)
+    expect(encoded).not.toContain('local-')
+    expect(encoded).not.toContain('matchingPrompt')
+    expect(encoded).not.toContain('matchingAnswer')
+  })
+
+  test('refuses a matching set with fewer than two Word Bank answers', async () => {
+    const thin: Question = {
+      ...matching,
+      doc: {
+        type: 'doc',
+        content: [
+          paragraph(text('Match.')),
+          {
+            type: 'matching',
+            content: [
+              { type: 'matchingPrompt', attrs: { id: 'p', answer: '' }, content: [paragraph(text('Item'))] },
+              { type: 'matchingAnswer', attrs: { id: 'a' }, content: [paragraph(text('Only'))] },
+            ],
+          },
+        ],
+      },
+    }
+    await expect(prepareQuestionBankExport(bank([thin]))).rejects.toThrow(
+      /at least two Word Bank answers/,
     )
   })
 

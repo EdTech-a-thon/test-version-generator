@@ -12,6 +12,18 @@ import { uploadConfig } from '@milkdown/kit/plugin/upload'
 import '@milkdown/crepe/theme/common/style.css'
 import '@milkdown/crepe/theme/frame.css'
 import {
+  keepMatching,
+  matchingAnswerSchema,
+  matchingAnswerView,
+  matchingKeymap,
+  matchingMode,
+  matchingPromptSchema,
+  matchingPromptView,
+  matchingSchema,
+  matchingView,
+  syncMatchingPicks,
+} from './matching'
+import {
   keepFixedChoices,
   multipleChoiceChoiceSchema,
   multipleChoiceChoiceView,
@@ -83,6 +95,7 @@ import {
   History,
   ListChecks,
   ToggleLeft,
+  Link2,
   Plus,
   Redo2,
   RefreshCw,
@@ -135,6 +148,7 @@ import {
 const QUESTION_TYPE_ICONS: Record<QuestionType, ReactNode> = {
   'multiple-choice': <ListChecks />,
   'true-false': <ToggleLeft />,
+  matching: <Link2 />,
   open: <AlignLeft />,
 }
 
@@ -375,6 +389,7 @@ function CrepeQuestion({
   onReady,
   suggestedAnswer = false,
   fixedChoices = false,
+  matching = false,
 }: {
   value: ProseMirrorJSON
   onChange: (doc: ProseMirrorJSON) => void
@@ -383,6 +398,9 @@ function CrepeQuestion({
   /** Whether the answer list is a True/False question's fixed pair, which the
    *  teacher chooses between rather than writes. */
   fixedChoices?: boolean
+  /** Whether the question is a matching set, whose prompts and Word Bank are
+   *  kept on the page the way a Suggested Answer block is. */
+  matching?: boolean
 }) {
   useEditor((root) => {
     const safeValue = cleanDocument(value)
@@ -433,6 +451,7 @@ function CrepeQuestion({
     crepe.editor
       .use(multipleChoiceMode(true, fixedChoices))
       .use(suggestedAnswerMode(suggestedAnswer))
+      .use(matchingMode(matching))
       .use(subscriptSchema)
       .use(superscriptSchema)
       .use(scriptKeymap)
@@ -448,10 +467,20 @@ function CrepeQuestion({
       .use(suggestedAnswerSchema)
       .use(suggestedAnswerView)
       .use(keepSuggestedAnswer)
-    // Make the whole multiple-choice block the drag target instead of a single
-    // answer row: never offer a handle for a choice itself, so Crepe's handle
-    // climbs to the multipleChoice node. Paragraphs inside a choice keep their
-    // own handle, so lines can still be dragged within a choice or out of it.
+      .use(matchingSchema)
+      .use(matchingPromptSchema)
+      .use(matchingAnswerSchema)
+      .use(matchingView)
+      .use(matchingPromptView)
+      .use(matchingAnswerView)
+      .use(matchingKeymap)
+      .use(syncMatchingPicks)
+      .use(keepMatching)
+    // Make the whole multiple-choice block — or matching set — the drag target
+    // instead of a single answer row: never offer a handle for a choice, prompt
+    // or Word Bank answer itself, so Crepe's handle climbs to the block.
+    // Paragraphs inside a cell keep their own handle, so lines can still be
+    // dragged within a cell or out of it.
     crepe.editor.config((ctx) => {
       configurePastedImages(ctx)
       ctx.update(uploadConfig.key, (prev) => ({
@@ -469,6 +498,8 @@ function CrepeQuestion({
           }
           if (
             node?.type?.name === 'multipleChoiceChoice'
+            || node?.type?.name === 'matchingPrompt'
+            || node?.type?.name === 'matchingAnswer'
             || node?.type?.name === 'suggestedAnswer'
           ) return false
           // A True/False question's pair is not the teacher's to move: it has
@@ -695,6 +726,7 @@ function QuestionDialog({
             value={doc}
             suggestedAnswer={type === 'open'}
             fixedChoices={type === 'true-false'}
+            matching={type === 'matching'}
             onReady={(readDocument) => {
               readEditorDocument.current = readDocument
             }}

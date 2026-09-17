@@ -1,15 +1,17 @@
 import {
   choicesOf,
+  promptsOf,
   topicsOf,
   type Difficulty,
   type Question,
   type QuestionType,
 } from './exam'
+import { bankLetter } from './matching'
 import { stemNodesOf, type ProseMirrorJSON } from './question-doc'
 import type { QuestionBankResource } from './question-bank-workspaces'
 
 export const QUESTION_BANK_FORMAT = 'test-parrot/question-bank'
-export const QUESTION_BANK_FORMAT_VERSION = '0.2.0'
+export const QUESTION_BANK_FORMAT_VERSION = '0.3.0'
 export const QUESTION_BANK_ATTACHMENT_NAME = 'pdfcx.json'
 export const QUESTION_BANK_ATTACHMENT_DESCRIPTION = 'pdf-canonical-extraction'
 
@@ -80,6 +82,7 @@ export type SemanticDocument = { type: 'document'; content: SemanticNode[] }
 export type QuestionBankRecordQuestionType =
   | 'multiple-choice'
   | 'true-false'
+  | 'matching'
   | 'short-answer'
 
 /** How each record Question Type is written wherever a teacher reads one — the
@@ -87,6 +90,7 @@ export type QuestionBankRecordQuestionType =
 export const RECORD_TYPE_LABELS: Record<QuestionBankRecordQuestionType, string> = {
   'multiple-choice': 'Multiple Choice',
   'true-false': 'True/False',
+  matching: 'Matching',
   'short-answer': 'Short Answer',
 }
 
@@ -95,8 +99,28 @@ export const RECORD_TYPE_LABELS: Record<QuestionBankRecordQuestionType, string> 
 export const RECORD_TYPE_ORDER: readonly QuestionBankRecordQuestionType[] = [
   'multiple-choice',
   'true-false',
+  'matching',
   'short-answer',
 ]
+
+/** One item of a matching set. `answer` is the package-local id of the Word
+ *  Bank answer it matches, and is absent while the item is unmatched. */
+export type QuestionBankRecordPrompt = {
+  id: string
+  content: SemanticDocument
+  answer?: string
+}
+
+/** The letter each Word Bank answer of a record Question carries, by its id —
+ *  its position in the bank, which is what a preview prints beside the answer
+ *  and in the blank of every item that names it. */
+export function wordBankLettersOf(
+  question: Pick<QuestionBankRecordQuestion, 'wordBank'>,
+): ReadonlyMap<string, string> {
+  return new Map(
+    (question.wordBank ?? []).map((answer, index) => [answer.id, bankLetter(index)]),
+  )
+}
 
 export type QuestionBankRecordQuestion = {
   id: string
@@ -105,6 +129,8 @@ export type QuestionBankRecordQuestion = {
   difficulty?: Difficulty
   topics?: string[]
   choices?: { id: string; content: SemanticDocument; correct: boolean }[]
+  prompts?: QuestionBankRecordPrompt[]
+  wordBank?: { id: string; content: SemanticDocument }[]
   suggestedAnswer?: SemanticDocument
 }
 
@@ -302,6 +328,10 @@ function semanticNode(node: ProseMirrorJSON, mediaIds: ReadonlyMap<string, strin
       throw new Error(
         'Multiple Choice structure must remain separate from its stem.',
       )
+    case 'matching':
+    case 'matchingPrompt':
+    case 'matchingAnswer':
+      throw new Error('Matching structure must remain separate from its stem.')
     case 'image':
     case 'image-block':
       return imageSemanticNode(node, mediaIds)
@@ -325,6 +355,7 @@ function semanticDocument(
 const RECORD_TYPES: Record<QuestionType, QuestionBankRecordQuestionType> = {
   'multiple-choice': 'multiple-choice',
   'true-false': 'true-false',
+  matching: 'matching',
   open: 'short-answer',
 }
 
@@ -353,6 +384,38 @@ function portableQuestion(
             ),
           }
         : {}),
+    }
+  }
+  if (question.type === 'matching') {
+    const prompts = promptsOf(question)
+    const bank = choicesOf(question)
+    if (prompts.length < 1) {
+      throw new Error(`Question ${index + 1} is a matching set and must have an item to match.`)
+    }
+    if (bank.length < 2) {
+      throw new Error(
+        `Question ${index + 1} is a matching set and must have at least two Word Bank answers.`,
+      )
+    }
+    const answerIds = new Map(
+      bank.map((answer, answerIndex) => [answer.id, `q${index + 1}-a${answerIndex + 1}`]),
+    )
+    return {
+      ...base,
+      prompts: prompts.map((prompt, promptIndex) => {
+        const answer = answerIds.get(prompt.answerId)
+        return {
+          id: `q${index + 1}-p${promptIndex + 1}`,
+          content: semanticDocument(childNodes(prompt.node), mediaIds),
+          // An answer the bank no longer holds is no answer: the item is
+          // written as unmatched rather than pointing at nothing.
+          ...(answer ? { answer } : {}),
+        }
+      }),
+      wordBank: bank.map((answer) => ({
+        id: answerIds.get(answer.id)!,
+        content: semanticDocument(childNodes(answer.node), mediaIds),
+      })),
     }
   }
   const choices = choicesOf(question)

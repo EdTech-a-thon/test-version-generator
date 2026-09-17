@@ -4,7 +4,7 @@ Use these instructions to convert questions from a PDF, image, scan, screenshot,
 
 ## Required result
 
-Create one complete UTF-8 JSON file using the **Test Parrot Question Bank Record `0.2.0`** format.
+Create one complete UTF-8 JSON file using the **Test Parrot Question Bank Record `0.3.0`** format.
 
 Name the downloaded file:
 
@@ -24,20 +24,21 @@ Do not generate a PDF. Do not return a summary in place of the JSON file.
 
 Use these resources as the source of truth:
 
-- [JSON Schema](./formats/question-bank/0.2.0/schema.json)
-- [Minimal Multiple Choice example](./formats/question-bank/0.2.0/examples/minimal-multiple-choice.json)
-- [True/False example](./formats/question-bank/0.2.0/examples/true-false.json)
-- [Short Answer example](./formats/question-bank/0.2.0/examples/short-answer.json)
-- [Complete rich-text example](./formats/question-bank/0.2.0/examples/complete-rich-text.json)
-- [Provenance and links example](./formats/question-bank/0.2.0/examples/provenance-and-links.json)
-- [Media-rich example](./formats/question-bank/0.2.0/examples/media-rich.json)
+- [JSON Schema](./formats/question-bank/0.3.0/schema.json)
+- [Minimal Multiple Choice example](./formats/question-bank/0.3.0/examples/minimal-multiple-choice.json)
+- [True/False example](./formats/question-bank/0.3.0/examples/true-false.json)
+- [Matching example](./formats/question-bank/0.3.0/examples/matching.json)
+- [Short Answer example](./formats/question-bank/0.3.0/examples/short-answer.json)
+- [Complete rich-text example](./formats/question-bank/0.3.0/examples/complete-rich-text.json)
+- [Provenance and links example](./formats/question-bank/0.3.0/examples/provenance-and-links.json)
+- [Media-rich example](./formats/question-bank/0.3.0/examples/media-rich.json)
 
 The required top-level shape is:
 
 ```json
 {
   "format": "test-parrot/question-bank",
-  "formatVersion": "0.2.0",
+  "formatVersion": "0.3.0",
   "generator": {
     "name": "Name of the assistant or conversion tool",
     "version": "Version or model name"
@@ -59,19 +60,19 @@ Unless the user explicitly asks for a subset, attempt to convert **every questio
 
 > **If you cannot reliably determine the type of question, do not force it into a specific form. Just leave it and explicitly warn that you could not convert.**
 
-Completeness means accounting for every source question, not pretending every question was converted successfully. Never classify an ambiguous question as Multiple Choice, True/False or Short Answer merely to make the output appear complete. Leave that question out of the JSON, identify it by source page and visible number or opening words, explain why its type could not be determined, and include it in the final conversion report as unconverted. Ask the user for clarification when possible; after clarification, add the question in its correct form.
+Completeness means accounting for every source question, not pretending every question was converted successfully. Never classify an ambiguous question as Multiple Choice, True/False, Matching or Short Answer merely to make the output appear complete. Leave that question out of the JSON, identify it by source page and visible number or opening words, explain why its type could not be determined, and include it in the final conversion report as unconverted. Ask the user for clarification when possible; after clarification, add the question in its correct form.
 
 ### Before conversion
 
 1. Inspect every supplied page, image, table, answer-key section, footnote, continuation, and annotation.
 2. For a long source, process it in batches and maintain a page-coverage and question-count checklist. Do not silently stop because of a context or output limit.
-3. Inventory all questions in authored order. Reconcile the inventory with visible numbering.
+3. Inventory all questions in authored order. Reconcile the inventory with visible numbering. A matching section counts one source number per item, but is converted as one Question per word bank (see [Matching](#matching)).
 4. Record unexplained duplicate or missing numbers as source ambiguities; do not silently renumber them away.
 5. Identify any content that is unreadable or cannot be represented by this format before claiming completion.
 
 ### During conversion
 
-1. Classify a question as `multiple-choice`, `true-false` or `short-answer` only when the source supports that classification. Version `0.2.0` supports only those three types. If its type is uncertain or it cannot be represented without material loss, leave it out and report it explicitly; never coerce it into the closest supported type.
+1. Classify a question as `multiple-choice`, `true-false`, `matching` or `short-answer` only when the source supports that classification. Version `0.3.0` supports only those four types. If its type is uncertain or it cannot be represented without material loss, leave it out and report it explicitly; never coerce it into the closest supported type.
 2. Preserve the exact wording, punctuation, capitalization, symbols, units, and meaningful whitespace.
 3. Preserve authored question and choice order.
 4. Preserve paragraphs, headings, blockquotes, lists, code, rules, tables, equations, hard breaks, links, images, captions, and text formatting when present.
@@ -89,11 +90,12 @@ Perform a second pass against the original source and verify all of the followin
 - converted Questions remain in authored order, even when an unconverted question creates a gap in source numbering;
 - every converted stem and choice is complete;
 - every supplied answer and correctness indicator was copied accurately;
+- every matching item names the word bank answer the source's key gives it, or none when the key gives none;
 - correctness was never inferred from general knowledge;
 - all supplied Difficulty and Topics values were preserved;
 - meaningful formatting, especially subscript and superscript, was preserved semantically;
 - every image, caption, table, list, equation, hard break, and safe link was preserved;
-- all Question and choice IDs are unique and sequential;
+- all Question, choice, item and word bank IDs are unique and sequential;
 - every image reference resolves to exactly one Media Asset;
 - every Media Asset is referenced;
 - the final JSON passes the public schema and semantic rules.
@@ -102,7 +104,7 @@ If any check fails, fix the record or disclose the precise limitation. Never say
 
 ## Question types
 
-Version `0.2.0` supports `multiple-choice`, `true-false`, and `short-answer` Questions. Do not use any of them as a fallback for an unknown, mixed, or unsupported Question Type. In particular, do not turn an uncertain question into Short Answer merely because it has no clearly detected choices, and do not turn a two-choice question into True/False unless those two choices really are true and false. Leave it unconverted and warn the user instead.
+Version `0.3.0` supports `multiple-choice`, `true-false`, `matching`, and `short-answer` Questions. Do not use any of them as a fallback for an unknown, mixed, or unsupported Question Type. In particular, do not turn an uncertain question into Short Answer merely because it has no clearly detected choices, do not turn a two-choice question into True/False unless those two choices really are true and false, and do not turn a matching section into Multiple Choice questions that each repeat the word bank. Leave it unconverted and warn the user instead.
 
 ### Multiple Choice
 
@@ -230,17 +232,169 @@ Mark `correct` on the choice the source's answer key gives: a key of `T` or `Tru
 
 Keep the statement itself in the stem. A leading `T  F` pair, a blank line, or a numbered answer column printed beside the statement is answer-sheet furniture, not part of the question: leave it out.
 
+### Matching
+
+A matching section is a list of numbered items on one side and a lettered word bank on the other, which the student matches by writing a letter in the blank beside each item. It typically looks like this in the source:
+
+```text
+Matching: Match each event to the correct time period.
+
+____ 22. The Jewish synagogue system was set up.        A. Persian
+____ 23. The Septuagint was completed.                  B. Grecian
+____ 24. Herod the Great was able to rise to power.     C. Maccabean—Hasmonean
+                                                        D. Roman
+```
+
+Convert **one whole set — every item that shares one word bank — as one `matching` Question**, even though each item carries its own number in the source. Do not split a set into one Question per item, and do not merge two sets that have different word banks. Test Parrot numbers the items again when it prints the test, one number per item, and prints the word bank beside them.
+
+A Matching Question:
+
+- has an ID such as `q3`;
+- keeps the set's own directions (for example “Match each event to the correct time period.”) in the `stem`; the stem may be a blank paragraph when the source has none beyond the section heading;
+- has `prompts`: the items, at least one, in authored order, with IDs such as `q3-p1`, `q3-p2`, and so on;
+- has `wordBank`: the lettered answers, at least two, in authored order, with IDs such as `q3-a1`, `q3-a2`, and so on;
+- gives each item an `answer` — the ID of the word bank answer the source's answer key matches it with — or no `answer` member at all when the key gives none;
+- does not have `choices` or `suggestedAnswer`.
+
+The letters are positions, not content: `A.` is `q3-a1`, `B.` is `q3-a2`, and so on, so leave the letters out of the answer content and out of the item content. Leave the source numbers and the blanks out too — they are furniture. A key of `22. C` means the item numbered 22 names the third word bank answer. Several items may name the same answer when the key says so, and a word bank may hold answers no item names; keep those distractors in authored order. Never infer a match from general knowledge, and never reorder either list.
+
+```json
+{
+  "id": "q3",
+  "type": "matching",
+  "stem": {
+    "type": "document",
+    "content": [
+      {
+        "type": "paragraph",
+        "content": [
+          {
+            "type": "text",
+            "text": "Match each event to the correct time period."
+          }
+        ]
+      }
+    ]
+  },
+  "prompts": [
+    {
+      "id": "q3-p1",
+      "content": {
+        "type": "document",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "The Jewish synagogue system was set up."
+              }
+            ]
+          }
+        ]
+      },
+      "answer": "q3-a1"
+    },
+    {
+      "id": "q3-p2",
+      "content": {
+        "type": "document",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              { "type": "text", "text": "The Septuagint was completed." }
+            ]
+          }
+        ]
+      },
+      "answer": "q3-a2"
+    },
+    {
+      "id": "q3-p3",
+      "content": {
+        "type": "document",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "Herod the Great was able to rise to power."
+              }
+            ]
+          }
+        ]
+      },
+      "answer": "q3-a4"
+    }
+  ],
+  "wordBank": [
+    {
+      "id": "q3-a1",
+      "content": {
+        "type": "document",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [{ "type": "text", "text": "Persian" }]
+          }
+        ]
+      }
+    },
+    {
+      "id": "q3-a2",
+      "content": {
+        "type": "document",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [{ "type": "text", "text": "Grecian" }]
+          }
+        ]
+      }
+    },
+    {
+      "id": "q3-a3",
+      "content": {
+        "type": "document",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [{ "type": "text", "text": "Maccabean—Hasmonean" }]
+          }
+        ]
+      }
+    },
+    {
+      "id": "q3-a4",
+      "content": {
+        "type": "document",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [{ "type": "text", "text": "Roman" }]
+          }
+        ]
+      }
+    }
+  ]
+}
+```
+
+If the source prints the word bank above or below the items rather than beside them, or letters the items and numbers the bank, it is still a matching set: the items are the side the student writes on. If you cannot tell which side is which, or which answers belong to which set, leave the section unconverted and say so.
+
 ### Short Answer
 
 A Short Answer Question:
 
-- has an ID such as `q3`;
+- has an ID such as `q4`;
 - has no `choices` member;
 - may have a rich-text `suggestedAnswer` only when the source or user supplies one.
 
 ```json
 {
-  "id": "q3",
+  "id": "q4",
   "type": "short-answer",
   "stem": {
     "type": "document",
@@ -273,7 +427,7 @@ A visibly blank stem is valid if the source actually contains a blank stem.
 
 ## Rich text
 
-Each stem, choice, and Suggested Answer is a semantic document:
+Each stem, choice, matching item, word bank answer, and Suggested Answer is a semantic document:
 
 ```json
 {
@@ -357,7 +511,7 @@ Use `inline-math` or `display-math` with the authored math source for mathematic
 { "type": "inline-math", "source": "x^2 + y^2" }
 ```
 
-The same formatting rules apply inside stems, choices, and Suggested Answers.
+The same formatting rules apply inside stems, choices, matching items, word bank answers, and Suggested Answers.
 
 ## Links
 
@@ -437,7 +591,7 @@ Include only information explicitly present in the source or supplied by the use
 
 ## Final validation and delivery
 
-Validate the final record against the [public JSON Schema](./formats/question-bank/0.2.0/schema.json). Schema validation alone is not sufficient: also verify Question cardinality, unique IDs, safe links, resolved media references, and decoded image properties.
+Validate the final record against the [public JSON Schema](./formats/question-bank/0.3.0/schema.json). Schema validation alone is not sufficient: also verify Question cardinality, unique IDs, that every matching `answer` names an ID in the same Question's `wordBank`, safe links, resolved media references, and decoded image properties.
 
 Relevant import limits include:
 
@@ -458,7 +612,7 @@ Also include a concise conversion report containing:
 
 - source pages/images inspected;
 - total Questions converted;
-- counts by Question Type;
+- counts by Question Type (a matching set is one Question; also give its item count);
 - whether answer correctness was supplied or left incomplete;
 - number of embedded Media Assets;
 - every ambiguity, omission, normalization, or unsupported element—or “None” when there were none;

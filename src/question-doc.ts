@@ -1,7 +1,7 @@
 // The ProseMirror document that holds a question's stem and, for multiple
-// choice, its choice nodes. Questions are stored as plain JSON so the model and
-// the store never need a live editor; only the Crepe dialog turns it back into
-// a ProseMirror document.
+// choice, its choice nodes — or, for a matching set, its prompts and Word Bank.
+// Questions are stored as plain JSON so the model and the store never need a
+// live editor; only the Crepe dialog turns it back into a ProseMirror document.
 
 export type ProseMirrorJSON = Record<string, unknown>
 
@@ -110,10 +110,57 @@ export function cleanDocument(value: ProseMirrorJSON): ProseMirrorJSON {
         correct: attrs.correct === true,
         id: typeof attrs.id === 'string' ? attrs.id : '',
       }
+    } else if (node.type === 'matching') {
+      clean.content = cleanMatchingContent(
+        Array.isArray(clean.content) ? (clean.content as ProseMirrorJSON[]) : [],
+      )
+    } else if (node.type === 'matchingPrompt') {
+      const attrs = (node.attrs ?? {}) as Record<string, unknown>
+      clean.attrs = {
+        id: typeof attrs.id === 'string' ? attrs.id : '',
+        answer: typeof attrs.answer === 'string' ? attrs.answer : '',
+      }
+    } else if (node.type === 'matchingAnswer') {
+      const attrs = (node.attrs ?? {}) as Record<string, unknown>
+      clean.attrs = { id: typeof attrs.id === 'string' ? attrs.id : '' }
     }
     return clean
   }
   return cleanNode(value)
+}
+
+function blankPrompt(): ProseMirrorJSON {
+  return {
+    type: 'matchingPrompt',
+    attrs: { id: '', answer: '' },
+    content: [{ type: 'paragraph' }],
+  }
+}
+
+function blankBankAnswer(): ProseMirrorJSON {
+  return {
+    type: 'matchingAnswer',
+    attrs: { id: '' },
+    content: [{ type: 'paragraph' }],
+  }
+}
+
+// A matching set's content in the one shape the schema accepts: its prompts,
+// then its Word Bank, nothing else between or among them. A set is never left
+// with fewer than one prompt to number or two answers to choose between, and a
+// prompt whose answer no longer exists in the bank is unmatched rather than
+// left pointing at nothing.
+function cleanMatchingContent(nodes: ProseMirrorJSON[]): ProseMirrorJSON[] {
+  const prompts = nodes.filter((node) => node.type === 'matchingPrompt')
+  const bank = nodes.filter((node) => node.type === 'matchingAnswer')
+  while (prompts.length < 1) prompts.push(blankPrompt())
+  while (bank.length < 2) bank.push(blankBankAnswer())
+  const bankIds = new Set(bank.map(choiceIdOf).filter(Boolean))
+  for (const prompt of prompts) {
+    const attrs = prompt.attrs as Record<string, unknown>
+    if (!bankIds.has(String(attrs.answer))) attrs.answer = ''
+  }
+  return [...prompts, ...bank]
 }
 
 function childrenOf(node: ProseMirrorJSON): ProseMirrorJSON[] {
@@ -146,19 +193,49 @@ export function choiceIsCorrect(node: ProseMirrorJSON): boolean {
   return attrs.correct === true
 }
 
+// The `matching` node of a question document, or undefined when the question
+// is not a matching set. A document holds at most one.
+export function matchingNodeOf(doc: ProseMirrorJSON): ProseMirrorJSON | undefined {
+  return childrenOf(doc).find((node) => node.type === 'matching')
+}
+
+// A matching set's prompts — the items a student numbers off and matches — in
+// authoring order, which is the order they print in.
+export function matchingPromptNodesOf(doc: ProseMirrorJSON): ProseMirrorJSON[] {
+  const set = matchingNodeOf(doc)
+  if (!set) return []
+  return childrenOf(set).filter((node) => node.type === 'matchingPrompt')
+}
+
+// A matching set's Word Bank in authoring order — the order a version's
+// `choiceOrder` permutes, exactly as it permutes a Multiple Choice question's
+// answers.
+export function matchingBankNodesOf(doc: ProseMirrorJSON): ProseMirrorJSON[] {
+  const set = matchingNodeOf(doc)
+  if (!set) return []
+  return childrenOf(set).filter((node) => node.type === 'matchingAnswer')
+}
+
+// The id of the Word Bank answer a prompt names, or '' when it names none.
+export function promptAnswerIdOf(node: ProseMirrorJSON): string {
+  const attrs = (node.attrs ?? {}) as Record<string, unknown>
+  return typeof attrs.answer === 'string' ? attrs.answer : ''
+}
+
 function isBlankParagraph(node: ProseMirrorJSON | undefined): boolean {
   return node?.type === 'paragraph' && childrenOf(node).length === 0
 }
 
 // The top-level blocks that visibly belong to a question stem. Crepe keeps one
-// empty paragraph immediately before a multiple-choice block as the editing
-// boundary between the question and its answers. That boundary is not
-// teacher-authored space, so the read-only and exported documents ignore it;
-// any additional empty paragraphs remain and therefore still add space.
+// empty paragraph immediately before a multiple-choice block — or a matching
+// set — as the editing boundary between the question and its answers. That
+// boundary is not teacher-authored space, so the read-only and exported
+// documents ignore it; any additional empty paragraphs remain and therefore
+// still add space.
 export function stemNodesOf(doc: ProseMirrorJSON): ProseMirrorJSON[] {
-  const choiceList = multipleChoiceNodeOf(doc)
-  const stem = childrenOf(doc).filter((node) => node !== choiceList)
-  return choiceList && isBlankParagraph(stem.at(-1)) ? stem.slice(0, -1) : stem
+  const answers = multipleChoiceNodeOf(doc) ?? matchingNodeOf(doc)
+  const stem = childrenOf(doc).filter((node) => node !== answers)
+  return answers && isBlankParagraph(stem.at(-1)) ? stem.slice(0, -1) : stem
 }
 
 // The `suggestedAnswer` node of a question document being edited, or undefined
@@ -252,20 +329,46 @@ export function withMultipleChoice(
 // A copy of the document whose answers carry brand-new ids. Duplicating a
 // question must not hand the copy the original's choice ids: a version's
 // `choiceOrder` is keyed by choice id, so shared ids would make one question's
-// ordering move the other's answers.
+// ordering move the other's answers. A matching set's Word Bank is renamed the
+// same way, and every prompt follows the answer it named to its new id, so the
+// copy matches what the original matched.
 export function withFreshChoiceIds(doc: ProseMirrorJSON): ProseMirrorJSON {
+  const renamed = new Map<string, string>()
+  const freshId = (id: string): string => {
+    const next = crypto.randomUUID()
+    if (id) renamed.set(id, next)
+    return next
+  }
   const fresh = (node: ProseMirrorJSON): ProseMirrorJSON => {
     const copy: ProseMirrorJSON = { ...node }
-    if (node.type === 'multipleChoiceChoice') {
-      copy.attrs = {
-        ...((node.attrs ?? {}) as Record<string, unknown>),
-        id: crypto.randomUUID(),
-      }
+    const attrs = (node.attrs ?? {}) as Record<string, unknown>
+    if (
+      node.type === 'multipleChoiceChoice'
+      || node.type === 'matchingPrompt'
+      || node.type === 'matchingAnswer'
+    ) {
+      copy.attrs = { ...attrs, id: freshId(choiceIdOf(node)) }
     }
     if (Array.isArray(node.content)) {
       copy.content = (node.content as ProseMirrorJSON[]).map(fresh)
     }
     return copy
   }
-  return fresh(doc)
+  const rematch = (node: ProseMirrorJSON): ProseMirrorJSON => {
+    if (node.type === 'matchingPrompt') {
+      const answer = promptAnswerIdOf(node)
+      return {
+        ...node,
+        attrs: {
+          ...((node.attrs ?? {}) as Record<string, unknown>),
+          answer: renamed.get(answer) ?? '',
+        },
+      }
+    }
+    if (!Array.isArray(node.content)) return node
+    return { ...node, content: (node.content as ProseMirrorJSON[]).map(rematch) }
+  }
+  // Two passes: the Word Bank may follow the prompts that name it, so every
+  // new id has to exist before any prompt can be pointed at one.
+  return rematch(fresh(doc))
 }

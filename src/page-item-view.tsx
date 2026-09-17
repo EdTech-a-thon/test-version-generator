@@ -14,15 +14,18 @@
 import { Check } from 'lucide-react'
 import { DifficultyBadge, TopicBadge } from './badges'
 import { DocView } from './doc-view'
-import type {
-  AnswerKeyEntryItem,
-  AnswerKeySectionItem,
-  ChoiceGrid,
-  PageFurniture,
-  PageHeader,
-  PageItem,
-  QuestionItem,
-  SectionHeadingItem,
+import {
+  printsNumberLine,
+  type AnswerKeyEntryItem,
+  type AnswerKeySectionItem,
+  type ChoiceGrid,
+  type MatchingSet,
+  type PageFurniture,
+  type PlannedBankAnswer,
+  type PageHeader,
+  type PageItem,
+  type QuestionItem,
+  type SectionHeadingItem,
 } from './export-plan'
 import type { ProseMirrorJSON } from './question-doc'
 
@@ -85,9 +88,89 @@ export function ChoiceGridView({
   )
 }
 
+// A matching set. Every prompt carries its own blank and number in a column
+// the width of the page's own number column, so the numbers line up with the
+// questions around them; the Word Bank letters its answers by this
+// arrangement's order. A short bank sits beside the prompts as one borderless
+// row of two cells, each column stacking on its own so a long item never
+// pushes the bank down beside it. A long bank sits above the prompts in a
+// borderless grid, column-major, the way a choice grid is drawn.
+function BankAnswer({ answer }: { answer: PlannedBankAnswer }) {
+  return (
+    <div className="matching-answer">
+      <span className="matching-letter">{answer.letter}.</span>
+      <DocView className="matching-body" content={blocksOf(answer.node)} />
+    </div>
+  )
+}
+
+export function MatchingSetView({
+  set,
+  showCorrectness = false,
+}: {
+  set: MatchingSet
+  /** The Working Copy alone may reveal each prompt's letter; previews and
+   *  artifacts may not. */
+  showCorrectness?: boolean
+}) {
+  const prompts = set.prompts.map((prompt) => (
+    <div className="matching-prompt" key={prompt.id}>
+      <span className="matching-number">
+        {/* The letter is drawn inside the blank, in colour, without taking
+            any width of its own, so a set measures and prints exactly as it
+            would without it. */}
+        <span
+          className="matching-blank"
+          aria-label="Answer blank"
+          data-answer={showCorrectness && prompt.letter ? prompt.letter : undefined}
+        />
+        <span className="matching-count">{prompt.number}.</span>
+      </span>
+      <DocView className="matching-body" content={blocksOf(prompt.node)} />
+    </div>
+  ))
+  if (set.bankGrid) {
+    return (
+      <div className="matching-set" data-layout="above">
+        <table className="matching-bank-grid" data-columns={set.bankGrid.columns}>
+          <tbody>
+            {set.bankGrid.cells.map((row, rowIndex) => (
+              <tr key={rowIndex}>
+                {row.map((answer, columnIndex) => (
+                  <td key={columnIndex} className="matching-bank-cell">
+                    {answer && <BankAnswer answer={answer} />}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <div className="matching-items">{prompts}</div>
+      </div>
+    )
+  }
+  return (
+    <div className="matching-set" data-layout="beside">
+      <table className="matching-columns">
+        <tbody>
+          <tr>
+            <td className="matching-items">{prompts}</td>
+            <td className="matching-bank">
+              {set.bank.map((answer) => (
+                <BankAnswer answer={answer} key={answer.id} />
+              ))}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
 // A question, or the piece of one this page carries. The number column is drawn
 // either way so a continued question's text stays in the same place down the
-// page; only the first piece puts a number and an answer blank in it.
+// page; only the first piece puts a number and an answer blank in it — and a
+// matching set never does, since its numbers print on its prompts.
 export function QuestionContent({
   item,
   showCorrectness = false,
@@ -96,13 +179,14 @@ export function QuestionContent({
   /** Correct-answer feedback is authoring chrome, never export content. */
   showCorrectness?: boolean
 }) {
+  const numbered = printsNumberLine(item)
   return (
     <>
       <div className="question-number">
-        {item.numbered && item.question.answerBlank && (
+        {numbered && item.question.answerBlank && (
           <span className="answer-blank" aria-label="Answer blank" />
         )}
-        {item.numbered && <span className="question-count">{item.question.number}.</span>}
+        {numbered && <span className="question-count">{item.question.number}.</span>}
       </div>
       <div className="question-body">
         <DocView className="question-stem" content={item.stem} />
@@ -110,6 +194,9 @@ export function QuestionContent({
           <ChoiceGridView grid={item.grid} showCorrectness={showCorrectness} />
         )}
       </div>
+      {item.matching && (
+        <MatchingSetView set={item.matching} showCorrectness={showCorrectness} />
+      )}
     </>
   )
 }

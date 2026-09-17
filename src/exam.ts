@@ -15,19 +15,33 @@ import {
   choiceIsCorrect,
   choiceNodesOf,
   emptyDoc,
+  matchingBankNodesOf,
+  matchingPromptNodesOf,
+  promptAnswerIdOf,
   withFreshChoiceIds,
   type ProseMirrorJSON,
 } from './question-doc'
 import { newMultipleChoiceNode, newTrueFalseNode } from './multiple-choice'
+import { newMatchingNode } from './matching'
 
-export type QuestionType = 'multiple-choice' | 'true-false' | 'open'
+export type QuestionType = 'multiple-choice' | 'true-false' | 'matching' | 'open'
 
 /** Whether a question of this type answers with choices a teacher picks from.
  *  True/False answers with choices too — two fixed ones — so anything that
  *  cares about correctness living on a choice asks this rather than naming
- *  Multiple Choice and quietly leaving True/False out. */
+ *  Multiple Choice and quietly leaving True/False out. A matching set is not
+ *  one of these: its Word Bank answers are never correct on their own, only
+ *  named by a prompt. */
 export function hasChoices(type: QuestionType): boolean {
   return type === 'multiple-choice' || type === 'true-false'
+}
+
+/** Whether Vary may shuffle a question's answers. Multiple Choice answers
+ *  reorder, and so does a matching set's Word Bank — each prompt's letter
+ *  follows the answer it names, so the key changes while the matches do not.
+ *  True/False is fixed, and a Short Answer question has nothing to shuffle. */
+export function variesAnswers(type: QuestionType): boolean {
+  return type === 'multiple-choice' || type === 'matching'
 }
 
 // How many columns a multiple-choice question's answers lay out in. A plain
@@ -53,6 +67,7 @@ export const DIFFICULTIES: readonly Difficulty[] = ['easy', 'medium', 'hard']
 export const SECTION_LABELS: Record<QuestionType, string> = {
   'multiple-choice': 'Multiple choice',
   'true-false': 'True/False',
+  matching: 'Matching',
   open: 'Short answer',
 }
 
@@ -92,10 +107,20 @@ export type Arrangement = {
 }
 
 // A choice as the page sees it: its stable id, whether it is the correct
-// answer, and the document node to render.
+// answer, and the document node to render. A matching set's Word Bank answers
+// are choices in this sense too — they are what an arrangement orders — but
+// none of them is correct on its own, so `correct` is always false for one.
 export type Choice = {
   id: string
   correct: boolean
+  node: ProseMirrorJSON
+}
+
+// One item of a matching set: its stable id, the id of the Word Bank answer it
+// names ('' when the teacher has not matched it yet), and the node to render.
+export type Prompt = {
+  id: string
+  answerId: string
   node: ProseMirrorJSON
 }
 
@@ -104,6 +129,7 @@ export type Choice = {
 export const SECTION_ORDER: readonly QuestionType[] = [
   'multiple-choice',
   'true-false',
+  'matching',
   'open',
 ]
 
@@ -111,8 +137,13 @@ export const DEFAULT_EXAM_TITLE = 'Untitled Exam'
 
 function newQuestionDoc(type: QuestionType): ProseMirrorJSON {
   if (type === 'open') return structuredClone(emptyDoc)
-  const choices = type === 'true-false' ? newTrueFalseNode() : newMultipleChoiceNode()
-  return { type: 'doc', content: [{ type: 'paragraph' }, choices] }
+  const answers =
+    type === 'true-false'
+      ? newTrueFalseNode()
+      : type === 'matching'
+        ? newMatchingNode()
+        : newMultipleChoiceNode()
+  return { type: 'doc', content: [{ type: 'paragraph' }, answers] }
 }
 
 /** A question's Topics, always a list. The single reader, so an absent list and
@@ -254,11 +285,31 @@ export function orderedQuestions(exam: Exam, arrangement: Arrangement): Question
   )
 }
 
-// The question's answers in authoring order, correctness included.
+// The question's answers in authoring order, correctness included. For a
+// matching set these are its Word Bank: the answers an arrangement's
+// `choiceOrder` permutes, with no correctness of their own.
 export function choicesOf(question: Question): Choice[] {
+  if (question.type === 'matching') {
+    return matchingBankNodesOf(question.doc).map((node) => ({
+      id: choiceIdOf(node),
+      correct: false,
+      node,
+    }))
+  }
   return choiceNodesOf(question.doc).map((node) => ({
     id: choiceIdOf(node),
     correct: choiceIsCorrect(node),
+    node,
+  }))
+}
+
+// A matching set's prompts in authoring order — the order they are numbered
+// in on every arrangement. Empty for any other question type.
+export function promptsOf(question: Question): Prompt[] {
+  if (question.type !== 'matching') return []
+  return matchingPromptNodesOf(question.doc).map((node) => ({
+    id: choiceIdOf(node),
+    answerId: promptAnswerIdOf(node),
     node,
   }))
 }
@@ -429,17 +480,18 @@ export function shuffleSelectedQuestions(
 }
 
 /**
- * Shuffles the answers of every selected eligible Multiple Choice question,
- * independently. The Question Content is not changed: this records an order
- * of stable choice ids in the arrangement alone, so correctness remains on
- * the choice it was authored on.
+ * Shuffles the answers of every selected eligible Multiple Choice question and
+ * the Word Bank of every selected matching set, independently. The Question
+ * Content is not changed: this records an order of stable choice ids in the
+ * arrangement alone, so correctness remains on the choice it was authored on
+ * and every prompt still names the same answer under its new letter.
  *
- * A selected Short Answer question, an unknown question, and a Multiple Choice
- * question with fewer than two choices cannot vary and are left alone. So does
- * a True/False question: True before False is a convention a student reads
- * rather than an authored order, and reversing it varies nothing. As with
- * question shuffling, an identity Fisher–Yates draw is rotated so every
- * eligible selected question visibly changes order.
+ * A selected Short Answer question, an unknown question, and a question with
+ * fewer than two answers cannot vary and are left alone. So does a True/False
+ * question: True before False is a convention a student reads rather than an
+ * authored order, and reversing it varies nothing. As with question shuffling,
+ * an identity Fisher–Yates draw is rotated so every eligible selected question
+ * visibly changes order.
  */
 export function shuffleSelectedAnswers(
   exam: Exam,
@@ -452,7 +504,7 @@ export function shuffleSelectedAnswers(
   let changed = false
 
   for (const question of exam.questions) {
-    if (!selected.has(question.id) || question.type !== 'multiple-choice') continue
+    if (!selected.has(question.id) || !variesAnswers(question.type)) continue
     const current = orderedChoices(question, arrangement)
     if (current.length < 2) continue
 

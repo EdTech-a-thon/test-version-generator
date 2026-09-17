@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { PDFDocument } from 'pdf-lib'
 import { PIXEL_PNG } from './export-fixtures'
-import { choicesOf } from './exam'
+import { choicesOf, promptsOf } from './exam'
 import {
   QUESTION_BANK_ATTACHMENT_DESCRIPTION,
   QUESTION_BANK_ATTACHMENT_NAME,
@@ -122,7 +122,7 @@ describe('Question Bank import mapping', () => {
 
 describe('hostile Question Bank File inspection', () => {
   test('publishes exact compatibility and production resource limits', () => {
-    expect(Object.keys(SUPPORTED_QUESTION_BANK_VERSIONS)).toEqual(['0.1.0', '0.2.0'])
+    expect(Object.keys(SUPPORTED_QUESTION_BANK_VERSIONS)).toEqual(['0.1.0', '0.2.0', '0.3.0'])
     expect(DEFAULT_QUESTION_BANK_IMPORT_LIMITS).toEqual({
       pdfBytes: 100 * 1024 * 1024,
       recordBytes: 75 * 1024 * 1024,
@@ -146,7 +146,7 @@ describe('hostile Question Bank File inspection', () => {
 
     expect(proposal.summary).toMatchObject({
       bankName: 'Portable chemistry',
-      questionCounts: { 'multiple-choice': 1, 'true-false': 0, 'short-answer': 0 },
+      questionCounts: { 'multiple-choice': 1, 'true-false': 0, matching: 0, 'short-answer': 0 },
       formatVersion: QUESTION_BANK_FORMAT_VERSION,
     })
     expect(proposal.record.generator.name).toBe('Independent Generator')
@@ -155,17 +155,17 @@ describe('hostile Question Bank File inspection', () => {
 
   test('reports the file version and exact supported versions before semantic validation', async () => {
     const source = baseRecord() as QuestionBankRecord & Record<string, unknown>
-    source.formatVersion = '0.3.0'
+    source.formatVersion = '0.4.0'
     source.requiredFeatures = ['also-unknown']
     await rejected(
       inspectQuestionBankRecord(bytesOf(source)),
       'unsupported-version',
-      '0.3.0',
+      '0.4.0',
     )
     await rejected(
       inspectQuestionBankRecord(bytesOf(source)),
       'unsupported-version',
-      '0.1.0, 0.2.0',
+      '0.1.0, 0.2.0, 0.3.0',
     )
   })
 
@@ -226,6 +226,107 @@ describe('hostile Question Bank File inspection', () => {
       inspectQuestionBankRecord(bytesOf(source)),
       'invalid-structure',
       'schema',
+    )
+  })
+
+  test('refuses a Matching Question in a 0.2.0 record', async () => {
+    const source = baseRecord() as QuestionBankRecord & Record<string, unknown>
+    source.formatVersion = '0.2.0'
+    ;(source.bank.questions[0] as { type: string }).type = 'matching'
+    await rejected(
+      inspectQuestionBankRecord(bytesOf(source)),
+      'invalid-structure',
+      'schema',
+    )
+  })
+
+  test('reads a 0.2.0 record and reports the version the file actually declared', async () => {
+    const source = baseRecord() as QuestionBankRecord & Record<string, unknown>
+    source.formatVersion = '0.2.0'
+    const proposal = await inspectQuestionBankRecord(bytesOf(source))
+
+    expect(proposal.record.formatVersion).toBe(QUESTION_BANK_FORMAT_VERSION)
+    expect(proposal.summary.formatVersion).toBe('0.2.0')
+  })
+
+  test('reads a matching set and imports it with every item still naming its answer', async () => {
+    const source = baseRecord() as QuestionBankRecord & Record<string, unknown>
+    const question = source.bank.questions[0]!
+    question.type = 'matching'
+    delete question.choices
+    question.prompts = [
+      { id: 'q1-p1', content: paragraph('Osmosis'), answer: 'q1-a2' },
+      { id: 'q1-p2', content: paragraph('Diffusion') },
+    ]
+    question.wordBank = [
+      { id: 'q1-a1', content: paragraph('Particles spread out.') },
+      { id: 'q1-a2', content: paragraph('Water crosses a membrane.') },
+      { id: 'q1-a3', content: paragraph('A distractor.') },
+    ]
+    const proposal = await inspectQuestionBankRecord(bytesOf(source))
+
+    expect(proposal.summary.questionCounts.matching).toBe(1)
+    // An unmatched item is reported the way an unmarked choice is.
+    expect(proposal.summary.questionsWithoutCorrectAnswer).toBe(1)
+    const [imported] = importedQuestionsFromRecord(proposal.record)
+    expect(imported!.type).toBe('matching')
+    const prompts = promptsOf(imported!)
+    const bank = choicesOf(imported!)
+    expect(bank).toHaveLength(3)
+    expect(prompts).toHaveLength(2)
+    // Package-local ids never survive import; the match does.
+    expect(prompts[0]!.answerId).toBe(bank[1]!.id)
+    expect(prompts[0]!.answerId).not.toBe('q1-a2')
+    expect(prompts[1]!.answerId).toBe('')
+    expect(JSON.stringify(imported)).not.toContain('q1-')
+  })
+
+  test('refuses a matching item that names an answer outside its own Word Bank', async () => {
+    const source = baseRecord() as QuestionBankRecord & Record<string, unknown>
+    const question = source.bank.questions[0]!
+    question.type = 'matching'
+    delete question.choices
+    question.prompts = [{ id: 'q1-p1', content: paragraph('Osmosis'), answer: 'q1-a9' }]
+    question.wordBank = [
+      { id: 'q1-a1', content: paragraph('One') },
+      { id: 'q1-a2', content: paragraph('Two') },
+    ]
+    await rejected(
+      inspectQuestionBankRecord(bytesOf(source)),
+      'dangling-reference',
+      'q1-a9',
+    )
+  })
+
+  test('refuses a matching set that asks with fewer than two Word Bank answers, or one that also carries choices', async () => {
+    const source = baseRecord() as QuestionBankRecord & Record<string, unknown>
+    const question = source.bank.questions[0]!
+    question.type = 'matching'
+    question.prompts = [{ id: 'q1-p1', content: paragraph('Osmosis') }]
+    question.wordBank = [{ id: 'q1-a1', content: paragraph('One') }]
+    await rejected(
+      inspectQuestionBankRecord(bytesOf(source)),
+      'invalid-structure',
+      'schema',
+    )
+    question.wordBank.push({ id: 'q1-a2', content: paragraph('Two') })
+    await rejected(
+      inspectQuestionBankRecord(bytesOf(source)),
+      'invalid-question',
+      'cannot contain choices',
+    )
+  })
+
+  test('refuses a Word Bank on a Question that is not a matching set', async () => {
+    const source = baseRecord() as QuestionBankRecord & Record<string, unknown>
+    source.bank.questions[0]!.wordBank = [
+      { id: 'q1-a1', content: paragraph('One') },
+      { id: 'q1-a2', content: paragraph('Two') },
+    ]
+    await rejected(
+      inspectQuestionBankRecord(bytesOf(source)),
+      'invalid-question',
+      'Word Bank',
     )
   })
 
