@@ -4,6 +4,7 @@ import {
   RECORD_TYPE_LABELS,
   prepareQuestionBankExport,
   recordDocumentToEditorNodes,
+  wordBankLettersOf,
   type PreparedQuestionBankExport,
 } from './question-bank-export'
 import type { QuestionBankResource } from './question-bank-workspaces'
@@ -212,6 +213,36 @@ export function QuestionBankExportDialog({
                         </li>
                       ))}
                     </ol>
+                  )}
+                  {question.prompts && question.wordBank && (
+                    <div className="record-matching">
+                      <ol className="record-matching-items">
+                        {question.prompts.map((prompt) => (
+                          <li key={prompt.id}>
+                            <span
+                              className="record-matching-blank"
+                              aria-label={
+                                prompt.answer ? 'Matched answer' : 'Unmatched'
+                              }
+                            >
+                              {wordBankLettersOf(question).get(prompt.answer ?? '') ?? '—'}
+                            </span>
+                            <DocView
+                              content={recordDocumentToEditorNodes(prompt.content)}
+                            />
+                          </li>
+                        ))}
+                      </ol>
+                      <ol type="A" className="question-bank-export-choices">
+                        {question.wordBank.map((answer) => (
+                          <li key={answer.id}>
+                            <DocView
+                              content={recordDocumentToEditorNodes(answer.content)}
+                            />
+                          </li>
+                        ))}
+                      </ol>
+                    </div>
                   )}
                   {question.suggestedAnswer && (
                     <section>

@@ -70,12 +70,24 @@ _Avoid_: Swap, substitute
 To permanently remove Question Content from its Question Bank, every Exam that references it, and their Working Copies. Deletion requires showing the affected Exams and explicit confirmation; existing Export Records remain unchanged.
 
 **Question Type**:
-What a Question asks for, settled when it is created and never changed afterwards: Multiple Choice, True/False, or Short Answer. It decides the Question Section the Question prints in, the directions printed above it, and what its Answer Key entry records.
+What a Question asks for, settled when it is created and never changed afterwards: Multiple Choice, True/False, Matching, or Short Answer. It decides the Question Section the Question prints in, the directions printed above it, and what its Answer Key entry records.
 _Avoid_: Question format, question kind
 
 **True/False**:
 A Question Type whose answer is one of exactly two fixed choices, True and False, which the teacher picks between rather than writes. The pair is never printed on the student test — the section's directions ask for a T or an F in the answer blank — and the Answer Key records T or F rather than a choice letter. It does not Vary: True before False is a convention a student reads, not an authored order.
 _Avoid_: Binary question, T/F question, two-choice multiple choice
+
+**Matching**:
+A Question Type that is one whole set: its stem is the set's directions, its Items are what a student matches, and its Word Bank is what they are matched against. One Matching Question takes one test number per Item — the numbers print on the Items, and the stem prints unnumbered — because the Items share one Word Bank. A Question Bank keeps a set whole: an Item is never a Question of its own.
+_Avoid_: Matching question (for one Item), match list, pair
+
+**Item**:
+One numbered thing to match in a Matching set, in authored order. It is matched by naming one Word Bank answer, by identity rather than by letter, so a shuffled Word Bank moves its letter and not its match; an Item that names nothing is unmatched, which is incomplete rather than invalid. Its Answer Key entry records the letter of the answer it names.
+_Avoid_: Prompt (in teacher-facing text), stem (for an Item), left side
+
+**Word Bank**:
+The lettered answers a Matching set's Items are matched against, in authored order. A letter is a position — Vary may shuffle a Word Bank, as it shuffles Multiple Choice answers — and no answer is correct on its own: several Items may name the same answer, and an answer no Item names is a distractor. A Word Bank of up to five answers prints beside its Items; a longer one prints above them in columns.
+_Avoid_: Choices (for a Matching set), answer list, right side
 
 **Short Answer**:
 A Question Type whose response is intentionally brief and does not present answer choices.
@@ -86,11 +98,11 @@ Optional rich-text material authored for a Short Answer question to represent it
 _Avoid_: Correct answer, sample response, rubric
 
 **Question Section**:
-A group of questions of the same Question Type whose boundary remains fixed within an Exam and its exported output, such as Multiple Choice, True/False, or Short Answer. A Section prints its own heading and its own directions, and is omitted entirely when it holds no Questions.
+A group of questions of the same Question Type whose boundary remains fixed within an Exam and its exported output, such as Multiple Choice, True/False, Matching, or Short Answer. A Section prints its own heading and its own directions, and is omitted entirely when it holds no Questions.
 _Avoid_: Question category
 
 **Vary**:
-A family of Exam actions that shuffle question order or answer order before saving or exporting.
+A family of Exam actions that shuffle question order or answer order — a Multiple Choice question's answers, or a Matching set's Word Bank — before saving or exporting.
 _Avoid_: Randomization, version generation
 
 **Export Preview**:

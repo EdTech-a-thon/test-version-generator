@@ -32,6 +32,7 @@ import {
   PAGE_HEIGHT,
   PAGE_MARGIN,
   PAGE_WIDTH,
+  numberLabelOf,
   planExport,
   unmeasured,
   type ExportContentSelection,
@@ -242,7 +243,7 @@ function QuestionHandles({
   return (
     <aside
       className="question-handles"
-      aria-label={`Question ${question.number} controls`}
+      aria-label={`Question ${numberLabelOf(question)} controls`}
       onClick={(event) => event.stopPropagation()}
       onDoubleClick={(event) => event.stopPropagation()}
     >
@@ -250,7 +251,7 @@ function QuestionHandles({
         type="button"
         className="question-handle menu-handle"
         aria-haspopup="menu"
-        aria-label={`Actions for question ${question.number}`}
+        aria-label={`Actions for question ${numberLabelOf(question)}`}
         onClick={(event) => {
           // Beside the grip and to its left, not under the pointer: a menu
           // opened from a handle should read as belonging to that handle, and
@@ -932,7 +933,7 @@ export function ExamPage({
         <ContextMenu
           point={menu.point}
           side={menu.side}
-          ariaLabel={`Question ${menuQuestion.number} actions`}
+          ariaLabel={`Question ${numberLabelOf(menuQuestion)} actions`}
           items={questionMenuItems({
             question: menuQuestion,
             columns: columnSettings[menuQuestion.id] ?? DEFAULT_COLUMNS,

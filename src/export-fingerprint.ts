@@ -17,9 +17,11 @@
 // first differing line, and that line says what the document says.
 
 import {
+  printsNumberLine,
   type ChoiceGrid,
   type ExportDocument,
   type LayoutPlan,
+  type MatchingSet,
   type PageFurniture,
   type PageItem,
   type QuestionItem,
@@ -439,8 +441,52 @@ function planGrid(grid: ChoiceGrid, images: ImageOrdinals): ContentLine[] {
   return lines
 }
 
+// A matching set is a table either way — one row of two cells with the
+// prompts stacked in one and the Word Bank in the other, or a bank grid over a
+// run of prompt paragraphs — so a set that came apart into a run of
+// paragraphs, or lost its bank, is as loud as a collapsed choice grid. Each
+// prompt opens with its blank and number, each answer with its letter.
+function planMatching(set: MatchingSet, images: ImageOrdinals): ContentLine[] {
+  const cellLines = (node: ProseMirrorJSON, opener: string) =>
+    planBlocks(
+      childrenOf(node),
+      { opener: [{ kind: 'text', text: opener, marks: [] }] },
+      images,
+    )
+  const column = (cells: { node: ProseMirrorJSON; opener: string }[]) => {
+    const lines = cells.flatMap((cell) => cellLines(cell.node, cell.opener))
+    return lines.length > 0 ? lines : ['para']
+  }
+  const prompts = set.prompts.map((prompt) => ({
+    node: prompt.node,
+    opener: `_______ ${prompt.number}. `,
+  }))
+  if (set.bankGrid) {
+    const lines: ContentLine[] = [`table:${set.bankGrid.rows}x${set.bankGrid.columns}`]
+    set.bankGrid.cells.forEach((row, rowIndex) => {
+      row.forEach((answer, column) => {
+        lines.push(`cell:${rowIndex},${column}`)
+        const content = answer ? cellLines(answer.node, `${answer.letter}. `) : []
+        lines.push(...(content.length > 0 ? content : ['para']))
+      })
+    })
+    lines.push('/table')
+    return [...lines, ...prompts.flatMap((prompt) => cellLines(prompt.node, prompt.opener))]
+  }
+  return [
+    'table:1x2',
+    'cell:0,0',
+    ...column(prompts),
+    'cell:0,1',
+    ...column(
+      set.bank.map((answer) => ({ node: answer.node, opener: `${answer.letter}. ` })),
+    ),
+    '/table',
+  ]
+}
+
 function planQuestion(item: QuestionItem, images: ImageOrdinals): ContentLine[] {
-  const opener: Segment[] = item.numbered
+  const opener: Segment[] = printsNumberLine(item)
     ? [
         {
           kind: 'text',
@@ -454,10 +500,14 @@ function planQuestion(item: QuestionItem, images: ImageOrdinals): ContentLine[] 
   const stem =
     item.stem.length > 0
       ? planBlocks(item.stem, { opener }, images)
-      : item.numbered
+      : opener.length > 0
         ? [line('para', renderInline(opener))]
         : []
-  return [...stem, ...(item.grid ? planGrid(item.grid, images) : [])]
+  return [
+    ...stem,
+    ...(item.grid ? planGrid(item.grid, images) : []),
+    ...(item.matching ? planMatching(item.matching, images) : []),
+  ]
 }
 
 export function planItemLines(

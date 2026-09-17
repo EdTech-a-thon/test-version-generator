@@ -734,6 +734,10 @@ button { cursor: pointer; }
    compatible target findable rather than discovered by trial. */
 .question-drag-active[data-drag-pane='question-bank'][data-drag-section='multiple-choice']
   .exam-question[data-drop-target='multiple-choice']:not([data-drop]),
+.question-drag-active[data-drag-pane='question-bank'][data-drag-section='true-false']
+  .exam-question[data-drop-target='true-false']:not([data-drop]),
+.question-drag-active[data-drag-pane='question-bank'][data-drag-section='matching']
+  .exam-question[data-drop-target='matching']:not([data-drop]),
 .question-drag-active[data-drag-pane='question-bank'][data-drag-section='open']
   .exam-question[data-drop-target='open']:not([data-drop]) {
   outline: 1px dashed #c9b49b; outline-offset: 5px;
@@ -885,6 +889,42 @@ button { cursor: pointer; }
 .choice-body > :first-child { margin-top: 0; }
 .choice-body > :last-child { margin-bottom: 0; }
 .choice-body p { margin: 0 0 2px; }
+
+/* A matching set: one borderless row, the numbered items in the left cell and
+   the Word Bank in the right, each column stacking on its own. It spans both
+   of the question's grid columns, and each item carries its own blank and
+   number in a column as wide as the page's, so the numbers line up with the
+   questions above and below. The bank's width is `MATCHING_BANK_WIDTH` in
+   export-plan.ts, which the DOCX adapter reads; change both or neither. */
+.matching-set { grid-column: 1 / -1; margin: 8px 0 0; }
+.matching-columns, .matching-bank-grid {
+  width: 100%; border: 0; border-collapse: collapse; table-layout: fixed;
+}
+.matching-items, .matching-bank, .matching-bank-cell { padding: 0; border: 0; vertical-align: top; }
+.matching-bank { width: 240px; padding-left: 24px; }
+/* A long bank sits above the items, in the question's body column like a
+   choice grid, and leaves a line before the items begin. */
+.matching-bank-grid { width: calc(100% - 98px); margin: 0 0 14px 98px; }
+.matching-bank-cell { padding-right: 12px; }
+.matching-bank-cell .matching-answer { margin-bottom: 4px; }
+.matching-prompt, .matching-answer { margin-bottom: 10px; }
+.matching-prompt:last-child, .matching-answer:last-child { margin-bottom: 0; }
+.matching-prompt { display: grid; grid-template-columns: 92px 1fr; gap: 6px; }
+.matching-number { display: flex; align-items: baseline; gap: 8px; font-weight: 700; }
+.matching-blank { position: relative; flex: 1; border-bottom: 1px solid #332a24; transform: translateY(-3px); }
+/* The letter a prompt earns, drawn on its blank in the Working Copy only. It
+   paints into the blank rather than beside it, so a set with its letters shown
+   measures exactly as it prints without them. */
+.matching-blank[data-answer]::after {
+  content: attr(data-answer); position: absolute; inset: auto 0 1px 0;
+  color: var(--easy-ink); font-weight: 700; text-align: center;
+}
+.matching-count { white-space: nowrap; }
+.matching-letter { float: left; margin-right: 6px; }
+.matching-body > :first-child { margin-top: 0; }
+.matching-body > :last-child { margin-bottom: 0; }
+.matching-body p { margin: 0 0 2px; }
+.matching-body img { max-width: 100%; }
 
 /* The handles: a plus and a grip in the margin beside a question, hidden until
    it is hovered or one of them has focus, so the page still reads as paper.
@@ -1263,6 +1303,71 @@ button { cursor: pointer; }
   position: absolute; inset: 4px auto auto 0;
   color: #a8988c; pointer-events: none;
 }
+
+/* Matching: the items down the left and the Word Bank down the right, as the
+   paper prints them, inside the same dashed box the other answer regions use.
+   Each item's pick control sits where a choice keeps its radio and the paper
+   keeps the blank; each answer's letter is its position, counted by the
+   stylesheet so the letters renumber as the bank is edited. */
+.milkdown .matching-set { margin: 20px 0; }
+.milkdown .ProseMirror[contenteditable="true"] .matching-set {
+  border: 1px dashed #bda995; border-radius: 6px; overflow: hidden;
+}
+.matching-heads {
+  display: none; grid-template-columns: 3fr 2fr; gap: 12px;
+  padding: 8px 12px 6px;
+  color: #786457; font-size: 12px; font-weight: 700; user-select: none;
+}
+.milkdown .ProseMirror[contenteditable="true"] .matching-heads { display: grid; }
+.milkdown .matching-grid {
+  display: grid; grid-template-columns: 3fr 2fr; grid-auto-flow: row dense;
+  gap: 0 12px; padding: 0 12px 6px; counter-reset: matching-answer;
+}
+.milkdown .matching-prompt, .milkdown .matching-answer {
+  display: flex; align-items: flex-start; gap: 10px;
+  margin: 0; padding: 6px 0; line-height: 1.5;
+}
+.milkdown .matching-prompt { grid-column: 1; }
+.milkdown .matching-answer { grid-column: 2; counter-increment: matching-answer; }
+.matching-pick-control {
+  flex: none; display: flex; align-items: center; height: 1.5em; user-select: none;
+}
+.matching-pick {
+  min-width: 3.4em; padding: 1px 4px; border: 1px solid #d8c8b8; border-radius: 6px;
+  background: #fffaf3; color: #4e3b2f; font: inherit; font-size: 13px; font-weight: 700;
+  text-align: center;
+}
+.matching-pick:not(:disabled) { cursor: pointer; }
+.milkdown .matching-letter {
+  flex: none; float: none; min-width: 1.6em; margin: 0; padding-top: 0;
+  font-weight: 700; color: #4e3b2f; user-select: none;
+}
+.milkdown .matching-letter::before { content: counter(matching-answer, upper-alpha) '.'; }
+.milkdown .matching-body { position: relative; flex: 1 1 auto; min-width: 0; outline: none; }
+.milkdown .ProseMirror .matching-body > :first-child { margin-top: 0; padding-top: 0; }
+.milkdown .ProseMirror .matching-body > :last-child { margin-bottom: 0; padding-bottom: 0; }
+.milkdown .matching-body .crepe-placeholder::before { content: none; }
+.milkdown .matching-body:has(> p:only-child > br.ProseMirror-trailingBreak)::before,
+.milkdown .matching-body:has(> p:only-child:empty)::before {
+  content: 'Item';
+  position: absolute; inset: 0 auto auto 0;
+  color: #a8988c; pointer-events: none;
+}
+.milkdown .matching-answer .matching-body:has(> p:only-child > br.ProseMirror-trailingBreak)::before,
+.milkdown .matching-answer .matching-body:has(> p:only-child:empty)::before {
+  content: 'Answer';
+}
+/* "Add item" and "Add answer", one under each column (editor only). */
+.matching-actions { display: none; grid-template-columns: 3fr 2fr; gap: 12px; }
+.milkdown .ProseMirror[contenteditable="true"] .matching-actions {
+  display: grid; border-top: 1px dashed #bda995;
+}
+.matching-add {
+  padding: 8px 12px; border: 0; color: #786457; background: transparent;
+  font: inherit; font-weight: 600; text-align: left;
+}
+.matching-add:hover { color: #9f5037; background: #f7eee3; }
+.matching-add:focus { outline: none; }
 
 /* The sheet keeps its size on a narrow screen — it is a piece of paper, and
    shrinking it would mean showing a layout the printer will not produce. The
@@ -1722,6 +1827,18 @@ button { cursor: pointer; }
 .question-bank-export-choices .doc-content { display: inline; }
 .question-bank-export-choices .doc-content p { display: inline; }
 .question-bank-correct { margin-left: 8px; color: #27643a; font-size: 12px; }
+/* A matching set in a record preview: the items with the letter each one
+   matches, then the lettered Word Bank they were matched against. */
+.record-matching { display: grid; gap: 8px; margin-top: 8px; }
+.record-matching-items { display: grid; gap: 7px; margin: 0; padding: 0; list-style: none; }
+.record-matching-items li { display: flex; align-items: baseline; gap: 8px; }
+.record-matching-items .doc-content, .record-matching-items .doc-content p { display: inline; }
+.record-matching-blank {
+  flex: none; min-width: 2.2em; padding: 0 4px; border-radius: 4px;
+  background: #e6f0e3; color: #27643a; font-size: 12px; font-weight: 700; text-align: center;
+}
+.bank-import-matching { margin-top: 10px; }
+.bank-import-matching .record-matching-items { color: var(--paper-ink-soft); }
 .question-bank-details-dialog {
   width: min(620px, calc(100vw - 32px)); max-height: calc(100vh - 40px);
   padding: 22px; overflow: auto; border-radius: 12px; background: #fffdf8;

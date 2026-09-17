@@ -60,14 +60,19 @@ import {
 } from './export-media'
 import {
   CHOICE_AREA_WIDTH,
+  MATCHING_BANK_WIDTH,
+  PAGE_CONTENT_WIDTH,
+  printsNumberLine,
   type AnswerKeyEntryItem,
   type AnswerKeySectionItem,
   type ChoiceGrid,
   type IdentityField,
   US_LETTER,
   type LayoutPlan,
+  type MatchingSet,
   type PageFurniture,
   type PageItem,
+  type PlannedBankAnswer,
   type PlannedPage,
   type QuestionItem,
 } from './export-plan'
@@ -94,7 +99,8 @@ function twips(px: number): number {
 // question's number and answer blank, plus the grid gap beside it. A question's
 // body hangs off it, so a continued piece's text stays where the first piece's
 // text was.
-const QUESTION_INDENT = twips(92 + 6)
+const QUESTION_INDENT_PX = 92 + 6
+const QUESTION_INDENT = twips(QUESTION_INDENT_PX)
 
 export {
   browserMedia,
@@ -667,6 +673,80 @@ function choiceGridTable(grid: ChoiceGrid, build: BuildContext): Table {
   })
 }
 
+// A matching set, with the plan's own layout. The prompts are paragraphs
+// opened by their blank and number, hanging off the page's own number column
+// so they line up with the questions around them; each Word Bank answer is
+// opened by its letter. A short bank is the right cell of a borderless one-row
+// table spanning the full content width, the prompts stacked in its left cell;
+// a long bank is a borderless grid above the prompts with the plan's own
+// topology, drawn the way a choice grid is.
+function matchingContent(
+  set: MatchingSet,
+  build: BuildContext,
+): (Paragraph | Table)[] {
+  const cell = (width: number, content: (Paragraph | Table)[]) =>
+    new TableCell({
+      width: { size: twips(width), type: WidthType.DXA },
+      borders: NO_BORDERS,
+      children: content.length > 0 ? content : [new Paragraph({})],
+    })
+  const prompts = (contentWidth: number) =>
+    set.prompts.flatMap((prompt) =>
+      blocks(
+        childrenOf(prompt.node),
+        {
+          indent: QUESTION_INDENT,
+          hanging: QUESTION_INDENT,
+          prefix: [new TextRun({ text: `_______  ${prompt.number}.\t` })],
+        },
+        { ...build, contentWidth },
+      ),
+    )
+  const answer = (item: PlannedBankAnswer, contentWidth: number) =>
+    blocks(
+      childrenOf(item.node),
+      { indent: 0, prefix: [new TextRun({ text: `${item.letter}.\t` })], hanging: 288 },
+      { ...build, contentWidth },
+    )
+
+  if (set.bankGrid) {
+    const cellWidth = CHOICE_AREA_WIDTH / set.bankGrid.columns
+    const grid = new Table({
+      width: { size: twips(CHOICE_AREA_WIDTH), type: WidthType.DXA },
+      indent: { size: QUESTION_INDENT, type: WidthType.DXA },
+      borders: NO_BORDERS,
+      rows: set.bankGrid.cells.map(
+        (row) =>
+          new TableRow({
+            children: row.map((item) =>
+              cell(cellWidth, item ? answer(item, cellWidth) : []),
+            ),
+          }),
+      ),
+    })
+    return [grid, ...prompts(PAGE_CONTENT_WIDTH - QUESTION_INDENT_PX)]
+  }
+
+  const itemsWidth = PAGE_CONTENT_WIDTH - MATCHING_BANK_WIDTH
+  return [
+    new Table({
+      width: { size: twips(PAGE_CONTENT_WIDTH), type: WidthType.DXA },
+      borders: NO_BORDERS,
+      rows: [
+        new TableRow({
+          children: [
+            cell(itemsWidth, prompts(itemsWidth - QUESTION_INDENT_PX)),
+            cell(
+              MATCHING_BANK_WIDTH,
+              set.bank.flatMap((item) => answer(item, MATCHING_BANK_WIDTH)),
+            ),
+          ],
+        }),
+      ],
+    }),
+  ]
+}
+
 // A question, or the piece of one this page carries. Only the first piece prints
 // the number line and the answer blank — the same rule the print adapter draws
 // by, taken from the same planned item rather than decided again here.
@@ -674,7 +754,8 @@ function questionContent(
   item: QuestionItem,
   build: BuildContext,
 ): (Paragraph | Table)[] {
-  const prefix: ParagraphChild[] = item.numbered
+  const numbered = printsNumberLine(item)
+  const prefix: ParagraphChild[] = numbered
     ? [
         new TextRun({
           text: item.question.answerBlank
@@ -685,18 +766,22 @@ function questionContent(
     : []
   const context: BlockContext = {
     indent: QUESTION_INDENT,
-    hanging: item.numbered ? QUESTION_INDENT : undefined,
-    prefix: item.numbered ? prefix : undefined,
+    hanging: numbered ? QUESTION_INDENT : undefined,
+    prefix: numbered ? prefix : undefined,
   }
 
   const stem =
     item.stem.length > 0
       ? blocks(item.stem, context, build)
-      : item.numbered
+      : numbered
         ? [new Paragraph(paragraphOptions(context, { children: prefix }))]
         : []
 
-  return [...stem, ...(item.grid ? [choiceGridTable(item.grid, build)] : [])]
+  return [
+    ...stem,
+    ...(item.grid ? [choiceGridTable(item.grid, build)] : []),
+    ...(item.matching ? matchingContent(item.matching, build) : []),
+  ]
 }
 
 // The answer key, in Word.

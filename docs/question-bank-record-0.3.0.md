@@ -1,18 +1,16 @@
-# Question Bank Record 0.2.0
-
-> **Superseded by [Question Bank Record 0.3.0](question-bank-record-0.3.0.md).** Test Parrot no longer produces `0.2.0` records; it still reads them, and this contract is frozen so that every Question Bank File already shared keeps opening. The one fixture that changes after publication is `invalid/unsupported-version.json`, which names a version no Test Parrot parser implements — each time a newer version ships, it has to name the one after that to keep meaning it.
+# Question Bank Record 0.3.0
 
 The **Question Bank Record** is the authoritative, portable representation of one complete Question Bank. It is embedded in a **Question Bank File**, whose PDF pages are only a teacher-readable preview. The record, not the pages, controls import.
 
 ## Published contract
 
 - Format: `test-parrot/question-bank`
-- Version: `0.2.0`
-- Stable schema identifier: `https://testparrot.com/formats/question-bank/0.2.0/schema.json`
-- Checked-in schema: [`/formats/question-bank/0.2.0/schema.json`](../public/formats/question-bank/0.2.0/schema.json)
-- [Canonical examples](../public/formats/question-bank/0.2.0/examples/)
-- [Invalid counterexamples](../public/formats/question-bank/0.2.0/invalid/)
-- Superseded but still readable: [Question Bank Record 0.1.0](question-bank-record-0.1.0.md)
+- Version: `0.3.0`
+- Stable schema identifier: `https://testparrot.com/formats/question-bank/0.3.0/schema.json`
+- Checked-in schema: [`/formats/question-bank/0.3.0/schema.json`](../public/formats/question-bank/0.3.0/schema.json)
+- [Canonical examples](../public/formats/question-bank/0.3.0/examples/)
+- [Invalid counterexamples](../public/formats/question-bank/0.3.0/invalid/)
+- Superseded but still readable: [Question Bank Record 0.2.0](question-bank-record-0.2.0.md) and [Question Bank Record 0.1.0](question-bank-record-0.1.0.md)
 
 The schema is the machine-readable structural contract; this document supplies semantics that JSON Schema cannot express. Implementations must perform both structural and semantic validation.
 
@@ -23,17 +21,17 @@ Every record has these required members:
 | Member             | Meaning                                                                                                                                             |
 | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `format`           | Exactly `test-parrot/question-bank`.                                                                                                                |
-| `formatVersion`    | The exact version of this contract, `0.2.0`.                                                                                                        |
+| `formatVersion`    | The exact version of this contract, `0.3.0`.                                                                                                        |
 | `generator`        | Informational producer name and version. Consumers must not gate conformance on either value.                                                       |
 | `requiredFeatures` | Semantic capabilities required to consume the record without loss. An importer must reject an unknown entry. It may ignore unknown optional fields. |
 | `bank`             | Name, optional provenance, and non-empty ordered Questions.                                                                                         |
 | `media`            | Media Asset declarations used by Question Content; empty when no image is used.                                                                     |
 
-### What 0.2.0 changed
+### What 0.3.0 changed
 
-`0.2.0` adds the `true-false` Question Type and nothing else. Every `0.1.0` record is therefore also a conforming `0.2.0` record once its `formatVersion` is restated, and migration rewrites no content. The reverse does not hold: a `0.2.0` record containing a True/False Question must be rejected by a `0.1.0` consumer, which is why the addition is a minor version rather than a patch.
+`0.3.0` adds the `matching` Question Type and nothing else, as `0.2.0` added `true-false` and nothing else. Every `0.2.0` record — and so every `0.1.0` record — is therefore also a conforming `0.3.0` record once its `formatVersion` is restated, and migration rewrites no content. The reverse does not hold: a `0.3.0` record containing a Matching Question must be rejected by an older consumer, which is why the addition is a minor version rather than a patch.
 
-A producer writes `0.2.0`. A consumer implements `0.1.0` and `0.2.0` — a Question Bank File that has already been shared must keep opening — and reports to the teacher the version the file declared, not the version it migrated to.
+A producer writes `0.3.0`. A consumer implements `0.1.0`, `0.2.0` and `0.3.0` — a Question Bank File that has already been shared must keep opening — and reports to the teacher the version the file declared, not the version it migrated to.
 
 Importers accept only exact versions for which they implement a parser or migration. They must not infer compatibility from a SemVer range or accept every `0.x` version. During major version zero, a **patch** change is a compatible clarification or addition; a **minor** change may be incompatible and requires explicit parser or migration support. Major version one will establish the first stable compatibility commitment.
 
@@ -41,7 +39,7 @@ Unknown optional fields may be ignored and need not survive re-export. Unknown Q
 
 ## Identity and ordering
 
-`bank.questions` is in canonical authored Question order. A Question has a package-local ordinal ID such as `q1`; a Multiple Choice choice has one such as `q1-c1`. These IDs exist only to make references inside one record readable. They are not local application identities, synchronization keys, or IDs to preserve on import. An application creates fresh local IDs for an imported bank, its Questions, and its choices.
+`bank.questions` is in canonical authored Question order. A Question has a package-local ordinal ID such as `q1`; a Multiple Choice choice has one such as `q1-c1`, a Matching item one such as `q1-p1` and a Word Bank answer one such as `q1-a1`. These IDs exist only to make references inside one record readable — a Matching item names its answer by one. They are not local application identities, synchronization keys, or IDs to preserve on import. An application creates fresh local IDs for an imported bank, its Questions, and its choices.
 
 Media Asset IDs are different: `sha256:<digest>` is a content address derived from immutable bytes. Implementations may use that hash to reuse identical media locally. It is not the identity of a Question or Question Bank.
 
@@ -64,6 +62,14 @@ A `multiple-choice` Question has an authored `choices` list of at least two entr
 A `true-false` Question has an authored `choices` list of exactly two entries, in the order a student reads them: the first is the affirmative answer and the second the negative. The pair is written out as ordinary choice content — `True` and `False` in English — so a consumer needs no table of what the type means and a bank may state the pair in its own language. Choices carry the same package-local `id`, semantic `content`, and boolean `correct` as Multiple Choice, and the same correctness rule: zero or one may be correct, and zero is conforming but represents incomplete authoring. A True/False Question must not contain `suggestedAnswer`.
 
 The pair is the Question Type rather than authored variation. A consumer must not add to it, reorder it, or offer it for editing, and a producer must not shuffle it: a test that prints True before False on one copy and after it on another varies nothing a student answers.
+
+### Matching
+
+A `matching` Question is one matching set: its `stem` is the set's own directions, such as “Match each event to the correct time period.”, and may be visibly blank; its `prompts` are the items a student matches, at least one, in the order they are numbered; and its `wordBank` is the lettered list they are matched against, at least two answers, in authored order. Each item and each answer has a package-local `id` and semantic `content`.
+
+An item is matched by naming an answer: its optional `answer` is the `id` of one of the same Question's Word Bank answers. Several items may name the same answer, an answer no item names is a distractor, and an item with no `answer` is unmatched — conforming, but representing incomplete authoring. An `answer` that is not an `id` in the Question's own Word Bank invalidates the record.
+
+Neither list carries correctness or letters. An answer's letter is its position in the Word Bank as printed, so a producer that varies a test may shuffle the Word Bank — every item still names the same answer under its new letter — but must not reorder the items, which are numbered in place. On a test each item takes a question number of its own; the Question is one record because its items share one Word Bank. A Matching Question must not contain `choices` or `suggestedAnswer`, and no other Question Type may contain `prompts` or `wordBank`.
 
 ### Short Answer
 
@@ -117,7 +123,7 @@ The PDF preview is a teacher aid containing answers. It is generated from the re
 
 ## Examples and counterexamples
 
-The canonical examples cover a minimal Multiple Choice bank, a True/False bank, Short Answer with Suggested Answer, every supported rich-text node and mark, provenance and external links, and referenced Media Assets. Their formatting and generator values are deliberately not Test Parrot output requirements.
+The canonical examples cover a minimal Multiple Choice bank, a True/False bank, a Matching bank with a distractor and an unmatched item, Short Answer with Suggested Answer, every supported rich-text node and mark, provenance and external links, and referenced Media Assets. Their formatting and generator values are deliberately not Test Parrot output requirements.
 
 The invalid fixture manifest records the expected application-level rejection category for unsupported versions and required features, unsafe URLs, malformed Questions, dangling references, and invalid Media Assets. Conformance tests validate examples directly with an independent JSON Schema implementation, inspect them through Test Parrot's public import seam, validate Test Parrot-generated records against the published schema, and assert that schema vocabulary, adapters, and examples remain aligned.
 
@@ -125,7 +131,7 @@ The invalid fixture manifest records the expected application-level rejection ca
 ## Implementation status
 
 The Question Bank File workflow described by ADR-0018 and GitHub issue #55 is
-implemented by the `0.2.0` exporter, importer, public fixtures, and contract
-tests, with `0.1.0` retained as a consumer version. Question Bank Files remain a resource-exchange format: they do not use
+implemented by the `0.3.0` exporter, importer, public fixtures, and contract
+tests, with `0.2.0` and `0.1.0` retained as consumer versions. Question Bank Files remain a resource-exchange format: they do not use
 Exam Export Documents or Layout Plans and do not create Exam Export Records or
 Question Bank export history.

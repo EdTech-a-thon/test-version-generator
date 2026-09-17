@@ -99,22 +99,32 @@ export const multipleChoiceSchema = $nodeSchema('multipleChoice', () => ({
   toMarkdown: { match: () => false, runner: () => undefined },
 }))
 
-// Depth of the multipleChoiceChoice enclosing a position, or 0 if none.
-function choiceDepthOf($pos: ResolvedPos) {
+// Depth of the nearest enclosing node of one of `names` — an answer cell of
+// some kind — or 0 if the position is in none. Shared with the matching set's
+// cells, which are edited the same way a choice is.
+export function cellDepthOf($pos: ResolvedPos, names: ReadonlySet<string>) {
   let depth = $pos.depth
-  while (depth > 0 && $pos.node(depth).type.name !== 'multipleChoiceChoice') {
-    depth -= 1
-  }
+  while (depth > 0 && !names.has($pos.node(depth).type.name)) depth -= 1
   return depth
 }
 
-// Enter inside a choice adds a newline within the cell (a new paragraph), like
-// typing in a table cell — it never leaves or splits the list. Elsewhere it
-// returns false so normal editing is untouched.
-const newlineInChoice: Command = (state, dispatch) => {
-  if (choiceDepthOf(state.selection.$from) === 0) return false
-  return splitBlock(state, dispatch)
+const CHOICE = new Set(['multipleChoiceChoice'])
+
+function choiceDepthOf($pos: ResolvedPos) {
+  return cellDepthOf($pos, CHOICE)
 }
+
+// Enter inside a cell adds a newline within it (a new paragraph), like typing
+// in a table cell — it never leaves or splits the list. Elsewhere it returns
+// false so normal editing is untouched.
+export function newlineInCell(names: ReadonlySet<string>): Command {
+  return (state, dispatch) => {
+    if (cellDepthOf(state.selection.$from, names) === 0) return false
+    return splitBlock(state, dispatch)
+  }
+}
+
+const newlineInChoice = newlineInCell(CHOICE)
 
 // Tab / Shift-Tab move between cells, like a table. Tab past the last cell adds
 // a new empty choice (its id is filled in by uniqueChoiceIds).
@@ -206,9 +216,16 @@ export const multipleChoiceKeymap = $useKeymap('multipleChoiceKeymap', {
   },
 })
 
+// The nodes that carry a stable id: a choice, and a matching set's prompts and
+// Word Bank answers, which ProseMirror matches node views by and an
+// arrangement's `choiceOrder` is keyed by.
+const ID_BEARING = new Set(['multipleChoiceChoice', 'matchingPrompt', 'matchingAnswer'])
+
 // Guarantee every choice carries a unique id. New choices (Enter-split, paste,
 // or legacy docs) arrive with an empty id; give those a fresh one. Duplicate
-// ids (e.g. a copied choice) are reassigned too, keeping the first occurrence.
+// ids (e.g. a copied choice) are reassigned too, keeping the first occurrence —
+// so a prompt that named a Word Bank answer still names the original after the
+// answer is copied.
 export const uniqueChoiceIds = $prose(
   () => new Plugin({
     appendTransaction(transactions, _oldState, newState) {
@@ -217,7 +234,7 @@ export const uniqueChoiceIds = $prose(
       const tr = newState.tr
       let changed = false
       newState.doc.descendants((node, pos) => {
-        if (node.type.name !== 'multipleChoiceChoice') return
+        if (!ID_BEARING.has(node.type.name)) return
         const id = node.attrs.id
         if (!id || seen.has(id)) {
           const nextId = crypto.randomUUID()

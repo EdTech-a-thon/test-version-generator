@@ -12,7 +12,9 @@ import {
   pageContentHeight,
   isAnswerKeyHeader,
   buildExportDocument,
+  numberLabelOf,
   planExport,
+  printsNumberLine,
   unmeasured,
   STUDENT_TEST,
   type ColumnCount,
@@ -69,6 +71,37 @@ function trueFalse(id: string, correct: 'true' | 'false' | null = null): Questio
           content: [
             choice(`${id}-t`, correct === 'true'),
             choice(`${id}-f`, correct === 'false'),
+          ],
+        },
+      ],
+    },
+    columns: DEFAULT_COLUMNS,
+  }
+}
+
+// A matching set: `matches` is each item's answer id in item order, '' for an
+// unmatched one; `bankIds` the Word Bank in authored order.
+function matching(id: string, matches: string[], bankIds: string[]): Question {
+  return {
+    id,
+    type: 'matching',
+    doc: {
+      type: 'doc',
+      content: [
+        { type: 'paragraph', content: [{ type: 'text', text: `stem ${id}` }] },
+        {
+          type: 'matching',
+          content: [
+            ...matches.map((answer, index) => ({
+              type: 'matchingPrompt',
+              attrs: { id: `${id}-p${index + 1}`, answer },
+              content: [{ type: 'paragraph', content: [{ type: 'text', text: `item ${index + 1}` }] }],
+            })),
+            ...bankIds.map((bankId) => ({
+              type: 'matchingAnswer',
+              attrs: { id: bankId },
+              content: [{ type: 'paragraph', content: [{ type: 'text', text: bankId }] }],
+            })),
           ],
         },
       ],
@@ -218,6 +251,22 @@ describe('sections', () => {
     )
   })
 
+  test('matching prints between true/false and short answer, with its own directions', () => {
+    const exam = examOf([
+      open('q1'),
+      matching('x1', [''], ['a', 'b']),
+      trueFalse('q2'),
+      multipleChoice('q3', ['a', 'b']),
+    ])
+    const pages = render(exam, arrangementOf(['q1', 'x1', 'q2', 'q3']))
+    expect(headings(pages).map((heading) => heading.kind === 'section-heading' && heading.title))
+      .toEqual(['Multiple Choice', 'True/False', 'Matching', 'Short Answer'])
+    expect(headings(pages)[2]).toMatchObject({
+      section: 'matching',
+      instructions: SECTION_INSTRUCTIONS.matching,
+    })
+  })
+
   test('a section with no questions is omitted, heading and all', () => {
     const pages = render(examOf([multipleChoice('q1', ['a', 'b'])]))
     expect(headings(pages)).toHaveLength(1)
@@ -261,6 +310,72 @@ describe('questions', () => {
     const rendered = plannedQuestions(render(exam, arrangementOf(['m2', 'o1', 'm1'])))
     expect(rendered.map((question) => question.id)).toEqual(['m2', 'm1', 'o1'])
     expect(rendered.map((question) => question.number)).toEqual([1, 2, 3])
+  })
+
+  test('a matching set takes one number per item, and numbering continues past it', () => {
+    const exam = examOf([
+      multipleChoice('m1', ['a', 'b']),
+      matching('x1', ['', '', ''], ['a', 'b', 'c']),
+      matching('x2', [''], ['a', 'b']),
+      open('o1'),
+    ])
+    const rendered = plannedQuestions(render(exam))
+    expect(rendered.map((question) => [question.id, question.number])).toEqual([
+      ['m1', 1],
+      ['x1', 2],
+      ['x2', 5],
+      ['o1', 6],
+    ])
+    expect(rendered[1]!.matching!.prompts.map((prompt) => prompt.number)).toEqual([2, 3, 4])
+    expect(numberLabelOf(rendered[1]!)).toBe('2–4')
+    expect(numberLabelOf(rendered[2]!)).toBe('5')
+    expect(numberLabelOf(rendered[3]!)).toBe('6')
+  })
+
+  test('a matching set prints its numbers on its items, not beside its stem', () => {
+    const [item] = itemsOf(render(examOf([matching('x1', [''], ['a', 'b'])]))).filter(
+      (candidate): candidate is QuestionItem => candidate.kind === 'question',
+    )
+    expect(item!.numbered).toBe(true)
+    expect(printsNumberLine(item!)).toBe(false)
+    expect(item!.question.answerBlank).toBe(false)
+    expect(item!.question.grid).toBeNull()
+    expect(item!.question.choices).toEqual([])
+    expect(item!.question.stem).toEqual([
+      { type: 'paragraph', content: [{ type: 'text', text: 'stem x1' }] },
+    ])
+  })
+
+  test('a matching set letters its word bank by the arrangement, and each item by the answer it names', () => {
+    const exam = examOf([matching('x1', ['b', '', 'gone'], ['a', 'b', 'c'])])
+    const [rendered] = plannedQuestions(render(exam, arrangementOf(['x1'], { x1: ['c', 'b', 'a'] })))
+    expect(rendered!.matching!.bank.map((answer) => `${answer.letter}${answer.id}`)).toEqual([
+      'Ac',
+      'Bb',
+      'Ca',
+    ])
+    // Unmatched, and matched to an answer the bank no longer holds, both print
+    // no letter.
+    expect(rendered!.matching!.prompts.map((prompt) => prompt.letter)).toEqual(['B', null, null])
+  })
+
+  test('a word bank of up to five answers prints beside its items; a longer one above them, in two columns', () => {
+    const beside = plannedQuestions(render(examOf([matching('x1', [''], ['a', 'b', 'c', 'd', 'e'])])))
+    expect(beside[0]!.matching!.bankGrid).toBeNull()
+
+    const above = plannedQuestions(
+      render(examOf([matching('x2', [''], ['a', 'b', 'c', 'd', 'e', 'f', 'g'])])),
+    )
+    const grid = above[0]!.matching!.bankGrid!
+    expect(grid.columns).toBe(2)
+    expect(grid.rows).toBe(4)
+    // Column-major: A–D down the left, E–G down the right, one cell empty.
+    expect(grid.cells.map((row) => row.map((cell) => cell?.letter ?? '-'))).toEqual([
+      ['A', 'E'],
+      ['B', 'F'],
+      ['C', 'G'],
+      ['D', '-'],
+    ])
   })
 
   test('multiple choice is prefixed with an answer blank; short answer is not', () => {
@@ -565,6 +680,22 @@ describe('answer key', () => {
     })
   })
 
+  test('records one line per matching item, each under its own number', () => {
+    const exam = examOf([
+      multipleChoice('m1', ['a', 'b'], 'b'),
+      matching('x1', ['b', ''], ['a', 'b']),
+    ])
+    const items = keyItems(exam, arrangementOf(['m1', 'x1'], { x1: ['b', 'a'] }))
+    expect(items).toEqual([
+      { kind: 'answer-key-heading' },
+      { kind: 'answer-key-section', section: 'multiple-choice', title: 'Multiple Choice' },
+      { kind: 'answer-key-entry', number: 1, letter: 'B' },
+      { kind: 'answer-key-section', section: 'matching', title: 'Matching' },
+      { kind: 'answer-key-entry', number: 2, letter: 'A' },
+      { kind: 'answer-key-entry', number: 3, letter: null },
+    ])
+  })
+
   test('lists free-response questions with a blank answer', () => {
     expect(keyItems(examOf([open('o1')]))).toContainEqual({
       kind: 'answer-key-entry',
@@ -818,6 +949,92 @@ describe('page packing', () => {
       pieces.map((_piece, index) => index === pieces.length - 1),
     )
     expect(pieces.at(-1)!.grid).toEqual(pieces[0]!.question.grid)
+  })
+
+  /** A matching set whose stem is `blocks` paragraphs long. */
+  function tallSet(id: string, blocks: number): Question {
+    const set = matching(id, ['', ''], ['a', 'b'])
+    return {
+      ...set,
+      doc: {
+        ...set.doc,
+        content: [
+          ...Array.from({ length: blocks }, (_unused, index) => ({
+            type: 'paragraph',
+            content: [{ type: 'text', text: `${id} block ${index}` }],
+          })),
+          (set.doc.content as ProseMirrorJSON[]).at(-1)!,
+        ],
+      },
+    }
+  }
+
+  test('a matching set is never split: its directions, items and word bank move together', () => {
+    // The set opens the paper; the open question after it fills most of a
+    // page. Neither the set's three stem blocks nor its columns come apart.
+    const exam = examOf([tall('o1', 1), tallSet('x1', 3)])
+    const pages = testPages(planPages(exam, arrangementOf(['o1', 'x1']), {
+      itemHeight: (item) => {
+        if (item.kind !== 'question') return 40
+        if (item.question.id === 'o1') return Math.floor(FIRST_BOX * 0.8)
+        return item.stem.length * 60 + (item.matching ? 300 : 0)
+      },
+    }))
+    expect(pageShape(pages)).toEqual([
+      ['section-heading', 'q:x1'],
+      ['section-heading', 'q:o1'],
+    ])
+    const [piece] = questionItems(pages)
+    expect(piece!.stem).toHaveLength(3)
+    expect(piece!.matching).not.toBeNull()
+  })
+
+  test('a matching set that opens its section moves to the next page with its heading, whole', () => {
+    // A multiple-choice question takes most of the first page. The Matching
+    // heading and its set do not fit under it; the heading must not stay
+    // behind with only the set's directions, nor alone.
+    const exam = examOf([tallChoice('m1', 1), tallSet('x1', 2)])
+    const pages = testPages(planPages(
+      exam,
+      arrangementOf(['m1', 'x1']),
+      {
+        itemHeight: (item) => {
+          if (item.kind !== 'question') return 40
+          if (item.question.id === 'm1') return Math.floor(FIRST_BOX * 0.85)
+          return item.stem.length * 60 + (item.matching ? 300 : 0)
+        },
+      },
+    ))
+    expect(pageShape(pages)).toEqual([
+      ['section-heading', 'q:m1'],
+      ['section-heading', 'q:x1'],
+    ])
+    const set = questionItems(pages).find((item) => item.question.id === 'x1')!
+    expect(set.stem).toHaveLength(2)
+    expect(set.matching).not.toBeNull()
+  })
+
+  test('a matching set taller than a page is still not split', () => {
+    const pages = testPages(planPages(
+      examOf([tallChoice('m1', 1), tallSet('x1', 2)]),
+      arrangementOf(['m1', 'x1']),
+      {
+        itemHeight: (item) => {
+          if (item.kind !== 'question') return 40
+          if (item.question.id === 'm1') return 100
+          return item.stem.length * 100 + (item.matching ? FIRST_BOX + 100 : 0)
+        },
+      },
+    ))
+    // The Matching heading goes with its set rather than staying under the
+    // multiple-choice question, and the set overflows its page whole.
+    expect(pageShape(pages)).toEqual([
+      ['section-heading', 'q:m1'],
+      ['section-heading', 'q:x1'],
+    ])
+    const set = questionItems(pages).find((item) => item.question.id === 'x1')!
+    expect(set.stem).toHaveLength(2)
+    expect(set.matching).not.toBeNull()
   })
 
   test('the header variant is first on page one and later on every page after', () => {

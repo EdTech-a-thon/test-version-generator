@@ -6,6 +6,7 @@ import {
   RECORD_TYPE_LABELS,
   RECORD_TYPE_ORDER,
   recordDocumentToEditorNodes,
+  wordBankLettersOf,
   type SemanticDocument,
 } from './question-bank-export'
 import { DifficultyBadge, TopicBadge } from './badges'
@@ -333,6 +334,32 @@ export function QuestionBankImportDialog({
                         </li>
                       ))}
                     </ol>
+                  )}
+                  {question.prompts && question.wordBank && (
+                    <div className="record-matching bank-import-matching">
+                      <ol className="record-matching-items">
+                        {question.prompts.map((prompt) => (
+                          <li key={prompt.id}>
+                            <span
+                              className="record-matching-blank"
+                              aria-label={
+                                prompt.answer ? 'Matched answer' : 'Unmatched'
+                              }
+                            >
+                              {wordBankLettersOf(question).get(prompt.answer ?? '') ?? '—'}
+                            </span>
+                            <DocView content={previewDocument(prompt.content)} />
+                          </li>
+                        ))}
+                      </ol>
+                      <ol type="A" className="bank-import-choices">
+                        {question.wordBank.map((answer) => (
+                          <li key={answer.id}>
+                            <DocView content={previewDocument(answer.content)} />
+                          </li>
+                        ))}
+                      </ol>
+                    </div>
                   )}
                   {question.suggestedAnswer && (
                     <section className="bank-import-answer">

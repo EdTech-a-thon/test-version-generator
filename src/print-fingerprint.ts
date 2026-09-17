@@ -197,6 +197,21 @@ function blockLines(
       ),
     ]
   }
+  // A matching set's prompt opens with its blank and number, and a Word Bank
+  // answer with its letter — beside the content rather than inside it, as a
+  // choice cell keeps its letter, and exactly as the DOCX adapter opens each.
+  if (has(node, 'matching-prompt') || has(node, 'matching-answer')) {
+    const body = find(node, 'matching-body')
+    const blank = find(node, 'matching-blank')
+    const label = find(node, 'matching-count') ?? find(node, 'matching-letter')
+    const text = [blank ? '_______' : '', label ? normalizeSpace(textOf(label)).trim() : '']
+      .filter(Boolean)
+      .join(' ')
+    const cellOpener: Segment[] = text
+      ? [...opener, { kind: 'text', text: `${text} `, marks: [] }]
+      : opener
+    return body ? childBlocks(body, reader, cellOpener) : []
+  }
   if (has(node, 'doc-figure')) {
     const lines: ContentLine[] = []
     const img = node.children.find((child) => child.name === 'img')
@@ -384,10 +399,13 @@ function tableLines(table: XmlNode, reader: Reader): ContentLine[] {
 
 // A question's number column is furniture on the page, not a block of its own:
 // the answer blank and the number open the question's first paragraph, exactly
-// as the DOCX adapter opens it.
+// as the DOCX adapter opens it. A matching set follows the body as a block of
+// its own, spanning the number column: a table of two columns, or a bank grid
+// over a run of numbered prompts.
 function questionLines(node: XmlNode, reader: Reader): ContentLine[] {
   const number = find(node, 'question-number')
   const body = find(node, 'question-body')
+  const set = find(node, 'matching-set')
   const opener: Segment[] = []
   if (number) {
     const blank = find(number, 'answer-blank')
@@ -397,7 +415,10 @@ function questionLines(node: XmlNode, reader: Reader): ContentLine[] {
       .join(' ')
     if (text) opener.push({ kind: 'text', text: `${text} `, marks: [] })
   }
-  return body ? childBlocks(body, reader, opener) : []
+  return [
+    ...(body ? childBlocks(body, reader, opener) : []),
+    ...(set ? childBlocks(set, reader) : []),
+  ]
 }
 
 function elementLines(element: XmlNode, reader: Reader): ContentLine[] {

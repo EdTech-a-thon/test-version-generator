@@ -1,7 +1,9 @@
 import Ajv2020, { type ErrorObject } from 'ajv/dist/2020'
 import type { Question, QuestionType } from './exam'
+import type { ProseMirrorJSON } from './question-doc'
 import questionBankSchema010 from './question-bank-record-0.1.0.schema.json'
 import questionBankSchema020 from './question-bank-record-0.2.0.schema.json'
+import questionBankSchema030 from './question-bank-record-0.3.0.schema.json'
 import {
   QUESTION_BANK_ATTACHMENT_DESCRIPTION,
   QUESTION_BANK_FORMAT,
@@ -101,9 +103,9 @@ export type QuestionBankImportProposal = {
     bankName: string
     questionCounts: Record<QuestionBankRecordQuestionType, number>
     topics: string[]
-    /** Questions that answer with choices but have none marked correct. That is
-     *  conforming — a bank may be shared mid-authoring — so it is reported
-     *  rather than refused. */
+    /** Questions that answer with choices but have none marked correct, and
+     *  matching sets with an item left unmatched. That is conforming — a bank
+     *  may be shared mid-authoring — so it is reported rather than refused. */
     questionsWithoutCorrectAnswer: number
     mediaAssets: number
     decodedMediaBytes: number
@@ -117,7 +119,38 @@ export type QuestionBankImportProposal = {
 const LOCAL_TYPES: Record<QuestionBankRecordQuestionType, QuestionType> = {
   'multiple-choice': 'multiple-choice',
   'true-false': 'true-false',
+  matching: 'matching',
   'short-answer': 'open',
+}
+
+/** A matching set's editor node: its prompts, then its Word Bank, each given
+ *  a fresh local id — and each prompt pointed at its answer's new id, since a
+ *  package-local id is only meaningful inside the record. */
+function importedMatching(
+  question: QuestionBankRecordQuestion,
+  createId: () => string,
+): ProseMirrorJSON {
+  const answerIds = new Map(
+    (question.wordBank ?? []).map((answer) => [answer.id, createId()]),
+  )
+  return {
+    type: 'matching',
+    content: [
+      ...(question.prompts ?? []).map((prompt) => ({
+        type: 'matchingPrompt',
+        attrs: {
+          id: createId(),
+          answer: (prompt.answer && answerIds.get(prompt.answer)) || '',
+        },
+        content: recordDocumentToEditorNodes(prompt.content),
+      })),
+      ...(question.wordBank ?? []).map((answer) => ({
+        type: 'matchingAnswer',
+        attrs: { id: answerIds.get(answer.id)! },
+        content: recordDocumentToEditorNodes(answer.content),
+      })),
+    ],
+  }
 }
 
 /** Map a validated portable record into fresh local authoring identities. */
@@ -134,19 +167,21 @@ export function importedQuestionsFromRecord(
       doc: {
         type: 'doc',
         content:
-          question.choices
-            ? [
-                ...stem,
-                {
-                  type: 'multipleChoice',
-                  content: question.choices.map((choice) => ({
-                    type: 'multipleChoiceChoice',
-                    attrs: { id: createId(), correct: choice.correct },
-                    content: recordDocumentToEditorNodes(choice.content),
-                  })),
-                },
-              ]
-            : stem,
+          question.type === 'matching'
+            ? [...stem, importedMatching(question, createId)]
+            : question.choices
+              ? [
+                  ...stem,
+                  {
+                    type: 'multipleChoice',
+                    content: question.choices.map((choice) => ({
+                      type: 'multipleChoiceChoice',
+                      attrs: { id: createId(), correct: choice.correct },
+                      content: recordDocumentToEditorNodes(choice.content),
+                    })),
+                  },
+                ]
+              : stem,
       },
       ...(question.difficulty ? { difficulty: question.difficulty } : {}),
       ...(question.topics ? { topics: [...question.topics] } : {}),
@@ -168,6 +203,7 @@ type Parser = (value: unknown) => ParsedRecord
 const ajv = new Ajv2020({ allErrors: true, strict: false })
 const validate010 = ajv.compile(questionBankSchema010)
 const validate020 = ajv.compile(questionBankSchema020)
+const validate030 = ajv.compile(questionBankSchema030)
 
 function schemaMessage(errors: ErrorObject[] | null | undefined): string {
   const first = errors?.[0]
@@ -223,6 +259,23 @@ function copyQuestion(question: QuestionBankRecordQuestion): QuestionBankRecordQ
             id: choice.id,
             content: copyDocument(choice.content),
             correct: choice.correct,
+          })),
+        }
+      : {}),
+    ...(question.prompts !== undefined
+      ? {
+          prompts: question.prompts.map((prompt) => ({
+            id: prompt.id,
+            content: copyDocument(prompt.content),
+            ...(prompt.answer !== undefined ? { answer: prompt.answer } : {}),
+          })),
+        }
+      : {}),
+    ...(question.wordBank !== undefined
+      ? {
+          wordBank: question.wordBank.map((answer) => ({
+            id: answer.id,
+            content: copyDocument(answer.content),
           })),
         }
       : {}),
@@ -315,18 +368,21 @@ function parseWith(
 }
 
 /**
- * 0.1.0 migrates forward without rewriting anything. The version added
- * `true-false`, which no 0.1.0 record can contain, and changed nothing a 0.1.0
- * record already says — so a record that satisfies the older schema is already
- * a conforming 0.2.0 record once its version is restated.
+ * Every retained version migrates forward without rewriting anything. 0.2.0
+ * added `true-false` to 0.1.0, and 0.3.0 added `matching` to 0.2.0; neither
+ * can appear in an older record, and neither version changed anything an
+ * older record already says — so a record that satisfies an older schema is
+ * already a conforming 0.3.0 record once its version is restated.
  */
 const parser010: Parser = (value) => parseWith(validate010, '0.1.0', value)
 
 const parser020: Parser = (value) => parseWith(validate020, '0.2.0', value)
 
+const parser030: Parser = (value) => parseWith(validate030, '0.3.0', value)
+
 /** Exact versions only: adding compatibility requires adding an explicit parser or migration. */
 export const SUPPORTED_QUESTION_BANK_VERSIONS: Readonly<Record<string, Parser>> =
-  Object.freeze({ '0.1.0': parser010, '0.2.0': parser020 })
+  Object.freeze({ '0.1.0': parser010, '0.2.0': parser020, '0.3.0': parser030 })
 
 const utf8 = new TextDecoder('utf-8', { fatal: true })
 
@@ -554,6 +610,7 @@ async function validateSemantics(
   const counts: Record<QuestionBankRecordQuestionType, number> = {
     'multiple-choice': 0,
     'true-false': 0,
+    matching: 0,
     'short-answer': 0,
   }
 
@@ -568,6 +625,12 @@ async function validateSemantics(
     counts[question.type] += 1
     for (const topic of question.topics ?? []) topics.add(topic)
 
+    if (question.type !== 'matching' && (question.prompts !== undefined || question.wordBank !== undefined)) {
+      throw new QuestionBankImportError(
+        'invalid-question',
+        `${RECORD_TYPE_LABELS[question.type]} Question “${question.id}” cannot contain matching items or a Word Bank.`,
+      )
+    }
     if (question.type === 'short-answer') {
       if (question.choices !== undefined) {
         throw new QuestionBankImportError(
@@ -575,6 +638,42 @@ async function validateSemantics(
           `Short Answer Question “${question.id}” cannot contain choices.`,
         )
       }
+    } else if (question.type === 'matching') {
+      // A matching set answers by naming: every item's answer must be one of
+      // the set's own Word Bank answers. Several items may name the same
+      // answer, an answer nobody names is a distractor, and an item that
+      // names nothing is unmatched — conforming, but reported.
+      if (question.choices !== undefined || question.suggestedAnswer !== undefined) {
+        throw new QuestionBankImportError(
+          'invalid-question',
+          `Matching Question “${question.id}” cannot contain choices or a Suggested Answer.`,
+        )
+      }
+      if (!question.prompts || question.prompts.length < 1) {
+        throw new QuestionBankImportError(
+          'invalid-question',
+          `Matching Question “${question.id}” must have at least one item to match.`,
+        )
+      }
+      if (!question.wordBank || question.wordBank.length < 2) {
+        throw new QuestionBankImportError(
+          'invalid-question',
+          `Matching Question “${question.id}” must have at least two Word Bank answers.`,
+        )
+      }
+      const bankIds = new Set(question.wordBank.map((answer) => answer.id))
+      let unmatched = false
+      for (const prompt of question.prompts) {
+        if (prompt.answer === undefined) {
+          unmatched = true
+        } else if (!bankIds.has(prompt.answer)) {
+          throw new QuestionBankImportError(
+            'dangling-reference',
+            `Matching item “${prompt.id}” names answer “${prompt.answer}”, which is not in its Word Bank.`,
+          )
+        }
+      }
+      if (unmatched) questionsWithoutCorrectAnswer += 1
     } else {
       // Multiple Choice and True/False both answer with choices, and the same
       // three rules govern both: enough answers to choose between, at most one
@@ -608,19 +707,22 @@ async function validateSemantics(
       }
     }
 
+    const claimed = (part: { id: string; content: SemanticDocument }) => {
+      if (ids.has(part.id)) {
+        throw new QuestionBankImportError(
+          'duplicate-id',
+          `Package-local ID “${part.id}” is duplicated.`,
+        )
+      }
+      ids.add(part.id)
+      return part.content
+    }
     const documents = [
       question.stem,
       ...(question.suggestedAnswer ? [question.suggestedAnswer] : []),
-      ...(question.choices?.map((choice) => {
-        if (ids.has(choice.id)) {
-          throw new QuestionBankImportError(
-            'duplicate-id',
-            `Package-local ID “${choice.id}” is duplicated.`,
-          )
-        }
-        ids.add(choice.id)
-        return choice.content
-      }) ?? []),
+      ...(question.choices?.map(claimed) ?? []),
+      ...(question.prompts?.map(claimed) ?? []),
+      ...(question.wordBank?.map(claimed) ?? []),
     ]
     let questionNodes = 0
     for (const document of documents) {

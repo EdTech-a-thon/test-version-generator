@@ -99,6 +99,31 @@ function trueFalse(
   }
 }
 
+function prompt(id: string, answer: string, ...blocks: ProseMirrorJSON[]) {
+  return { type: 'matchingPrompt', attrs: { id, answer }, content: blocks }
+}
+
+function bankAnswer(id: string, ...blocks: ProseMirrorJSON[]) {
+  return { type: 'matchingAnswer', attrs: { id }, content: blocks }
+}
+
+function matching(
+  id: string,
+  stem: ProseMirrorJSON[],
+  prompts: ProseMirrorJSON[],
+  bank: ProseMirrorJSON[],
+): Question {
+  return {
+    id,
+    type: 'matching',
+    columns: DEFAULT_COLUMNS,
+    doc: {
+      type: 'doc',
+      content: [...stem, { type: 'matching', content: [...prompts, ...bank] }],
+    },
+  }
+}
+
 function arrangement(
   questionOrder: string[],
   choiceOrder: Record<string, string[]> = {},
@@ -250,13 +275,89 @@ export const FIXTURES: readonly Fixture[] = [
     arrangement(['t1', 't2']),
   ),
 
+  // A matching set is the one shape that takes several numbers, prints them
+  // on its items rather than beside its stem, and lays out as two columns
+  // stacked independently. Its Word Bank is shuffled here, so the letters the
+  // key reports are the arrangement's and not the authored order's.
   fixture(
-    'all three sections on one paper',
+    'a matching set with a shuffled word bank and an unmatched item',
+    {
+      title: 'Matching',
+      questions: [
+        matching(
+          'x1',
+          [paragraph(text('Match each event to the correct time period.'))],
+          [
+            prompt('x1-p1', 'x1-a3', paragraph(text('The Pharisees and Sadducees were formed.'))),
+            prompt('x1-p2', 'x1-a1', paragraph(text('The synagogue system was set up.'))),
+            prompt('x1-p3', '', paragraph(text('The Septuagint was completed.'))),
+          ],
+          [
+            bankAnswer('x1-a1', paragraph(text('Persian'))),
+            bankAnswer('x1-a2', paragraph(text('Grecian'))),
+            bankAnswer('x1-a3', paragraph(text('Maccabean'))),
+            bankAnswer('x1-a4', paragraph(text('Roman'))),
+          ],
+        ),
+      ],
+    },
+    arrangement(['x1'], { x1: ['x1-a4', 'x1-a3', 'x1-a1', 'x1-a2'] }),
+  ),
+
+  // Past five answers the bank moves above the prompts into two columns,
+  // column-major — the other shape a source test prints a matching set in.
+  fixture(
+    'a matching set whose long word bank prints above its items',
+    {
+      title: 'Beatitudes',
+      questions: [
+        matching(
+          'x2',
+          [paragraph(text('Match each description with the correct character trait.'))],
+          [
+            prompt('x2-p1', 'x2-a4', paragraph(text('passionately wanting righteousness'))),
+            prompt('x2-p2', 'x2-a2', paragraph(text('sorrowful because of sin'))),
+            prompt('x2-p3', 'x2-a7', paragraph(text('proclaiming the message'))),
+            prompt('x2-p4', 'x2-a1', paragraph(text('aware of having no merit'))),
+            prompt('x2-p5', 'x2-a8', paragraph(text('mistreated for following'))),
+            prompt('x2-p6', 'x2-a5', paragraph(text('not insisting on what is deserved'))),
+            prompt('x2-p7', 'x2-a3', paragraph(text('considerate even when slandered'))),
+          ],
+          [
+            bankAnswer('x2-a1', paragraph(text('poor in spirit'))),
+            bankAnswer('x2-a2', paragraph(text('mourners'))),
+            bankAnswer('x2-a3', paragraph(text('meek'))),
+            bankAnswer('x2-a4', paragraph(text('hungry for righteousness'))),
+            bankAnswer('x2-a5', paragraph(text('merciful'))),
+            bankAnswer('x2-a6', paragraph(text('pure in heart'))),
+            bankAnswer('x2-a7', paragraph(text('peacemaking'))),
+            bankAnswer('x2-a8', paragraph(text('persecuted for righteousness'))),
+          ],
+        ),
+      ],
+    },
+    arrangement(['x2']),
+  ),
+
+  fixture(
+    'all four sections on one paper',
     {
       title: 'Mixed sections',
       questions: [
         open('o1', paragraph(text('Explain osmosis.'))),
         trueFalse('t1', [paragraph(text('Water is a compound.'))], 'true'),
+        matching(
+          'x1',
+          [paragraph(text('Match each term with its definition.'))],
+          [
+            prompt('x1-p1', 'x1-a2', paragraph(text('Osmosis'))),
+            prompt('x1-p2', 'x1-a1', paragraph(text('Diffusion'))),
+          ],
+          [
+            bankAnswer('x1-a1', paragraph(text('Particles spread out.'))),
+            bankAnswer('x1-a2', paragraph(text('Water crosses a membrane.'))),
+          ],
+        ),
         multipleChoice(
           'm1',
           2,
@@ -268,7 +369,7 @@ export const FIXTURES: readonly Fixture[] = [
         ),
       ],
     },
-    arrangement(['o1', 't1', 'm1']),
+    arrangement(['o1', 't1', 'x1', 'm1']),
   ),
 
   fixture(

@@ -3,7 +3,11 @@ import {
   choiceIdOf,
   cleanDocument,
   choiceNodesOf,
+  matchingBankNodesOf,
+  matchingPromptNodesOf,
   multipleChoiceNodeOf,
+  promptAnswerIdOf,
+  stemNodesOf,
   suggestedAnswerDocumentOf,
   suggestedAnswerNodeOf,
   withFreshChoiceIds,
@@ -16,6 +20,26 @@ import type { ProseMirrorJSON } from './question-doc'
 
 function doc(...content: ProseMirrorJSON[]): ProseMirrorJSON {
   return { type: 'doc', content }
+}
+
+// A matching set whose prompts are `matches` (prompt id → answer id) and whose
+// Word Bank is `bankIds`, in that order.
+function matchingSet(matches: Record<string, string>, bankIds: string[]): ProseMirrorJSON {
+  return {
+    type: 'matching',
+    content: [
+      ...Object.entries(matches).map(([id, answer]) => ({
+        type: 'matchingPrompt',
+        attrs: { id, answer },
+        content: [{ type: 'paragraph', content: [{ type: 'text', text: id }] }],
+      })),
+      ...bankIds.map((id) => ({
+        type: 'matchingAnswer',
+        attrs: { id },
+        content: [{ type: 'paragraph', content: [{ type: 'text', text: id }] }],
+      })),
+    ],
+  }
 }
 
 function choiceList(...ids: string[]): ProseMirrorJSON {
@@ -119,6 +143,53 @@ describe('cleanDocument', () => {
     const cleaned = cleanDocument(doc(choiceList('c1')))
     expect(choiceNodesOf(cleaned)).toHaveLength(2)
   })
+
+  test('puts a matching set back in schema order and unmatches an item whose answer is gone', () => {
+    const cleaned = cleanDocument(
+      doc({
+        type: 'matching',
+        content: [
+          { type: 'matchingAnswer', attrs: { id: 'a1' }, content: [{ type: 'paragraph' }] },
+          { type: 'paragraph' },
+          {
+            type: 'matchingPrompt',
+            attrs: { id: 'p1', answer: 'a1', stray: true },
+            content: [{ type: 'paragraph' }],
+          },
+          {
+            type: 'matchingPrompt',
+            attrs: { id: 'p2', answer: 'a9' },
+            content: [{ type: 'paragraph' }],
+          },
+        ],
+      }),
+    )
+    expect(matchingPromptNodesOf(cleaned).map((prompt) => prompt.attrs)).toEqual([
+      { id: 'p1', answer: 'a1' },
+      { id: 'p2', answer: '' },
+    ])
+    // Padded to the two answers a set needs to choose between, and nothing
+    // that is not a prompt or an answer survives inside it.
+    const bank = matchingBankNodesOf(cleaned)
+    expect(bank).toHaveLength(2)
+    expect(bank[0]!.attrs).toEqual({ id: 'a1' })
+    const set = (cleaned.content as ProseMirrorJSON[])[0]!
+    expect((set.content as ProseMirrorJSON[]).map((node) => node.type)).toEqual([
+      'matchingPrompt',
+      'matchingPrompt',
+      'matchingAnswer',
+      'matchingAnswer',
+    ])
+  })
+})
+
+describe('stemNodesOf', () => {
+  test('leaves out a matching set and the blank boundary paragraph before it', () => {
+    const stem = { type: 'paragraph', content: [{ type: 'text', text: 'Match.' }] }
+    const set = matchingSet({ p1: 'a1' }, ['a1', 'a2'])
+    expect(stemNodesOf(doc(stem, { type: 'paragraph' }, set))).toEqual([stem])
+    expect(stemNodesOf(doc(stem, set))).toEqual([stem])
+  })
 })
 
 describe('withSuggestedAnswer and withoutSuggestedAnswer', () => {
@@ -182,6 +253,17 @@ describe('withFreshChoiceIds', () => {
     expect(new Set(ids).size).toBe(2)
     expect(ids).not.toContain('c1')
     expect(ids).not.toContain('c2')
+  })
+
+  test('renames a matching set\'s items and answers, and re-points every match at the new id', () => {
+    const original = doc({ type: 'paragraph' }, matchingSet({ p1: 'a2', p2: '', p3: 'a2' }, ['a1', 'a2']))
+    const copy = withFreshChoiceIds(original)
+    const bank = matchingBankNodesOf(copy).map(choiceIdOf)
+    const prompts = matchingPromptNodesOf(copy)
+    expect(new Set([...bank, ...prompts.map(choiceIdOf)]).size).toBe(5)
+    expect([...bank, ...prompts.map(choiceIdOf)]).not.toContain('a2')
+    expect(prompts.map(promptAnswerIdOf)).toEqual([bank[1], '', bank[1]])
+    expect(matchingPromptNodesOf(original).map(promptAnswerIdOf)).toEqual(['a2', '', 'a2'])
   })
 
   test('keeps everything else, correctness included, and leaves the original alone', () => {
