@@ -19,6 +19,8 @@ import {
 } from 'pdf-lib'
 import {
   browserMedia,
+  authoredImageRatio,
+  authoredImageWidth,
   imageSourcesOf,
   loadExportImages,
   questionNumberForMedia,
@@ -406,19 +408,14 @@ function drawImage(
   context: DrawContext,
   source: string,
   maxWidth: number,
-  authoredRatio = 1,
+  ratio = 1,
 ): void {
   const loaded = context.images.get(source)
   if (!loaded) throw new RequiredMediaError(null)
-  const ratio = Number.isFinite(authoredRatio)
-    ? Math.min(1, Math.max(0.05, authoredRatio))
-    : 1
-  const authoredMaxWidth = maxWidth * ratio
   const naturalWidth = loaded.source.width * POINTS_PER_PX
   const naturalHeight = loaded.source.height * POINTS_PER_PX
-  const scale = Math.min(1, authoredMaxWidth / naturalWidth)
-  const width = naturalWidth * scale
-  const height = naturalHeight * scale
+  const width = authoredImageWidth(naturalWidth, maxWidth, ratio)
+  const height = naturalHeight * (width / naturalWidth)
   ensureRoom(context, height + 4)
   context.page.drawImage(loaded.image, {
     x: context.x,
@@ -492,7 +489,7 @@ function drawBlocks(
         drawImage(context, stringOf(attrs.src), width)
         break
       case 'image-block': {
-        drawImage(context, stringOf(attrs.src), width, Number(attrs.ratio) || 1)
+        drawImage(context, stringOf(attrs.src), width, authoredImageRatio(attrs))
         const caption = stringOf(attrs.caption)
         if (caption) drawTextLine(context, caption, { size: SMALL_SIZE, x, width })
         break

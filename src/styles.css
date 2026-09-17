@@ -1145,6 +1145,12 @@ button { cursor: pointer; }
   caret-color: #4e3b2f;
 }
 .dialog-editor .milkdown .cm-cursor { border-left-color: #4e3b2f; }
+/* A picture sits where the printed page puts it: flush left, its caption
+   under its left edge. Crepe's theme centres both, which shows the teacher a
+   layout the exam never prints. The wrapper stays `fit-content`, so the
+   resize handle keeps hanging under the middle of the picture itself. */
+.dialog-editor .milkdown .milkdown-image-block > .image-wrapper { margin: 0; }
+.dialog-editor .milkdown .milkdown-image-block > .caption-input { text-align: left; }
 .dialog-editor .milkdown .milkdown-toolbar .toolbar-item svg {
   color: #4e3b2f;
   fill: #4e3b2f;

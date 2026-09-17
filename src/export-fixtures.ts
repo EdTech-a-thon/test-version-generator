@@ -584,11 +584,14 @@ export const FIXTURES: readonly Fixture[] = [
             },
             text(' is shown.'),
           ),
+          // Dragged to half the size it fit at, the way Crepe records a
+          // resize: every adapter has to size it by this, not by its bytes.
           {
             type: 'image-block',
             attrs: {
               src: `/local-images/${'c'.repeat(64)}`,
               caption: 'Full setup',
+              ratio: 0.5,
             },
           },
         ),

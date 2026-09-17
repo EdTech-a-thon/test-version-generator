@@ -50,6 +50,8 @@ import {
 } from 'docx'
 import { arrangementRange } from './export-preparation'
 import {
+  authoredImageRatio,
+  authoredImageWidth,
   browserMedia,
   imageSourcesOf,
   loadExportImages,
@@ -241,15 +243,17 @@ function mathRun(source: string): ParagraphChild {
   return new OfficeMath({ children: [new MathRun(source)] })
 }
 
-/** An image at its planned size: intrinsic px, capped at the width the plan
- *  gives a page's content box so a large upload cannot run off the sheet. */
-function imageRun(image: ExportImage, maxWidth: number): ParagraphChild {
-  const scale = image.width > maxWidth ? maxWidth / image.width : 1
+/** An image at its planned size: intrinsic px scaled by the size the teacher
+ *  dragged it to, capped at the width the plan gives a page's content box so a
+ *  large upload cannot run off the sheet. */
+function imageRun(image: ExportImage, maxWidth: number, ratio = 1): ParagraphChild {
+  const width = authoredImageWidth(image.width, maxWidth, ratio)
+  const scale = width / image.width
   return new ImageRun({
     data: image.data,
     type: image.type,
     transformation: {
-      width: Math.max(1, Math.round(image.width * scale)),
+      width: Math.max(1, Math.round(width)),
       height: Math.max(1, Math.round(image.height * scale)),
     },
   })
@@ -504,7 +508,7 @@ function blockOf(
           children: [
             ...(context.prefix ?? []),
             image
-              ? imageRun(image, build.contentWidth)
+              ? imageRun(image, build.contentWidth, authoredImageRatio(attrs))
               : new TextRun({
                   text: `[Image: ${caption || 'embedded image'}]`,
                   italics: true,
