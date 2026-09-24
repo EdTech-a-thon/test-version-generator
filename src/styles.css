@@ -1553,40 +1553,47 @@ button { cursor: pointer; }
 .matching-add:hover { color: #9f5037; background: #f7eee3; }
 
 /* Stimulus: the Stimulus is written unnested at the top, where any other
-   question's stem goes. Below it one dotted box, "Question Parts", holds every
-   Part; each Part is a box of its own with a tag naming its letter and kind,
-   a stem box, and — nested inside it — the Multiple Choice answers or the
-   Suggested Answer a question of that kind already uses. Letters are counted
-   by the stylesheet from position, so moving or deleting a Part reletters the
-   rest. Editor chrome only: previews and print draw a Stimulus from the plan. */
-.milkdown .stimulus-parts { margin: 20px 0; }
-.milkdown .ProseMirror[contenteditable="true"] .stimulus-parts {
-  border: 1.5px dotted #a8927d; border-radius: 8px; padding: 0 12px;
-}
+   question's stem goes. Below it a "Parts" heading ruled full width, and under
+   that each Part: a tag naming its letter and kind, then its stem as the top
+   cell of the same dashed stack as the Multiple Choice answers or Suggested
+   Answer a question of that kind already uses — one box per Part, no box
+   around it. Letters are counted by the stylesheet from position, so moving or
+   deleting a Part reletters the rest. Editor chrome only: previews and print
+   draw a Stimulus from the plan. */
+.milkdown .stimulus-parts { margin: 24px 0 20px; }
 .stimulus-parts-head {
-  padding: 10px 0 4px;
+  padding: 0 0 6px; border-bottom: 1.5px solid #d8c8b8;
   color: #786457; font-size: 12px; font-weight: 700;
   letter-spacing: 0.02em; text-transform: uppercase; user-select: none;
 }
 .milkdown .stimulus-parts-list { counter-reset: stimulus-part; }
 .stimulus-parts-empty {
-  margin: 6px 0 10px; color: #a8988c; font-size: 14px; user-select: none;
+  margin: 12px 0 6px; color: #a8988c; font-size: 14px; user-select: none;
 }
-.milkdown .stimulus-part {
-  counter-increment: stimulus-part;
-  margin: 10px 0; padding: 0 12px 2px;
-  border: 1px dashed #bda995; border-radius: 6px; background: #fffdf9;
-}
+.milkdown .stimulus-part { counter-increment: stimulus-part; margin: 14px 0 22px; }
 .stimulus-part-tag {
   display: flex; align-items: center; justify-content: space-between; gap: 8px;
-  padding: 8px 0 2px; user-select: none;
+  padding: 0 0 6px; user-select: none;
 }
 .stimulus-part-name {
-  display: inline-flex; align-items: center; gap: 6px;
-  padding: 2px 8px; border-radius: 999px; background: #f2e7da;
+  position: relative; display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 4px 2px 8px; border-radius: 999px; background: #f2e7da;
   color: #5e4a3d; font-size: 12px; font-weight: 700;
 }
 .stimulus-part-letter::before { content: counter(stimulus-part, lower-alpha) ' ·'; }
+.stimulus-part-kind {
+  display: inline-flex; align-items: center; gap: 3px;
+  padding: 0 4px; border: 0; border-radius: 999px; background: transparent;
+  color: inherit; font: inherit; cursor: pointer;
+}
+.stimulus-part-kind:not(:disabled):hover,
+.stimulus-part-kind[aria-expanded="true"] { color: #9f5037; background: #fbf4ec; }
+.stimulus-part-kind:disabled { cursor: default; }
+.stimulus-part-kind:disabled .stimulus-part-kind-caret { display: none; }
+.stimulus-part-kind:focus { outline: none; }
+.stimulus-part-kind-caret { font-size: 10px; }
+.stimulus-add-menu.stimulus-kind-menu { top: calc(100% + 4px); bottom: auto; left: 0; }
+.stimulus-kind-menu .stimulus-add-menu-item[aria-checked="true"] { color: #9f5037; font-weight: 700; }
 .stimulus-part-controls { display: inline-flex; gap: 2px; }
 .stimulus-part-control {
   width: 24px; height: 24px; padding: 0;
@@ -1600,9 +1607,11 @@ button { cursor: pointer; }
 .milkdown .stimulus-part:last-child .stimulus-part-control[aria-label="Move part down"] {
   visibility: hidden;
 }
-.milkdown .stimulus-part-stem {
-  position: relative; margin: 6px 0 0; padding: 8px 12px;
-  border: 1px dashed #d4c3b1; border-radius: 6px; outline: none;
+/* The stem is the top cell of the Part's box; the answer component below
+   keeps its own dashed cells and closes the box, so the two read as one. */
+.milkdown .stimulus-part-stem { position: relative; padding: 10px 12px; outline: none; }
+.milkdown .ProseMirror[contenteditable="true"] .stimulus-part-stem {
+  border: 1px dashed #bda995; border-radius: 6px 6px 0 0;
 }
 .milkdown .ProseMirror .stimulus-part-stem > :first-child { margin-top: 0; padding-top: 0; }
 .milkdown .ProseMirror .stimulus-part-stem > :last-child { margin-bottom: 0; padding-bottom: 0; }
@@ -1610,7 +1619,7 @@ button { cursor: pointer; }
 .milkdown .stimulus-part-stem:has(> p:only-child > br.ProseMirror-trailingBreak)::before,
 .milkdown .stimulus-part-stem:has(> p:only-child:empty)::before {
   content: 'Multiple Choice question stem here…';
-  position: absolute; inset: 8px auto auto 12px;
+  position: absolute; inset: 10px auto auto 12px;
   color: #a8988c; pointer-events: none;
 }
 .milkdown .stimulus-part[data-kind="open"] .stimulus-part-stem:has(> p:only-child > br.ProseMirror-trailingBreak)::before,
@@ -1618,18 +1627,20 @@ button { cursor: pointer; }
   content: 'Short Answer question stem here…';
 }
 .milkdown .stimulus-part [data-type="multiple-choice"],
-.milkdown .stimulus-part [data-type="suggested-answer"] { margin: 10px 0; }
-.stimulus-parts-actions { display: none; position: relative; }
-.milkdown .ProseMirror[contenteditable="true"] .stimulus-parts-actions {
-  display: block; margin: 0 -12px; border-top: 1px dotted #a8927d;
+.milkdown .stimulus-part [data-type="suggested-answer"] { margin: 0; }
+.milkdown .ProseMirror[contenteditable="true"] .stimulus-part [data-type="multiple-choice"],
+.milkdown .ProseMirror[contenteditable="true"] .stimulus-part [data-type="suggested-answer"] {
+  border-top: 0; border-radius: 0 0 6px 6px;
 }
+.stimulus-parts-actions { display: none; position: relative; }
+.milkdown .ProseMirror[contenteditable="true"] .stimulus-parts-actions { display: block; }
 .stimulus-add-part {
   display: block; width: 100%; padding: 8px 12px;
   border: 0; color: #786457; background: transparent;
   font: inherit; font-weight: 600; text-align: left; cursor: pointer;
 }
 .stimulus-add-part:hover, .stimulus-add-part[aria-expanded="true"] {
-  color: #9f5037; background: #f7eee3;
+  color: #9f5037; background: #f7eee3; border-radius: 6px;
 }
 .stimulus-add-part:focus { outline: none; }
 .stimulus-add-menu {

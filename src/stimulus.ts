@@ -38,15 +38,20 @@ export const PART_KIND_LABELS: Record<PartKind, string> = {
   open: 'Short Answer',
 }
 
+// The blank answer component a Part of `kind` starts with.
+function answerJSON(kind: PartKind) {
+  return kind === 'multiple-choice'
+    ? newMultipleChoiceNode()
+    : { type: 'suggestedAnswer', content: [{ type: 'paragraph' }] }
+}
+
 function partJSON(kind: PartKind) {
   return {
     type: 'stimulusPart',
     attrs: { id: crypto.randomUUID(), columns: 2 },
     content: [
       { type: 'stimulusPartStem', content: [{ type: 'paragraph' }] },
-      kind === 'multiple-choice'
-        ? newMultipleChoiceNode()
-        : { type: 'suggestedAnswer', content: [{ type: 'paragraph' }] },
+      answerJSON(kind),
     ],
   }
 }
@@ -110,6 +115,41 @@ export const stimulusPartsSchema = $nodeSchema('stimulusParts', () => ({
 /** What kind of Part a node is, read from the answer component it holds. */
 export function partKindOf(node: ProseNode): PartKind {
   return node.lastChild?.type.name === 'suggestedAnswer' ? 'open' : 'multiple-choice'
+}
+
+/** Whether a Part's answers are still blank — no text and nothing inserted in
+ *  any answer — so switching its kind would throw nothing away. A correct mark
+ *  on a blank answer is not content. */
+export function partAnswersEmpty(node: ProseNode) {
+  const answer = node.lastChild
+  if (!answer) return true
+  let empty = true
+  answer.descendants((child) => {
+    if (!empty) return false
+    if (child.isText ? child.text!.trim() !== '' : child.isLeaf && child.type.name !== 'hardBreak') {
+      empty = false
+    }
+    return true
+  })
+  return empty
+}
+
+/** Make the Part at `partPosition` a Part of `kind`, replacing its answer
+ *  component with a blank one of that kind. Its stem, id and columns stay.
+ *  Refused while the Part has answers, which the switch would discard. */
+export function setPartKind(
+  view: Pick<EditorView, 'state' | 'dispatch'>,
+  partPosition: number,
+  kind: PartKind,
+) {
+  const part = view.state.doc.nodeAt(partPosition)
+  if (part?.type.name !== 'stimulusPart') return false
+  if (partKindOf(part) === kind || !partAnswersEmpty(part)) return false
+  const answer = part.lastChild!
+  const answerEnd = partPosition + part.nodeSize - 1
+  const replacement = view.state.schema.nodeFromJSON(answerJSON(kind))
+  view.dispatch(view.state.tr.replaceWith(answerEnd - answer.nodeSize, answerEnd, replacement))
+  return true
 }
 
 /** Append a blank Part of `kind` to the Parts box at `boxPosition` and put the
@@ -203,9 +243,9 @@ function iconButton(label: string, text: string, className: string) {
   return button
 }
 
-// Node view for the Parts box: a dotted frame headed "Question Parts", the
-// Parts inside it, and "+ Add Part" at its foot, which offers the two kinds a
-// Part can be. Editor only: read-only views draw a Stimulus from the plan.
+// Node view for the Parts box: a "Parts" heading ruled full width, the Parts
+// under it, and "+ Add Part" after them, which offers the two kinds a Part can
+// be. Editor only: read-only views draw a Stimulus from the plan.
 export const stimulusPartsView = $view(
   stimulusPartsSchema.node,
   (ctx: Ctx) => {
@@ -220,7 +260,7 @@ export const stimulusPartsView = $view(
       const head = document.createElement('div')
       head.className = 'stimulus-parts-head'
       head.contentEditable = 'false'
-      head.textContent = 'Question Parts'
+      head.textContent = 'Parts'
 
       const contentDOM = document.createElement('div')
       contentDOM.className = 'stimulus-parts-list'
@@ -320,7 +360,8 @@ export const stimulusPartsView = $view(
 
 // Node view for one Part: a tag naming it — its letter, drawn by the
 // stylesheet, and its kind — with the controls that move it up, move it down
-// and delete it; then its stem and its answer component, both editable.
+// and delete it; then its stem and its answer component, both editable. The
+// kind opens a menu that switches it while the Part's answers are blank.
 export const stimulusPartView = $view(
   stimulusPartSchema.node,
   (ctx: Ctx) => {
@@ -340,9 +381,55 @@ export const stimulusPartView = $view(
       name.className = 'stimulus-part-name'
       const letter = document.createElement('span')
       letter.className = 'stimulus-part-letter'
+      const kindButton = document.createElement('button')
+      kindButton.type = 'button'
+      kindButton.className = 'stimulus-part-kind'
+      kindButton.setAttribute('aria-haspopup', 'menu')
+      kindButton.setAttribute('aria-expanded', 'false')
       const kindLabel = document.createElement('span')
-      kindLabel.className = 'stimulus-part-kind'
-      name.append(letter, kindLabel)
+      const caret = document.createElement('span')
+      caret.className = 'stimulus-part-kind-caret'
+      caret.setAttribute('aria-hidden', 'true')
+      caret.textContent = '▾'
+      kindButton.append(kindLabel, caret)
+
+      const kindMenu = document.createElement('div')
+      kindMenu.className = 'stimulus-add-menu stimulus-kind-menu'
+      kindMenu.setAttribute('role', 'menu')
+      kindMenu.hidden = true
+      const onOutsidePress = (event: MouseEvent) => {
+        if (!name.contains(event.target as Node)) setMenuOpen(false)
+      }
+      const setMenuOpen = (open: boolean) => {
+        kindMenu.hidden = !open
+        kindButton.setAttribute('aria-expanded', String(open))
+        if (open) document.addEventListener('mousedown', onOutsidePress, true)
+        else document.removeEventListener('mousedown', onOutsidePress, true)
+      }
+      const kindItems = (['multiple-choice', 'open'] as const).map((kind) => {
+        const item = document.createElement('button')
+        item.type = 'button'
+        item.className = 'stimulus-add-menu-item'
+        item.setAttribute('role', 'menuitemradio')
+        item.textContent = PART_KIND_LABELS[kind]
+        item.addEventListener('mousedown', (event) => {
+          event.preventDefault()
+          setMenuOpen(false)
+          if (!editable()) return
+          const pos = getPos()
+          if (pos == null) return
+          setPartKind(view, pos, kind)
+          view.focus()
+        })
+        kindMenu.append(item)
+        return { kind, item }
+      })
+      kindButton.addEventListener('mousedown', (event) => {
+        event.preventDefault()
+        if (kindButton.disabled) return
+        setMenuOpen(kindMenu.hidden)
+      })
+      name.append(letter, kindButton, kindMenu)
 
       const controls = document.createElement('span')
       controls.className = 'stimulus-part-controls'
@@ -373,6 +460,17 @@ export const stimulusPartView = $view(
         const kind = partKindOf(node)
         dom.dataset.kind = kind
         kindLabel.textContent = PART_KIND_LABELS[kind]
+        for (const { kind: itemKind, item } of kindItems) {
+          item.setAttribute('aria-checked', String(itemKind === kind))
+        }
+        // A Part's kind is chosen when it is added; afterwards it switches
+        // only while its answers are blank, so a switch never loses work.
+        const switchable = editable() && partAnswersEmpty(node)
+        kindButton.disabled = !switchable
+        kindButton.title = switchable
+          ? 'Change the kind of part'
+          : editable() ? 'Clear this part’s answers to change its kind' : ''
+        if (!switchable) setMenuOpen(false)
         controls.style.display = editable() ? '' : 'none'
       }
       render()
@@ -388,13 +486,14 @@ export const stimulusPartView = $view(
         },
         ignoreMutation: (mutation) => tag.contains(mutation.target),
         stopEvent: (event) => tag.contains(event.target as Node),
+        destroy: () => setMenuOpen(false),
       }
     }
   },
 )
 
-// Node view for a Part's stem: a box of its own at the top of the Part, whose
-// placeholder the stylesheet words for the Part's kind.
+// Node view for a Part's stem: the top cell of the Part, joined to the answer
+// cells under it, whose placeholder the stylesheet words for the Part's kind.
 export const stimulusPartStemView = $view(
   stimulusPartStemSchema.node,
   () => (initialNode: ProseNode): NodeView => {

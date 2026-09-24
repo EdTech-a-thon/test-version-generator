@@ -2,11 +2,11 @@
 //
 // The plan's tests cover how a Stimulus numbers, letters and breaks across
 // pages. These cover what only a browser can show: that the question editor
-// nests the way the paper does — the Stimulus unnested at the top, a dotted
-// Question Parts box, each Part tagged with its letter and kind and holding
+// lays a Stimulus out the way the paper does — the Stimulus unnested at the
+// top, a "Parts" heading, each Part tagged with its letter and kind and holding
 // the answer component a question of that kind uses — that Parts can be
-// added, moved and deleted there, and that the sheet prints them lettered
-// under the Stimulus's one number.
+// added, moved, deleted and switched between kinds there, and that the sheet
+// prints them lettered under the Stimulus's one number.
 //
 // A seeded Exam is enough to look at the sheet and the editor, but saving an
 // edit needs a Question Bank the bank service knows, so the tests that save
@@ -88,7 +88,7 @@ test('the editor nests the Parts under the Stimulus, each tagged with its letter
   await page.locator('.exam-question').dblclick()
   await expect(editor(page)).toBeVisible()
 
-  await expect(editor(page).getByText('Question Parts')).toBeVisible()
+  await expect(editor(page).getByText('Parts', { exact: true })).toBeVisible()
   await expect(partTags(page)).toHaveCount(2)
   await expect(partTags(page).nth(0)).toContainText('Multiple Choice')
   await expect(partTags(page).nth(1)).toContainText('Short Answer')
@@ -100,7 +100,7 @@ test('the editor nests the Parts under the Stimulus, each tagged with its letter
 async function newStimulus(page: Page) {
   await page.goto('/')
   await page.getByRole('button', { name: 'New Question Bank' }).first().click()
-  await page.getByRole('button', { name: 'Add Question' }).click()
+  await page.getByRole('button', { name: 'New question' }).click()
   await page.getByRole('menuitem', { name: 'Stimulus' }).click()
   await expect(editor(page)).toBeVisible()
 }
@@ -115,10 +115,11 @@ test('a new Stimulus opens with one blank Multiple Choice Part, and the bank cou
   await page.keyboard.press('Control+Enter')
   await expect(editor(page)).toBeHidden()
 
-  const row = page.getByRole('region', { name: 'Question Bank' }).getByRole('listitem')
-  await expect(row).toHaveCount(1)
-  await expect(row).toContainText('Stimulus · 1 part')
-  await expect(row).toContainText('A quotation to read.')
+  // The bank page reads the Stimulus out whole, its Parts lettered under it.
+  const questions = page.getByRole('list', { name: 'Questions' }).locator(':scope > li')
+  await expect(questions).toHaveCount(1)
+  await expect(questions).toContainText('A quotation to read.')
+  await expect(questions.getByRole('listitem', { name: /^Part [a-z],/ })).toHaveCount(1)
 })
 
 test('a Part is added, moved and deleted from its own controls, and saving keeps exactly that', async ({ page }) => {
@@ -146,7 +147,8 @@ test('a Part is added, moved and deleted from its own controls, and saving keeps
   await expect(editor(page)).toBeHidden()
 
   const bank = page.getByRole('region', { name: 'Question Bank' })
-  await expect(bank.getByRole('listitem')).toContainText('Stimulus · 1 part')
+  await expect(bank.getByRole('listitem', { name: /^Part [a-z],/ })).toHaveCount(1)
+  await expect(bank.getByRole('listitem', { name: /^Part a,/ })).toContainText('Explain one factor.')
   // Opened again, the Stimulus holds exactly what was saved.
   await bank.getByRole('button', { name: 'Edit A quotation to read.' }).click()
   await expect(editor(page)).toBeVisible()
@@ -167,4 +169,21 @@ test('each Part of a Stimulus gets the sheet controls a question of its kind has
   await page.getByRole('menuitem', { name: 'Part a · Answer columns' }).press('ArrowRight')
   await page.getByRole('menuitemradio', { name: '1 column' }).click()
   await expect(page.locator('.stimulus-part-print').nth(0).locator('.choice-grid')).toHaveAttribute('data-columns', '1')
+})
+
+test('a Part with blank answers switches kind, and one with answers written keeps it', async ({ page }) => {
+  await newStimulus(page)
+  const part = editor(page).locator('.stimulus-part').first()
+  const kind = partTags(page).first().getByRole('button', { name: 'Multiple Choice' })
+
+  await kind.click()
+  await editor(page).getByRole('menuitemradio', { name: 'Short Answer' }).click()
+  await expect(partTags(page).first()).toContainText('Short Answer')
+  await expect(part.getByText('Suggested Answer')).toBeVisible()
+  await expect(part.locator('[data-type="multiple-choice"]')).toHaveCount(0)
+
+  // Once its Suggested Answer is written, switching would lose it.
+  await part.locator('.sa-body').click()
+  await page.keyboard.type('Trade routes shifted.')
+  await expect(partTags(page).first().getByRole('button', { name: 'Short Answer' })).toBeDisabled()
 })

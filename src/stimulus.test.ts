@@ -1,4 +1,6 @@
 import { describe, expect, test } from 'bun:test'
+import { Schema } from '@milkdown/kit/prose/model'
+import { EditorState } from '@milkdown/kit/prose/state'
 import {
   createQuestion,
   duplicateQuestion,
@@ -22,6 +24,7 @@ import {
 import { cleanDocument, stemNodesOf, type ProseMirrorJSON } from './question-doc'
 import { searchableText, stemPreview } from './stem-preview'
 import { createMemoryBackend, loadExamStore, type AuthoringState, type SavedState } from './exam-store'
+import { partAnswersEmpty, partKindOf, setPartKind } from './stimulus'
 
 function paragraph(text: string): ProseMirrorJSON {
   return { type: 'paragraph', content: [{ type: 'text', text }] }
@@ -345,5 +348,82 @@ describe('a Stimulus on the Working Copy', () => {
     const { workingCopy } = store.getState()
     expect(workingCopy.questionIds).toEqual(['s2'])
     expect(workingCopy.workSpace).toEqual({ 's2-b': { height: 64, style: 'blank', fill: false } })
+  })
+})
+
+describe('switching a Part between Multiple Choice and Short Answer', () => {
+  const schema = new Schema({
+    nodes: {
+      doc: { content: 'stimulusParts' },
+      text: { group: 'inline' },
+      paragraph: { group: 'block', content: 'inline*' },
+      image: { group: 'inline', inline: true, atom: true },
+      multipleChoiceChoice: {
+        content: 'paragraph block*',
+        attrs: { correct: { default: false }, id: { default: '' } },
+      },
+      multipleChoice: { content: 'multipleChoiceChoice+' },
+      suggestedAnswer: { content: 'block+' },
+      stimulusPartStem: { content: 'block+' },
+      stimulusPart: {
+        content: 'stimulusPartStem (multipleChoice | suggestedAnswer)',
+        attrs: { id: { default: '' }, columns: { default: 2 } },
+      },
+      stimulusParts: { content: 'stimulusPart*' },
+    },
+  })
+
+  function editorWith(answer: ProseMirrorJSON) {
+    let state = EditorState.create({
+      schema,
+      doc: schema.nodeFromJSON({
+        type: 'doc',
+        content: [{
+          type: 'stimulusParts',
+          content: [{
+            type: 'stimulusPart',
+            attrs: { id: 'p1', columns: 1 },
+            content: [{ type: 'stimulusPartStem', content: [paragraph('Which region?')] }, answer],
+          }],
+        }],
+      }),
+    })
+    const view = {
+      get state() { return state },
+      dispatch(transaction: Parameters<typeof state.apply>[0]) { state = state.apply(transaction) },
+    }
+    // The document's one Part sits just inside the Parts box.
+    return { view, part: () => view.state.doc.nodeAt(1)! }
+  }
+
+  const blankChoice = (correct = false): ProseMirrorJSON =>
+    ({ type: 'multipleChoiceChoice', attrs: { id: crypto.randomUUID(), correct }, content: [{ type: 'paragraph' }] })
+
+  test('a Part with blank answers switches kind, keeping its stem, id and columns', () => {
+    // A correct mark on a blank answer is not content to lose.
+    const { view, part } = editorWith({ type: 'multipleChoice', content: [blankChoice(true), blankChoice()] })
+    expect(partAnswersEmpty(part())).toBe(true)
+    expect(setPartKind(view, 1, 'open')).toBe(true)
+    expect(partKindOf(part())).toBe('open')
+    expect(part().attrs).toEqual({ id: 'p1', columns: 1 })
+    expect(part().firstChild!.textContent).toBe('Which region?')
+
+    expect(setPartKind(view, 1, 'multiple-choice')).toBe(true)
+    expect(partKindOf(part())).toBe('multiple-choice')
+    expect(part().lastChild!.childCount).toBe(4)
+  })
+
+  test('a Part whose answers hold text or an image keeps its kind', () => {
+    const typed = editorWith({ type: 'multipleChoice', content: [choice('Egypt'), blankChoice()] })
+    expect(partAnswersEmpty(typed.part())).toBe(false)
+    expect(setPartKind(typed.view, 1, 'open')).toBe(false)
+    expect(partKindOf(typed.part())).toBe('multiple-choice')
+
+    const pictured = editorWith({
+      type: 'suggestedAnswer',
+      content: [{ type: 'paragraph', content: [{ type: 'image' }] }],
+    })
+    expect(setPartKind(pictured.view, 1, 'multiple-choice')).toBe(false)
+    expect(partKindOf(pictured.part())).toBe('open')
   })
 })
