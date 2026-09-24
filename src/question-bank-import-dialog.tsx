@@ -414,7 +414,7 @@ export function QuestionBankImportDialog({
   const examName = (key: string) =>
     proposal?.exams.find((item) => item.key === key)?.name || 'Untitled Exam'
 
-  const title = proposal && selection ? importTitle(proposal, selection) : 'Import Question Bank'
+  const title = proposal && selection ? importTitle(proposal, selection) : 'Import a Question Bank or Exam'
   const importable = selection ? hasAllowedItems(selection) : false
 
   const confirm = async () => {
@@ -466,7 +466,7 @@ export function QuestionBankImportDialog({
               <input
                 ref={input}
                 type="file"
-                aria-label="Question Bank PDF or JSON"
+                aria-label="Test Parrot PDF or JSON file"
                 accept="application/pdf,.pdf,application/json,.json"
                 disabled={busy}
                 onChange={(event) => {
@@ -478,8 +478,9 @@ export function QuestionBankImportDialog({
                 }}
               />
               <UploadCloud aria-hidden="true" />
-              <strong>Question Bank PDF or JSON</strong>
-              <span>Drop a file here or click to choose one</span>
+              <strong>Test Parrot PDF or JSON file</strong>
+              <span>A Question Bank or Exam PDF, or a <code>.parrot.json</code> file</span>
+              <span>Drop it here or click to choose one</span>
             </label>
             <div
               className="bank-import-assist"
@@ -489,15 +490,17 @@ export function QuestionBankImportDialog({
               <span>
                 {needsConversion ? (
                   <>
-                    <strong>That file isn’t a Question Bank yet.</strong>{' '}
+                    <strong>That file isn’t a Test Parrot file yet.</strong>{' '}
                     Copy these instructions and give them to an AI along with
                     your test — as a PDF, scan or screenshot — and it will
-                    produce a file you can drop here.
+                    produce a file with your questions and the test itself,
+                    ready to drop here.
                   </>
                 ) : (
                   <>
                     Already have a test? Copy these instructions for an AI to
-                    turn any PDF or screenshot into a file you can import here.
+                    turn any PDF or screenshot into a file with your questions
+                    and the test itself, ready to import here.
                   </>
                 )}
               </span>
