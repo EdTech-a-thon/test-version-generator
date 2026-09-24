@@ -226,6 +226,7 @@ const DIFFICULTY_OPTIONS: FilterOption<DifficultyFilter>[] = [
 
 const SORT_OPTIONS: readonly FilterOption<QuestionBankSort>[] = [
   { value: 'newest', label: 'Newest' },
+  { value: 'oldest', label: 'Oldest' },
   { value: 'type', label: 'Question Type' },
   { value: 'difficulty', label: 'Difficulty' },
   { value: 'topic', label: 'Topic' },

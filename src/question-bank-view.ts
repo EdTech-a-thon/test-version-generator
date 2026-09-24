@@ -21,7 +21,7 @@ import { searchableText } from './stem-preview'
 export type DifficultyFilter = Difficulty | 'unspecified'
 
 /** The ordering applied after search and filters have chosen the visible rows. */
-export type QuestionBankSort = 'newest' | 'type' | 'difficulty' | 'topic'
+export type QuestionBankSort = 'newest' | 'oldest' | 'type' | 'difficulty' | 'topic'
 
 /**
  * What the teacher has narrowed the Question Bank to.
@@ -162,5 +162,7 @@ export function browseQuestionBank(
       })
     case 'newest':
       return shown
+    case 'oldest':
+      return shown.reverse()
   }
 }
