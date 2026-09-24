@@ -530,7 +530,7 @@ function planPart(part: PlannedPart, images: ImageOrdinals): ContentLine[] {
   const opener: Segment[] = [
     {
       kind: 'text',
-      text: part.answerBlank ? `_______ ${part.letter}. ` : `${part.letter}. `,
+      text: `${part.letter}. `,
       marks: [],
     },
   ]

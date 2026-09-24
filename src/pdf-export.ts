@@ -31,7 +31,7 @@ import {
 } from './export-media'
 import {
   MATCHING_BANK_WIDTH,
-  partIndentOf,
+  PART_INDENT,
   printsNumberLine,
   questionIndentOf,
   type AnswerKeyEntryItem,
@@ -687,18 +687,17 @@ function drawMatching(context: DrawContext, set: MatchingSet): void {
 
 // A Stimulus's Parts, one level in under the Stimulus, as print lays them out
 // (`.stimulus-parts-print` in styles.css): 14px below the Stimulus, 18px
-// apart, each opening with its letter — after a blank for a Multiple Choice
-// Part — in a letter column of its own.
+// apart, each opening with its letter in a short letter column of its own.
 const PARTS_GAP_ABOVE = 14
 const PARTS_GAP_BETWEEN = 18
 
 function drawPart(context: DrawContext, part: PlannedPart, x: number, width: number): void {
-  const indent = pt(partIndentOf(part))
+  const indent = pt(PART_INDENT)
   const bodyX = x + indent
   const bodyWidth = width - indent
   drawTextLine(
     context,
-    part.answerBlank ? `_______  ${part.letter}.` : `${part.letter}.`,
+    `${part.letter}.`,
     { font: 'bold', x, width: indent - 5 },
   )
   context.y += BODY_LINE

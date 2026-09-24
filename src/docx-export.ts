@@ -72,7 +72,7 @@ import {
   MATCHING_BANK_WIDTH,
   PAGE_CONTENT_WIDTH,
   printsNumberLine,
-  partIndentOf,
+  PART_INDENT,
   type AnswerKeyEntryItem,
   type AnswerKeySectionItem,
   type ChoiceGrid,
@@ -868,24 +868,23 @@ function questionContent(
   ]
 }
 
-// A Stimulus's Part, one level in: its letter — after a blank for a Multiple
-// Choice Part — hanging off its own letter column inside the Stimulus's body,
+// A Stimulus's Part, one level in: its letter hanging off its own letter column inside the Stimulus's body,
 // then its choice grid or its work space, as a question of its kind prints.
 function partContent(
   part: PlannedPart,
   stimulusIndentPx: number,
   build: BuildContext,
 ): (Paragraph | Table)[] {
-  const indentPx = stimulusIndentPx + partIndentOf(part)
+  const indentPx = stimulusIndentPx + PART_INDENT
   const indent = twips(indentPx)
   const prefix: ParagraphChild[] = [
     new TextRun({
-      text: part.answerBlank ? `_______  ${part.letter}.\t` : `${part.letter}.\t`,
+      text: `${part.letter}.\t`,
     }),
   ]
   const context: BlockContext = {
     indent,
-    hanging: twips(partIndentOf(part)),
+    hanging: twips(PART_INDENT),
     prefix,
   }
   const stem = blocks(part.stem, context, { ...build, contentWidth: PAGE_CONTENT_WIDTH - indentPx })

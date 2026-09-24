@@ -190,8 +190,6 @@ export type PlannedPart = {
   /** Its position under the Stimulus: `a`, `b`, …. */
   letter: string
   type: PartType
-  /** A Multiple Choice Part prints a blank for its choice letter. */
-  answerBlank: boolean
   stem: ProseMirrorJSON[]
   /** The answers in this arrangement's order, lettered `A`, `B`, …; empty for
    *  a Short Answer Part. */
@@ -514,24 +512,14 @@ export function hasCompactNumber(type: QuestionType): boolean {
 }
 
 /** Where a Part's body starts within its Stimulus's body: past its own letter
- *  column, which is as wide as a question's number column for a Multiple
- *  Choice Part, whose blank it holds, and compact for a Short Answer Part. */
-export function partIndentOf(part: Pick<PlannedPart, 'type'>): number {
-  return (
-    (part.type === 'open'
-      ? COMPACT_QUESTION_NUMBER_COLUMN_WIDTH
-      : QUESTION_NUMBER_COLUMN_WIDTH) + QUESTION_NUMBER_COLUMN_GAP
-  )
-}
+ *  column, which holds the letter alone. A Part prints no answer blank, of
+ *  either kind — a Multiple Choice Part's answer is circled, not written in a
+ *  margin — so every Part is set in by the same short step. */
+export const PART_INDENT = COMPACT_QUESTION_NUMBER_COLUMN_WIDTH + QUESTION_NUMBER_COLUMN_GAP
 
 /** The width a Multiple Choice Part's choice grid is laid out in: the page
  *  less its Stimulus's number column and its own letter column. */
-export const PART_CHOICE_AREA_WIDTH =
-  PAGE_CONTENT_WIDTH
-  - COMPACT_QUESTION_NUMBER_COLUMN_WIDTH
-  - QUESTION_NUMBER_COLUMN_GAP
-  - QUESTION_NUMBER_COLUMN_WIDTH
-  - QUESTION_NUMBER_COLUMN_GAP
+export const PART_CHOICE_AREA_WIDTH = PAGE_CONTENT_WIDTH - 2 * PART_INDENT
 
 /** The width a choice grid is actually laid out in — derived from
  *  `PAGE_CONTENT_WIDTH` so the two numbers cannot drift apart on their own. */
@@ -663,7 +651,6 @@ function deriveParts(
       id: part.id,
       letter: partLetterAt(index),
       type: part.type,
-      answerBlank: multipleChoice,
       stem: part.stem,
       choices,
       grid: multipleChoice ? layOutGrid(choices, part.columns) : null,

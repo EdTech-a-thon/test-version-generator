@@ -24,7 +24,7 @@ import {
 import { cleanDocument, stemNodesOf, type ProseMirrorJSON } from './question-doc'
 import { searchableText, stemPreview } from './stem-preview'
 import { createMemoryBackend, loadExamStore, type AuthoringState, type SavedState } from './exam-store'
-import { partAnswersEmpty, partKindOf, setPartKind } from './stimulus'
+import { movePartTo, partKindOf, setPartKind, type SetAsideAnswers } from './stimulus'
 
 function paragraph(text: string): ProseMirrorJSON {
   return { type: 'paragraph', content: [{ type: 'text', text }] }
@@ -173,10 +173,12 @@ describe('a Stimulus on the paper', () => {
   test('letters its Parts beneath its number, each printed as a question of its kind', () => {
     const question = planned().find(({ id }) => id === 's1')!
     expect(question.answerBlank).toBe(false)
-    expect(question.parts?.map((part) => [part.letter, part.type, part.answerBlank])).toEqual([
-      ['a', 'multiple-choice', true],
-      ['b', 'open', false],
+    // Neither kind prints an answer blank: each is set in by its letter alone.
+    expect(question.parts?.map((part) => [part.letter, part.type])).toEqual([
+      ['a', 'multiple-choice'],
+      ['b', 'open'],
     ])
+    expect(question.parts?.some((part) => 'answerBlank' in part)).toBe(false)
     expect(question.parts?.[0]!.grid).not.toBeNull()
     expect(question.parts?.[1]!.grid).toBeNull()
     expect(question.parts?.[1]!.workSpace).not.toBeNull()
@@ -396,34 +398,68 @@ describe('switching a Part between Multiple Choice and Short Answer', () => {
     return { view, part: () => view.state.doc.nodeAt(1)! }
   }
 
-  const blankChoice = (correct = false): ProseMirrorJSON =>
-    ({ type: 'multipleChoiceChoice', attrs: { id: crypto.randomUUID(), correct }, content: [{ type: 'paragraph' }] })
-
-  test('a Part with blank answers switches kind, keeping its stem, id and columns', () => {
-    // A correct mark on a blank answer is not content to lose.
-    const { view, part } = editorWith({ type: 'multipleChoice', content: [blankChoice(true), blankChoice()] })
-    expect(partAnswersEmpty(part())).toBe(true)
+  test('a Part switches kind at any time, keeping its stem, id and columns', () => {
+    const { view, part } = editorWith({ type: 'multipleChoice', content: [choice('Egypt'), choice('Persia')] })
     expect(setPartKind(view, 1, 'open')).toBe(true)
     expect(partKindOf(part())).toBe('open')
     expect(part().attrs).toEqual({ id: 'p1', columns: 1 })
     expect(part().firstChild!.textContent).toBe('Which region?')
-
+    // Without anywhere to set them aside, the answers it comes back to are blank.
     expect(setPartKind(view, 1, 'multiple-choice')).toBe(true)
-    expect(partKindOf(part())).toBe('multiple-choice')
     expect(part().lastChild!.childCount).toBe(4)
+    expect(part().lastChild!.textContent).toBe('')
+    expect(setPartKind(view, 1, 'multiple-choice')).toBe(false)
   })
 
-  test('a Part whose answers hold text or an image keeps its kind', () => {
-    const typed = editorWith({ type: 'multipleChoice', content: [choice('Egypt'), blankChoice()] })
-    expect(partAnswersEmpty(typed.part())).toBe(false)
-    expect(setPartKind(typed.view, 1, 'open')).toBe(false)
-    expect(partKindOf(typed.part())).toBe('multiple-choice')
+  test('switching back brings the answers that were set aside, and the document holds only one kind', () => {
+    const setAside: SetAsideAnswers = new Map()
+    const { view, part } = editorWith({ type: 'multipleChoice', content: [choice('Egypt'), choice('Persia', true)] })
+    setPartKind(view, 1, 'open', setAside)
+    const suggested = view.state.schema.nodes.paragraph!.create(null, view.state.schema.text('Trade routes'))
+    const answerStart = 1 + part().nodeSize - 1 - part().lastChild!.nodeSize
+    view.dispatch(view.state.tr.insert(answerStart + 1, suggested))
+    expect(part().lastChild!.textContent).toBe('Trade routes')
+    expect(view.state.doc.textContent).not.toContain('Egypt')
 
-    const pictured = editorWith({
-      type: 'suggestedAnswer',
-      content: [{ type: 'paragraph', content: [{ type: 'image' }] }],
+    setPartKind(view, 1, 'multiple-choice', setAside)
+    expect(part().lastChild!.textContent).toBe('EgyptPersia')
+    expect(part().lastChild!.child(1).attrs.correct).toBe(true)
+    expect(view.state.doc.textContent).not.toContain('Trade routes')
+
+    setPartKind(view, 1, 'open', setAside)
+    expect(part().lastChild!.textContent).toBe('Trade routes')
+  })
+
+  test('a dragged Part lands before the Part it is dropped on, or after the last', () => {
+    const { view } = editorWith({ type: 'multipleChoice', content: [choice('Egypt')] })
+    const box = () => view.state.doc.firstChild!
+    const stems = () => Array.from({ length: box().childCount }, (_, i) => box().child(i).firstChild!.textContent)
+    const partAt = (index: number) => {
+      let pos = 1
+      for (let i = 0; i < index; i += 1) pos += box().child(i).nodeSize
+      return pos
+    }
+    const second = schema.nodeFromJSON({
+      type: 'stimulusPart',
+      attrs: { id: 'p2' },
+      content: [
+        { type: 'stimulusPartStem', content: [paragraph('Explain one factor.')] },
+        { type: 'suggestedAnswer', content: [{ type: 'paragraph' }] },
+      ],
     })
-    expect(setPartKind(pictured.view, 1, 'multiple-choice')).toBe(false)
-    expect(partKindOf(pictured.part())).toBe('open')
+    view.dispatch(view.state.tr.insert(1 + box().content.size, second))
+    view.dispatch(view.state.tr.insert(1 + box().content.size, second.type.create({ id: 'p3' }, [
+      second.firstChild!.type.create(null, schema.nodes.paragraph!.create(null, schema.text('Third'))),
+      second.lastChild!,
+    ])))
+    expect(stems()).toEqual(['Which region?', 'Explain one factor.', 'Third'])
+
+    expect(movePartTo(view, partAt(2), 0)).toBe(true)
+    expect(stems()).toEqual(['Third', 'Which region?', 'Explain one factor.'])
+    expect(movePartTo(view, partAt(0), 3)).toBe(true)
+    expect(stems()).toEqual(['Which region?', 'Explain one factor.', 'Third'])
+    // Dropped where it already is, on either side of itself, nothing moves.
+    expect(movePartTo(view, partAt(1), 1)).toBe(false)
+    expect(movePartTo(view, partAt(1), 2)).toBe(false)
   })
 })

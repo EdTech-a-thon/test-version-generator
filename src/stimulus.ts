@@ -16,7 +16,7 @@ import { multipleChoiceEditableCtx, newMultipleChoiceNode } from './multiple-cho
 // disagree with its answers.
 //
 // Parts are lettered by the stylesheet from their position, so deleting or
-// moving one reletters the rest without a node view having to be told.
+// dragging one reletters the rest without a node view having to be told.
 
 // Whether the question being edited is a Stimulus. On for one in the editor,
 // off everywhere else: it is what lets the Parts box be regrown if the teacher
@@ -117,37 +117,31 @@ export function partKindOf(node: ProseNode): PartKind {
   return node.lastChild?.type.name === 'suggestedAnswer' ? 'open' : 'multiple-choice'
 }
 
-/** Whether a Part's answers are still blank — no text and nothing inserted in
- *  any answer — so switching its kind would throw nothing away. A correct mark
- *  on a blank answer is not content. */
-export function partAnswersEmpty(node: ProseNode) {
-  const answer = node.lastChild
-  if (!answer) return true
-  let empty = true
-  answer.descendants((child) => {
-    if (!empty) return false
-    if (child.isText ? child.text!.trim() !== '' : child.isLeaf && child.type.name !== 'hardBreak') {
-      empty = false
-    }
-    return true
-  })
-  return empty
-}
+/** A Part's answers set aside while it is another kind, by Part id and kind.
+ *  It lives only as long as one editing session: the document — what is saved
+ *  — holds the answers of the kind the Part is, and nothing of the other. */
+export type SetAsideAnswers = Map<string, Partial<Record<PartKind, ProseNode>>>
 
-/** Make the Part at `partPosition` a Part of `kind`, replacing its answer
- *  component with a blank one of that kind. Its stem, id and columns stay.
- *  Refused while the Part has answers, which the switch would discard. */
+/** Make the Part at `partPosition` a Part of `kind`. Its stem, id and columns
+ *  stay; its answers are set aside in `setAside`, if given, and the answers it
+ *  had when it was last `kind` come back — otherwise a blank set does — so
+ *  switching away and back loses nothing. */
 export function setPartKind(
   view: Pick<EditorView, 'state' | 'dispatch'>,
   partPosition: number,
   kind: PartKind,
+  setAside?: SetAsideAnswers,
 ) {
   const part = view.state.doc.nodeAt(partPosition)
   if (part?.type.name !== 'stimulusPart') return false
-  if (partKindOf(part) === kind || !partAnswersEmpty(part)) return false
+  const current = partKindOf(part)
+  if (current === kind) return false
   const answer = part.lastChild!
+  const id = String(part.attrs.id)
+  const kept = setAside?.get(id) ?? {}
+  setAside?.set(id, { ...kept, [current]: answer })
+  const replacement = kept[kind] ?? view.state.schema.nodeFromJSON(answerJSON(kind))
   const answerEnd = partPosition + part.nodeSize - 1
-  const replacement = view.state.schema.nodeFromJSON(answerJSON(kind))
   view.dispatch(view.state.tr.replaceWith(answerEnd - answer.nodeSize, answerEnd, replacement))
   return true
 }
@@ -170,30 +164,25 @@ export function addPart(
   return true
 }
 
-/** Move the Part at `partPosition` one place up or down among its siblings. */
-export function movePart(
+/** Move the Part at `partPosition` so it lands before the Part now at
+ *  `targetIndex` among its siblings — or after the last, at their count.
+ *  Nothing happens where it already is. */
+export function movePartTo(
   view: Pick<EditorView, 'state' | 'dispatch'>,
   partPosition: number,
-  direction: -1 | 1,
+  targetIndex: number,
 ) {
   const $part = view.state.doc.resolve(partPosition)
   const box = $part.parent
   if (box.type.name !== 'stimulusParts') return false
   const index = $part.index()
-  const target = index + direction
-  if (target < 0 || target >= box.childCount) return false
+  if (targetIndex === index || targetIndex === index + 1) return false
+  if (targetIndex < 0 || targetIndex > box.childCount) return false
   const part = box.child(index)
-  const tr = view.state.tr
-  if (direction < 0) {
-    const previous = box.child(target)
-    const previousPosition = partPosition - previous.nodeSize
-    tr.delete(partPosition, partPosition + part.nodeSize)
-    tr.insert(previousPosition, part)
-  } else {
-    const next = box.child(target)
-    tr.delete(partPosition, partPosition + part.nodeSize)
-    tr.insert(partPosition + next.nodeSize, part)
-  }
+  let target = $part.start()
+  for (let i = 0; i < targetIndex; i += 1) target += box.child(i).nodeSize
+  const tr = view.state.tr.delete(partPosition, partPosition + part.nodeSize)
+  tr.insert(tr.mapping.map(target), part)
   view.dispatch(tr.scrollIntoView())
   return true
 }
@@ -233,25 +222,150 @@ export const keepStimulusParts = $prose((ctx: Ctx) =>
   }),
 )
 
-function iconButton(label: string, text: string, className: string) {
+// Lucide's icons, as the rest of the app draws them, for chrome built outside
+// React: the question types' own icons, and the ones a Part's controls use.
+const ICON_PATHS = {
+  'multiple-choice': ['M13 5h8', 'M13 12h8', 'M13 19h8', 'm3 17 2 2 4-4', 'm3 7 2 2 4-4'],
+  open: ['M21 5H3', 'M15 12H3', 'M17 19H3'],
+  x: ['M18 6 6 18', 'm6 6 12 12'],
+  plus: ['M5 12h14', 'M12 5v14'],
+  check: ['M20 6 9 17l-5-5'],
+  chevron: ['m6 9 6 6 6-6'],
+} as const
+
+function icon(name: keyof typeof ICON_PATHS) {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+  for (const [key, value] of Object.entries({
+    viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor',
+    'stroke-width': '2', 'stroke-linecap': 'round', 'stroke-linejoin': 'round',
+    'aria-hidden': 'true',
+  })) svg.setAttribute(key, value)
+  for (const d of ICON_PATHS[name]) {
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+    path.setAttribute('d', d)
+    svg.append(path)
+  }
+  return svg
+}
+
+// Crepe's own drag handle, so a Part is picked up by the handle every other
+// block in the editor is.
+const DRAG_HANDLE_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 9.83366C3.35833 9.83366 3.23961 9.78571 3.14383 9.68983C3.04794 9.59394 3 9.47516 3 9.33349C3 9.19171 3.04794 9.07299 3.14383 8.97733C3.23961 8.88155 3.35833 8.83366 3.5 8.83366H12.5C12.6417 8.83366 12.7604 8.8816 12.8562 8.97749C12.9521 9.07338 13 9.19216 13 9.33383C13 9.4756 12.9521 9.59433 12.8562 9.68999C12.7604 9.78577 12.6417 9.83366 12.5 9.83366H3.5ZM3.5 7.16699C3.35833 7.16699 3.23961 7.11905 3.14383 7.02316C3.04794 6.92727 3 6.80849 3 6.66683C3 6.52505 3.04794 6.40633 3.14383 6.31066C3.23961 6.21488 3.35833 6.16699 3.5 6.16699H12.5C12.6417 6.16699 12.7604 6.21494 12.8562 6.31083C12.9521 6.40671 13 6.52549 13 6.66716C13 6.80894 12.9521 6.92766 12.8562 7.02333C12.7604 7.1191 12.6417 7.16699 12.5 7.16699H3.5Z"/></svg>`
+
+/** A kind of Part drawn as the question type's badge: its icon and its name. */
+function kindBadge(kind: PartKind) {
+  const badge = document.createElement('span')
+  badge.className = 'badge badge-type'
+  badge.append(icon(kind), PART_KIND_LABELS[kind])
+  return badge
+}
+
+/**
+ * A button that opens a small menu, closed again by any press outside it —
+ * the button never takes focus, so there is no blur to hear. `choose` gets
+ * the kind picked.
+ */
+function kindMenu(
+  button: HTMLButtonElement,
+  className: string,
+  choose: (kind: PartKind) => void,
+) {
+  const wrap = document.createElement('span')
+  wrap.className = 'stimulus-menu-anchor'
+  const menu = document.createElement('div')
+  menu.className = `stimulus-menu ${className}`
+  menu.setAttribute('role', 'menu')
+  menu.hidden = true
+  button.setAttribute('aria-haspopup', 'menu')
+  button.setAttribute('aria-expanded', 'false')
+
+  const onOutsidePress = (event: MouseEvent) => {
+    if (!wrap.contains(event.target as Node)) setOpen(false)
+  }
+  // Escape closes the menu and goes no further: the dialog around the editor
+  // hears the same key as Cancel.
+  const onEscape = (event: KeyboardEvent) => {
+    if (event.key !== 'Escape') return
+    event.preventDefault()
+    event.stopPropagation()
+    setOpen(false)
+  }
+  const setOpen = (open: boolean) => {
+    menu.hidden = !open
+    button.setAttribute('aria-expanded', String(open))
+    if (open) {
+      document.addEventListener('mousedown', onOutsidePress, true)
+      document.addEventListener('keydown', onEscape, true)
+    } else {
+      document.removeEventListener('mousedown', onOutsidePress, true)
+      document.removeEventListener('keydown', onEscape, true)
+    }
+  }
+  const items = (['multiple-choice', 'open'] as const).map((kind) => {
+    const item = document.createElement('button')
+    item.type = 'button'
+    item.className = 'stimulus-menu-item'
+    item.setAttribute('role', 'menuitem')
+    item.setAttribute('aria-label', PART_KIND_LABELS[kind])
+    item.append(kindBadge(kind))
+    item.addEventListener('mousedown', (event) => {
+      event.preventDefault()
+      setOpen(false)
+      choose(kind)
+    })
+    menu.append(item)
+    return { kind, item }
+  })
+  button.addEventListener('mousedown', (event) => {
+    event.preventDefault()
+    setOpen(menu.hidden)
+  })
+  wrap.append(button, menu)
+  return {
+    wrap,
+    close: () => setOpen(false),
+    /** Mark the kind the Part already is, with the tick a chosen value has. */
+    mark(chosen: PartKind | null) {
+      for (const { kind, item } of items) {
+        item.querySelector('.stimulus-menu-check')?.remove()
+        if (kind === chosen) {
+          const check = icon('check')
+          check.classList.add('stimulus-menu-check')
+          item.append(check)
+          item.setAttribute('aria-checked', 'true')
+        } else item.removeAttribute('aria-checked')
+      }
+    },
+  }
+}
+
+function addPartButton() {
   const button = document.createElement('button')
   button.type = 'button'
-  button.className = className
-  button.setAttribute('aria-label', label)
-  button.title = label
-  button.textContent = text
+  button.className = 'stimulus-add-part'
+  const label = document.createElement('span')
+  label.textContent = 'Add Part'
+  button.append(icon('plus'), label)
   return button
 }
 
-// Node view for the Parts box: a "Parts" heading ruled full width, the Parts
-// under it, and "+ Add Part" after them, which offers the two kinds a Part can
-// be. Editor only: read-only views draw a Stimulus from the plan.
+// Node view for the Parts box: a "Parts" heading ruled full width, with
+// "+ Add Part" at its right end; the Parts under it; and "+ Add Part" again
+// after the last of them. Either one offers the two kinds a Part can be.
+// Editor only: read-only views draw a Stimulus from the plan.
 export const stimulusPartsView = $view(
   stimulusPartsSchema.node,
   (ctx: Ctx) => {
     return (initialNode, view, getPos): NodeView => {
       let node: ProseNode = initialNode
       const editable = () => ctx.get(multipleChoiceEditableCtx)
+      const add = (kind: PartKind) => {
+        if (!editable()) return
+        const pos = getPos()
+        if (pos == null) return
+        addPart(view, pos, kind)
+        view.focus()
+      }
 
       const dom = document.createElement('div')
       dom.className = 'stimulus-parts'
@@ -260,7 +374,10 @@ export const stimulusPartsView = $view(
       const head = document.createElement('div')
       head.className = 'stimulus-parts-head'
       head.contentEditable = 'false'
-      head.textContent = 'Parts'
+      const title = document.createElement('span')
+      title.textContent = 'Parts'
+      const headAdd = kindMenu(addPartButton(), 'stimulus-menu--below stimulus-menu--end', add)
+      head.append(title, headAdd.wrap)
 
       const contentDOM = document.createElement('div')
       contentDOM.className = 'stimulus-parts-list'
@@ -268,71 +385,21 @@ export const stimulusPartsView = $view(
       const empty = document.createElement('p')
       empty.className = 'stimulus-parts-empty'
       empty.contentEditable = 'false'
-      empty.textContent = 'No parts yet. Add one below.'
+      empty.textContent = 'No parts yet.'
 
       const actions = document.createElement('div')
       actions.className = 'stimulus-parts-actions'
       actions.contentEditable = 'false'
+      const footAdd = kindMenu(addPartButton(), 'stimulus-menu--above', add)
+      actions.append(footAdd.wrap)
 
-      const addButton = document.createElement('button')
-      addButton.type = 'button'
-      addButton.className = 'stimulus-add-part'
-      addButton.setAttribute('aria-haspopup', 'menu')
-      addButton.setAttribute('aria-expanded', 'false')
-      const plus = document.createElement('span')
-      plus.className = 'mc-add-plus'
-      plus.textContent = '+'
-      const label = document.createElement('span')
-      label.className = 'mc-add-label'
-      label.textContent = 'Add Part'
-      addButton.append(plus, label)
-
-      const menu = document.createElement('div')
-      menu.className = 'stimulus-add-menu'
-      menu.setAttribute('role', 'menu')
-      menu.hidden = true
-
-      // Any press outside the menu closes it, as a menu elsewhere in the app
-      // closes: the button never takes focus, so there is no blur to hear.
-      const onOutsidePress = (event: MouseEvent) => {
-        if (!actions.contains(event.target as Node)) setOpen(false)
-      }
-      const setOpen = (open: boolean) => {
-        menu.hidden = !open
-        addButton.setAttribute('aria-expanded', String(open))
-        if (open) document.addEventListener('mousedown', onOutsidePress, true)
-        else document.removeEventListener('mousedown', onOutsidePress, true)
-      }
-
-      for (const kind of ['multiple-choice', 'open'] as const) {
-        const item = document.createElement('button')
-        item.type = 'button'
-        item.className = 'stimulus-add-menu-item'
-        item.setAttribute('role', 'menuitem')
-        item.textContent = PART_KIND_LABELS[kind]
-        item.addEventListener('mousedown', (event) => {
-          event.preventDefault()
-          setOpen(false)
-          if (!editable()) return
-          const pos = getPos()
-          if (pos == null) return
-          addPart(view, pos, kind)
-          view.focus()
-        })
-        menu.append(item)
-      }
-
-      addButton.addEventListener('mousedown', (event) => {
-        event.preventDefault()
-        setOpen(menu.hidden)
-      })
-
-      actions.append(addButton, menu)
       dom.append(head, contentDOM, empty, actions)
 
       const render = () => {
         empty.hidden = node.childCount > 0
-        actions.style.display = editable() ? '' : 'none'
+        const shown = editable() ? '' : 'none'
+        actions.style.display = shown
+        headAdd.wrap.style.display = shown
       }
       render()
 
@@ -352,19 +419,26 @@ export const stimulusPartsView = $view(
         },
         ignoreMutation: (mutation) => chrome(mutation.target),
         stopEvent: (event) => chrome(event.target),
-        destroy: () => setOpen(false),
+        destroy: () => {
+          headAdd.close()
+          footAdd.close()
+        },
       }
     }
   },
 )
 
-// Node view for one Part: a tag naming it — its letter, drawn by the
-// stylesheet, and its kind — with the controls that move it up, move it down
-// and delete it; then its stem and its answer component, both editable. The
-// kind opens a menu that switches it while the Part's answers are blank.
+// Node view for one Part: a title line — the drag handle in the margin, its
+// letter, drawn by the stylesheet, its kind as the question type's badge,
+// which opens a menu to switch it, and × to delete it at the far right — ruled
+// dotted full width; then its stem and its answer component, both editable
+// and drawn as a question of that kind draws them.
 export const stimulusPartView = $view(
   stimulusPartSchema.node,
   (ctx: Ctx) => {
+    // One editor's answers set aside by switching a Part's kind, so switching
+    // back brings them again. Never saved: see `SetAsideAnswers`.
+    const setAside: SetAsideAnswers = new Map()
     return (initialNode, view, getPos): NodeView => {
       let node: ProseNode = initialNode
       const editable = () => ctx.get(multipleChoiceEditableCtx)
@@ -373,105 +447,115 @@ export const stimulusPartView = $view(
       dom.className = 'stimulus-part'
       dom.dataset.type = 'stimulus-part'
 
-      const tag = document.createElement('div')
-      tag.className = 'stimulus-part-tag'
-      tag.contentEditable = 'false'
+      const title = document.createElement('div')
+      title.className = 'stimulus-part-title'
+      title.contentEditable = 'false'
 
-      const name = document.createElement('span')
-      name.className = 'stimulus-part-name'
+      const handle = document.createElement('span')
+      handle.className = 'stimulus-part-handle'
+      handle.setAttribute('aria-label', 'Drag to reorder')
+      handle.title = 'Drag to reorder'
+      handle.innerHTML = DRAG_HANDLE_SVG
+
       const letter = document.createElement('span')
       letter.className = 'stimulus-part-letter'
+
       const kindButton = document.createElement('button')
       kindButton.type = 'button'
       kindButton.className = 'stimulus-part-kind'
-      kindButton.setAttribute('aria-haspopup', 'menu')
-      kindButton.setAttribute('aria-expanded', 'false')
-      const kindLabel = document.createElement('span')
-      const caret = document.createElement('span')
-      caret.className = 'stimulus-part-kind-caret'
-      caret.setAttribute('aria-hidden', 'true')
-      caret.textContent = '▾'
-      kindButton.append(kindLabel, caret)
-
-      const kindMenu = document.createElement('div')
-      kindMenu.className = 'stimulus-add-menu stimulus-kind-menu'
-      kindMenu.setAttribute('role', 'menu')
-      kindMenu.hidden = true
-      const onOutsidePress = (event: MouseEvent) => {
-        if (!name.contains(event.target as Node)) setMenuOpen(false)
-      }
-      const setMenuOpen = (open: boolean) => {
-        kindMenu.hidden = !open
-        kindButton.setAttribute('aria-expanded', String(open))
-        if (open) document.addEventListener('mousedown', onOutsidePress, true)
-        else document.removeEventListener('mousedown', onOutsidePress, true)
-      }
-      const kindItems = (['multiple-choice', 'open'] as const).map((kind) => {
-        const item = document.createElement('button')
-        item.type = 'button'
-        item.className = 'stimulus-add-menu-item'
-        item.setAttribute('role', 'menuitemradio')
-        item.textContent = PART_KIND_LABELS[kind]
-        item.addEventListener('mousedown', (event) => {
-          event.preventDefault()
-          setMenuOpen(false)
-          if (!editable()) return
-          const pos = getPos()
-          if (pos == null) return
-          setPartKind(view, pos, kind)
-          view.focus()
-        })
-        kindMenu.append(item)
-        return { kind, item }
+      const kind = kindMenu(kindButton, 'stimulus-menu--below', (next) => {
+        if (!editable()) return
+        const pos = getPos()
+        if (pos == null) return
+        setPartKind(view, pos, next, setAside)
+        view.focus()
       })
-      kindButton.addEventListener('mousedown', (event) => {
-        event.preventDefault()
-        if (kindButton.disabled) return
-        setMenuOpen(kindMenu.hidden)
-      })
-      name.append(letter, kindButton, kindMenu)
 
-      const controls = document.createElement('span')
-      controls.className = 'stimulus-part-controls'
-      const up = iconButton('Move part up', '↑', 'stimulus-part-control')
-      const down = iconButton('Move part down', '↓', 'stimulus-part-control')
-      const remove = iconButton('Delete part', '×', 'stimulus-part-control stimulus-part-delete')
-      controls.append(up, down, remove)
-      tag.append(name, controls)
-
-      const contentDOM = document.createElement('div')
-      contentDOM.className = 'stimulus-part-body'
-
-      dom.append(tag, contentDOM)
-
-      const act = (run: (pos: number) => void) => (event: MouseEvent) => {
+      const remove = document.createElement('button')
+      remove.type = 'button'
+      remove.className = 'stimulus-part-delete'
+      remove.setAttribute('aria-label', 'Delete part')
+      remove.title = 'Delete part'
+      remove.append(icon('x'))
+      remove.addEventListener('mousedown', (event) => {
         event.preventDefault()
         if (!editable()) return
         const pos = getPos()
         if (pos == null) return
-        run(pos)
+        deletePart(view, pos)
+        view.focus()
+      })
+
+      title.append(handle, letter, kind.wrap, remove)
+
+      // Picked up by its handle, the Part follows the pointer among its
+      // siblings — and only there, so it can never land outside the Parts —
+      // with a line showing where it will go, and moves there on release.
+      // Pointer events rather than the browser's own drag and drop, which a
+      // browser will not start from inside the editable document.
+      const indicator = document.createElement('div')
+      indicator.className = 'stimulus-part-drop-line'
+      let dropIndex: number | null = null
+      const siblings = () =>
+        Array.from(dom.parentElement?.children ?? [])
+          .filter((element) => element.classList.contains('stimulus-part'))
+      const track = (event: PointerEvent) => {
+        const parts = siblings()
+        if (parts.length === 0) return
+        let index = parts.findIndex((element) => {
+          const box = element.getBoundingClientRect()
+          return event.clientY < box.top + box.height / 2
+        })
+        if (index < 0) index = parts.length
+        dropIndex = index
+        const edge = index < parts.length
+          ? parts[index]!.getBoundingClientRect().top - 12
+          : parts.at(-1)!.getBoundingClientRect().bottom + 12
+        const list = dom.parentElement!.getBoundingClientRect()
+        Object.assign(indicator.style, {
+          top: `${edge - 1}px`, left: `${list.left}px`, width: `${list.width}px`,
+        })
+      }
+      const finish = (event: PointerEvent) => {
+        handle.releasePointerCapture?.(event.pointerId)
+        handle.removeEventListener('pointermove', track)
+        indicator.remove()
+        document.body.classList.remove('stimulus-part-dragging')
+        const pos = getPos()
+        const target = dropIndex
+        dropIndex = null
+        if (event.type !== 'pointerup' || pos == null || target == null) return
+        movePartTo(view, pos, target)
         view.focus()
       }
-      up.addEventListener('mousedown', act((pos) => movePart(view, pos, -1)))
-      down.addEventListener('mousedown', act((pos) => movePart(view, pos, 1)))
-      remove.addEventListener('mousedown', act((pos) => deletePart(view, pos)))
+      handle.addEventListener('pointerdown', (event) => {
+        if (event.button !== 0 || !editable()) return
+        event.preventDefault()
+        handle.setPointerCapture?.(event.pointerId)
+        document.body.classList.add('stimulus-part-dragging')
+        document.body.append(indicator)
+        track(event)
+        handle.addEventListener('pointermove', track)
+        handle.addEventListener('pointerup', finish, { once: true })
+        handle.addEventListener('pointercancel', finish, { once: true })
+      })
+
+      const contentDOM = document.createElement('div')
+      contentDOM.className = 'stimulus-part-body'
+
+      dom.append(title, contentDOM)
 
       const render = () => {
-        const kind = partKindOf(node)
-        dom.dataset.kind = kind
-        kindLabel.textContent = PART_KIND_LABELS[kind]
-        for (const { kind: itemKind, item } of kindItems) {
-          item.setAttribute('aria-checked', String(itemKind === kind))
-        }
-        // A Part's kind is chosen when it is added; afterwards it switches
-        // only while its answers are blank, so a switch never loses work.
-        const switchable = editable() && partAnswersEmpty(node)
-        kindButton.disabled = !switchable
-        kindButton.title = switchable
-          ? 'Change the kind of part'
-          : editable() ? 'Clear this part’s answers to change its kind' : ''
-        if (!switchable) setMenuOpen(false)
-        controls.style.display = editable() ? '' : 'none'
+        const current = partKindOf(node)
+        dom.dataset.kind = current
+        kindButton.replaceChildren(kindBadge(current))
+        kindButton.setAttribute('aria-label', `Part type: ${PART_KIND_LABELS[current]}`)
+        kind.mark(current)
+        const on = editable()
+        kindButton.disabled = !on
+        if (!on) kind.close()
+        handle.style.display = on ? '' : 'none'
+        remove.style.display = on ? '' : 'none'
       }
       render()
 
@@ -484,16 +568,20 @@ export const stimulusPartView = $view(
           render()
           return true
         },
-        ignoreMutation: (mutation) => tag.contains(mutation.target),
-        stopEvent: (event) => tag.contains(event.target as Node),
-        destroy: () => setMenuOpen(false),
+        ignoreMutation: (mutation) => title.contains(mutation.target),
+        stopEvent: (event) => title.contains(event.target as Node),
+        destroy: () => {
+          kind.close()
+          indicator.remove()
+        },
       }
     }
   },
 )
 
-// Node view for a Part's stem: the top cell of the Part, joined to the answer
-// cells under it, whose placeholder the stylesheet words for the Part's kind.
+// Node view for a Part's stem: written under the Part's title as a question's
+// stem is written, unboxed, with a placeholder the stylesheet words for the
+// Part's kind.
 export const stimulusPartStemView = $view(
   stimulusPartStemSchema.node,
   () => (initialNode: ProseNode): NodeView => {

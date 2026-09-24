@@ -193,9 +193,8 @@ export function WorkSpaceView({ space }: { space: PlannedWorkSpace }) {
 }
 
 // One Part of a Stimulus, drawn the way a question of its kind is, one level
-// in: a letter column — holding a blank for a Multiple Choice Part, as a
-// question's number column does — then its stem, its choice grid or its work
-// space. `renderWorkSpace` lets the sheet wrap a Short Answer Part's space in
+// in: a short letter column — no answer blank, for either kind — then its
+// stem, its choice grid or its work space. `renderWorkSpace` lets the sheet wrap a Short Answer Part's space in
 // the handle that sizes it.
 export function PartContent({
   part,
@@ -208,12 +207,7 @@ export function PartContent({
 }) {
   return (
     <div className="stimulus-part-print" data-part-id={part.id} data-part-type={part.type}>
-      <div
-        className={
-          part.type === 'open' ? 'part-letter part-letter--compact' : 'part-letter'
-        }
-      >
-        {part.answerBlank && <span className="answer-blank" aria-label="Answer blank" />}
+      <div className="part-letter">
         <span className="part-count">{part.letter}.</span>
       </div>
       <div className="part-body">

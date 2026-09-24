@@ -3,9 +3,9 @@
 // The plan's tests cover how a Stimulus numbers, letters and breaks across
 // pages. These cover what only a browser can show: that the question editor
 // lays a Stimulus out the way the paper does — the Stimulus unnested at the
-// top, a "Parts" heading, each Part tagged with its letter and kind and holding
+// top, a "Parts" heading, each Part titled with its letter and kind and holding
 // the answer component a question of that kind uses — that Parts can be
-// added, moved, deleted and switched between kinds there, and that the sheet
+// added, dragged, deleted and switched between kinds there, and that the sheet
 // prints them lettered under the Stimulus's one number.
 //
 // A seeded Exam is enough to look at the sheet and the editor, but saving an
@@ -68,7 +68,7 @@ async function openExam(page: Page) {
 }
 
 const editor = (page: Page) => page.getByRole('dialog', { name: 'Question editor' })
-const partTags = (page: Page) => editor(page).locator('.stimulus-part-tag')
+const partTags = (page: Page) => editor(page).locator('.stimulus-part-title')
 
 test('the sheet prints the Stimulus under one number with its Parts lettered beneath it', async ({ page }) => {
   await openExam(page)
@@ -90,6 +90,7 @@ test('the editor nests the Parts under the Stimulus, each tagged with its letter
 
   await expect(editor(page).getByText('Parts', { exact: true })).toBeVisible()
   await expect(partTags(page)).toHaveCount(2)
+  await expect(partTags(page).nth(0)).toContainText('A')
   await expect(partTags(page).nth(0)).toContainText('Multiple Choice')
   await expect(partTags(page).nth(1)).toContainText('Short Answer')
   await expect(editor(page).locator('.stimulus-part').nth(0).locator('[data-type="multiple-choice"]')).toBeVisible()
@@ -122,11 +123,14 @@ test('a new Stimulus opens with one blank Multiple Choice Part, and the bank cou
   await expect(questions.getByRole('listitem', { name: /^Part [a-z],/ })).toHaveCount(1)
 })
 
-test('a Part is added, moved and deleted from its own controls, and saving keeps exactly that', async ({ page }) => {
+test('a Part is added, dragged and deleted, and saving keeps exactly that', async ({ page }) => {
   await newStimulus(page)
   await page.keyboard.type('A quotation to read.')
 
-  await editor(page).getByRole('button', { name: 'Add Part' }).click()
+  // "Add Part" is offered twice: at the end of the Parts heading, and after
+  // the last Part.
+  await expect(editor(page).getByRole('button', { name: 'Add Part' })).toHaveCount(2)
+  await editor(page).getByRole('button', { name: 'Add Part' }).last().click()
   await editor(page).getByRole('menuitem', { name: 'Short Answer' }).click()
   await expect(partTags(page)).toHaveCount(2)
   await expect(partTags(page).nth(1)).toContainText('Short Answer')
@@ -134,8 +138,15 @@ test('a Part is added, moved and deleted from its own controls, and saving keeps
   await page.keyboard.type('Explain one factor.')
   await expect(editor(page).locator('.stimulus-part').nth(1)).toContainText('Explain one factor.')
 
-  // Moving it up puts it first.
-  await partTags(page).nth(1).getByRole('button', { name: 'Move part up' }).click()
+  // Dragged by its handle above the first Part, it becomes Part A.
+  await editor(page).locator('.stimulus-part').nth(1).hover()
+  const handle = await partTags(page).nth(1).getByLabel('Drag to reorder').boundingBox()
+  const first = await editor(page).locator('.stimulus-part').nth(0).boundingBox()
+  await page.mouse.move(handle!.x + handle!.width / 2, handle!.y + handle!.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(handle!.x + 60, first!.y + 4, { steps: 8 })
+  await page.mouse.up()
+  await expect(editor(page).locator('.stimulus-part')).toHaveCount(2)
   await expect(editor(page).locator('.stimulus-part').nth(0)).toContainText('Explain one factor.')
   await expect(partTags(page).nth(0)).toContainText('Short Answer')
 
@@ -171,19 +182,26 @@ test('each Part of a Stimulus gets the sheet controls a question of its kind has
   await expect(page.locator('.stimulus-part-print').nth(0).locator('.choice-grid')).toHaveAttribute('data-columns', '1')
 })
 
-test('a Part with blank answers switches kind, and one with answers written keeps it', async ({ page }) => {
+test('a Part switches kind from its type badge, and switching back brings its answers again', async ({ page }) => {
   await newStimulus(page)
   const part = editor(page).locator('.stimulus-part').first()
-  const kind = partTags(page).first().getByRole('button', { name: 'Multiple Choice' })
+  const switchTo = async (kind: string) => {
+    await partTags(page).first().getByRole('button', { name: /^Part type:/ }).click()
+    await editor(page).getByRole('menuitem', { name: kind }).click()
+  }
 
-  await kind.click()
-  await editor(page).getByRole('menuitemradio', { name: 'Short Answer' }).click()
+  await part.locator('.mc-choice-body').first().click()
+  await page.keyboard.type('Middle East')
+  await switchTo('Short Answer')
   await expect(partTags(page).first()).toContainText('Short Answer')
   await expect(part.getByText('Suggested Answer')).toBeVisible()
   await expect(part.locator('[data-type="multiple-choice"]')).toHaveCount(0)
 
-  // Once its Suggested Answer is written, switching would lose it.
   await part.locator('.sa-body').click()
   await page.keyboard.type('Trade routes shifted.')
-  await expect(partTags(page).first().getByRole('button', { name: 'Short Answer' })).toBeDisabled()
+  await switchTo('Multiple Choice')
+  await expect(part.locator('.mc-choice-body').first()).toHaveText('Middle East')
+  await expect(part).not.toContainText('Trade routes shifted.')
+  await switchTo('Short Answer')
+  await expect(part.locator('.sa-body')).toHaveText('Trade routes shifted.')
 })

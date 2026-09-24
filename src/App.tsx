@@ -95,6 +95,7 @@ import {
   Gauge,
   Import,
   History,
+  Library,
   ListChecks,
   ToggleLeft,
   Link2,
@@ -602,7 +603,6 @@ function QuestionDialog({
   isNew,
   topicSuggestions,
   ownerName,
-  usage,
   onCancel,
   onSave,
   onDelete,
@@ -613,7 +613,6 @@ function QuestionDialog({
    *  the spelling they used last time rather than inventing a near-duplicate. */
   topicSuggestions: readonly string[]
   ownerName?: string
-  usage?: readonly QuestionUsage[]
   onCancel: () => void
   onSave: (question: Question) => Promise<void>
   onDelete?: () => void
@@ -723,23 +722,7 @@ function QuestionDialog({
         aria-label="Question editor"
       >
         <header className="dialog-header">
-          <div>
-            <h2>{isNew ? 'Add question' : 'Edit question'}</h2>
-            {!isNew && ownerName && <p className="question-owner">Question Bank: {ownerName}</p>}
-          </div>
-          {!isNew && usage && (
-            <details className="question-usage">
-              <summary>Used in {usage.length} {usage.length === 1 ? 'Exam' : 'Exams'}</summary>
-              {usage.length === 0 ? <p>Not used in any Exams.</p> : <ul>
-                {usage.map((item) => <li key={item.examId}>
-                  <strong>{item.title}</strong>{' — '}
-                  {item.saved && item.workingCopy
-                    ? 'saved state and Working Copy'
-                    : item.saved ? 'saved state' : 'Working Copy'}
-                </li>)}
-              </ul>}
-            </details>
-          )}
+          <h2>{isNew ? 'Add question' : 'Edit question'}</h2>
         </header>
         {/* The question's front matter, indented to the document's own margin
             because it is the head of the question rather than a strip bolted
@@ -747,6 +730,15 @@ function QuestionDialog({
             created and the answer choices below depend on it. Difficulty and
             Topics are optional and both open blank. */}
         <div className="front-matter">
+          {ownerName && (
+            <div className="front-matter-field">
+              <span className="front-matter-label">
+                <Library />
+                Question Bank
+              </span>
+              <span className="front-matter-value front-matter-stated">{ownerName}</span>
+            </div>
+          )}
           <div className="front-matter-field">
             <span className="front-matter-label">
               <FileType2 />
@@ -1126,7 +1118,6 @@ function QuestionBankWorkspace({
       isNew={!bank.questions.some((question) => question.id === editing.id)}
       topicSuggestions={topicOptions({ questions: bank.questions })}
       ownerName={bank.name}
-      usage={usage}
       onCancel={() => setEditing(null)}
       onDelete={bank.questions.some(({ id }) => id === editing.id) ? () => setConfirmingDeletion(true) : undefined}
       onSave={async (question) => {
@@ -2544,7 +2535,6 @@ function ExamEditor({
           isNew={!bankQuestionById(state.questionBank, editing.question.id)}
           topicSuggestions={topicOptions(state.questionBank)}
           ownerName={editing.owner?.name}
-          usage={editing.usage}
           onCancel={() => setEditing(null)}
           onDelete={bankQuestionById(state.questionBank, editing.question.id) ? () => {
             void (async () => {
