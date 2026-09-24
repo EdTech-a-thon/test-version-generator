@@ -3,7 +3,8 @@ import type { ImportProposal, ProposedBank, ProposedExam } from './package-impor
 import {
   deniedBanksOf,
   hasAllowedItems,
-  importTitle,
+  importActionLabel,
+  importCounts,
   initialSelection,
   setBankAllowed,
   setBankTarget,
@@ -109,28 +110,29 @@ describe("a bank's target", () => {
   })
 })
 
-describe('the dialog title', () => {
+describe('the import counts', () => {
   const only = (banks: number, exams: number): ImportProposal => ({
     ...proposal,
     banks: proposal.banks.slice(0, banks).map((item) => ({ ...item, exams: [] })),
     exams: proposal.exams.slice(0, exams).map((item) => ({ ...item, banks: [] })),
   })
 
-  test('says what is being imported', () => {
-    const title = (item: ImportProposal) => importTitle(item, initialSelection(item))
-    expect(title(only(1, 0))).toBe('Import Question Bank')
-    expect(title(only(1, 1))).toBe('Import Question Bank and Exam')
-    expect(title(only(3, 2))).toBe('Import 3 Question Banks and 2 Exams')
-    expect(title(only(2, 0))).toBe('Import 2 Question Banks')
-    expect(title(only(1, 3))).toBe('Import 1 Question Bank and 3 Exams')
-    expect(title(only(2, 1))).toBe('Import 2 Question Banks and 1 Exam')
+  test('name what the confirm button imports, calling an Exam a Test', () => {
+    const label = (item: ImportProposal) => importActionLabel(item, initialSelection(item))
+    expect(label(only(1, 0))).toBe('Import Question Bank')
+    expect(label(only(1, 1))).toBe('Import Question Bank and Test')
+    expect(label(only(3, 2))).toBe('Import 3 Question Banks and 2 Tests')
+    expect(label(only(2, 0))).toBe('Import 2 Question Banks')
+    expect(label(only(1, 3))).toBe('Import 1 Question Bank and 3 Tests')
+    expect(label(only(2, 1))).toBe('Import 2 Question Banks and 1 Test')
   })
 
-  test('follows the selection, and the file when nothing is allowed', () => {
+  test('follow the selection, and the file when nothing is allowed', () => {
     let selection = setExamAllowed(proposal, initialSelection(proposal), 'exam-2', false)
     selection = setBankAllowed(proposal, selection, 'spare', false)
-    expect(importTitle(proposal, selection)).toBe('Import 2 Question Banks and 2 Exams')
+    expect(importCounts(proposal, selection)).toEqual({ banks: 2, exams: 2 })
+    expect(importActionLabel(proposal, selection)).toBe('Import 2 Question Banks and 2 Tests')
     for (const id of ['chem', 'phys']) selection = setBankAllowed(proposal, selection, id, false)
-    expect(importTitle(proposal, selection)).toBe('Import 3 Question Banks and 3 Exams')
+    expect(importCounts(proposal, selection)).toEqual({ banks: 3, exams: 3 })
   })
 })

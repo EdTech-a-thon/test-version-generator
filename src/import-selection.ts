@@ -101,26 +101,37 @@ export function hasAllowedItems(selection: ImportSelection): boolean {
     || Object.values(selection.exams).some(({ allowed }) => allowed)
 }
 
+/** How many banks and Exams the selection will bring in, or how many the file
+ *  holds while nothing is allowed — so the count never reads zero of both. */
+export function importCounts(
+  proposal: ImportProposal,
+  selection: ImportSelection,
+): { banks: number; exams: number } {
+  if (!hasAllowedItems(selection)) {
+    return { banks: proposal.banks.length, exams: proposal.exams.length }
+  }
+  return {
+    banks: Object.values(selection.banks).filter(({ allowed }) => allowed).length,
+    exams: Object.values(selection.exams).filter(({ allowed }) => allowed).length,
+  }
+}
+
 function counted(count: number, singular: string, bare: boolean): string {
   if (count !== 1) return `${count} ${singular}s`
   return bare ? singular : `1 ${singular}`
 }
 
-/** “Import Question Bank”, “Import Question Bank and Exam”, “Import 3
- *  Question Banks and 2 Exams”: what the selection will bring in, or what the
- *  file holds while nothing is allowed. */
-export function importTitle(proposal: ImportProposal, selection: ImportSelection): string {
-  const allowedBanks = Object.values(selection.banks).filter(({ allowed }) => allowed).length
-  const allowedExams = Object.values(selection.exams).filter(({ allowed }) => allowed).length
-  const [banks, exams] = hasAllowedItems(selection)
-    ? [allowedBanks, allowedExams]
-    : [proposal.banks.length, proposal.exams.length]
-  // “Question Bank and Exam” reads as a pair; once either is counted, both
-  // are, so it never reads “2 Question Banks and Exam”.
+/** “Import Question Bank”, “Import Question Bank and Test”, “Import 3
+ *  Question Banks and 2 Tests”: the words on the import's confirm button. The
+ *  dialog calls an Exam a Test, the word a teacher uses for the file in hand. */
+export function importActionLabel(proposal: ImportProposal, selection: ImportSelection): string {
+  const { banks, exams } = importCounts(proposal, selection)
+  // “Question Bank and Test” reads as a pair; once either is counted, both
+  // are, so it never reads “2 Question Banks and Test”.
   const bare = banks <= 1 && exams <= 1
   const parts = [
     ...(banks > 0 ? [counted(banks, 'Question Bank', bare)] : []),
-    ...(exams > 0 ? [counted(exams, 'Exam', bare)] : []),
+    ...(exams > 0 ? [counted(exams, 'Test', bare)] : []),
   ]
   return `Import ${parts.join(' and ')}`
 }
