@@ -186,6 +186,9 @@ export function createIndexedDBAuthoringBackend(
   databaseName = STORAGE_NAME,
 ): DurableAuthoringBackend & {
   commitCanonicalProjection(snapshot: CanonicalProjectionSnapshot): Promise<void>
+  /** Release this backend's connection, for a caller that wrote a database
+   *  it will not use again and may need to delete. */
+  close(): Promise<void>
 } {
   // Opening is shared for this page lifetime. Once startup has loaded the
   // store, later authoring actions can begin their transaction on the next
@@ -203,6 +206,9 @@ export function createIndexedDBAuthoringBackend(
       ? transactionally(opened, stores, operation)
       : database.then((connection) => transactionally(connection, stores, operation))
   return {
+    close: async () => {
+      (await database).close()
+    },
     read: async () => {
       return await readAuthoringState(await database)
     },

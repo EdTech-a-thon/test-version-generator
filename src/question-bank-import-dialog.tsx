@@ -1,5 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
-import { Check, Copy, UploadCloud } from 'lucide-react'
+import { Check, Copy, Eye, UploadCloud } from 'lucide-react'
 import { DocView } from './doc-view'
 import extractInstructions from '../public/extract.md?raw'
 import {
@@ -10,10 +10,24 @@ import {
   type SemanticDocument,
 } from './question-bank-export'
 import { DifficultyBadge, TopicBadge } from './badges'
-import type { Difficulty } from './exam'
+import type { Difficulty, Question } from './exam'
 import type { ProseMirrorJSON } from './question-doc'
-import type { QuestionBankImportProposal } from './question-bank-import'
-import { inspectUploadedQuestionBank, needsConversion as fileNeedsConversion } from './question-bank-upload'
+import type { ImportProposal, ProposedBank, ProposedExam } from './package-import'
+import {
+  deniedBanksOf,
+  hasAllowedItems,
+  importTitle,
+  initialSelection,
+  setBankAllowed,
+  setBankTarget,
+  setExamAllowed,
+  type ImportSelection,
+} from './import-selection'
+import { selectedExam } from './selected-exam'
+import { planExport, type LayoutPlan } from './export-plan'
+import { domMeasure } from './dom-measure'
+import { ExportPreview } from './exam-page'
+import { inspectUploadedFile, needsConversion as fileNeedsConversion } from './question-bank-upload'
 import { useModalScrollLock } from './use-modal-scroll-lock'
 
 function formatBytes(bytes: number): string {
@@ -22,17 +36,20 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
+const plural = (count: number, singular: string) =>
+  `${count} ${count === 1 ? singular : `${singular}s`}`
+
 /**
- * Point a preview document's images at the bytes the record carries.
+ * Point a preview document's images at the bytes the file carries.
  *
  * `recordDocumentToEditorNodes` addresses an image as `/local-images/<hash>`,
- * which resolves only for a Question Bank that already lives here. Nothing has
- * been imported yet, so the preview would draw every image broken; the record's
- * own Media Assets are the only copy that exists, and they are already base64.
+ * which resolves only for media that already lives here. Nothing has been
+ * imported yet, so the preview would draw every image broken; the file's own
+ * Media Assets are the only copy that exists, and they are already base64.
  */
 function resolveMedia(
   node: ProseMirrorJSON,
-  sources: Map<string, string>,
+  sources: ReadonlyMap<string, string>,
 ): ProseMirrorJSON {
   const attrs = node.attrs as Record<string, unknown> | null | undefined
   const resolved =
@@ -50,25 +67,241 @@ function resolveMedia(
   }
 }
 
+function mediaSources(proposal: ImportProposal): Map<string, string> {
+  const sources = new Map<string, string>()
+  for (const bank of proposal.banks) {
+    for (const asset of bank.record.media) {
+      sources.set(
+        `/local-images/${asset.id.slice('sha256:'.length)}`,
+        `data:${asset.mimeType};base64,${asset.bytes}`,
+      )
+    }
+  }
+  return sources
+}
+
+/**
+ * The student test an Exam would print, laid out by the same Layout Plan the
+ * export uses. It is built the way the import will build the Exam — through
+ * the same plan — so what is previewed is what arrives.
+ */
+async function examPreviewPlan(
+  proposal: ImportProposal,
+  examKey: string,
+  sources: ReadonlyMap<string, string>,
+): Promise<LayoutPlan | null> {
+  // Loaded on demand, like the importer: it brings the record parsers.
+  const { planImport } = await import('./package-commit')
+  let next = 0
+  const plan = planImport(proposal, initialSelection(proposal), () => `preview-${next++}`)
+  const planned = plan.exams.find(({ source }) => source === examKey)
+  if (!planned || planned.saved.workingCopy.questionIds.length === 0) return null
+  const resolve = (question: Question): Question => ({
+    ...question,
+    doc: resolveMedia(question.doc, sources),
+  })
+  const { exam, arrangement } = selectedExam(
+    { questions: planned.saved.questionBank.questions.map(resolve) },
+    planned.saved.workingCopy,
+  )
+  return planExport({
+    exam,
+    arrangement,
+    selection: { test: true, answerKey: false },
+    measure: domMeasure,
+  })
+}
+
+function BankPreview({
+  bank,
+  previewDocument,
+}: {
+  bank: ProposedBank
+  previewDocument: (document: SemanticDocument) => ProseMirrorJSON[]
+}) {
+  const { record, summary } = bank
+  const questions = record.bank.questions
+  return <>
+    <header className="bank-import-preview-head">
+      <h3>{record.bank.name || 'Untitled Question Bank'}</h3>
+      <p>{plural(questions.length, 'Question')}</p>
+      {record.bank.description && (
+        <p className="bank-import-preview-description">{record.bank.description}</p>
+      )}
+      <dl className="bank-import-summary">
+        {RECORD_TYPE_ORDER.map((type) => (
+          <div key={type}>
+            <dt>{RECORD_TYPE_LABELS[type]}</dt>
+            <dd>{summary.questionCounts[type]}</dd>
+          </div>
+        ))}
+        {summary.questionsWithoutCorrectAnswer > 0 && (
+          <div className="is-warning">
+            <dt>No correct answer marked</dt>
+            <dd>{summary.questionsWithoutCorrectAnswer}</dd>
+          </div>
+        )}
+        <div>
+          <dt>Media Assets</dt>
+          <dd>
+            {summary.mediaAssets}
+            {summary.mediaAssets > 0 && <small>{formatBytes(summary.decodedMediaBytes)}</small>}
+          </dd>
+        </div>
+        <div>
+          <dt>External links</dt>
+          <dd>{summary.externalLinks ? 'Present' : 'None'}</dd>
+        </div>
+        <div>
+          <dt>Format version</dt>
+          <dd>{summary.formatVersion}</dd>
+        </div>
+      </dl>
+      {summary.topics.length > 0 && (
+        <div className="bank-import-topics">
+          <h4>Topics</h4>
+          <div>{summary.topics.map((topic) => <TopicBadge key={topic} topic={topic} />)}</div>
+        </div>
+      )}
+      {(record.bank.author || record.bank.license) && (
+        <dl className="bank-import-provenance">
+          {record.bank.author && (
+            <div>
+              <dt>Declared author (unverified)</dt>
+              <dd>{record.bank.author}</dd>
+            </div>
+          )}
+          {record.bank.license && (
+            <div>
+              <dt>License</dt>
+              <dd>
+                {record.bank.license.name}
+                {record.bank.license.url ? ` — ${record.bank.license.url}` : ''}
+              </dd>
+            </div>
+          )}
+        </dl>
+      )}
+    </header>
+    {questions.map((question, index) => (
+      <article key={question.id} className="bank-import-question">
+        <div className="bank-import-question-head">
+          <span className="bank-import-question-number">{index + 1}</span>
+          <span className="bank-import-question-type">{RECORD_TYPE_LABELS[question.type]}</span>
+          {question.difficulty && <DifficultyBadge difficulty={question.difficulty as Difficulty} />}
+          {question.topics?.map((topic) => <TopicBadge key={topic} topic={topic} />)}
+        </div>
+        <DocView className="bank-import-stem" content={previewDocument(question.stem)} />
+        {question.choices && (
+          <ol type="A" className="bank-import-choices">
+            {question.choices.map((choice) => (
+              <li key={choice.id} className={choice.correct ? 'is-correct' : undefined}>
+                <DocView content={previewDocument(choice.content)} />
+                {choice.correct && (
+                  <Check className="bank-import-correct" role="img" aria-label="Correct answer" />
+                )}
+              </li>
+            ))}
+          </ol>
+        )}
+        {question.prompts && question.wordBank && (
+          <div className="record-matching bank-import-matching">
+            <ol className="record-matching-items">
+              {question.prompts.map((prompt) => (
+                <li key={prompt.id}>
+                  <span
+                    className="record-matching-blank"
+                    aria-label={prompt.answer ? 'Matched answer' : 'Unmatched'}
+                  >
+                    {wordBankLettersOf(question).get(prompt.answer ?? '') ?? '—'}
+                  </span>
+                  <DocView content={previewDocument(prompt.content)} />
+                </li>
+              ))}
+            </ol>
+            <ol type="A" className="bank-import-choices">
+              {question.wordBank.map((answer) => (
+                <li key={answer.id}>
+                  <DocView content={previewDocument(answer.content)} />
+                </li>
+              ))}
+            </ol>
+          </div>
+        )}
+        {question.suggestedAnswer && (
+          <section className="bank-import-answer">
+            <h4>Suggested Answer</h4>
+            <DocView content={previewDocument(question.suggestedAnswer)} />
+          </section>
+        )}
+      </article>
+    ))}
+  </>
+}
+
+function ExamPreview({
+  proposal,
+  exam,
+  sources,
+}: {
+  proposal: ImportProposal
+  exam: ProposedExam
+  sources: ReadonlyMap<string, string>
+}) {
+  const [plan, setPlan] = useState<LayoutPlan | null | 'loading'>('loading')
+  useEffect(() => {
+    let current = true
+    setPlan('loading')
+    examPreviewPlan(proposal, exam.key, sources)
+      .catch(() => null)
+      .then((next) => { if (current) setPlan(next) })
+    return () => { current = false }
+  }, [proposal, exam.key, sources])
+  return <>
+    <header className="bank-import-preview-head">
+      <h3>{exam.name || 'Untitled Exam'}</h3>
+      <p>{plural(exam.positions.length, 'Question')} · Exam Record {exam.formatVersion}</p>
+    </header>
+    {plan === 'loading'
+      ? <p className="bank-import-empty" role="status">Laying out pages…</p>
+      : plan
+      ? <div className="bank-import-exam-pages" aria-label={`${exam.name || 'Untitled Exam'} pages`}>
+          <ExportPreview plan={plan} />
+        </div>
+      : <p className="bank-import-empty">This Exam has no Questions yet.</p>}
+  </>
+}
+
+type Focus = { kind: 'bank'; id: string } | { kind: 'exam'; key: string }
+
 export function QuestionBankImportDialog({
   onClose,
   onImport,
   initialFile,
+  targetBankId,
+  loadBanks,
 }: {
   onClose: () => void
-  onImport: (
-    proposal: QuestionBankImportProposal,
-    proposedName: string,
-  ) => Promise<void>
+  onImport: (proposal: ImportProposal, selection: ImportSelection) => Promise<void>
   /** A file already chosen elsewhere — dropped onto the page — inspected as
    *  soon as the dialog opens rather than asked for again. */
   initialFile?: File
+  /** The bank the import was started from, which every bank in the file
+   *  defaults to adding into. */
+  targetBankId?: string
+  /** The banks on this device, for “Add to an existing one”. */
+  loadBanks: () => Promise<readonly { id: string; name: string }[]>
 }) {
   const titleId = useId()
   const dialog = useRef<HTMLElement>(null)
   const input = useRef<HTMLInputElement>(null)
-  const [proposal, setProposal] = useState<QuestionBankImportProposal | null>(null)
-  const [proposedName, setProposedName] = useState('')
+  const [proposal, setProposal] = useState<ImportProposal | null>(null)
+  const [selection, setSelection] = useState<ImportSelection | null>(null)
+  /** Each bank's name for “Create new question bank”, kept while the target
+   *  is switched to an existing bank and back. */
+  const [names, setNames] = useState<Record<string, string>>({})
+  const [focus, setFocus] = useState<Focus | null>(null)
+  const [existingBanks, setExistingBanks] = useState<readonly { id: string; name: string }[]>([])
   const [error, setError] = useState<string | null>(null)
   // A file this app cannot read at all — a scan, a screenshot, a PDF that
   // did not come from here — is not a broken import, it is a test that has
@@ -88,6 +321,12 @@ export function QuestionBankImportDialog({
   useModalScrollLock()
 
   useEffect(() => {
+    let current = true
+    void loadBanks().then((banks) => { if (current) setExistingBanks(banks) }, () => undefined)
+    return () => { current = false }
+  }, [loadBanks])
+
+  useEffect(() => {
     const previous = document.activeElement as HTMLElement | null
     requestAnimationFrame(() => input.current?.focus())
     const keydown = (event: KeyboardEvent) => {
@@ -99,7 +338,7 @@ export function QuestionBankImportDialog({
       if (event.key !== 'Tab') return
       const controls = Array.from(
         dialog.current?.querySelectorAll<HTMLElement>(
-          'button:not(:disabled), input:not(:disabled)',
+          'button:not(:disabled), input:not(:disabled), select:not(:disabled)',
         ) ?? [],
       )
       if (!controls.length) return
@@ -131,17 +370,21 @@ export function QuestionBankImportDialog({
     setProposal(null)
     setError(null)
     setNeedsConversion(false)
-    void inspectUploadedQuestionBank(file)
+    void inspectUploadedFile(file)
       .then((next) => {
         setProposal(next)
-        setProposedName(next.summary.bankName)
+        setSelection(initialSelection(next, targetBankId ? { targetBankId } : {}))
+        setNames(Object.fromEntries(next.banks.map((bank) => [bank.id, bank.record.bank.name])))
+        // An Exam is what a teacher converting a test came for, so it is what
+        // the preview opens on when there is one.
+        setFocus(next.exams[0] ? { kind: 'exam', key: next.exams[0].key } : { kind: 'bank', id: next.banks[0]!.id })
       })
       .catch((reason) => {
         setNeedsConversion(fileNeedsConversion(reason))
         setError(
           reason instanceof Error && reason.message
             ? reason.message
-            : 'This Question Bank could not be inspected safely.',
+            : 'This file could not be inspected safely.',
         )
         setPhase('choose')
       })
@@ -157,39 +400,41 @@ export function QuestionBankImportDialog({
     if (file) inspect(file)
   }, [])
 
-  /** Every image in the record, resolved once per proposal rather than once per
-   *  question: one Media Asset is commonly referenced by several questions. */
-  const previewDocument = useMemo(() => {
-    const sources = new Map<string, string>()
-    for (const asset of proposal?.record.media ?? []) {
-      sources.set(
-        `/local-images/${asset.id.slice('sha256:'.length)}`,
-        `data:${asset.mimeType};base64,${asset.bytes}`,
-      )
-    }
-    return (document: SemanticDocument) =>
-      recordDocumentToEditorNodes(document).map((node) =>
-        resolveMedia(node, sources),
-      )
-  }, [proposal])
+  const sources = useMemo(() => (proposal ? mediaSources(proposal) : new Map<string, string>()), [proposal])
+  const previewDocument = useMemo(
+    () => (document: SemanticDocument) =>
+      recordDocumentToEditorNodes(document).map((node) => resolveMedia(node, sources)),
+    [sources],
+  )
+
+  const bankName = (id: string) => {
+    const bank = proposal?.banks.find((item) => item.id === id)
+    return bank?.record.bank.name || 'Untitled Question Bank'
+  }
+  const examName = (key: string) =>
+    proposal?.exams.find((item) => item.key === key)?.name || 'Untitled Exam'
+
+  const title = proposal && selection ? importTitle(proposal, selection) : 'Import Question Bank'
+  const importable = selection ? hasAllowedItems(selection) : false
 
   const confirm = async () => {
-    if (!proposal || busy) return
+    if (!proposal || !selection || busy || !importable) return
     setPhase('saving')
     setError(null)
     try {
-      await onImport(proposal, proposedName)
+      await onImport(proposal, selection)
     } catch (reason) {
       setError(
         reason instanceof Error && reason.message
-          ? `The Question Bank could not be saved: ${reason.message}`
-          : 'The Question Bank could not be saved. Check browser storage and try again.',
+          ? `Nothing was imported: ${reason.message}`
+          : 'Nothing was imported. Check browser storage and try again.',
       )
       setPhase('choose')
     }
   }
 
-  const questions = proposal?.record.bank.questions ?? []
+  const focusedBank = focus?.kind === 'bank' ? proposal?.banks.find(({ id }) => id === focus.id) : undefined
+  const focusedExam = focus?.kind === 'exam' ? proposal?.exams.find(({ key }) => key === focus.key) : undefined
 
   return (
     <div className="dialog-backdrop" role="presentation">
@@ -208,7 +453,7 @@ export function QuestionBankImportDialog({
       >
         <header className="dialog-header">
           <div>
-            <h2 id={titleId}>Import Question Bank</h2>
+            <h2 id={titleId}>{title}</h2>
           </div>
         </header>
 
@@ -276,187 +521,145 @@ export function QuestionBankImportDialog({
           aria-live="polite"
           aria-atomic="true"
         >
-          {phase === 'inspecting' && <p role="status">Validating Question Bank…</p>}
-          {phase === 'saving' && <p role="status">Creating Question Bank…</p>}
+          {phase === 'inspecting' && <p role="status">Validating file…</p>}
+          {phase === 'saving' && <p role="status">Importing…</p>}
           {error && !needsConversion && <p className="home-error" role="alert">{error}</p>}
         </div>
 
-        {proposal && (
+        {proposal && selection && (
           <section className="bank-import-body" aria-label="Import confirmation">
-            <div className="bank-import-preview" aria-label="Question Bank preview">
-              <header className="bank-import-preview-head">
-                <h3>{proposal.record.bank.name || 'Untitled Question Bank'}</h3>
-                <p>
-                  {questions.length}{' '}
-                  {questions.length === 1 ? 'Question' : 'Questions'}
-                </p>
-                {proposal.record.bank.description && (
-                  <p className="bank-import-preview-description">
-                    {proposal.record.bank.description}
-                  </p>
-                )}
-              </header>
-              {questions.map((question, index) => (
-                <article key={question.id} className="bank-import-question">
-                  <div className="bank-import-question-head">
-                    <span className="bank-import-question-number">
-                      {index + 1}
-                    </span>
-                    <span className="bank-import-question-type">
-                      {RECORD_TYPE_LABELS[question.type]}
-                    </span>
-                    {question.difficulty && (
-                      <DifficultyBadge
-                        difficulty={question.difficulty as Difficulty}
-                      />
-                    )}
-                    {question.topics?.map((topic) => (
-                      <TopicBadge key={topic} topic={topic} />
-                    ))}
-                  </div>
-                  <DocView
-                    className="bank-import-stem"
-                    content={previewDocument(question.stem)}
-                  />
-                  {question.choices && (
-                    <ol type="A" className="bank-import-choices">
-                      {question.choices.map((choice) => (
-                        <li
-                          key={choice.id}
-                          className={choice.correct ? 'is-correct' : undefined}
-                        >
-                          <DocView content={previewDocument(choice.content)} />
-                          {choice.correct && (
-                            <Check
-                              className="bank-import-correct"
-                              role="img"
-                              aria-label="Correct answer"
-                            />
-                          )}
-                        </li>
-                      ))}
-                    </ol>
-                  )}
-                  {question.prompts && question.wordBank && (
-                    <div className="record-matching bank-import-matching">
-                      <ol className="record-matching-items">
-                        {question.prompts.map((prompt) => (
-                          <li key={prompt.id}>
-                            <span
-                              className="record-matching-blank"
-                              aria-label={
-                                prompt.answer ? 'Matched answer' : 'Unmatched'
-                              }
-                            >
-                              {wordBankLettersOf(question).get(prompt.answer ?? '') ?? '—'}
-                            </span>
-                            <DocView content={previewDocument(prompt.content)} />
-                          </li>
-                        ))}
-                      </ol>
-                      <ol type="A" className="bank-import-choices">
-                        {question.wordBank.map((answer) => (
-                          <li key={answer.id}>
-                            <DocView content={previewDocument(answer.content)} />
-                          </li>
-                        ))}
-                      </ol>
-                    </div>
-                  )}
-                  {question.suggestedAnswer && (
-                    <section className="bank-import-answer">
-                      <h4>Suggested Answer</h4>
-                      <DocView
-                        content={previewDocument(question.suggestedAnswer)}
-                      />
-                    </section>
-                  )}
-                </article>
-              ))}
+            <div
+              className="bank-import-preview"
+              aria-label={focusedExam ? 'Exam preview' : 'Question Bank preview'}
+            >
+              {focusedBank && <BankPreview bank={focusedBank} previewDocument={previewDocument} />}
+              {focusedExam && <ExamPreview proposal={proposal} exam={focusedExam} sources={sources} />}
             </div>
 
             <aside className="bank-import-controls">
-              <label className="bank-import-name">
-                <span>New Question Bank name</span>
-                <input
-                  autoFocus
-                  value={proposedName}
-                  disabled={busy}
-                  onChange={(event) => setProposedName(event.target.value)}
-                />
-              </label>
-
-              <dl className="bank-import-summary">
-                {RECORD_TYPE_ORDER.map((type) => (
-                  <div key={type}>
-                    <dt>{RECORD_TYPE_LABELS[type]}</dt>
-                    <dd>{proposal.summary.questionCounts[type]}</dd>
-                  </div>
-                ))}
-                {proposal.summary.questionsWithoutCorrectAnswer > 0 && (
-                  <div className="is-warning">
-                    <dt>No correct answer marked</dt>
-                    <dd>{proposal.summary.questionsWithoutCorrectAnswer}</dd>
-                  </div>
-                )}
-                <div>
-                  <dt>Media Assets</dt>
-                  <dd>
-                    {proposal.summary.mediaAssets}
-                    {proposal.summary.mediaAssets > 0 && (
-                      <small>
-                        {formatBytes(proposal.summary.decodedMediaBytes)}
-                      </small>
-                    )}
-                  </dd>
-                </div>
-                <div>
-                  <dt>External links</dt>
-                  <dd>{proposal.summary.externalLinks ? 'Present' : 'None'}</dd>
-                </div>
-                <div>
-                  <dt>Format version</dt>
-                  <dd>{proposal.summary.formatVersion}</dd>
-                </div>
-              </dl>
-
-              {proposal.summary.topics.length > 0 && (
-                <div className="bank-import-topics">
-                  <h4>Topics</h4>
-                  <div>
-                    {proposal.summary.topics.map((topic) => (
-                      <TopicBadge key={topic} topic={topic} />
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {(proposal.record.bank.author || proposal.record.bank.license) && (
-                <dl className="bank-import-provenance">
-                  {proposal.record.bank.author && (
-                    <div>
-                      <dt>Declared author (unverified)</dt>
-                      <dd>{proposal.record.bank.author}</dd>
+              <section className="bank-import-items" aria-label="Question Banks in this file">
+                <h3>{proposal.banks.length === 1 ? 'Question Bank' : 'Question Banks'}</h3>
+                {proposal.banks.map((bank) => {
+                  const chosen = selection.banks[bank.id]!
+                  const name = bank.record.bank.name || 'Untitled Question Bank'
+                  const targetName = names[bank.id] ?? ''
+                  const fallbackExisting = targetBankId ?? existingBanks[0]?.id
+                  return <article
+                    key={bank.id}
+                    className="bank-import-item"
+                    data-allowed={chosen.allowed ? 'true' : 'false'}
+                    aria-label={`Question Bank ${name}`}
+                  >
+                    <div className="bank-import-item-head">
+                      <label className="bank-import-allow">
+                        <input
+                          type="checkbox"
+                          checked={chosen.allowed}
+                          disabled={busy}
+                          onChange={(event) => setSelection(setBankAllowed(proposal, selection, bank.id, event.target.checked))}
+                        />
+                        <span>{name}</span>
+                      </label>
+                      <button
+                        type="button"
+                        className="bank-import-preview-button"
+                        aria-pressed={focus?.kind === 'bank' && focus.id === bank.id}
+                        aria-label={`Preview ${name}`}
+                        onClick={() => setFocus({ kind: 'bank', id: bank.id })}
+                      ><Eye aria-hidden="true" /></button>
                     </div>
-                  )}
-                  {proposal.record.bank.license && (
-                    <div>
-                      <dt>License</dt>
-                      <dd>
-                        {proposal.record.bank.license.name}
-                        {proposal.record.bank.license.url
-                          ? ` — ${proposal.record.bank.license.url}`
-                          : ''}
-                      </dd>
-                    </div>
-                  )}
-                </dl>
-              )}
+                    <p className="bank-import-item-meta">{plural(bank.record.bank.questions.length, 'Question')}</p>
+                    {proposal.exams.length > 0 && <p className="bank-import-links">
+                      {bank.exams.length > 0
+                        ? <>Feeds {bank.exams.map(examName).join(', ')}</>
+                        : 'Used by no Exam in this file'}
+                    </p>}
+                    {chosen.allowed && <fieldset className="bank-import-target" disabled={busy}>
+                      <legend className="sr-only">Where {name} goes</legend>
+                      <label>
+                        <input
+                          type="radio"
+                          name={`target-${bank.id}`}
+                          checked={chosen.target.kind === 'new'}
+                          onChange={() => setSelection(setBankTarget(selection, bank.id, { kind: 'new', name: targetName }))}
+                        />
+                        <span>Create new question bank</span>
+                      </label>
+                      {chosen.target.kind === 'new' && <input
+                        className="bank-import-target-name"
+                        aria-label={`New Question Bank name for ${name}`}
+                        value={targetName}
+                        onChange={(event) => {
+                          setNames({ ...names, [bank.id]: event.target.value })
+                          setSelection(setBankTarget(selection, bank.id, { kind: 'new', name: event.target.value }))
+                        }}
+                      />}
+                      <label>
+                        <input
+                          type="radio"
+                          name={`target-${bank.id}`}
+                          checked={chosen.target.kind === 'existing'}
+                          disabled={!fallbackExisting}
+                          onChange={() => fallbackExisting && setSelection(setBankTarget(selection, bank.id, { kind: 'existing', bankId: fallbackExisting }))}
+                        />
+                        <span>Add to an existing one</span>
+                      </label>
+                      {chosen.target.kind === 'existing' && <select
+                        className="bank-import-target-bank"
+                        aria-label={`Existing Question Bank for ${name}`}
+                        value={chosen.target.bankId}
+                        onChange={(event) => setSelection(setBankTarget(selection, bank.id, { kind: 'existing', bankId: event.target.value }))}
+                      >
+                        {!existingBanks.some(({ id }) => id === (chosen.target as { bankId: string }).bankId) && (
+                          <option value={chosen.target.bankId}>This Question Bank</option>
+                        )}
+                        {existingBanks.map((existing) => (
+                          <option key={existing.id} value={existing.id}>{existing.name}</option>
+                        ))}
+                      </select>}
+                    </fieldset>}
+                  </article>
+                })}
+              </section>
 
-              <p className="bank-import-note">
-                Import always creates a new Question Bank. Duplicate names are
-                allowed; nothing is merged or replaced.
-              </p>
+              {proposal.exams.length > 0 && <section className="bank-import-items" aria-label="Exams in this file">
+                <h3>{proposal.exams.length === 1 ? 'Exam' : 'Exams'}</h3>
+                {proposal.exams.map((exam) => {
+                  const chosen = selection.exams[exam.key]!
+                  const name = exam.name || 'Untitled Exam'
+                  const denied = deniedBanksOf(proposal, selection, exam.key)
+                  return <article
+                    key={exam.key}
+                    className="bank-import-item"
+                    data-allowed={chosen.allowed ? 'true' : 'false'}
+                    aria-label={`Exam ${name}`}
+                  >
+                    <div className="bank-import-item-head">
+                      <label className="bank-import-allow">
+                        <input
+                          type="checkbox"
+                          checked={chosen.allowed}
+                          disabled={busy}
+                          onChange={(event) => setSelection(setExamAllowed(proposal, selection, exam.key, event.target.checked))}
+                        />
+                        <span>{name}</span>
+                      </label>
+                      <button
+                        type="button"
+                        className="bank-import-preview-button"
+                        aria-pressed={focus?.kind === 'exam' && focus.key === exam.key}
+                        aria-label={`Preview ${name}`}
+                        onClick={() => setFocus({ kind: 'exam', key: exam.key })}
+                      ><Eye aria-hidden="true" /></button>
+                    </div>
+                    <p className="bank-import-item-meta">{plural(exam.positions.length, 'Question')}</p>
+                    <p className="bank-import-links">Uses {exam.banks.map(bankName).join(', ')}</p>
+                    {!chosen.allowed && denied.length > 0 && <p className="bank-import-denied-reason">
+                      Not imported because {denied.map(bankName).join(' and ')} {denied.length === 1 ? 'is' : 'are'} not being imported.
+                    </p>}
+                  </article>
+                })}
+              </section>}
             </aside>
           </section>
         )}
@@ -469,6 +672,7 @@ export function QuestionBankImportDialog({
               disabled={busy}
               onClick={() => {
                 setProposal(null)
+                setSelection(null)
                 setError(null)
               }}
             >
@@ -487,10 +691,10 @@ export function QuestionBankImportDialog({
             <button
               type="button"
               className="primary-button"
-              disabled={busy}
+              disabled={busy || !importable}
               onClick={() => void confirm()}
             >
-              {phase === 'saving' ? 'Creating Question Bank…' : 'Import Question Bank'}
+              {phase === 'saving' ? 'Importing…' : title}
             </button>
           )}
         </footer>

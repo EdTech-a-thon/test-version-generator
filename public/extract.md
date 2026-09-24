@@ -4,13 +4,21 @@ Use these instructions to convert questions from a PDF, image, scan, screenshot,
 
 ## Required result
 
-Create one complete UTF-8 JSON file using the **Test Parrot Question Bank Record `0.3.0`** format.
+First decide what the source is:
 
-Name the downloaded file:
+- **A test** — an exam, quiz, worksheet or any paper a student sits, with its questions in a printed order. Create one complete UTF-8 JSON file using the **Test Parrot Package `0.1.0`** format, holding one Question Bank Record `0.3.0` with the test's Questions and one Exam Record `0.1.0` that lays them out as the test does (see [Tests](#tests)). Name the downloaded file:
 
-```text
-<short-bank-name>.question-bank.json
-```
+  ```text
+  <short-test-name>.parrot.json
+  ```
+
+- **A list of questions** that is not laid out as a test — a question pool, a study list, a bank exported from elsewhere. Create one complete UTF-8 JSON file using the **Test Parrot Question Bank Record `0.3.0`** format alone. Name the downloaded file:
+
+  ```text
+  <short-bank-name>.question-bank.json
+  ```
+
+When unsure, ask the user. Everything below about Questions applies to both: a package's bank is an ordinary Question Bank Record.
 
 When finished:
 
@@ -32,6 +40,8 @@ Use these resources as the source of truth:
 - [Complete rich-text example](./formats/question-bank/0.3.0/examples/complete-rich-text.json)
 - [Provenance and links example](./formats/question-bank/0.3.0/examples/provenance-and-links.json)
 - [Media-rich example](./formats/question-bank/0.3.0/examples/media-rich.json)
+- [Test Parrot Package JSON Schema](./formats/package/0.1.0/schema.json) and [Exam Record JSON Schema](./formats/exam/0.1.0/schema.json)
+- [Package example: a test with its bank and Exam](./formats/package/0.1.0/examples/bank-and-exam.json)
 
 The required top-level shape is:
 
@@ -52,7 +62,46 @@ The required top-level shape is:
 }
 ```
 
-Do not add application database IDs, local paths, Exam data, timestamps, page numbers, layout coordinates, OCR confidence, or conversational notes to the record.
+Do not add application database IDs, local paths, timestamps, page numbers, layout coordinates, OCR confidence, or conversational notes to the record. A test's layout belongs in its Exam Record, and only in the members that format defines.
+
+## Tests
+
+When the source is a test, wrap its Question Bank Record in a package with one Exam:
+
+```json
+{
+  "format": "test-parrot/package",
+  "formatVersion": "0.1.0",
+  "generator": {
+    "name": "Name of the assistant or conversion tool",
+    "version": "Version or model name"
+  },
+  "requiredFeatures": [],
+  "questionBanks": [
+    { "id": "bank", "record": { "format": "test-parrot/question-bank", "formatVersion": "0.3.0", "...": "the complete Question Bank Record" } }
+  ],
+  "exams": [
+    {
+      "format": "test-parrot/exam",
+      "formatVersion": "0.1.0",
+      "name": "The test's title",
+      "positions": [
+        { "question": { "bank": "bank", "question": "q1" }, "columns": 2 },
+        { "question": { "bank": "bank", "question": "q2" } }
+      ]
+    }
+  ]
+}
+```
+
+- Name the bank after the subject or unit, and name the Exam after the test's own title as printed.
+- Give the Exam one position for every converted Question, in printed order, each naming `"bank": "bank"` and that Question's ID. Use each Question exactly once. An unconverted question gets no position.
+- The bank already records the test's printed question and answer order, so leave out `answerOrder`: answers print in the order the bank records them.
+- Record `columns` (`1`, `2` or `4`) on a Multiple Choice position only when the source layout makes it clear how many columns its answers are printed in — for example, four answers side by side on one line is `4`. When it is not clear, leave `columns` out. Never put `columns` on any other Question Type.
+- Never add `workSpace`. Room left for writing is not something to guess from a scan; the teacher sets it in Test Parrot.
+- Do not add point values, section headings, instructions, or any other member: the Exam Record has none of these.
+
+Test Parrot always prints Sections in the order Multiple Choice, True/False, Matching, Short Answer. Keep the source's printed order anyway; Test Parrot regroups the Sections itself and keeps the order within each.
 
 ## Completeness is mandatory—but do not force uncertain content
 
@@ -98,6 +147,8 @@ Perform a second pass against the original source and verify all of the followin
 - all Question, choice, item and word bank IDs are unique and sequential;
 - every image reference resolves to exactly one Media Asset;
 - every Media Asset is referenced;
+- for a test, the Exam has one position per converted Question, in printed order, each naming an existing Question ID in the package's bank, and no Question twice;
+- for a test, every `columns` value reflects a layout the source makes clear, sits only on a Multiple Choice position, and no position has `workSpace`;
 - the final JSON passes the public schema and semantic rules.
 
 If any check fails, fix the record or disclose the precise limitation. Never say the extraction is complete when it is not.
@@ -591,7 +642,7 @@ Include only information explicitly present in the source or supplied by the use
 
 ## Final validation and delivery
 
-Validate the final record against the [public JSON Schema](./formats/question-bank/0.3.0/schema.json). Schema validation alone is not sufficient: also verify Question cardinality, unique IDs, that every matching `answer` names an ID in the same Question's `wordBank`, safe links, resolved media references, and decoded image properties.
+Validate the final record against the [public JSON Schema](./formats/question-bank/0.3.0/schema.json). For a test, also validate the package against the [package schema](./formats/package/0.1.0/schema.json) and its Exam against the [Exam Record schema](./formats/exam/0.1.0/schema.json). Schema validation alone is not sufficient: also verify Question cardinality, unique IDs, that every matching `answer` names an ID in the same Question's `wordBank`, safe links, resolved media references, and decoded image properties.
 
 Relevant import limits include:
 
@@ -604,13 +655,14 @@ Relevant import limits include:
 - rich-text depth of 50;
 - maximum image dimensions of 20,000 by 20,000 pixels.
 
-Deliver exactly one complete `.question-bank.json` file. Then tell the user:
+Deliver exactly one complete file: a `.parrot.json` package for a test, or a `.question-bank.json` record for a list of questions. Then tell the user:
 
 > Download the JSON file, open [testparrot.com](https://testparrot.com), and drag the file into Test Parrot to import it.
 
 Also include a concise conversion report containing:
 
 - source pages/images inspected;
+- whether the source was treated as a test (a package with an Exam) or a list of questions, and for a test which Multiple Choice positions were given `columns`;
 - total Questions converted;
 - counts by Question Type (a matching set is one Question; also give its item count);
 - whether answer correctness was supplied or left incomplete;

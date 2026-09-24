@@ -21,6 +21,7 @@ export async function persistentStorageStatus(): Promise<PersistentStorageStatus
 export function requestPersistentStorage(): Promise<
   'granted' | 'denied' | 'unavailable'
 > {
+  if (typeof localStorage === 'undefined') return Promise.resolve('unavailable')
   if (localStorage.getItem(DENIED_KEY) === 'true')
     return Promise.resolve('denied')
   if (!navigator.storage?.persist) return Promise.resolve('unavailable')

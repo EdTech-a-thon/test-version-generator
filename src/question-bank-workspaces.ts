@@ -2,6 +2,8 @@ import { duplicateQuestion, type Question } from './exam'
 import { requestPersistentStorage } from './durable-storage'
 import { collectUnusedMediaAssets } from './local-images'
 import { NO_FILTER, type QuestionBankFilter } from './question-bank-view'
+import { examDatabaseName } from './exam-workspaces'
+import { createIndexedDBAuthoringBackend } from './indexeddb-authoring'
 import {
   CANONICAL_QUESTION_STORE,
   EDITOR_WORKSPACE_STORE,
@@ -131,6 +133,15 @@ export function updateBankTabFilter(
 
 function tabsKey(context: BankWorkspaceContext): string {
   return `exam:${context.examId}`
+}
+
+/** What one import made, so the caller can decide where the teacher lands. */
+export type ImportResult = {
+  createdBankIds: string[]
+  updatedBankIds: string[]
+  createdExamIds: string[]
+  /** Questions added across every bank. */
+  questionCount: number
 }
 
 export type BankChange =
@@ -384,65 +395,116 @@ export function createQuestionBankWorkspaceService(
     async carryWorkspace(from: BankWorkspaceContext, to: BankWorkspaceContext) {
       return service.saveWorkspace(to, await service.workspace(from))
     },
-    async import(
-      proposal: import('./question-bank-import').QuestionBankImportProposal,
-      proposedName: string,
-    ): Promise<QuestionBankResource> {
+    /**
+     * Apply one import: create or append to banks, store Media Assets, and
+     * create each allowed Exam, all or nothing.
+     *
+     * Each Exam lives in its own database, so those are written first and are
+     * invisible until the one registry transaction below lists them. If that
+     * transaction fails — an existing target bank gone, storage full — it
+     * aborts every bank, Question and Exam entry together, and the Exam
+     * databases written ahead of it are deleted before the failure is
+     * reported.
+     */
+    async importPackage(
+      proposal: import('./package-import').ImportProposal,
+      selection: import('./import-selection').ImportSelection,
+    ): Promise<ImportResult> {
+      const { planImport } = await import('./package-commit')
+      const plan = planImport(proposal, selection, createId)
       const timestamp = now().toISOString()
-      const bankId = createId()
-      const { importedQuestionsFromRecord } = await import('./question-bank-import')
-      const questions = importedQuestionsFromRecord(proposal.record, createId)
-      const bank: QuestionBankResource = {
-        id: bankId,
-        name: proposedName.trim() || UNTITLED_QUESTION_BANK,
-        ...(proposal.record.bank.description !== undefined
-          ? { description: proposal.record.bank.description }
-          : {}),
-        ...(proposal.record.bank.author !== undefined
-          ? { author: proposal.record.bank.author }
-          : {}),
-        ...(proposal.record.bank.license !== undefined
-          ? { license: { ...proposal.record.bank.license } }
-          : {}),
-        createdAt: timestamp,
-        lastUpdatedAt: timestamp,
-        questions,
+      const written: string[] = []
+      try {
+        for (const exam of plan.exams) {
+          written.push(exam.examId)
+          const backend = createIndexedDBAuthoringBackend(examDatabaseName(exam.examId))
+          try {
+            await backend.initialize(exam.saved, { ...exam.saved, dirty: false })
+          } finally {
+            await backend.close()
+          }
+        }
+        await transact(
+          [
+            QUESTION_BANK_REGISTRY_STORE,
+            CANONICAL_QUESTION_STORE,
+            MEDIA_ASSET_STORE,
+            QUESTION_BANK_WORKSPACE_STORE,
+            EXAM_STORE,
+          ],
+          'readwrite',
+          async (transaction) => {
+            const registryStore = transaction.objectStore(QUESTION_BANK_REGISTRY_STORE)
+            const questionStore = transaction.objectStore(CANONICAL_QUESTION_STORE)
+            for (const bank of plan.banks) {
+              if (bank.created) {
+                registryStore.add({
+                  id: bank.bankId,
+                  ...bank.created,
+                  createdAt: timestamp,
+                  lastUpdatedAt: timestamp,
+                  questionIds: bank.questions.map(({ id }) => id),
+                } satisfies StoredBank)
+              } else {
+                const existing = await requestOf(registryStore.get(bank.bankId)) as StoredBank | undefined
+                if (!existing) throw new Error('The Question Bank chosen to add to is no longer on this device.')
+                registryStore.put({
+                  ...existing,
+                  lastUpdatedAt: timestamp,
+                  questionIds: [...existing.questionIds, ...bank.questions.map(({ id }) => id)],
+                } satisfies StoredBank)
+              }
+              for (const question of bank.questions) {
+                questionStore.add({ ...question, bankId: bank.bankId } satisfies StoredQuestion)
+              }
+            }
+            const mediaStore = transaction.objectStore(MEDIA_ASSET_STORE)
+            for (const asset of plan.media) {
+              const binary = atob(asset.bytes)
+              const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0))
+              mediaStore.put({
+                hash: asset.id.slice('sha256:'.length),
+                mimeType: asset.mimeType,
+                bytes: bytes.buffer,
+                width: asset.width,
+                height: asset.height,
+              })
+            }
+            const workspaces = transaction.objectStore(QUESTION_BANK_WORKSPACE_STORE)
+            const firstBank = plan.banks[0]
+            if (firstBank) workspaces.put({ key: 'active', bankId: firstBank.bankId } satisfies BankWorkspace)
+            for (const exam of plan.exams) {
+              transaction.objectStore(EXAM_STORE).add({
+                id: exam.examId,
+                createdAt: timestamp,
+                lastOpenedAt: timestamp,
+              })
+              // An imported Exam opens with the banks it was built from as
+              // its tabs, the first of them active.
+              const tabs = exam.bankIds.reduce(openBankTab, DEFAULT_BANK_TABS_WORKSPACE)
+              workspaces.put({
+                key: tabsKey({ examId: exam.examId }),
+                examId: exam.examId,
+                ...tabs,
+                activeBankId: exam.bankIds[0] ?? null,
+              } satisfies StoredTabsWorkspace)
+            }
+          },
+        )
+      } catch (error) {
+        await Promise.all(written.map((id) => new Promise<void>((resolve) => {
+          const request = indexedDB.deleteDatabase(examDatabaseName(id))
+          request.onsuccess = request.onblocked = request.onerror = () => resolve()
+        })))
+        throw error
       }
-      await transact(
-        [
-          QUESTION_BANK_REGISTRY_STORE,
-          CANONICAL_QUESTION_STORE,
-          MEDIA_ASSET_STORE,
-          QUESTION_BANK_WORKSPACE_STORE,
-        ],
-        'readwrite',
-        (transaction) => {
-          const { questions: importedQuestions, ...storedBank } = bank
-          transaction.objectStore(QUESTION_BANK_REGISTRY_STORE).add({
-            ...storedBank,
-            questionIds: importedQuestions.map((question) => question.id),
-          } satisfies StoredBank)
-          const questionStore = transaction.objectStore(CANONICAL_QUESTION_STORE)
-          for (const question of questions) {
-            questionStore.add({ ...question, bankId } satisfies StoredQuestion)
-          }
-          const mediaStore = transaction.objectStore(MEDIA_ASSET_STORE)
-          for (const asset of proposal.record.media) {
-            const binary = atob(asset.bytes)
-            const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0))
-            mediaStore.put({
-              hash: asset.id.slice('sha256:'.length),
-              mimeType: asset.mimeType,
-              bytes: bytes.buffer,
-              width: asset.width,
-              height: asset.height,
-            })
-          }
-          transaction.objectStore(QUESTION_BANK_WORKSPACE_STORE).put({ key: 'active', bankId } satisfies BankWorkspace)
-        },
-      )
       void requestPersistentStorage()
-      return bank
+      return {
+        createdBankIds: plan.banks.filter(({ created }) => created).map(({ bankId }) => bankId),
+        updatedBankIds: plan.banks.filter(({ created }) => !created).map(({ bankId }) => bankId),
+        createdExamIds: plan.exams.map(({ examId }) => examId),
+        questionCount: plan.banks.reduce((total, { questions }) => total + questions.length, 0),
+      }
     },
     async create(): Promise<QuestionBankResource> {
       const timestamp = now().toISOString()

@@ -8,6 +8,7 @@
 
 import fontkit from '@pdf-lib/fontkit'
 import {
+  AFRelationship,
   PDFArray,
   PDFDocument,
   PDFName,
@@ -39,6 +40,10 @@ import type {
 } from './export-plan'
 import { DIFFICULTY_LABELS, WORK_SPACE_LINE_PITCH } from './exam'
 import type { ProseMirrorJSON } from './question-doc'
+import {
+  QUESTION_BANK_ATTACHMENT_DESCRIPTION,
+  QUESTION_BANK_ATTACHMENT_NAME,
+} from './question-bank-export'
 
 const PDF_MIME = 'application/pdf'
 const POINTS_PER_PX = 0.75
@@ -747,6 +752,7 @@ async function createPdf(
   media: MediaLoader,
   fontLoader: PdfFontLoader,
   strictMedia: boolean,
+  attachment?: string,
 ): Promise<Uint8Array> {
   if (typeof Uint8Array === 'undefined' || typeof Promise === 'undefined') {
     throw new Error('This browser does not support local PDF generation. Choose DOCX instead.')
@@ -813,6 +819,15 @@ async function createPdf(
       })
     }
   }
+  if (attachment !== undefined) {
+    // The same attachment identity a Question Bank File uses, so one importer
+    // reads both.
+    await document.attach(new TextEncoder().encode(attachment), QUESTION_BANK_ATTACHMENT_NAME, {
+      mimeType: 'application/json',
+      description: QUESTION_BANK_ATTACHMENT_DESCRIPTION,
+      afRelationship: AFRelationship.Source,
+    })
+  }
   return document.save({ useObjectStreams: false })
 }
 
@@ -830,8 +845,10 @@ export function createPublicationPdf(
   plans: readonly LayoutPlan[],
   media: MediaLoader = browserMedia,
   fonts: PdfFontLoader = browserPdfFonts,
+  /** A serialized Test Parrot Package to embed; see `exam-package-export`. */
+  examPackage?: string,
 ): Promise<Uint8Array> {
-  return createPdf(plans, media, fonts, true)
+  return createPdf(plans, media, fonts, true, examPackage)
 }
 
 export function pdfBlob(bytes: Uint8Array): Blob {

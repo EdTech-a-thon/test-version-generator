@@ -1788,6 +1788,7 @@ button { cursor: pointer; }
 /* Drop a Question Bank File anywhere. */
 .bank-drop-overlay {
   position: fixed; inset: 0; z-index: 90; display: grid; place-items: center;
+  pointer-events: none;
   padding: 32px; background: rgb(51 42 36 / 32%);
 }
 .bank-drop-card {
@@ -2084,9 +2085,64 @@ button { cursor: pointer; }
   text-transform: uppercase; letter-spacing: 0.04em;
 }
 .bank-import-topics div { display: flex; flex-wrap: wrap; gap: 5px; }
-.bank-import-note {
-  margin: auto 0 0; color: var(--paper-ink-soft); font-size: 12px; line-height: 1.45;
+/* The bank's facts sit under its name in the preview, where they describe what
+   is being read; the rail is left for the choices. */
+.bank-import-preview-head .bank-import-summary,
+.bank-import-preview-head .bank-import-topics,
+.bank-import-preview-head .bank-import-provenance { max-width: 420px; margin-top: 14px; }
+.bank-import-preview-head { padding-bottom: 14px; }
+
+/* Every bank and Exam in the file, each one a choice: whether it comes, and
+   for a bank where it goes. A denied item stays in the list, faded, so the
+   dependency that denied it can still be read. */
+.bank-import-items { display: grid; gap: 10px; }
+.bank-import-items h3 {
+  margin: 0; color: var(--paper-ink-soft); font-size: 12px;
+  text-transform: uppercase; letter-spacing: 0.04em;
 }
+.bank-import-item {
+  display: grid; gap: 6px; padding: 10px 12px;
+  border: 1px solid var(--paper-outline); border-radius: 8px; background: #fff;
+}
+.bank-import-item[data-allowed='false'] { background: transparent; }
+.bank-import-item[data-allowed='false'] .bank-import-allow span,
+.bank-import-item[data-allowed='false'] .bank-import-item-meta { color: var(--paper-ink-soft); }
+.bank-import-item-head { display: flex; align-items: center; gap: 8px; }
+.bank-import-allow {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px;
+  font-size: 14px; font-weight: 700; color: #332a24; cursor: pointer;
+}
+.bank-import-allow span { overflow-wrap: anywhere; }
+.bank-import-preview-button {
+  flex: none; display: grid; place-items: center; width: 30px; height: 30px;
+  border: 1px solid transparent; border-radius: 6px; background: transparent;
+  color: var(--paper-ink-soft); cursor: pointer;
+}
+.bank-import-preview-button svg { width: 16px; height: 16px; }
+.bank-import-preview-button:hover { border-color: var(--paper-outline); }
+.bank-import-preview-button[aria-pressed='true'] {
+  border-color: var(--paper-accent); color: var(--paper-accent); background: var(--paper-accent-wash);
+}
+.bank-import-item-meta, .bank-import-links, .bank-import-denied-reason {
+  margin: 0; font-size: 12px; line-height: 1.4; color: var(--paper-ink-soft);
+}
+.bank-import-denied-reason { color: var(--paper-danger); }
+.bank-import-target {
+  display: grid; gap: 6px; margin: 4px 0 0; padding: 8px 0 0;
+  border: 0; border-top: 1px solid var(--paper-outline);
+}
+.bank-import-target label { display: flex; align-items: center; gap: 7px; font-size: 13px; cursor: pointer; }
+.bank-import-target-name, .bank-import-target-bank {
+  width: 100%; min-width: 0; margin-left: 0; padding: 6px 8px;
+  border: 1px solid var(--paper-outline); border-radius: 6px; font: inherit; font-size: 13px;
+  background: #fff;
+}
+
+/* An Exam previews as its pages, at the export preview's geometry scaled
+   down to the lane. */
+.bank-import-exam-pages { margin-top: 16px; overflow-x: auto; }
+.bank-import-exam-pages .exam-workspace { zoom: 0.62; margin: 0; padding: 0; }
+.bank-import-empty { color: var(--paper-ink-soft); font-size: 14px; }
 
 /* Narrow enough that two lanes would each be too small to read: the rail goes
    under the questions rather than beside them. */

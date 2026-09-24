@@ -14,7 +14,6 @@ import {
   inspectQuestionBankRecordValue,
   readCanonicalAttachment,
   type ParsedQuestionBankRecord,
-  type QuestionBankImportLimits,
   type QuestionBankRecordSummary,
 } from './question-bank-import'
 
