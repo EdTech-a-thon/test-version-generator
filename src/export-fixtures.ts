@@ -872,6 +872,28 @@ export const FIXTURES: readonly Fixture[] = [
   ),
 
   fixture(
+    'a Short Answer question with its Suggested Answer in the key',
+    {
+      title: 'Suggested answers',
+      questions: [
+        {
+          ...open('o1', paragraph(text('Why do leaves change colour?'))),
+          suggestedAnswer: {
+            type: 'doc',
+            content: [
+              paragraph(text('Chlorophyll breaks down, ')),
+              paragraph(text('revealing ', ), text('carotenoids', mark('strong')), text('.')),
+            ],
+          },
+        },
+        open('o2', paragraph(text('A question with no answer given.'))),
+      ],
+    },
+    arrangement(['o1', 'o2']),
+    { answerKey: true },
+  ),
+
+  fixture(
     'a realistic composite exam',
     COMPOSITE_EXAM,
     arrangement(['m2', 'm1'], { m1: ['c3', 'c1', 'c4', 'c2'] }),

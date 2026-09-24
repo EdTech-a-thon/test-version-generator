@@ -15,6 +15,7 @@ import {
   numberLabelOf,
   planExport,
   printsNumberLine,
+  questionIndentOf,
   unmeasured,
   STUDENT_TEST,
   type ColumnCount,
@@ -27,6 +28,7 @@ import {
 } from './export-plan'
 import { DEFAULT_COLUMNS, type Exam, type Question, type Arrangement } from './exam'
 import type { ProseMirrorJSON } from './question-doc'
+import { exportDocumentFingerprint } from './export-fingerprint'
 
 function choice(id: string, correct = false): ProseMirrorJSON {
   return {
@@ -598,6 +600,12 @@ describe('answer columns', () => {
 // numbers below are chosen against the real content boxes so the assertions
 // stay honest if the page furniture is ever resized.
 describe('page geometry', () => {
+  test('a Short Answer question’s body starts nearer its number, having no blank beside it', () => {
+    expect(questionIndentOf({ type: 'open' })).toBe(40)
+    expect(questionIndentOf({ type: 'multiple-choice' })).toBe(98)
+    expect(questionIndentOf({ type: 'true-false' })).toBe(98)
+  })
+
   test('is US Letter at 96dpi with three-quarter-inch margins', () => {
     expect([PAGE_WIDTH, PAGE_HEIGHT]).toEqual([816, 1056])
     expect(PAGE_MARGIN).toBe(72)
@@ -694,6 +702,29 @@ describe('answer key', () => {
       { kind: 'answer-key-entry', number: 2, letter: 'A' },
       { kind: 'answer-key-entry', number: 3, letter: null },
     ])
+  })
+
+  test('prints a Short Answer question’s Suggested Answer under its blank, never on the test', () => {
+    const answer = [{ type: 'paragraph', content: [{ type: 'text', text: 'Chlorophyll breaks down.' }] }]
+    const exam = examOf([
+      { ...open('o1'), suggestedAnswer: { type: 'doc', content: answer } },
+      // A blank answer is no answer: the key gives the question its line alone.
+      { ...open('o2'), suggestedAnswer: { type: 'doc', content: [{ type: 'paragraph' }] } },
+    ])
+    const pages = planPages(exam, arrangementOf(['o1', 'o2']), unmeasured)
+    const entries = pages
+      .filter((page) => isAnswerKeyHeader(page.header))
+      .flatMap((page) => page.items)
+      .filter((item) => item.kind === 'answer-key-entry')
+    expect(entries).toEqual([
+      { kind: 'answer-key-entry', number: 1, letter: null, suggestedAnswer: answer },
+      { kind: 'answer-key-entry', number: 2, letter: null },
+    ])
+    const printed = exportDocumentFingerprint(
+      buildExportDocument(exam, arrangementOf(['o1', 'o2']), STUDENT_TEST),
+    )
+    expect(printed.test.join('\n')).not.toContain('Chlorophyll')
+    expect(printed.answerKey).toContain('para Chlorophyll breaks down.')
   })
 
   test('lists free-response questions with a blank answer', () => {

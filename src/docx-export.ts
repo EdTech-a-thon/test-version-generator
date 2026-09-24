@@ -63,6 +63,7 @@ import {
 } from './export-media'
 import {
   CHOICE_AREA_WIDTH,
+  questionIndentOf,
   MATCHING_BANK_WIDTH,
   PAGE_CONTENT_WIDTH,
   printsNumberLine,
@@ -102,9 +103,13 @@ function twips(px: number): number {
 // The number column of `.exam-question` in styles.css: the width print gives a
 // question's number and answer blank, plus the grid gap beside it. A question's
 // body hangs off it, so a continued piece's text stays where the first piece's
-// text was.
-const QUESTION_INDENT_PX = 92 + 6
+// text was. A Short Answer question's column is narrower — see
+// `questionIndentOf` — and this is the width every other question uses.
+const QUESTION_INDENT_PX = questionIndentOf({ type: 'multiple-choice' })
 const QUESTION_INDENT = twips(QUESTION_INDENT_PX)
+/** Where the key's answer column starts: past `.answer-key-entry`'s 42px
+ *  number column and its 8px gap. */
+const ANSWER_KEY_ANSWER_INDENT = twips(42 + 8)
 
 export {
   browserMedia,
@@ -769,7 +774,7 @@ export const WORK_SPACE_STYLES = {
 
 const WORK_SPACE_RULE_TWIPS = 10
 
-function workSpaceParagraphs(space: PlannedWorkSpace): Paragraph[] {
+function workSpaceParagraphs(space: PlannedWorkSpace, indentTwips: number): Paragraph[] {
   if (space.height <= 0) return []
   const style = WORK_SPACE_STYLES[space.style]
   const exactly = (heightTwips: number) => ({
@@ -778,7 +783,7 @@ function workSpaceParagraphs(space: PlannedWorkSpace): Paragraph[] {
     line: Math.max(1, heightTwips),
     lineRule: LineRuleType.EXACT,
   })
-  const indent = { left: QUESTION_INDENT }
+  const indent = { left: indentTwips }
   const ruled = space.style === 'lines' ? space.lines : 0
   const paragraphs = Array.from({ length: ruled }, () =>
     new Paragraph({
@@ -805,6 +810,7 @@ function questionContent(
   build: BuildContext,
 ): (Paragraph | Table)[] {
   const numbered = printsNumberLine(item)
+  const indent = twips(questionIndentOf(item.question))
   const prefix: ParagraphChild[] = numbered
     ? [
         new TextRun({
@@ -815,8 +821,8 @@ function questionContent(
       ]
     : []
   const context: BlockContext = {
-    indent: QUESTION_INDENT,
-    hanging: numbered ? QUESTION_INDENT : undefined,
+    indent,
+    hanging: numbered ? indent : undefined,
     prefix: numbered ? prefix : undefined,
   }
 
@@ -831,7 +837,7 @@ function questionContent(
     ...stem,
     ...(item.grid ? [choiceGridTable(item.grid, build)] : []),
     ...(item.matching ? matchingContent(item.matching, build) : []),
-    ...(item.workSpace ? workSpaceParagraphs(item.workSpace) : []),
+    ...(item.workSpace ? workSpaceParagraphs(item.workSpace, indent) : []),
   ]
 }
 
@@ -852,12 +858,12 @@ function answerKeySection(item: AnswerKeySectionItem): Paragraph {
   })
 }
 
-function answerKeyEntry(item: AnswerKeyEntryItem): Paragraph {
+function answerKeyEntry(item: AnswerKeyEntryItem, build: BuildContext): (Paragraph | Table)[] {
   const metadata = [
     ...(item.difficulty ? [{ label: DIFFICULTY_LABELS[item.difficulty], fill: 'E6F0E3' }] : []),
     ...(item.topics ?? []).map((topic) => ({ label: topic, fill: 'F2E6D8' })),
   ]
-  return new Paragraph({
+  const entry = new Paragraph({
     children: [
       new TextRun({ text: `${item.number}. ` }),
       // A free-response question still takes a line, so the key's numbering
@@ -868,6 +874,10 @@ function answerKeyEntry(item: AnswerKeyEntryItem): Paragraph {
       ),
     ],
   })
+  // A Suggested Answer starts under the blank, on the lines below the entry.
+  return item.suggestedAnswer
+    ? [entry, ...blocks(item.suggestedAnswer, { indent: ANSWER_KEY_ANSWER_INDENT }, build)]
+    : [entry]
 }
 
 function itemContent(
@@ -903,7 +913,7 @@ function itemContent(
     case 'answer-key-section':
       return [answerKeySection(item)]
     case 'answer-key-entry':
-      return [answerKeyEntry(item)]
+      return answerKeyEntry(item, build)
     default: {
       const unreachable: never = item
       return unreachable

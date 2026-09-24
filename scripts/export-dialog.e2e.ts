@@ -158,3 +158,24 @@ test('empty Exams cannot export and Cmd/Ctrl+P opens Export for non-empty Exams'
   await page.keyboard.press('ControlOrMeta+P')
   await expect(dialogOf(page)).toBeVisible()
 })
+
+test('a Short Answer question sits close to its number, and its Suggested Answer prints only in the key', async ({ page }) => {
+  const [mc, sa] = EXAM.questions
+  const withAnswer = {
+    ...sa!,
+    suggestedAnswer: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Because whales breathe air.' }] }] },
+  }
+  await open(page, { ...AUTHORING, questionBank: { questions: [mc!, withAnswer] } })
+
+  // On the sheet, a Short Answer question has no blank beside its number, so
+  // its text starts well short of where a Multiple Choice stem does.
+  const stemLeft = async (id: string) =>
+    (await page.locator(`.exam-workspace [data-question-id="${id}"] .question-stem`).boundingBox())!.x
+  expect(await stemLeft('o1')).toBeLessThan(await stemLeft('m1') - 40)
+
+  const dialog = await openDialog(page)
+  const [testPage, keyPage] = await dialog.getByLabel('Export Preview').locator('.exam-page').all()
+  await expect(testPage!).toContainText('Explain why.')
+  await expect(testPage!).not.toContainText('Because whales breathe air.')
+  await expect(keyPage!.locator('.answer-key-suggested')).toHaveText('Because whales breathe air.')
+})

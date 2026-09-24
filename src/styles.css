@@ -713,6 +713,11 @@ button { cursor: pointer; }
   align-items: center; gap: 8px; margin: 0 0 8px;
 }
 .answer-key-answer { min-height: 1.45em; border-bottom: 1px solid #332a24; text-align: center; }
+/* A Suggested Answer takes the lines under its entry, starting under the
+   blank. The PDF and DOCX adapters indent it by the same 50px. */
+.answer-key-suggested { grid-column: 2 / -1; }
+.answer-key-suggested > :first-child { margin-top: 0; }
+.answer-key-suggested > :last-child { margin-bottom: 0; }
 .answer-key-metadata { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; min-width: 0; }
 .answer-key-metadata .badge { padding: 0 7px; font: 11px/1.55 Arial, Helvetica, sans-serif; }
 .answer-key-metadata .badge svg { width: 11px; height: 11px; }
@@ -721,6 +726,10 @@ button { cursor: pointer; }
   margin-bottom: 26px; border-radius: 4px; cursor: grab;
   transition: background-color 90ms ease, box-shadow 90ms ease;
 }
+/* A Short Answer question has no answer blank, so its number column is only
+   as wide as a three-digit number. `questionIndentOf` in export-plan.ts holds
+   the same width for the adapters. */
+.exam-question:has(> .question-number--compact) { grid-template-columns: 34px 1fr; }
 .exam-question, .exam-question * { -webkit-user-drag: none; }
 .exam-question:active { cursor: grabbing; }
 
@@ -957,7 +966,7 @@ button { cursor: pointer; }
 /* The bar that drags a work space open: in the gap below the question, over
    the body column, taking none of the question's measured height. */
 .work-space-handle {
-  position: absolute; left: 98px; right: 0; bottom: -17px; z-index: 2;
+  position: absolute; left: 40px; right: 0; bottom: -17px; z-index: 2;
   display: flex; align-items: center; justify-content: center;
   height: 14px; border-radius: 7px; cursor: ns-resize; touch-action: none;
   opacity: 0; transition: opacity 90ms ease-in;

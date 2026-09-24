@@ -208,6 +208,9 @@ export type PlannedQuestion = {
    *  teacher identify and review the Questions without exposing it to students. */
   difficulty?: Difficulty
   topics?: string[]
+  /** A Short Answer question's Suggested Answer, as top-level blocks. Never
+   *  printed on the test; the Answer Key prints it under the question's line. */
+  suggestedAnswer?: ProseMirrorJSON[]
 }
 
 /** How many numbers a question takes on the test: one, or one per prompt for
@@ -287,13 +290,15 @@ export type AnswerKeySectionItem = {
 // One line of the key: a question's number, its organizational metadata and,
 // for multiple choice, the correct letter under this arrangement's ordering.
 // `letter` is `null` for a free-response question — the key still gives it a
-// blank so the numbering lines up with the test.
+// blank so the numbering lines up with the test — and a Short Answer question
+// with a Suggested Answer prints that answer on the lines below its blank.
 export type AnswerKeyEntryItem = {
   kind: 'answer-key-entry'
   number: number
   letter: string | null
   difficulty?: Difficulty
   topics?: string[]
+  suggestedAnswer?: ProseMirrorJSON[]
 }
 
 // One thing that occupies vertical space on a page, in print order.
@@ -431,11 +436,25 @@ export const MAX_WORK_SPACE_HEIGHT =
 // The choice grid does not span the page's full content width: it renders
 // inside `.question-body`, the second column of `.exam-question`'s grid in
 // styles.css (`grid-template-columns: 92px 1fr; gap: 6px;`) — the number
-// column sits to its left. These two numbers are copied from that rule
-// because CSS can't be read from here at build time; if that rule's column
-// width or gap ever changes, this must change with it.
+// column sits to its left. These numbers are copied from that rule because
+// CSS can't be read from here at build time; if that rule's column width or
+// gap ever changes, this must change with it.
 const QUESTION_NUMBER_COLUMN_WIDTH = 92
 const QUESTION_NUMBER_COLUMN_GAP = 6
+// A Short Answer question has no answer blank to make room for, so its column
+// holds the number alone — `.question-number--compact` in styles.css, which
+// is wide enough for a three-digit number.
+const COMPACT_QUESTION_NUMBER_COLUMN_WIDTH = 34
+
+/** Where a question's body starts, in pixels from the content edge: past the
+ *  number column and its gap. Every adapter indents a question by this. */
+export function questionIndentOf(question: Pick<PlannedQuestion, 'type'>): number {
+  return (
+    (question.type === 'open'
+      ? COMPACT_QUESTION_NUMBER_COLUMN_WIDTH
+      : QUESTION_NUMBER_COLUMN_WIDTH) + QUESTION_NUMBER_COLUMN_GAP
+  )
+}
 
 /** The width a choice grid is actually laid out in — derived from
  *  `PAGE_CONTENT_WIDTH` so the two numbers cannot drift apart on their own. */
@@ -519,6 +538,17 @@ function deriveMatching(
   }
 }
 
+/** A question's Suggested Answer as top-level blocks, copied; none when it has
+ *  no answer or the answer holds only blank paragraphs. */
+function suggestedAnswerOf(question: Question): ProseMirrorJSON[] {
+  const content = question.suggestedAnswer?.content
+  if (!Array.isArray(content)) return []
+  const blocks = content as ProseMirrorJSON[]
+  const blank = (node: ProseMirrorJSON) =>
+    node.type === 'paragraph' && !(Array.isArray(node.content) && node.content.length > 0)
+  return blocks.every(blank) ? [] : structuredClone(blocks)
+}
+
 function deriveQuestion(
   exam: Exam,
   question: Question,
@@ -552,6 +582,9 @@ function deriveQuestion(
     workSpace: takesWorkSpace(question.type) ? workSpaceOf(exam, question.id) : null,
     ...(question.difficulty ? { difficulty: question.difficulty } : {}),
     ...(topicsOf(question).length > 0 ? { topics: [...topicsOf(question)] } : {}),
+    ...(question.type === 'open' && suggestedAnswerOf(question).length > 0
+      ? { suggestedAnswer: suggestedAnswerOf(question) }
+      : {}),
   }
 }
 
@@ -862,6 +895,9 @@ function deriveAnswerKey(testItems: readonly PageItem[]): PageItem[] {
       number: item.question.number,
       letter: item.question.choices.find((choice) => choice.correct)?.letter ?? null,
       ...metadata,
+      ...(item.question.suggestedAnswer
+        ? { suggestedAnswer: item.question.suggestedAnswer }
+        : {}),
     })
   }
   return items
