@@ -13,6 +13,7 @@
     "test:exports": "bun run scripts/test-exports.ts"
   },
   "dependencies": {
+    "@floating-ui/dom": "^1.8.0",
     "@milkdown/crepe": "^7.21.1",
     "@milkdown/kit": "^7.21.1",
     "@milkdown/react": "^7.21.1",

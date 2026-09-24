@@ -92,3 +92,47 @@ test('cancellation and invalid files preserve resources and restore useful focus
   await expect(dialog.getByLabel('Question Bank PDF')).toBeFocused()
   expect(await resourceCount(page)).toBe(before)
 })
+
+test('the review owns the viewport: the page behind it does not scroll', async ({ page }) => {
+  await page.setViewportSize({ width: 720, height: 420 })
+  await page.goto('/question-banks')
+  await expect(page.getByRole('heading', { name: 'Question Banks', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Import', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Import Question Bank' })
+  await dialog.getByLabel('Question Bank PDF').setInputFiles({ name: 'chemistry.pdf', mimeType: 'application/pdf', buffer: await questionBankPdf() })
+  await expect(dialog.getByLabel('New Question Bank name')).toBeVisible()
+  // The page underneath is taller than the window, so it could scroll.
+  expect(await page.evaluate(() => document.documentElement.scrollHeight > innerHeight)).toBe(true)
+
+  await page.mouse.move(8, 8)
+  await page.mouse.wheel(0, 600)
+  await page.getByRole('heading', { name: 'Import Question Bank' }).hover()
+  await page.mouse.wheel(0, 600)
+  await expect.poll(() => page.evaluate(() => scrollY)).toBe(0)
+
+  await page.keyboard.press('Escape')
+  await expect(dialog).toBeHidden()
+  await page.mouse.wheel(0, 600)
+  await expect.poll(() => page.evaluate(() => scrollY)).toBeGreaterThan(0)
+})
+
+test('at a narrow width the import rail fills its row down to the actions and scrolls to its note', async ({ page }) => {
+  await page.setViewportSize({ width: 720, height: 800 })
+  await page.goto('/question-banks')
+  await page.getByRole('button', { name: 'Import', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Import Question Bank' })
+  await dialog.getByLabel('Question Bank PDF').setInputFiles({ name: 'chemistry.pdf', mimeType: 'application/pdf', buffer: await questionBankPdf() })
+  const rail = dialog.locator('.bank-import-controls')
+  await expect(rail.getByLabel('New Question Bank name')).toBeVisible()
+
+  // The rail goes under the questions and reaches the footer: no blank band
+  // between the last row the rail shows and the dialog's actions.
+  const railBox = (await rail.boundingBox())!
+  const actionsBox = (await dialog.locator('.dialog-actions').boundingBox())!
+  expect(Math.abs(railBox.y + railBox.height - actionsBox.y)).toBeLessThanOrEqual(1)
+
+  // Its last line is reachable by scrolling the rail itself.
+  await rail.hover()
+  await page.mouse.wheel(0, 2000)
+  await expect(rail.getByText('Import always creates a new Question Bank.')).toBeInViewport({ ratio: 1 })
+})

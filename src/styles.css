@@ -2050,12 +2050,14 @@ button { cursor: pointer; }
    under the questions rather than beside them. */
 @media (max-width: 900px) {
   .bank-import-dialog--review { width: calc(100vw - 24px); height: calc(100vh - 24px); }
+  /* The rail's cap belongs on its track, not on the rail: a percentage
+     max-height on an item in an `auto` row resolves against that row, which is
+     the rail's own height, so the rail was clipped to 45% of itself and the
+     rest of the row was left blank. */
   .bank-import-body {
-    grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) fit-content(45%);
   }
-  .bank-import-controls {
-    max-height: 45%; border-top: 1px solid var(--paper-outline); border-left: 0;
-  }
+  .bank-import-controls { border-top: 1px solid var(--paper-outline); border-left: 0; }
 }
 
 /* ---------------------------------------------------------------------------

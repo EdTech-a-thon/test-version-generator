@@ -1,4 +1,5 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
+import { useModalScrollLock } from './use-modal-scroll-lock'
 import { ExportPreview } from './exam-page'
 import type { LayoutPlan } from './export-plan'
 import type {
@@ -69,19 +70,7 @@ export function ExportDialog({
     first?.focus()
   }, [])
 
-  // A modal owns the viewport, not only its own paper preview. Otherwise a
-  // wheel gesture over its controls or dimmed backdrop scrolls the Working Copy
-  // underneath, making the apparent modal state and the background drift apart.
-  useEffect(() => {
-    const previousBodyOverflow = document.body.style.overflow
-    const previousRootOverflow = document.documentElement.style.overflow
-    document.body.style.overflow = 'hidden'
-    document.documentElement.style.overflow = 'hidden'
-    return () => {
-      document.body.style.overflow = previousBodyOverflow
-      document.documentElement.style.overflow = previousRootOverflow
-    }
-  }, [])
+  useModalScrollLock()
 
   // Preparation disables every dialog control. Keep focus on the dialog itself
   // during that interval so Tab cannot escape into the authoring workspace.

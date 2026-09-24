@@ -2,6 +2,7 @@ import { Fragment, useCallback, useEffect, useId, useMemo, useRef, useState, use
 import { createPortal } from 'react-dom'
 import { Milkdown, useEditor } from '@milkdown/react'
 import { Crepe } from '@milkdown/crepe'
+import { size } from '@floating-ui/dom'
 import { keymapRef } from '@milkdown/crepe/feature/toolbar'
 import type { Ctx } from '@milkdown/kit/ctx'
 import { editorViewCtx } from '@milkdown/kit/core'
@@ -412,7 +413,28 @@ function CrepeQuestion({
         [Crepe.Feature.Latex]: true,
       },
       featureConfigs: {
-        [Crepe.Feature.BlockEdit]: { advancedGroup: { codeBlock: null } },
+        [Crepe.Feature.BlockEdit]: {
+          advancedGroup: { codeBlock: null },
+          // Crepe only flips the slash menu above or below the caret; it never
+          // shrinks it. In a short editor neither side has the menu's full
+          // 420px, so the rest of it hung past the editor's edge, under the
+          // dialog's actions, where its later groups could not be reached.
+          // The item list takes what room there is and scrolls within it.
+          slashMenu: {
+            middleware: [
+              size({
+                padding: 8,
+                apply({ availableHeight, elements }) {
+                  const tabs = elements.floating.querySelector<HTMLElement>('.tab-group')
+                  const groups = elements.floating.querySelector<HTMLElement>('.menu-groups')
+                  if (!groups) return
+                  const room = availableHeight - (tabs?.offsetHeight ?? 0)
+                  groups.style.maxHeight = `${Math.max(120, Math.min(420, room))}px`
+                },
+              }),
+            ],
+          },
+        },
         // The browser's own caret is the caret (see `caret-color` in
         // styles.css). Crepe's painted stand-in would be a second one: it
         // stays where the selection last was after the editor loses focus,

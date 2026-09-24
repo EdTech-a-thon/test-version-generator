@@ -14,6 +14,7 @@ import type { Difficulty } from './exam'
 import type { ProseMirrorJSON } from './question-doc'
 import type { QuestionBankImportProposal } from './question-bank-import'
 import { inspectUploadedQuestionBank, needsConversion as fileNeedsConversion } from './question-bank-upload'
+import { useModalScrollLock } from './use-modal-scroll-lock'
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
@@ -84,6 +85,7 @@ export function QuestionBankImportDialog({
   const busy = phase !== 'choose'
   const busyRef = useRef(busy)
   busyRef.current = busy
+  useModalScrollLock()
 
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null
