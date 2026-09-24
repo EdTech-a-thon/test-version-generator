@@ -96,7 +96,7 @@ When the source is a test, wrap its Question Bank Record in a package with one E
 
 - Name the bank after the subject or unit, and name the Exam after the test's own title as printed.
 - Give the Exam one position for every converted Question, in printed order, each naming `"bank": "bank"` and that Question's ID. Use each Question exactly once. An unconverted question gets no position.
-- The bank already records the test's printed question and answer order, so leave out `answerOrder`: answers print in the order the bank records them.
+- Write every Question's choices and Word Bank answers into the bank in the order the test prints them. That records the test's answer order, so leave out `answerOrder`: answers print in the order the bank records them, and the answer key's letters stay right.
 - Record `columns` (`1`, `2` or `4`) on a Multiple Choice position only when the source layout makes it clear how many columns its answers are printed in — for example, four answers side by side on one line is `4`. When it is not clear, leave `columns` out. Never put `columns` on any other Question Type.
 - Never add `workSpace`. Room left for writing is not something to guess from a scan; the teacher sets it in Test Parrot.
 - Do not add point values, section headings, instructions, or any other member: the Exam Record has none of these.

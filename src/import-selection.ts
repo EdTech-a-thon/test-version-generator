@@ -101,8 +101,9 @@ export function hasAllowedItems(selection: ImportSelection): boolean {
     || Object.values(selection.exams).some(({ allowed }) => allowed)
 }
 
-function counted(count: number, singular: string): string {
-  return count === 1 ? singular : `${count} ${singular}s`
+function counted(count: number, singular: string, bare: boolean): string {
+  if (count !== 1) return `${count} ${singular}s`
+  return bare ? singular : `1 ${singular}`
 }
 
 /** “Import Question Bank”, “Import Question Bank and Exam”, “Import 3
@@ -114,9 +115,12 @@ export function importTitle(proposal: ImportProposal, selection: ImportSelection
   const [banks, exams] = hasAllowedItems(selection)
     ? [allowedBanks, allowedExams]
     : [proposal.banks.length, proposal.exams.length]
+  // “Question Bank and Exam” reads as a pair; once either is counted, both
+  // are, so it never reads “2 Question Banks and Exam”.
+  const bare = banks <= 1 && exams <= 1
   const parts = [
-    ...(banks > 0 ? [counted(banks, 'Question Bank')] : []),
-    ...(exams > 0 ? [counted(exams, 'Exam')] : []),
+    ...(banks > 0 ? [counted(banks, 'Question Bank', bare)] : []),
+    ...(exams > 0 ? [counted(exams, 'Exam', bare)] : []),
   ]
   return `Import ${parts.join(' and ')}`
 }

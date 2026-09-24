@@ -2581,7 +2581,7 @@ export default function App({
     proposal: import('./package-import').ImportProposal,
     selection: import('./import-selection').ImportSelection,
   ) => {
-    const result = await bankWorkspaces.importPackage(proposal, selection)
+    const result = await bankWorkspaces.commitImport(proposal, selection)
     // One Exam is what a converted test is: it opens in the editor with the
     // banks it was built from as its tabs, from onboarding as from anywhere.
     const [onlyExam, ...otherExams] = result.createdExamIds

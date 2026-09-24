@@ -406,7 +406,7 @@ export function createQuestionBankWorkspaceService(
      * databases written ahead of it are deleted before the failure is
      * reported.
      */
-    async importPackage(
+    async commitImport(
       proposal: import('./package-import').ImportProposal,
       selection: import('./import-selection').ImportSelection,
     ): Promise<ImportResult> {

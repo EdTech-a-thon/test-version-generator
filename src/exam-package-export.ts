@@ -144,8 +144,8 @@ export async function withExamPackage(
 ): Promise<PreparedExport> {
   if (!carriesExamPackage(prepared)) return prepared
   try {
-    const bundle = await examPackage(source)
-    return { ...prepared, record: { ...prepared.record, examPackage: JSON.stringify(bundle) } }
+    const carried = await examPackage(source)
+    return { ...prepared, record: { ...prepared.record, examPackage: JSON.stringify(carried) } }
   } catch (error) {
     console.warn('This PDF will not carry its Exam for import', error)
     return prepared

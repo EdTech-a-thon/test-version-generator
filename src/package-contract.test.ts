@@ -62,20 +62,20 @@ describe('public Test Parrot Package 0.1.0 contract', () => {
     const names = await filesIn(join(packageRoot, 'examples'))
     expect(names).toEqual(['bank-and-exam.json', 'bank-only.json', 'several-banks.json', 'two-versions.json'])
     for (const name of names) {
-      const bundle = await read(join(packageRoot, 'examples'), name)
-      expect(validatePackage(bundle), `${name}: ${JSON.stringify(validatePackage.errors)}`).toBe(true)
-      for (const { record } of bundle.questionBanks as { record: unknown }[]) {
+      const testParrotPackage = await read(join(packageRoot, 'examples'), name)
+      expect(validatePackage(testParrotPackage), `${name}: ${JSON.stringify(validatePackage.errors)}`).toBe(true)
+      for (const { record } of testParrotPackage.questionBanks as { record: unknown }[]) {
         expect(validateBank(record), `${name}: ${JSON.stringify(validateBank.errors)}`).toBe(true)
       }
-      for (const exam of bundle.exams as unknown[]) {
+      for (const exam of testParrotPackage.exams as unknown[]) {
         expect(validateExam(exam), `${name}: ${JSON.stringify(validateExam.errors)}`).toBe(true)
       }
     }
   })
 
   test('the Exam Record example is the Exam its package example carries', async () => {
-    const bundle = await read(join(packageRoot, 'examples'), 'bank-and-exam.json')
-    expect((bundle.exams as unknown[])[0]).toEqual(await read(join(examRoot, 'examples'), 'unit-test.json'))
+    const testParrotPackage = await read(join(packageRoot, 'examples'), 'bank-and-exam.json')
+    expect((testParrotPackage.exams as unknown[])[0]).toEqual(await read(join(examRoot, 'examples'), 'unit-test.json'))
   })
 
   test('canonical examples pass Test Parrot inspection with their documented dependencies', async () => {

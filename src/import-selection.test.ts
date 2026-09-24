@@ -122,7 +122,8 @@ describe('the dialog title', () => {
     expect(title(only(1, 1))).toBe('Import Question Bank and Exam')
     expect(title(only(3, 2))).toBe('Import 3 Question Banks and 2 Exams')
     expect(title(only(2, 0))).toBe('Import 2 Question Banks')
-    expect(title(only(1, 3))).toBe('Import Question Bank and 3 Exams')
+    expect(title(only(1, 3))).toBe('Import 1 Question Bank and 3 Exams')
+    expect(title(only(2, 1))).toBe('Import 2 Question Banks and 1 Exam')
   })
 
   test('follows the selection, and the file when nothing is allowed', () => {

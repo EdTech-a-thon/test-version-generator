@@ -37,7 +37,7 @@ describe('committing an import', () => {
   test('a bare record creates one new bank and no Exam', async () => {
     const { banks, exams } = services()
     const proposal = await inspect('bank-only.json')
-    const result = await banks.importPackage(proposal, initialSelection(proposal))
+    const result = await banks.commitImport(proposal, initialSelection(proposal))
 
     expect(result.createdExamIds).toEqual([])
     expect(result.updatedBankIds).toEqual([])
@@ -54,20 +54,20 @@ describe('committing an import', () => {
     const { banks } = services()
     const proposal = await inspect('bank-only.json')
     const selection = setBankTarget(initialSelection(proposal), 'cells', { kind: 'new', name: '  Biology 7  ' })
-    const { createdBankIds } = await banks.importPackage(proposal, selection)
+    const { createdBankIds } = await banks.commitImport(proposal, selection)
     expect((await banks.read(createdBankIds[0]!))!.name).toBe('Biology 7')
   })
 
   test('merging appends fresh Questions and keeps the target bank’s details', async () => {
     const { banks } = services()
     const proposal = await inspect('bank-only.json')
-    const first = await banks.importPackage(proposal, initialSelection(proposal))
+    const first = await banks.commitImport(proposal, initialSelection(proposal))
     const targetId = first.createdBankIds[0]!
     const before = (await banks.read(targetId))!
     await banks.commit(targetId, { kind: 'rename', name: 'My Biology' })
     await banks.commit(targetId, { kind: 'update-provenance', provenance: { author: 'Me' } })
 
-    const second = await banks.importPackage(proposal, initialSelection(proposal, { targetBankId: targetId }))
+    const second = await banks.commitImport(proposal, initialSelection(proposal, { targetBankId: targetId }))
 
     expect(second).toMatchObject({ createdBankIds: [], updatedBankIds: [targetId] })
     const after = (await banks.read(targetId))!
@@ -82,7 +82,7 @@ describe('committing an import', () => {
   test('an Exam references the new Questions with columns, answer order and Work Space applied', async () => {
     const { banks, exams } = services()
     const proposal = await inspect('bank-and-exam.json')
-    const result = await banks.importPackage(proposal, initialSelection(proposal))
+    const result = await banks.commitImport(proposal, initialSelection(proposal))
 
     expect(result.createdExamIds).toHaveLength(1)
     const examId = result.createdExamIds[0]!
@@ -111,10 +111,10 @@ describe('committing an import', () => {
   test('an Exam imported beside a merged bank uses the Questions just appended', async () => {
     const { banks, exams } = services()
     const bankOnly = await inspect('bank-only.json')
-    const targetId = (await banks.importPackage(bankOnly, initialSelection(bankOnly))).createdBankIds[0]!
+    const targetId = (await banks.commitImport(bankOnly, initialSelection(bankOnly))).createdBankIds[0]!
     const proposal = await inspect('bank-and-exam.json')
 
-    const result = await banks.importPackage(proposal, initialSelection(proposal, { targetBankId: targetId }))
+    const result = await banks.commitImport(proposal, initialSelection(proposal, { targetBankId: targetId }))
 
     const appended = (await banks.read(targetId))!.questions.slice(5).map(({ id }) => id)
     const { working } = await examState(exams, result.createdExamIds[0]!)
@@ -125,7 +125,7 @@ describe('committing an import', () => {
     const { banks, exams } = services()
     // Version A: one Multiple Choice with no columns, so it takes one.
     const proposal = await inspect('two-versions.json')
-    const result = await banks.importPackage(proposal, initialSelection(proposal))
+    const result = await banks.commitImport(proposal, initialSelection(proposal))
     for (const examId of result.createdExamIds) {
       const { working } = await examState(exams, examId)
       const [first] = working!.workingCopy.questionIds
@@ -143,7 +143,7 @@ describe('committing an import', () => {
         ],
       }],
     }
-    const chainedResult = await banks.importPackage(chained, initialSelection(chained))
+    const chainedResult = await banks.commitImport(chained, initialSelection(chained))
     const { working } = await examState(exams, chainedResult.createdExamIds[0]!)
     expect(Object.values(working!.workingCopy.columns!)).toEqual([4, 4])
   })
@@ -154,14 +154,14 @@ describe('committing an import', () => {
     let selection = initialSelection(proposal)
     selection = setBankAllowed(proposal, selection, 'forces', false)
 
-    const result = await banks.importPackage(proposal, selection)
+    const result = await banks.commitImport(proposal, selection)
 
     expect(result.createdExamIds).toEqual([])
     expect((await banks.recent()).map(({ name }) => name)).toEqual(['Cells'])
     expect(await exams.recent()).toEqual([])
 
     const onlyBanks = setExamAllowed(proposal, initialSelection(proposal), 'exam-1', false)
-    const second = await banks.importPackage(proposal, onlyBanks)
+    const second = await banks.commitImport(proposal, onlyBanks)
     expect(second.createdBankIds).toHaveLength(2)
     expect(second.createdExamIds).toEqual([])
   })
@@ -169,7 +169,7 @@ describe('committing an import', () => {
   test('an Exam drawing on two banks opens with both as tabs', async () => {
     const { banks } = services()
     const proposal = await inspect('several-banks.json')
-    const result = await banks.importPackage(proposal, initialSelection(proposal))
+    const result = await banks.commitImport(proposal, initialSelection(proposal))
     const [cellsId, forcesId] = result.createdBankIds
     const workspace = await banks.workspace({ examId: result.createdExamIds[0]! })
     // In the order the Exam first uses them: Forces, then Cells.
@@ -183,7 +183,7 @@ describe('committing an import', () => {
     // does not exist, which fails inside the same commit.
     const selection = setBankTarget(initialSelection(proposal), 'forces', { kind: 'existing', bankId: 'gone' })
 
-    await expect(banks.importPackage(proposal, selection)).rejects.toThrow('no longer on this device')
+    await expect(banks.commitImport(proposal, selection)).rejects.toThrow('no longer on this device')
 
     expect(await banks.recent()).toEqual([])
     expect(await exams.recent()).toEqual([])

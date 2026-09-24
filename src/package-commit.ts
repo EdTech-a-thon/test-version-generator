@@ -9,6 +9,7 @@ import type { SavedState } from './exam-store'
 import type { ImportSelection } from './import-selection'
 import type { ImportProposal } from './package-import'
 import { createWorkingCopy } from './question-bank'
+import { UNTITLED_QUESTION_BANK } from './question-bank-workspaces'
 import {
   importedQuestionIdentities,
   type ImportedQuestionIdentity,
@@ -55,8 +56,6 @@ export type ImportPlan = {
   exams: PlannedExam[]
 }
 
-export const UNTITLED_IMPORTED_BANK = 'Untitled Question Bank'
-
 /** Every Question and answer gets a fresh identity, nothing is deduplicated,
  *  and only allowed items appear. A selection whose allowed Exam needs a
  *  denied bank is refused rather than half-applied. */
@@ -83,7 +82,7 @@ export function planImport(
       ...(chosen.target.kind === 'new'
         ? {
             created: {
-              name: chosen.target.name.trim() || UNTITLED_IMPORTED_BANK,
+              name: chosen.target.name.trim() || UNTITLED_QUESTION_BANK,
               ...(record.bank.description !== undefined ? { description: record.bank.description } : {}),
               ...(record.bank.author !== undefined ? { author: record.bank.author } : {}),
               ...(record.bank.license !== undefined ? { license: { ...record.bank.license } } : {}),

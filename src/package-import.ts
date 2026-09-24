@@ -166,14 +166,14 @@ type PackageParser = (value: unknown) => TestParrotPackage
 
 const packageParser010: PackageParser = (value) => {
   if (!validatePackage010(value)) throw schemaFailure('Test Parrot Package', validatePackage010.errors)
-  const bundle = value as TestParrotPackage
+  const parsed = value as TestParrotPackage
   return {
     format: PACKAGE_FORMAT,
     formatVersion: PACKAGE_FORMAT_VERSION,
-    generator: { name: bundle.generator.name, version: bundle.generator.version },
-    requiredFeatures: [...bundle.requiredFeatures],
-    questionBanks: bundle.questionBanks.map((bank) => ({ id: bank.id, record: bank.record })),
-    exams: bundle.exams,
+    generator: { name: parsed.generator.name, version: parsed.generator.version },
+    requiredFeatures: [...parsed.requiredFeatures],
+    questionBanks: parsed.questionBanks.map((bank) => ({ id: bank.id, record: bank.record })),
+    exams: parsed.exams,
   }
 }
 
@@ -308,27 +308,27 @@ async function inspectPackageValue(
   value: unknown,
   limits: PackageImportLimits,
 ): Promise<ImportProposal> {
-  const bundle = parserFor(SUPPORTED_PACKAGE_VERSIONS, 'Test Parrot Package', value)(value)
-  if (bundle.requiredFeatures.length > 0) {
+  const testParrotPackage = parserFor(SUPPORTED_PACKAGE_VERSIONS, 'Test Parrot Package', value)(value)
+  if (testParrotPackage.requiredFeatures.length > 0) {
     throw new QuestionBankImportError(
       'unsupported-feature',
-      `Unsupported required feature: ${bundle.requiredFeatures.join(', ')}.`,
+      `Unsupported required feature: ${testParrotPackage.requiredFeatures.join(', ')}.`,
     )
   }
-  if (bundle.questionBanks.length > limits.banks) {
+  if (testParrotPackage.questionBanks.length > limits.banks) {
     throw new QuestionBankImportError(
       'bank-count-limit',
       `This package contains more than the ${limits.banks} Question Bank limit.`,
     )
   }
-  if (bundle.exams.length > limits.exams) {
+  if (testParrotPackage.exams.length > limits.exams) {
     throw new QuestionBankImportError(
       'exam-count-limit',
       `This package contains more than the ${limits.exams} Exam limit.`,
     )
   }
   const seen = new Set<string>()
-  for (const { id } of bundle.questionBanks) {
+  for (const { id } of testParrotPackage.questionBanks) {
     if (seen.has(id)) {
       throw new QuestionBankImportError('duplicate-id', `Package bank id “${id}” is duplicated.`)
     }
@@ -336,12 +336,12 @@ async function inspectPackageValue(
   }
   // Exams are parsed before any bank's media is decoded: an unsupported Exam
   // version is a cheap refusal, and there is no reason to pay for images first.
-  const exams = bundle.exams.map(parseExam)
+  const exams = testParrotPackage.exams.map(parseExam)
 
   const banks: ProposedBank[] = []
   let questions = 0
   let mediaBytes = 0
-  for (const { id, record } of bundle.questionBanks) {
+  for (const { id, record } of testParrotPackage.questionBanks) {
     const inspected = await inspectQuestionBankRecordValue(record, limits)
     questions += inspected.record.bank.questions.length
     if (questions > limits.questions) {
@@ -380,7 +380,7 @@ async function inspectPackageValue(
     for (const bankId of exam.banks) byId.get(bankId)!.exams.push(exam.key)
   }
   return {
-    source: { format: PACKAGE_FORMAT, formatVersion: bundle.formatVersion },
+    source: { format: PACKAGE_FORMAT, formatVersion: testParrotPackage.formatVersion },
     banks,
     exams: proposedExams,
   }

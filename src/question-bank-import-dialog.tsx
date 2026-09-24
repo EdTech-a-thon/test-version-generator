@@ -586,6 +586,7 @@ export function QuestionBankImportDialog({
                         <span>Create new question bank</span>
                       </label>
                       {chosen.target.kind === 'new' && <input
+                        autoFocus={bank.id === proposal.banks[0]?.id}
                         className="bank-import-target-name"
                         aria-label={`New Question Bank name for ${name}`}
                         value={targetName}

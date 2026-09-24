@@ -1,6 +1,6 @@
 # Test Parrot Package 0.1.0
 
-A **Test Parrot Package** bundles one or more Question Bank Records and any number of [Exam Records](exam-record-0.1.0.md) that reference Questions in them. It travels as a standalone JSON file, conventionally named `*.parrot.json`, or embedded in an exported Exam PDF whose Content Selection includes the answer key. Importing it lets the teacher choose which banks and Exams to bring in. See ADR-0022.
+A **Test Parrot Package** carries one or more Question Bank Records and any number of [Exam Records](exam-record-0.1.0.md) that reference Questions in them. It travels as a standalone JSON file, conventionally named `*.parrot.json`, or embedded in an exported Exam PDF whose Content Selection includes the answer key. Importing it lets the teacher choose which banks and Exams to bring in. See ADR-0022.
 
 ## Published contract
 
