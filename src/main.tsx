@@ -10,6 +10,7 @@ import {
 } from './question-bank-workspaces'
 import { persistentStorageStatus } from './durable-storage'
 import { questionBankCollection } from './resource-collections'
+import { applyStagedRestore } from './account-backup'
 import './styles.css'
 
 async function start() {
@@ -18,6 +19,11 @@ async function start() {
     await navigator.serviceWorker.ready
     if (!navigator.serviceWorker.controller) { window.location.reload(); return }
   }
+  // A restore replaces the account before anything below opens it.
+  const restored = await applyStagedRestore()
+  const restoreError = restored && !restored.applied
+    ? 'The backup could not be restored, so nothing in this browser was changed.'
+    : ''
   const workspaces = createExamWorkspaceService()
   const bankWorkspaces = createQuestionBankWorkspaceService()
   const startingOnEditor = window.location.pathname === '/editor'
@@ -33,7 +39,7 @@ async function start() {
   let store = null
   let bank: QuestionBankResource | null = null
   let editorId: string | null = null
-  let error: string | null = null
+  let error: string | null = restoreError || null
 
   if (startingOnBank) {
     // Unlike the editor's one-time launch parameters, the bank page keeps its
