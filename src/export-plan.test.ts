@@ -1233,3 +1233,153 @@ describe('the Export Document', () => {
     ])
   })
 })
+
+describe('work space', () => {
+  const LATER_BOX = pageContentHeight('later')
+  const FIRST_BOX = pageContentHeight('first')
+
+  /** An open question with `blocks` top-level paragraphs in its stem. */
+  function openBlocks(id: string, blocks: number): Question {
+    return {
+      ...open(id),
+      doc: {
+        type: 'doc',
+        content: Array.from({ length: blocks }, (_unused, index) => ({
+          type: 'paragraph',
+          content: [{ type: 'text', text: `${id} block ${index}` }],
+        })),
+      },
+    }
+  }
+
+  // Every stem block is `block` tall, a section heading `heading` tall, and a
+  // piece carrying a work space is that much taller — the height the print
+  // markup gives it, since the space is drawn at exactly its planned height.
+  function measured(block: number, heading = 0): Measure {
+    return {
+      itemHeight: (item) => {
+        if (item.kind !== 'question') return heading
+        return item.stem.length * block + (item.workSpace?.height ?? 0)
+      },
+    }
+  }
+
+  function questionItems(pages: PlannedPage[]): QuestionItem[] {
+    return itemsOf(pages).flatMap((item) => (item.kind === 'question' ? [item] : []))
+  }
+
+  function pageShape(pages: PlannedPage[]): string[][] {
+    return pages.map((page) =>
+      page.items.map((item) =>
+        item.kind === 'question' ? `q:${item.question.id}` : item.kind,
+      ),
+    )
+  }
+
+  function snap(height: number): number {
+    return Math.floor(height / 32) * 32
+  }
+
+  test('a Short Answer question carries the room its Exam gives it, ruled at the line pitch', () => {
+    const exam: Exam = {
+      ...examOf([open('q1'), open('q2')]),
+      workSpace: {
+        q1: { height: 160, style: 'lines', fill: false },
+        q2: { height: 96, style: 'blank', fill: false },
+      },
+    }
+    const [first, second] = questionItems(render(exam))
+    expect(first!.workSpace).toEqual({ height: 160, style: 'lines', lines: 5, fill: false })
+    expect(second!.workSpace).toEqual({ height: 96, style: 'blank', lines: 0, fill: false })
+  })
+
+  test('a Short Answer question with no room still carries a zero-height space to drag open', () => {
+    const [item] = questionItems(render(examOf([open('q1')])))
+    expect(item!.workSpace).toEqual({ height: 0, style: 'blank', lines: 0, fill: false })
+  })
+
+  test('no other Question Type carries a work space, even when the Exam names one', () => {
+    const exam: Exam = {
+      ...examOf([multipleChoice('mc', ['a', 'b']), trueFalse('tf')]),
+      workSpace: { mc: { height: 160, style: 'lines', fill: false } },
+    }
+    for (const item of questionItems(render(exam))) {
+      expect(item.workSpace).toBeNull()
+      expect(item.question.workSpace).toBeNull()
+    }
+  })
+
+  test('the room counts toward packing, so a question moves on whole with its space', () => {
+    // Two blocks of stem and 400px of room is 600px: the second question no
+    // longer fits under the first on the first page.
+    const exam: Exam = {
+      ...examOf([openBlocks('q1', 2), openBlocks('q2', 2)]),
+      workSpace: {
+        q1: { height: 400, style: 'blank', fill: false },
+        q2: { height: 400, style: 'blank', fill: false },
+      },
+    }
+    const pages = testPages(planPages(exam, arrangementOf(), measured(100)))
+    expect(pageShape(pages)).toEqual([['section-heading', 'q:q1'], ['q:q2']])
+  })
+
+  test('a space that fills its page grows to the foot of it, and the next question starts a new page', () => {
+    const exam: Exam = {
+      ...examOf([openBlocks('q1', 1), openBlocks('q2', 1), openBlocks('q3', 1)]),
+      workSpace: { q1: { height: 64, style: 'lines', fill: true } },
+    }
+    const pages = testPages(planPages(exam, arrangementOf(), measured(100, 50)))
+    expect(pageShape(pages)).toEqual([['section-heading', 'q:q1'], ['q:q2', 'q:q3']])
+    const [filled] = questionItems(pages)
+    const expected = 64 + Math.floor(FIRST_BOX - 50 - 100 - 64 - 1)
+    expect(filled!.workSpace!.height).toBe(expected)
+    expect(filled!.workSpace!.lines).toBe(Math.floor(expected / 32))
+    expect(50 + 100 + filled!.workSpace!.height).toBeLessThanOrEqual(FIRST_BOX)
+  })
+
+  test('a filling space that does not fit where it is moves on whole and fills the next page', () => {
+    const exam: Exam = {
+      ...examOf([openBlocks('q1', 1), openBlocks('q2', 1), openBlocks('q3', 1)]),
+      workSpace: {
+        q1: { height: snap(FIRST_BOX - 200), style: 'blank', fill: false },
+        q2: { height: 192, style: 'blank', fill: true },
+      },
+    }
+    const pages = testPages(planPages(exam, arrangementOf(), measured(100)))
+    expect(pageShape(pages)).toEqual([['section-heading', 'q:q1'], ['q:q2'], ['q:q3']])
+    const second = questionItems(pages)[1]!
+    expect(100 + second.workSpace!.height).toBeGreaterThan(LATER_BOX - 2)
+    expect(100 + second.workSpace!.height).toBeLessThanOrEqual(LATER_BOX)
+  })
+
+  test('the last question on the test may fill its page without adding a blank one', () => {
+    const exam: Exam = {
+      ...examOf([openBlocks('q1', 1)]),
+      workSpace: { q1: { height: 0, style: 'blank', fill: true } },
+    }
+    expect(testPages(planPages(exam, arrangementOf(), measured(100)))).toHaveLength(1)
+  })
+
+  test('a question too tall for any page keeps its space on its last piece', () => {
+    const exam: Exam = {
+      ...examOf([openBlocks('q1', 12)]),
+      workSpace: { q1: { height: 128, style: 'lines', fill: false } },
+    }
+    const pieces = questionItems(testPages(planPages(exam, arrangementOf(), measured(100))))
+    expect(pieces.length).toBeGreaterThan(1)
+    expect(pieces.slice(0, -1).every((piece) => piece.workSpace === null)).toBe(true)
+    expect(pieces.at(-1)!.workSpace).toEqual({ height: 128, style: 'lines', lines: 4, fill: false })
+  })
+
+  test('the answer key is unaffected by work space', () => {
+    const exam: Exam = {
+      ...examOf([openBlocks('q1', 1)]),
+      workSpace: { q1: { height: 64, style: 'lines', fill: true } },
+    }
+    const key = planPages(exam, arrangementOf(), measured(100))
+      .filter((page) => isAnswerKeyHeader(page.header))
+    expect(itemsOf(key).map((item) => item.kind)).toEqual([
+      'answer-key-heading', 'answer-key-section', 'answer-key-entry',
+    ])
+  })
+})

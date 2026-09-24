@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { PDFDocument } from 'pdf-lib'
-import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs'
+import { getDocument, OPS } from 'pdfjs-dist/legacy/build/pdf.mjs'
 import {
   createPublicationPdf,
   isPdfUnsupportedCharacterError,
@@ -145,6 +145,21 @@ describe('PDF Export Adapter', () => {
       expect((error as Error).message).toContain('\u0378')
       expect((error as Error).message).toContain('Remove or replace')
     }
+  })
+
+  test('rules a lined work space and lets a filled one reach the foot of its page', async () => {
+    const { plans } = plansOf('Short Answer work space, lined, blank and filling its page')
+    const bytes = await createPublicationPdf(plans, noImages, fonts)
+    const document = await PDFDocument.load(bytes)
+
+    // The fill moves the last question on; nothing overflows the test's pages.
+    expect(document.getPageCount()).toBe(plans.reduce((sum, plan) => sum + plan.pages.length, 0))
+    const firstPage = (await getDocument({ data: bytes.slice() }).promise).getPage(1)
+    const operators = await (await firstPage).getOperatorList()
+    // Each rule is its own stroked path: five for the first question and the
+    // filled question's many more, so well over five on the page.
+    const rules = operators.fnArray.filter((fn: number) => fn === OPS.constructPath).length
+    expect(rules).toBeGreaterThan(5)
   })
 
   test('fails instead of emitting content outside a planned page', async () => {

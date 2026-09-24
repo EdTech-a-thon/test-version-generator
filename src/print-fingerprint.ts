@@ -23,6 +23,7 @@ import {
   type ExportFingerprint,
   type PageFingerprint,
   type Segment,
+  workSpaceLine,
 } from './export-fingerprint'
 import type { LayoutPlan, PlannedPage } from './export-plan'
 import { arrangementRange } from './export-preparation'
@@ -54,6 +55,7 @@ const HOISTED = new Set(['link', 'meta', 'title', 'script', 'style'])
 const PRINT_HIDDEN = [
   'document-bar',
   'question-handles',
+  'work-space-handle',
   'context-menu',
   'measure-host',
   'dialog-backdrop',
@@ -156,6 +158,11 @@ function blockLines(
   reader: Reader,
   opener: Segment[] = [],
 ): ContentLine[] {
+  // A work space is drawn, not written: the rules are what it says.
+  if (has(node, 'work-space')) {
+    const rules = node.children.filter((child) => has(child, 'work-space-line')).length
+    return [workSpaceLine(node.attrs['data-style'] ?? 'blank', rules)]
+  }
   const headingClass = classes(node).find((name) => HEADING_CLASSES[name])
   if (headingClass) {
     return [

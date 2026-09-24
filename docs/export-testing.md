@@ -85,7 +85,15 @@ rule
 table:<rows>x<columns>
 cell:<row>,<column>
 /table
+space:blank
+space:lines:<n>
 ```
+
+A Short Answer question's Work Space is a `space:` line: blank, or ruled with
+the plan's own count of lines. Its height is geometry and is not compared. The
+Layout Plan resolves a space that fills its page to its final height, so print,
+DOCX and PDF draw the same room; DOCX marks its work-space paragraphs with the
+`WorkSpace` and `WorkSpaceLines` paragraph styles so they read back as one.
 
 Inline content uses plain text, marked spans, links, math source, stable image
 ordinals, and authored-break markers. Fingerprints are adapter diagnostics only:

@@ -22,6 +22,7 @@ import {
   type MatchingSet,
   type PageFurniture,
   type PlannedBankAnswer,
+  type PlannedWorkSpace,
   type PageHeader,
   type PageItem,
   type QuestionItem,
@@ -167,6 +168,27 @@ export function MatchingSetView({
   )
 }
 
+// The room a Short Answer question leaves for a student's work: exactly as tall
+// as the plan says, and either empty or ruled with the plan's own count of
+// lines, each one pitch tall with its rule along the bottom. Nothing is drawn
+// for a question that has no room, so a zero-height space measures as nothing.
+export function WorkSpaceView({ space }: { space: PlannedWorkSpace }) {
+  if (space.height <= 0) return null
+  return (
+    <div
+      className="work-space"
+      data-style={space.style}
+      data-lines={space.style === 'lines' ? space.lines : undefined}
+      data-fill={space.fill ? 'true' : undefined}
+      style={{ height: `${space.height}px` }}
+    >
+      {Array.from({ length: space.lines }, (_unused, index) => (
+        <div className="work-space-line" key={index} />
+      ))}
+    </div>
+  )
+}
+
 // A question, or the piece of one this page carries. The number column is drawn
 // either way so a continued question's text stays in the same place down the
 // page; only the first piece puts a number and an answer blank in it — and a
@@ -193,6 +215,7 @@ export function QuestionContent({
         {item.grid && (
           <ChoiceGridView grid={item.grid} showCorrectness={showCorrectness} />
         )}
+        {item.workSpace && <WorkSpaceView space={item.workSpace} />}
       </div>
       {item.matching && (
         <MatchingSetView set={item.matching} showCorrectness={showCorrectness} />

@@ -34,6 +34,7 @@ import {
   HeadingLevel,
   ImageRun,
   LevelFormat,
+  LineRuleType,
   Math as OfficeMath,
   MathRun,
   Packer,
@@ -76,9 +77,10 @@ import {
   type PageItem,
   type PlannedBankAnswer,
   type PlannedPage,
+  type PlannedWorkSpace,
   type QuestionItem,
 } from './export-plan'
-import { DIFFICULTY_LABELS } from './exam'
+import { DIFFICULTY_LABELS, WORK_SPACE_LINE_PITCH } from './exam'
 import type { ProseMirrorJSON } from './question-doc'
 
 const DOCX_MIME =
@@ -751,6 +753,50 @@ function matchingContent(
   ]
 }
 
+// A Short Answer question's work space, at the plan's own height. Word has no
+// empty box of a given height, so a blank space is one empty paragraph whose
+// exact line height is that height, and a lined space is one empty paragraph
+// per rule, each exactly one pitch tall with its rule as a bottom border —
+// the border's own half point taken out of the line so twenty rules still add
+// up to the planned height. Anything left under the last rule, which only a
+// space filling its page can have, is a blank paragraph of that remainder.
+// Both carry a paragraph style of their own, which is what lets the package be
+// read back as a work space rather than as a run of empty paragraphs.
+export const WORK_SPACE_STYLES = {
+  blank: 'WorkSpace',
+  lines: 'WorkSpaceLines',
+} as const
+
+const WORK_SPACE_RULE_TWIPS = 10
+
+function workSpaceParagraphs(space: PlannedWorkSpace): Paragraph[] {
+  if (space.height <= 0) return []
+  const style = WORK_SPACE_STYLES[space.style]
+  const exactly = (heightTwips: number) => ({
+    before: 0,
+    after: 0,
+    line: Math.max(1, heightTwips),
+    lineRule: LineRuleType.EXACT,
+  })
+  const indent = { left: QUESTION_INDENT }
+  const ruled = space.style === 'lines' ? space.lines : 0
+  const paragraphs = Array.from({ length: ruled }, () =>
+    new Paragraph({
+      style,
+      indent,
+      spacing: exactly(twips(WORK_SPACE_LINE_PITCH) - WORK_SPACE_RULE_TWIPS),
+      border: {
+        bottom: { style: BorderStyle.SINGLE, size: 4, color: '8F847A', space: 0 },
+      },
+    }),
+  )
+  const remainder = space.height - ruled * WORK_SPACE_LINE_PITCH
+  if (remainder >= 1) {
+    paragraphs.push(new Paragraph({ style, indent, spacing: exactly(twips(remainder)) }))
+  }
+  return paragraphs
+}
+
 // A question, or the piece of one this page carries. Only the first piece prints
 // the number line and the answer blank — the same rule the print adapter draws
 // by, taken from the same planned item rather than decided again here.
@@ -785,6 +831,7 @@ function questionContent(
     ...stem,
     ...(item.grid ? [choiceGridTable(item.grid, build)] : []),
     ...(item.matching ? matchingContent(item.matching, build) : []),
+    ...(item.workSpace ? workSpaceParagraphs(item.workSpace) : []),
   ]
 }
 
@@ -986,6 +1033,12 @@ export function createExamDocxDocument(
     description: `Output ID ${arrangementRange(labels)}`,
     creator: 'Test Parrot',
     numbering: { config: numbering.config },
+    styles: {
+      paragraphStyles: [
+        { id: WORK_SPACE_STYLES.blank, name: 'Work Space', basedOn: 'Normal' },
+        { id: WORK_SPACE_STYLES.lines, name: 'Work Space Lines', basedOn: 'Normal' },
+      ],
+    },
     sections: sections.length > 0 ? sections : [{ children: [] }],
   })
 }

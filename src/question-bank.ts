@@ -26,6 +26,10 @@ export type ExamWorkingCopy = {
   /** Answer-column layout is an Exam arrangement, not canonical Question
    * Content: the same Question may be laid out differently in another Exam. */
   columns?: Record<string, import('./exam').ColumnSetting>
+  /** Room for a student's work below a Short Answer question, keyed by
+   *  Question Bank record id. Exam presentation like `columns`, so it is set
+   *  on the exam sheet and never in the question editor. Absent means none. */
+  workSpace?: Record<string, import('./exam').WorkSpace>
   /** The Working Copy's answer arrangement, keyed by Question Bank record id.
    *  Absent means authored order, preserving compatibility with drafts stored
    *  before answer shuffling existed. */
@@ -115,15 +119,20 @@ export function withReferencesRemoved(
   const columns = draft.columns
     ? { ...draft.columns }
     : undefined
+  const workSpace = draft.workSpace
+    ? { ...draft.workSpace }
+    : undefined
   for (const questionId of removing) {
     delete choiceOrder?.[questionId]
     delete columns?.[questionId]
+    delete workSpace?.[questionId]
   }
   return {
     ...draft,
     questionIds: remaining,
     ...(choiceOrder ? { choiceOrder } : {}),
     ...(columns ? { columns } : {}),
+    ...(workSpace ? { workSpace } : {}),
   }
 }
 
@@ -202,10 +211,18 @@ export function withReferenceReplaced(
   delete columns?.[outgoingQuestionId]
   delete columns?.[incomingQuestionId]
   if (outgoingColumns !== undefined) columns![incomingQuestionId] = outgoingColumns
+  // So does the room left for work: the page keeps its shape when one Short
+  // Answer question stands in for another.
+  const workSpace = draft.workSpace ? { ...draft.workSpace } : undefined
+  const outgoingWorkSpace = workSpace?.[outgoingQuestionId]
+  delete workSpace?.[outgoingQuestionId]
+  delete workSpace?.[incomingQuestionId]
+  if (outgoingWorkSpace !== undefined) workSpace![incomingQuestionId] = outgoingWorkSpace
   return {
     ...draft,
     questionIds,
     ...(choiceOrder ? { choiceOrder } : {}),
     ...(columns ? { columns } : {}),
+    ...(workSpace ? { workSpace } : {}),
   }
 }
