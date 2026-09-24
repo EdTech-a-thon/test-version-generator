@@ -965,6 +965,31 @@ button { cursor: pointer; }
   background: #f7e2d5; box-shadow: 0 0 0 6px #f7e2d5, 0 0 0 8px #9f5037;
 }
 .exam-question[data-drop="replace"]::after { content: none; }
+/* An answer-key line on the sheet is a handle on its question, and says so the
+   same ways a question does — hover, selection, dimmed while lifted, a drop
+   line where it would land — painted, like theirs, without a pixel of layout.
+   The spread is half the 8px gap between lines, so a matching set's selected
+   lines read as one block. */
+.answer-key-row { position: relative; cursor: grab; }
+.answer-key-row:hover { background: #f6f1e8; box-shadow: 0 0 0 4px #f6f1e8; }
+.answer-key-row--selected,
+.answer-key-row--selected:hover { background: #f4e0cf; box-shadow: 0 0 0 4px #f4e0cf; }
+.exam-workspace--drop-feedback
+  .answer-key-row:hover:not(.answer-key-row--dropped):not(.answer-key-row--selected) {
+  background: none; box-shadow: none;
+}
+.answer-key-row--dropped:not(.answer-key-row--selected) {
+  background: #f6f1e8; box-shadow: 0 0 0 4px #f6f1e8;
+}
+.answer-key-row--dragging { opacity: 0.4; }
+.answer-key-row[data-drop]::after {
+  content: ''; position: absolute; left: 0; right: 0; height: 2px;
+  border-radius: 2px; background: #9f5037;
+}
+.answer-key-row[data-drop="before"]::after { top: -5px; }
+.answer-key-row[data-drop="after"]::after { bottom: -5px; }
+.question-drag-preview .answer-key-entry { cursor: grabbing; }
+.question-drag-preview .answer-key-entry:last-child { margin-bottom: 0; }
 .question-number { display: flex; align-items: baseline; gap: 8px; font-weight: 700; }
 /* The line a student writes their letter on. */
 .answer-blank { flex: 1; border-bottom: 1px solid #332a24; transform: translateY(-3px); }

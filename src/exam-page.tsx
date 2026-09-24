@@ -16,7 +16,7 @@
 // `pages` is state rather than a value computed during render: see
 // `usePaginatedExam`.
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type RefObject } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type RefObject } from 'react'
 import {
   AnswerKeyEntry,
   AnswerKeyHeading,
@@ -35,8 +35,10 @@ import {
   PAGE_MARGIN,
   PAGE_WIDTH,
   numberLabelOf,
+  numbersTakenBy,
   planExport,
   unmeasured,
+  type AnswerKeyEntryItem,
   type ExportContentSelection,
   type LayoutPlan,
   type PlannedPage,
@@ -509,6 +511,146 @@ function WorkSpaceHandle({
   )
 }
 
+type QuestionDragHandlers = {
+  onDragStart: (
+    question: PlannedQuestion,
+    element: HTMLElement,
+    point: { x: number; y: number },
+  ) => void
+  onDragMove: (point: { x: number; y: number }) => void
+  onDrop: () => void
+  onDragEnd: () => void
+}
+
+// What a pointer does to a question wherever it is drawn: pick it up past a
+// small threshold, select it on a click, open it on a double-click and raise
+// its menu on a right-click. The sheet and the answer key both draw questions,
+// and a gesture means the same thing on either.
+function useQuestionGesture({
+  question,
+  orderedIds,
+  selection,
+  onEdit,
+  onOpenMenu,
+  onDragStart,
+  onDragMove,
+  onDrop,
+  onDragEnd,
+}: QuestionDragHandlers & {
+  question: PlannedQuestion
+  orderedIds: readonly string[]
+  selection: Selection
+  onEdit: (questionId: string) => void
+  onOpenMenu: (questionId: string, point: MenuPoint, side?: MenuSide) => void
+}) {
+  const pointerDrag = useRef<{
+    id: number
+    startX: number
+    startY: number
+    dragging: boolean
+  } | null>(null)
+  const suppressClick = useRef(false)
+
+  const releasePointer = (event: ReactPointerEvent<HTMLElement>) => {
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId)
+    }
+  }
+
+  return {
+    onPointerDown: (event: ReactPointerEvent<HTMLElement>) => {
+      if (event.button !== 0) return
+      const target = event.target as HTMLElement
+      if (target.closest('button, input, textarea, select, a, [contenteditable="true"]')) {
+        return
+      }
+      // Shift-click extends the app's question range, not the browser's
+      // native text range. Cancelling pointer-down is early enough to stop
+      // the native selection while still allowing the click event below.
+      if (event.shiftKey) event.preventDefault()
+      pointerDrag.current = {
+        id: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        dragging: false,
+      }
+      suppressClick.current = false
+      event.currentTarget.setPointerCapture(event.pointerId)
+    },
+    onPointerMove: (event: ReactPointerEvent<HTMLElement>) => {
+      const gesture = pointerDrag.current
+      if (!gesture || gesture.id !== event.pointerId) return
+      if (!gesture.dragging) {
+        const distance = Math.hypot(
+          event.clientX - gesture.startX,
+          event.clientY - gesture.startY,
+        )
+        if (distance < 5) return
+        gesture.dragging = true
+        suppressClick.current = true
+        onDragStart(question, event.currentTarget, {
+          x: gesture.startX,
+          y: gesture.startY,
+        })
+      }
+      event.preventDefault()
+      onDragMove({ x: event.clientX, y: event.clientY })
+    },
+    onPointerUp: (event: ReactPointerEvent<HTMLElement>) => {
+      const gesture = pointerDrag.current
+      if (!gesture || gesture.id !== event.pointerId) return
+      pointerDrag.current = null
+      releasePointer(event)
+      if (!gesture.dragging) return
+      event.preventDefault()
+      onDrop()
+    },
+    onPointerCancel: (event: ReactPointerEvent<HTMLElement>) => {
+      const gesture = pointerDrag.current
+      if (!gesture || gesture.id !== event.pointerId) return
+      pointerDrag.current = null
+      releasePointer(event)
+      if (gesture.dragging) {
+        suppressClick.current = false
+        onDragEnd()
+      }
+    },
+    onLostPointerCapture: (event: ReactPointerEvent<HTMLElement>) => {
+      const gesture = pointerDrag.current
+      if (!gesture || gesture.id !== event.pointerId) return
+      pointerDrag.current = null
+      if (gesture.dragging) {
+        suppressClick.current = false
+        onDragEnd()
+      }
+    },
+    onClick: (event: ReactMouseEvent<HTMLElement>) => {
+      if (suppressClick.current) {
+        suppressClick.current = false
+        event.preventDefault()
+        event.stopPropagation()
+        return
+      }
+      // The first click has already selected immediately. Ignore the second
+      // click's selection semantics and let `dblclick` open the editor; this
+      // also prevents Ctrl/Cmd-double-click from toggling the item twice.
+      if (event.detail > 1) return
+      selection.selectOne(question.id, orderedIds, {
+        shiftKey: event.shiftKey,
+        metaKey: event.metaKey,
+        ctrlKey: event.ctrlKey,
+      })
+    },
+    onDoubleClick: () => onEdit(question.id),
+    // A right-click anywhere on the question raises the same menu the grip
+    // does, under the pointer.
+    onContextMenu: (event: ReactMouseEvent<HTMLElement>) => {
+      event.preventDefault()
+      onOpenMenu(question.id, { x: event.clientX, y: event.clientY })
+    },
+  }
+}
+
 // A question on the page, or the piece of one this page carries: the same
 // content `dom-measure.ts` measured, wrapped in the chrome that makes it
 // selectable, editable and droppable. A continued piece is chrome-free — its
@@ -549,14 +691,18 @@ function QuestionView({
   onDrop: () => void
   onDragEnd: () => void
 }) {
-  const pointerDrag = useRef<{
-    id: number
-    startX: number
-    startY: number
-    dragging: boolean
-  } | null>(null)
-  const suppressClick = useRef(false)
   const question = item.question
+  const gesture = useQuestionGesture({
+    question,
+    orderedIds,
+    selection,
+    onEdit,
+    onOpenMenu,
+    onDragStart,
+    onDragMove,
+    onDrop,
+    onDragEnd,
+  })
   // The height a work-space drag is showing before it commits, or `null`.
   const [previewHeight, setPreviewHeight] = useState<number | null>(null)
   // The same for one of a Multipart question's Short Answer Parts, by the Part's id.
@@ -596,12 +742,6 @@ function QuestionView({
     </div>
   )
 
-  const releasePointer = (event: ReactPointerEvent<HTMLElement>) => {
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId)
-    }
-  }
-
   const classes = ['exam-question']
   if (selected) classes.push('exam-question--selected')
   if (dragging) classes.push('exam-question--dragging')
@@ -614,97 +754,7 @@ function QuestionView({
       data-question-id={question.id}
       data-drop-target={item.numbered ? question.type : undefined}
       data-drop={dropState ?? undefined}
-      onPointerDown={(event) => {
-        if (event.button !== 0) return
-        const target = event.target as HTMLElement
-        if (target.closest('button, input, textarea, select, a, [contenteditable="true"]')) {
-          return
-        }
-        // Shift-click extends the app's question range, not the browser's
-        // native text range. Cancelling pointer-down is early enough to stop
-        // the native selection while still allowing the click event below.
-        if (event.shiftKey) event.preventDefault()
-        pointerDrag.current = {
-          id: event.pointerId,
-          startX: event.clientX,
-          startY: event.clientY,
-          dragging: false,
-        }
-        suppressClick.current = false
-        event.currentTarget.setPointerCapture(event.pointerId)
-      }}
-      onPointerMove={(event) => {
-        const gesture = pointerDrag.current
-        if (!gesture || gesture.id !== event.pointerId) return
-        if (!gesture.dragging) {
-          const distance = Math.hypot(
-            event.clientX - gesture.startX,
-            event.clientY - gesture.startY,
-          )
-          if (distance < 5) return
-          gesture.dragging = true
-          suppressClick.current = true
-          onDragStart(question, event.currentTarget, {
-            x: gesture.startX,
-            y: gesture.startY,
-          })
-        }
-        event.preventDefault()
-        onDragMove({ x: event.clientX, y: event.clientY })
-      }}
-      onPointerUp={(event) => {
-        const gesture = pointerDrag.current
-        if (!gesture || gesture.id !== event.pointerId) return
-        pointerDrag.current = null
-        releasePointer(event)
-        if (!gesture.dragging) return
-        event.preventDefault()
-        onDrop()
-      }}
-      onPointerCancel={(event) => {
-        const gesture = pointerDrag.current
-        if (!gesture || gesture.id !== event.pointerId) return
-        pointerDrag.current = null
-        releasePointer(event)
-        if (gesture.dragging) {
-          suppressClick.current = false
-          onDragEnd()
-        }
-      }}
-      onLostPointerCapture={(event) => {
-        const gesture = pointerDrag.current
-        if (!gesture || gesture.id !== event.pointerId) return
-        pointerDrag.current = null
-        if (gesture.dragging) {
-          suppressClick.current = false
-          onDragEnd()
-        }
-      }}
-      onClick={(event) => {
-        if (suppressClick.current) {
-          suppressClick.current = false
-          event.preventDefault()
-          event.stopPropagation()
-          return
-        }
-        // The first click has already selected immediately. Ignore the second
-        // click's selection semantics and let `dblclick` open the editor; this
-        // also prevents Ctrl/Cmd-double-click from toggling the item twice.
-        if (event.detail > 1) return
-        selection.selectOne(question.id, orderedIds, {
-          shiftKey: event.shiftKey,
-          metaKey: event.metaKey,
-          ctrlKey: event.ctrlKey,
-        })
-      }}
-      onDoubleClick={() => onEdit(question.id)}
-      // A right-click anywhere on the question raises the same menu the grip
-      // does, under the pointer. A continued piece answers too — it is the
-      // same question, even though its handles belong to the numbered piece.
-      onContextMenu={(event) => {
-        event.preventDefault()
-        onOpenMenu(question.id, { x: event.clientX, y: event.clientY })
-      }}
+      {...gesture}
     >
       {item.numbered && (
         <QuestionHandles question={question} onOpenMenu={onOpenMenu} />
@@ -726,6 +776,56 @@ function QuestionView({
   )
 }
 
+/** Which question an answer-key line belongs to, and whether it is the first or
+ *  last of that question's lines on its page — a matching set takes several. */
+type AnswerKeyLine = { question: PlannedQuestion; first: boolean; last: boolean }
+
+// An answer-key line on the sheet, as a handle on the question it answers. The
+// key is the whole exam in a few lines a page, so it is the quickest place to
+// put questions in order: a line picks up, selects and drops exactly as the
+// question itself does on the test, within its own Question Section.
+function AnswerKeyRow({
+  item,
+  line,
+  selected,
+  dragging,
+  dropped,
+  dropState,
+  ...gestureProps
+}: QuestionDragHandlers & {
+  item: AnswerKeyEntryItem
+  line: AnswerKeyLine
+  selected: boolean
+  dragging: boolean
+  dropped: boolean
+  dropState: QuestionDropState
+  orderedIds: readonly string[]
+  selection: Selection
+  onEdit: (questionId: string) => void
+  onOpenMenu: (questionId: string, point: MenuPoint, side?: MenuSide) => void
+}) {
+  const gesture = useQuestionGesture({ question: line.question, ...gestureProps })
+  const classes = ['answer-key-row']
+  if (selected) classes.push('answer-key-row--selected')
+  if (dragging) classes.push('answer-key-row--dragging')
+  if (dropped) classes.push('answer-key-row--dropped')
+  // A set's insertion line is drawn once: above its first line, or below its last.
+  const drop =
+    (dropState === 'before' && line.first) || (dropState === 'after' && line.last)
+      ? dropState
+      : undefined
+  return (
+    <AnswerKeyEntry
+      item={item}
+      className={classes.join(' ')}
+      data-question-id={line.question.id}
+      data-drop-target={line.question.type}
+      data-drop={drop}
+      {...gesture}
+    />
+  )
+}
+
 function PageItemView({
   item,
   orderedIds,
@@ -740,8 +840,12 @@ function PageItemView({
   onDragMove,
   onDrop,
   onDragEnd,
+  keyLine,
 }: {
   item: PageItem
+  /** The question an answer-key line belongs to, when the test it answers is
+   *  on the sheet to be reordered. */
+  keyLine?: AnswerKeyLine
   orderedIds: readonly string[]
   selection: Selection
   onEdit: (questionId: string) => void
@@ -790,12 +894,54 @@ function PageItemView({
     case 'answer-key-section':
       return <AnswerKeySection item={item} />
     case 'answer-key-entry':
-      return <AnswerKeyEntry item={item} />
+      if (!keyLine) return <AnswerKeyEntry item={item} />
+      return (
+        <AnswerKeyRow
+          item={item}
+          line={keyLine}
+          selected={selection.isSelected(keyLine.question.id)}
+          orderedIds={orderedIds}
+          selection={selection}
+          onEdit={onEdit}
+          onOpenMenu={onOpenMenu}
+          dragging={draggedQuestionIds.has(keyLine.question.id)}
+          dropped={droppedQuestionIds.has(keyLine.question.id)}
+          dropState={dropState(keyLine.question.id)}
+          onDragStart={onDragStart}
+          onDragMove={onDragMove}
+          onDrop={onDrop}
+          onDragEnd={onDragEnd}
+        />
+      )
     default: {
       const unreachable: never = item
       return unreachable
     }
   }
+}
+
+/** Each answer-key line on a page, by its index there, with the question it
+ *  answers. A line's number is one the test printed, so the question is the one
+ *  whose numbers cover it — a matching set covers one per prompt. */
+function answerKeyLinesOf(
+  items: readonly PageItem[],
+  questionByNumber: ReadonlyMap<number, PlannedQuestion>,
+): Map<number, AnswerKeyLine> {
+  const lines = new Map<number, AnswerKeyLine>()
+  const questionAt = (index: number) => {
+    const item = items[index]
+    return item?.kind === 'answer-key-entry' ? questionByNumber.get(item.number) : undefined
+  }
+  items.forEach((_, index) => {
+    const question = questionAt(index)
+    if (!question) return
+    lines.set(index, {
+      question,
+      first: questionAt(index - 1)?.id !== question.id,
+      last: questionAt(index + 1)?.id !== question.id,
+    })
+  })
+  return lines
 }
 
 function keyOf(item: PageItem): string {
@@ -1060,8 +1206,14 @@ export function ExamPage({
         ctrlKey: false,
       })
     }
+    // The preview is drawn from wherever the gesture started: questions lifted
+    // off the sheet look like questions, and lines lifted off the answer key
+    // look like lines.
+    const drawn = element.classList.contains('answer-key-row')
+      ? '.answer-key-row[data-question-id]'
+      : '.exam-question[data-question-id]'
     const elements = Array.from(
-      workspace.current?.querySelectorAll<HTMLElement>('.exam-question[data-question-id]') ?? [],
+      workspace.current?.querySelectorAll<HTMLElement>(drawn) ?? [],
     ).filter((candidate) => ids.includes(candidate.dataset.questionId ?? ''))
     drag.begin(
       { pane: 'exam-draft', questionIds: ids, type: question.type },
@@ -1105,6 +1257,12 @@ export function ExamPage({
           : [],
       ),
   )
+  const questionByNumber = new Map<number, PlannedQuestion>()
+  for (const question of questionsById.values()) {
+    for (let offset = 0; offset < numbersTakenBy(question); offset += 1) {
+      questionByNumber.set(question.number + offset, question)
+    }
+  }
   // Which question's menu is open, and where it was raised. Held here rather
   // than per question, so opening one menu closes any other by construction.
   const [menu, setMenu] = useState<{
@@ -1163,55 +1321,59 @@ export function ExamPage({
         if (!drag.source && droppedQuestionIds.size > 0) drag.clearDropFeedback()
       }}
     >
-      {pages.map((page, index) => (
-        <article
-          className="exam-page"
-          key={`${page.header}-${page.number}`}
-          onClick={clearOnBackground}
-        >
-          <PageHeaderContent
-            header={page.header}
-            furniture={page.furniture}
-            onTitleChange={index === titleLine ? onTitleChange : undefined}
-            titleDisabled={titleDisabled}
-          />
-          <div className="page-content" onClick={clearOnBackground}>
-            {/* An exam with nothing in it yet offers the first question where
-                the first question will go, rather than leaving a blank sheet
-                and a button in the header as the only way in. It is editing
-                chrome: it appears only while the exam is empty, and it is
-                never part of the printed document. It lights up with the
-                pane, which is the drop target; it is not one of its own. */}
-            {blank && index === 0 && (
-              <div
-                className="secondary-button empty-exam-button"
-                data-active={drag.intent?.kind === 'insert-first' ? 'true' : undefined}
-              >
-                Drag or add a Question from an open Question Bank
-              </div>
-            )}
-            {page.items.map((item) => (
-              <PageItemView
-                key={keyOf(item)}
-                item={item}
-                orderedIds={orderedIds}
-                selection={selection}
-                onEdit={onEdit}
-                onOpenMenu={openMenu}
-                onSetWorkSpace={onSetWorkSpace}
-                draggedQuestionIds={draggedQuestionIds}
-                droppedQuestionIds={droppedQuestionIds}
-                dropState={questionDropState}
-                onDragStart={beginDrag}
-                onDragMove={drag.move}
-                onDrop={drag.drop}
-                onDragEnd={drag.cancel}
-              />
-            ))}
-          </div>
-          <footer className="page-footer">{page.furniture.pageNumber}</footer>
-        </article>
-      ))}
+      {pages.map((page, index) => {
+        const keyLines = answerKeyLinesOf(page.items, questionByNumber)
+        return (
+          <article
+            className="exam-page"
+            key={`${page.header}-${page.number}`}
+            onClick={clearOnBackground}
+          >
+            <PageHeaderContent
+              header={page.header}
+              furniture={page.furniture}
+              onTitleChange={index === titleLine ? onTitleChange : undefined}
+              titleDisabled={titleDisabled}
+            />
+            <div className="page-content" onClick={clearOnBackground}>
+              {/* An exam with nothing in it yet offers the first question where
+                  the first question will go, rather than leaving a blank sheet
+                  and a button in the header as the only way in. It is editing
+                  chrome: it appears only while the exam is empty, and it is
+                  never part of the printed document. It lights up with the
+                  pane, which is the drop target; it is not one of its own. */}
+              {blank && index === 0 && (
+                <div
+                  className="secondary-button empty-exam-button"
+                  data-active={drag.intent?.kind === 'insert-first' ? 'true' : undefined}
+                >
+                  Drag or add a Question from an open Question Bank
+                </div>
+              )}
+              {page.items.map((item, itemIndex) => (
+                <PageItemView
+                  key={keyOf(item)}
+                  item={item}
+                  keyLine={keyLines.get(itemIndex)}
+                  orderedIds={orderedIds}
+                  selection={selection}
+                  onEdit={onEdit}
+                  onOpenMenu={openMenu}
+                  onSetWorkSpace={onSetWorkSpace}
+                  draggedQuestionIds={draggedQuestionIds}
+                  droppedQuestionIds={droppedQuestionIds}
+                  dropState={questionDropState}
+                  onDragStart={beginDrag}
+                  onDragMove={drag.move}
+                  onDrop={drag.drop}
+                  onDragEnd={drag.cancel}
+                />
+              ))}
+            </div>
+            <footer className="page-footer">{page.furniture.pageNumber}</footer>
+          </article>
+        )
+      })}
 
       {/* The first question of a Question Section the exam has started but has
           none of — a Short Answer question dragged at an exam with only
