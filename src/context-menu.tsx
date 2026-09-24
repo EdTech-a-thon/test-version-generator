@@ -78,6 +78,10 @@ function lastFocusableIndex(items: readonly MenuItem[]): number {
 
 // How close to the viewport edge the menu may sit before it is pushed back in.
 const VIEWPORT_MARGIN = 8
+/** How long a hover-open submenu outlives the pointer leaving it. A hand
+ *  heading for the flyout rarely travels straight across: it clips the row
+ *  below, or the gap beside it, on the way. */
+const SUBMENU_CLOSE_DELAY = 300
 
 export function ContextMenu({
   point,
@@ -99,6 +103,13 @@ export function ContextMenu({
   const [active, setActive] = useState(() => items.findIndex(isFocusable))
   const [openSubmenu, setOpenSubmenu] = useState<number | null>(null)
   const [submenuActive, setSubmenuActive] = useState(0)
+  const closeTimer = useRef<number | undefined>(undefined)
+  const cancelSubmenuClose = () => window.clearTimeout(closeTimer.current)
+  const closeSubmenuSoon = () => {
+    cancelSubmenuClose()
+    closeTimer.current = window.setTimeout(() => setOpenSubmenu(null), SUBMENU_CLOSE_DELAY)
+  }
+  useEffect(() => cancelSubmenuClose, [])
 
   // Placed before the browser paints, so the menu is never seen in the wrong
   // spot. It hangs the way `side` asks, flips to the other side rather than
@@ -284,14 +295,16 @@ export function ContextMenu({
               key={index}
               className="context-menu-submenu"
               onMouseEnter={() => {
+                cancelSubmenuClose()
                 setActive(index)
                 setOpenSubmenu(index)
               }}
               // The wrapper contains both the parent row and its flyout, so
               // crossing into the submenu does not close it. Leaving that
-              // combined hit area does: a hover-open submenu must not linger
-              // over the next menu action.
-              onMouseLeave={() => setOpenSubmenu(null)}
+              // combined hit area does, after a grace period: a hover-open
+              // submenu must not linger over the next menu action, but nor
+              // should it vanish under a hand still on its way there.
+              onMouseLeave={closeSubmenuSoon}
             >
               <button
                 ref={(element) => {
@@ -371,12 +384,13 @@ export function ContextMenu({
             disabled={'disabled' in item && item.disabled}
             // Hovering moves the keyboard's place too, so the mouse and the
             // arrow keys never disagree about which row is next. A sibling row
-            // also ends a hover-open submenu; otherwise its flyout outlives
-            // the row that opened it.
+            // also ends a hover-open submenu, once the pointer has plainly
+            // settled there; otherwise its flyout outlives the row that
+            // opened it.
             onMouseEnter={() => {
               if ('disabled' in item && item.disabled) return
               setActive(index)
-              setOpenSubmenu(null)
+              closeSubmenuSoon()
             }}
             onClick={() => {
               item.onSelect()

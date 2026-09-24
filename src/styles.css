@@ -1024,6 +1024,13 @@ button { cursor: pointer; }
 .context-menu[data-side='left'] .context-submenu {
   right: calc(100% + 5px); left: auto;
 }
+/* The flyout floats clear of the menu, and the strip between them belongs to
+   neither row, so the pointer crossing it would leave the submenu's hit area.
+   This bridge is part of the flyout, so the crossing never leaves it. */
+.context-submenu::before {
+  content: ''; position: absolute; top: -1px; bottom: -1px; right: 100%; width: 10px;
+}
+.context-menu[data-side='left'] .context-submenu::before { right: auto; left: 100%; }
 
 .vary-summary {
   position: fixed; z-index: 40; left: 50%; bottom: 22px; transform: translateX(-50%);

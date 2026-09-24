@@ -55,6 +55,26 @@ test('the menu offers counts and nothing that decides for itself', async ({ page
   await expect(page.getByRole('menuitemradio', { name: '1 column' })).toHaveCount(0)
 })
 
+test('a slow pointer crosses from the row to its submenu without the submenu closing', async ({ page }) => {
+  await openExam(page, 1)
+
+  await page.locator('.exam-question').first().click({ button: 'right' })
+  const answerColumns = page.getByRole('menuitem', { name: 'Answer columns' })
+  await answerColumns.hover()
+  const fourColumns = page.getByRole('menuitemradio', { name: '4 columns' })
+  await expect(fourColumns).toBeVisible()
+
+  // Walk the pointer from the row's middle to the option in small steps, the
+  // way a hand does, through the strip between the menu and its flyout.
+  const from = (await answerColumns.boundingBox())!
+  const to = (await fourColumns.boundingBox())!
+  await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2)
+  await page.mouse.move(to.x + to.width / 2, to.y + to.height / 2, { steps: 40 })
+  await page.mouse.down()
+  await page.mouse.up()
+  await expect(page.locator('.choice-grid[data-columns="4"]')).toHaveCount(1)
+})
+
 test('an inserted bank Question inherits its visual neighbor Working Copy layout', async ({ page }) => {
   // The canonical Question starts in two columns. Change only this Exam's
   // layout, then verify the new question follows the visible arrangement.
