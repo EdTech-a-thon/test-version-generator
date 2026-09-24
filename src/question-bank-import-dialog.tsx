@@ -1,5 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
-import { Check, Copy, FileText, Library, UploadCloud, type LucideIcon } from 'lucide-react'
+import { Check, ChevronRight, Copy, FileText, Library, UploadCloud, type LucideIcon } from 'lucide-react'
 import { DocView } from './doc-view'
 import extractInstructions from '../public/extract.md?raw'
 import {
@@ -42,10 +42,11 @@ const plural = (count: number, singular: string) =>
 
 /**
  * The two kinds of thing a file can bring in, each with one icon and one
- * colour used wherever the dialog names it — the count beside the title and
- * every tab — so a tab is recognisably a bank or a Test before it is read.
- * An Exam is called a Test here: it is the word for the file in a teacher's
- * hand. The icons are the ones the sidebar gives each section.
+ * colour used wherever the dialog names it — its Import List section, the
+ * rail's heading, a link to it — so an entry is recognisably a bank or a Test
+ * before it is read. An Exam is called a Test here: it is the word for the
+ * file in a teacher's hand. The icons are the ones the sidebar gives each
+ * section.
  */
 const KINDS = {
   bank: { Icon: Library, noun: 'Question Bank' },
@@ -53,12 +54,15 @@ const KINDS = {
 } satisfies Record<string, { Icon: LucideIcon; noun: string }>
 type Kind = keyof typeof KINDS
 
-function KindBadge({ kind, count }: { kind: Kind; count: number }) {
+/** Which item the rail is describing, and — since its checkbox lives in the
+ *  Import List — whether it is coming. */
+function RailHead({ kind, name, allowed }: { kind: Kind; name: string; allowed: boolean }) {
   const { Icon, noun } = KINDS[kind]
-  return <span className="badge bank-import-kind" data-kind={kind}>
-    <Icon aria-hidden="true" />
-    {plural(count, noun)}
-  </span>
+  return <header className="bank-import-rail-head" data-kind={kind}>
+    <p><Icon aria-hidden="true" />{noun}</p>
+    <h3>{name}</h3>
+    {!allowed && <p className="bank-import-left-out">Not being imported</p>}
+  </header>
 }
 
 /**
@@ -299,7 +303,7 @@ function BankSummary({ bank }: { bank: ProposedBank }) {
 
 type Focus = { kind: 'bank'; id: string } | { kind: 'exam'; key: string }
 
-/** A way to another tab from inside a panel: a Test's banks, a bank's Tests. */
+/** A way to another item from inside the rail: a Test’s banks, a bank’s Tests. */
 function TabLink({
   kind,
   name,
@@ -340,7 +344,7 @@ export function QuestionBankImportDialog({
   loadBanks: () => Promise<readonly { id: string; name: string }[]>
 }) {
   const titleId = useId()
-  const tabsId = useId()
+  const listId = useId()
   const dialog = useRef<HTMLElement>(null)
   const input = useRef<HTMLInputElement>(null)
   const [proposal, setProposal] = useState<ImportProposal | null>(null)
@@ -414,13 +418,13 @@ export function QuestionBankImportDialog({
   }, [error, phase])
 
   // The file control has gone with the choose step, taking focus with it. A
-  // bank opens with its name ready to edit; a Test opens on its own tab.
+  // bank opens with its name ready to edit; a Test opens on its entry in the Import List.
   useEffect(() => {
     if (!proposal) return
     requestAnimationFrame(() => {
       if (dialog.current?.contains(document.activeElement)) return
       dialog.current
-        ?.querySelector<HTMLElement>('.bank-import-target-name, [role="tab"][aria-selected="true"]')
+        ?.querySelector<HTMLElement>('.bank-import-target-name, .bank-import-entry[aria-pressed="true"]')
         ?.focus()
     })
   }, [proposal])
@@ -496,29 +500,57 @@ export function QuestionBankImportDialog({
   const focusedBank = focus?.kind === 'bank' ? proposal?.banks.find(({ id }) => id === focus.id) : undefined
   const focusedExam = focus?.kind === 'exam' ? proposal?.exams.find(({ key }) => key === focus.key) : undefined
 
-  /** Every bank then every Test, in file order: the tabs, and the order the
-   *  arrow keys walk them in. */
-  const tabs: { focus: Focus; kind: Kind; name: string; allowed: boolean }[] = proposal && selection
-    ? [
-        ...proposal.banks.map((bank) => ({
-          focus: { kind: 'bank', id: bank.id } as Focus,
-          kind: 'bank' as const,
-          name: bank.record.bank.name || 'Untitled Question Bank',
-          allowed: selection.banks[bank.id]!.allowed,
-        })),
-        ...proposal.exams.map((exam) => ({
-          focus: { kind: 'exam', key: exam.key } as Focus,
-          kind: 'exam' as const,
-          name: exam.name || 'Untitled Test',
-          allowed: selection.exams[exam.key]!.allowed,
-        })),
-      ]
-    : []
-  const tabId = (item: Focus) => `${tabsId}-${focusKey(item)}`
-  const selectedIndex = focus ? tabs.findIndex((tab) => focusKey(tab.focus) === focusKey(focus)) : -1
-  const showTab = (next: Focus, moveFocus = false) => {
+  const entryId = (item: Focus) => `${listId}-${focusKey(item)}`
+  const showItem = (next: Focus, moveFocus = false) => {
     setFocus(next)
-    if (moveFocus) requestAnimationFrame(() => document.getElementById(tabId(next))?.focus())
+    if (moveFocus) requestAnimationFrame(() => document.getElementById(entryId(next))?.focus())
+  }
+
+  /** One kind's entries in the Import List: a section that opens and closes,
+   *  headed by how many of that kind are coming, with a checkbox per item for
+   *  whether it comes and the rest of the row for showing it. */
+  const listSection = (
+    kind: Kind,
+    heading: string,
+    items: { focus: Focus; name: string; detail: string; allowed: boolean; onAllow: (allowed: boolean) => void }[],
+    coming: number,
+  ) => {
+    const { Icon } = KINDS[kind]
+    return <details className="bank-import-list-section" data-kind={kind} open>
+      <summary>
+        <ChevronRight className="bank-import-list-chevron" aria-hidden="true" />
+        <Icon aria-hidden="true" />
+        <span>{heading}</span>
+        <span className="badge bank-import-kind">
+          {coming === items.length ? coming : `${coming} of ${items.length}`}
+        </span>
+      </summary>
+      <ul>
+        {items.map((item) => {
+          const selected = focus !== null && focusKey(item.focus) === focusKey(focus)
+          return <li key={focusKey(item.focus)} data-selected={selected ? 'true' : undefined} data-allowed={item.allowed ? 'true' : 'false'}>
+            <input
+              type="checkbox"
+              checked={item.allowed}
+              disabled={busy}
+              aria-label={`Import ${item.name}`}
+              onChange={(event) => item.onAllow(event.target.checked)}
+            />
+            <button
+              id={entryId(item.focus)}
+              type="button"
+              className="bank-import-entry"
+              aria-pressed={selected}
+              aria-label={`Preview ${item.name}`}
+              onClick={() => showItem(item.focus)}
+            >
+              <span>{item.name}</span>
+              <small>{item.detail}</small>
+            </button>
+          </li>
+        })}
+      </ul>
+    </details>
   }
 
   return (
@@ -536,52 +568,8 @@ export function QuestionBankImportDialog({
         aria-labelledby={titleId}
         aria-busy={busy}
       >
-        <header className="dialog-header bank-import-header">
-          <div className="bank-import-heading">
-            <h2 id={titleId}>Import</h2>
-            {counts && <ul className="bank-import-kinds" aria-label="Being imported">
-              {counts.banks > 0 && <li><KindBadge kind="bank" count={counts.banks} /></li>}
-              {counts.exams > 0 && <li><KindBadge kind="exam" count={counts.exams} /></li>}
-            </ul>}
-          </div>
-          {tabs.length > 0 && <div
-            className="bank-import-tabs"
-            role="tablist"
-            aria-label="In this file"
-            onKeyDown={(event) => {
-              const step = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0
-              const index = event.key === 'Home' ? 0
-                : event.key === 'End' ? tabs.length - 1
-                : step ? (selectedIndex + step + tabs.length) % tabs.length
-                : -1
-              if (index < 0) return
-              event.preventDefault()
-              showTab(tabs[index]!.focus, true)
-            }}
-          >
-            {tabs.map((tab, index) => {
-              const { Icon, noun } = KINDS[tab.kind]
-              const selected = index === selectedIndex
-              return <button
-                key={focusKey(tab.focus)}
-                id={tabId(tab.focus)}
-                type="button"
-                role="tab"
-                className="bank-import-tab"
-                data-kind={tab.kind}
-                data-allowed={tab.allowed ? 'true' : 'false'}
-                aria-selected={selected}
-                aria-controls={`${tabsId}-panel`}
-                aria-label={`${noun} ${tab.name}${tab.allowed ? '' : ', not imported'}`}
-                title={tab.name}
-                tabIndex={selected ? 0 : -1}
-                onClick={() => showTab(tab.focus)}
-              >
-                <Icon aria-hidden="true" />
-                <span>{tab.name}</span>
-              </button>
-            })}
-          </div>}
+        <header className="dialog-header">
+          <h2 id={titleId}>Import</h2>
         </header>
 
         {!proposal && (
@@ -657,12 +645,42 @@ export function QuestionBankImportDialog({
         </div>
 
         {proposal && selection && focus && (
-          <section
-            id={`${tabsId}-panel`}
-            className="bank-import-body"
-            role="tabpanel"
-            aria-labelledby={tabId(focus)}
-          >
+          <section className="bank-import-body" aria-label="Import confirmation">
+            <nav className="bank-import-list" aria-labelledby={`${listId}-heading`}>
+              <header>
+                <h3 id={`${listId}-heading`}>Import List</h3>
+                <p>This is the list that you’re going to import.</p>
+              </header>
+              {listSection(
+                'bank',
+                proposal.banks.length === 1 ? 'Question Bank' : 'Question Banks',
+                proposal.banks.map((bank) => ({
+                  focus: { kind: 'bank', id: bank.id },
+                  name: bank.record.bank.name || 'Untitled Question Bank',
+                  detail: plural(bank.record.bank.questions.length, 'Question'),
+                  allowed: selection.banks[bank.id]!.allowed,
+                  onAllow: (allowed) => setSelection(setBankAllowed(proposal, selection, bank.id, allowed)),
+                })),
+                counts?.banks ?? 0,
+              )}
+              {proposal.exams.length > 0 && listSection(
+                'exam',
+                proposal.exams.length === 1 ? 'Test' : 'Tests',
+                proposal.exams.map((exam) => ({
+                  focus: { kind: 'exam', key: exam.key },
+                  name: exam.name || 'Untitled Test',
+                  // A Test left out because a bank it needs is left out says so
+                  // on its own row, where the checkbox that fixes it is.
+                  detail: deniedBanksOf(proposal, selection, exam.key).length > 0
+                    ? `Needs ${deniedBanksOf(proposal, selection, exam.key).map(bankName).join(' and ')}`
+                    : plural(exam.positions.length, 'Question'),
+                  allowed: selection.exams[exam.key]!.allowed,
+                  onAllow: (allowed) => setSelection(setExamAllowed(proposal, selection, exam.key, allowed)),
+                })),
+                counts?.exams ?? 0,
+              )}
+            </nav>
+
             <div
               className="bank-import-preview"
               aria-label={focusedExam ? 'Test preview' : 'Question Bank preview'}
@@ -682,15 +700,7 @@ export function QuestionBankImportDialog({
                 data-allowed={chosen.allowed ? 'true' : 'false'}
                 aria-label={`Question Bank ${name}`}
               >
-                <label className="bank-import-allow">
-                  <input
-                    type="checkbox"
-                    checked={chosen.allowed}
-                    disabled={busy}
-                    onChange={(event) => setSelection(setBankAllowed(proposal, selection, bank.id, event.target.checked))}
-                  />
-                  <span>Import this Question Bank</span>
-                </label>
+                <RailHead kind="bank" name={name} allowed={chosen.allowed} />
                 {chosen.allowed && <fieldset className="bank-import-target" disabled={busy}>
                   <legend className="sr-only">Where {name} goes</legend>
                   <label>
@@ -746,7 +756,7 @@ export function QuestionBankImportDialog({
                           key={key}
                           kind="exam"
                           name={examName(key)}
-                          onShow={() => showTab({ kind: 'exam', key }, true)}
+                          onShow={() => showItem({ kind: 'exam', key }, true)}
                         />
                       ))
                     : <p>No Test in this file</p>}
@@ -764,15 +774,7 @@ export function QuestionBankImportDialog({
                 data-allowed={chosen.allowed ? 'true' : 'false'}
                 aria-label={`Test ${name}`}
               >
-                <label className="bank-import-allow">
-                  <input
-                    type="checkbox"
-                    checked={chosen.allowed}
-                    disabled={busy}
-                    onChange={(event) => setSelection(setExamAllowed(proposal, selection, exam.key, event.target.checked))}
-                  />
-                  <span>Import this Test</span>
-                </label>
+                <RailHead kind="exam" name={name} allowed={chosen.allowed} />
                 {!chosen.allowed && denied.length > 0 && <p className="bank-import-denied-reason">
                   Not imported because {denied.map(bankName).join(' and ')} {denied.length === 1 ? 'is' : 'are'} not being imported.
                 </p>}
@@ -794,7 +796,7 @@ export function QuestionBankImportDialog({
                     <TabLink
                       key={id}
                       kind="bank"
-                      onShow={() => showTab({ kind: 'bank', id }, true)}
+                      onShow={() => showItem({ kind: 'bank', id }, true)}
                       name={bankName(id)}
                       detail={plural(
                         exam.positions.filter(({ question }) => question.bank === id).length,

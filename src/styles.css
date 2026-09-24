@@ -1954,7 +1954,7 @@ button { cursor: pointer; }
   box-shadow: 0 18px 60px rgb(58 42 30 / 24%);
 }
 .bank-import-dialog--review {
-  width: min(1120px, calc(100vw - 32px)); height: min(760px, 94vh); max-height: none;
+  width: min(1360px, calc(100vw - 32px)); height: min(800px, 94vh); max-height: none;
 }
 .bank-import-dialog > .dialog-header { flex: none; align-items: flex-start; gap: 24px; }
 .bank-import-dialog > .dialog-header p {
@@ -1962,12 +1962,8 @@ button { cursor: pointer; }
   font-size: 13px; line-height: 1.45;
 }
 .bank-import-dialog > .dialog-actions { flex: none; }
-/* The title says only that this is an import; what is coming sits beside it
-   as one badge per kind, and each thing in the file is a tab on the right in
-   its kind's icon and colour. */
-.bank-import-dialog > .bank-import-header { align-items: center; padding-block: 12px; }
-.bank-import-heading { flex: none; display: flex; align-items: center; gap: 12px; }
-.bank-import-kinds { display: flex; gap: 6px; margin: 0; padding: 0; list-style: none; }
+/* Each kind a file can bring in has one icon and one colour, wherever the
+   dialog names it. */
 [data-kind='bank'] {
   --kind-ink: var(--tint-2-ink); --kind-wash: var(--tint-2-wash); --kind-line: var(--tint-2-line);
 }
@@ -1977,25 +1973,70 @@ button { cursor: pointer; }
 .bank-import-kind {
   color: var(--kind-ink); background: var(--kind-wash); border-color: var(--kind-line); font-weight: 700;
 }
-.bank-import-tabs {
-  min-width: 0; display: flex; gap: 4px; margin-left: auto;
-  overflow-x: auto; scrollbar-width: thin;
+
+/* The Import List: everything in the file, grouped by kind, each group a
+   section that folds away. The checkbox decides whether an item comes; the
+   rest of its row shows it in the preview. */
+.bank-import-list {
+  min-width: 0; padding: 16px 12px; display: flex; flex-direction: column; gap: 12px;
+  overflow-y: auto; border-right: 1px solid var(--paper-outline);
 }
-.bank-import-tab {
-  flex: none; display: inline-flex; align-items: center; gap: 6px; max-width: 220px;
-  padding: 6px 11px; border: 1px solid transparent; border-radius: 8px;
-  color: var(--paper-ink-soft); background: transparent;
-  font: inherit; font-size: 13px; font-weight: 600; white-space: nowrap; cursor: pointer;
+.bank-import-list > header { padding: 0 6px; }
+.bank-import-list h3 { margin: 0; font-size: 15px; }
+.bank-import-list > header p {
+  margin: 3px 0 0; color: var(--paper-ink-soft); font-size: 12.5px; line-height: 1.4;
 }
-.bank-import-tab svg { flex: none; width: 15px; height: 15px; color: var(--kind-ink); }
-.bank-import-tab span { overflow: hidden; text-overflow: ellipsis; }
-.bank-import-tab:hover { background: var(--paper-surface-low); }
-.bank-import-tab[aria-selected='true'] {
-  color: var(--kind-ink); background: var(--kind-wash); border-color: var(--kind-line);
+.bank-import-list-section summary {
+  display: flex; align-items: center; gap: 7px; padding: 6px; border-radius: 6px;
+  color: var(--paper-ink-soft); font-size: 12px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.04em; cursor: pointer;
 }
-/* A thing left out of the import keeps its tab, struck through, so it can be
-   found again and let back in. */
-.bank-import-tab[data-allowed='false'] span { text-decoration: line-through; opacity: 0.7; }
+.bank-import-list-section summary::-webkit-details-marker { display: none; }
+.bank-import-list-section summary:hover { background: var(--paper-surface-low); }
+.bank-import-list-section summary .bank-import-list-chevron {
+  width: 14px; height: 14px; margin-right: -2px; color: var(--paper-ink-soft); transition: transform .12s ease;
+}
+.bank-import-list-section[open] summary .bank-import-list-chevron { transform: rotate(90deg); }
+.bank-import-list-section summary svg { flex: none; width: 15px; height: 15px; color: var(--kind-ink); }
+.bank-import-list-section summary .badge {
+  margin-left: auto; padding: 0 8px; font-size: 12px; letter-spacing: 0; text-transform: none;
+}
+.bank-import-list-section ul { display: grid; gap: 2px; margin: 4px 0 0; padding: 0; list-style: none; }
+.bank-import-list-section li {
+  display: flex; align-items: center; gap: 4px; padding-left: 8px;
+  border: 1px solid transparent; border-radius: 8px;
+}
+.bank-import-list-section li:hover { background: var(--paper-surface-low); }
+.bank-import-list-section li[data-selected] {
+  background: var(--kind-wash); border-color: var(--kind-line);
+}
+.bank-import-list-section input { flex: none; margin: 0; cursor: pointer; }
+.bank-import-entry {
+  flex: 1; min-width: 0; display: grid; gap: 1px; padding: 7px 8px 7px 6px;
+  border: 0; background: transparent; color: #332a24;
+  font: inherit; text-align: left; cursor: pointer;
+}
+.bank-import-entry span {
+  overflow: hidden; font-size: 13.5px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap;
+}
+.bank-import-entry small { color: var(--paper-ink-soft); font-size: 12px; }
+/* A thing left out of the import keeps its row, faded, so it can be read and
+   let back in. */
+.bank-import-list-section li[data-allowed='false'] .bank-import-entry span {
+  color: var(--paper-ink-soft); text-decoration: line-through;
+}
+
+.bank-import-rail-head { display: grid; gap: 2px; }
+.bank-import-rail-head p {
+  display: flex; align-items: center; gap: 6px; margin: 0;
+  color: var(--kind-ink); font-size: 12px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.04em;
+}
+.bank-import-rail-head svg { width: 14px; height: 14px; }
+.bank-import-rail-head h3 { margin: 0; font-size: 16px; overflow-wrap: anywhere; }
+.bank-import-rail-head .bank-import-left-out {
+  color: var(--paper-ink-soft); font-weight: 600; text-transform: none; letter-spacing: 0;
+}
 /* Backing out of a review is a different kind of act from cancelling, so it
    sits apart from the pair that resolve the dialog. */
 .bank-import-back { margin-right: auto; }
@@ -2037,7 +2078,7 @@ button { cursor: pointer; }
 .bank-import-announcements { padding: 0 18px; }
 
 .bank-import-body {
-  flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 320px;
+  flex: 1; min-height: 0; display: grid; grid-template-columns: 260px minmax(0, 1fr) 320px;
   overflow: hidden; border-top: 1px solid var(--paper-outline);
 }
 /* Whatever is previewed is paper, so it sits on the ground the export preview
@@ -2049,7 +2090,7 @@ button { cursor: pointer; }
 /* A bank has no pages of its own; its questions are set on one long sheet in
    the exam page's own colour and shadow. */
 .bank-import-paper {
-  max-width: 760px; margin: 0 auto; padding: 26px 32px 10px;
+  max-width: 680px; margin: 0 auto; padding: 24px 28px 8px;
   background: #fffdf8; box-shadow: 0 2px 8px rgb(91 68 47 / 18%);
 }
 .bank-import-preview-head h3 { margin: 0; font-size: 19px; }
@@ -2131,17 +2172,13 @@ button { cursor: pointer; }
 .bank-import-topics div { display: flex; flex-wrap: wrap; gap: 5px; }
 .bank-import-preview-head { padding-bottom: 14px; }
 
-/* The tab's own item: whether it comes, and for a bank where it goes. A denied
-   item keeps its facts, so the dependency that denied it can still be read. */
-.bank-import-allow {
-  display: flex; align-items: center; gap: 8px;
-  font-size: 14px; font-weight: 700; color: #332a24; cursor: pointer;
-}
+/* A denied item keeps its facts in the rail, so the dependency that denied it
+   can still be read. */
 .bank-import-denied-reason {
   margin: -8px 0 0; font-size: 12px; line-height: 1.4; color: var(--paper-danger);
 }
 
-/* What the item is connected to in the file, each a way to its own tab. */
+/* What the item is connected to in the file, each a way to show it. */
 .bank-import-uses { display: grid; gap: 6px; }
 .bank-import-uses h4 {
   margin: 0 0 2px; color: var(--paper-ink-soft); font-size: 12px;
@@ -2172,24 +2209,28 @@ button { cursor: pointer; }
 /* An Exam previews as its pages, at the export preview's geometry scaled
    down to the lane. */
 .bank-import-exam-pages { overflow-x: auto; }
-.bank-import-exam-pages .exam-workspace { zoom: 0.62; margin: 0; padding: 0; }
+.bank-import-exam-pages .exam-workspace { zoom: 0.56; margin: 0; padding: 0; }
 .bank-import-empty { color: var(--paper-ink-soft); font-size: 14px; }
 
-/* Narrow enough that two lanes would each be too small to read: the rail goes
-   under the questions rather than beside them. */
+/* Three lanes start to crowd the preview: the side lanes give up some width. */
+@media (max-width: 1180px) {
+  .bank-import-body { grid-template-columns: 220px minmax(0, 1fr) 280px; }
+}
+
+/* Narrow enough that the lanes would each be too small to read: the list goes
+   above the preview and the rail under it. */
 @media (max-width: 900px) {
   .bank-import-dialog--review { width: calc(100vw - 24px); height: calc(100vh - 24px); }
-  /* The rail's cap belongs on its track, not on the rail: a percentage
-     max-height on an item in an `auto` row resolves against that row, which is
-     the rail's own height, so the rail was clipped to 45% of itself and the
-     rest of the row was left blank. */
+  /* The side lanes' caps belong on their tracks, not on the lanes: a
+     percentage max-height on an item in an `auto` row resolves against that
+     row, which is the lane's own height, so the lane was clipped to a fraction
+     of itself and the rest of the row was left blank. */
   .bank-import-body {
-    grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) fit-content(45%);
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: fit-content(28%) minmax(0, 1fr) fit-content(38%);
   }
+  .bank-import-list { border-right: 0; border-bottom: 1px solid var(--paper-outline); }
   .bank-import-controls { border-top: 1px solid var(--paper-outline); border-left: 0; }
-  /* The tabs take their own row under the title rather than squeezing it. */
-  .bank-import-dialog > .bank-import-header { flex-wrap: wrap; gap: 10px; }
-  .bank-import-tabs { flex-basis: 100%; margin-left: 0; }
 }
 
 /* ---------------------------------------------------------------------------
