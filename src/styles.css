@@ -2194,8 +2194,13 @@ button { cursor: pointer; }
 .bank-import-link span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bank-import-link small { color: var(--paper-ink-soft); font-size: 12px; font-weight: 400; }
 .bank-import-target {
-  display: grid; gap: 6px; margin: 4px 0 0; padding: 8px 0 0;
+  display: grid; gap: 6px; margin: 0; padding: 12px 0 0;
   border: 0; border-top: 1px solid var(--paper-outline);
+}
+.bank-import-target legend {
+  float: left; width: 100%; margin: 0 0 2px; padding: 0;
+  color: var(--paper-ink-soft); font-size: 12px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.04em;
 }
 .bank-import-target label { display: flex; align-items: center; gap: 7px; font-size: 13px; cursor: pointer; }
 .bank-import-target-name, .bank-import-target-bank {

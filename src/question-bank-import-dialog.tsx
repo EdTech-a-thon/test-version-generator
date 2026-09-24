@@ -437,14 +437,15 @@ export function QuestionBankImportDialog({
     if (error && phase === 'choose') input.current?.focus()
   }, [error, phase])
 
-  // The file control has gone with the choose step, taking focus with it. A
-  // bank opens with its name ready to edit; a Test opens on its entry in the Import List.
+  // The file control has gone with the choose step, taking focus with it. It
+  // goes to the shown item's entry in the Import List, not to the bank's name
+  // at the foot of the rail, which would scroll the rail past its facts.
   useEffect(() => {
     if (!proposal) return
     requestAnimationFrame(() => {
       if (dialog.current?.contains(document.activeElement)) return
       dialog.current
-        ?.querySelector<HTMLElement>('.bank-import-target-name, .bank-import-entry[aria-pressed="true"]')
+        ?.querySelector<HTMLElement>('.bank-import-entry[aria-pressed="true"]')
         ?.focus()
     })
   }, [proposal])
@@ -722,8 +723,27 @@ export function QuestionBankImportDialog({
                 aria-label={`Question Bank ${name}`}
               >
                 <RailHead kind="bank" name={name} allowed={chosen.allowed} />
+
+                <BankSummary bank={bank} />
+
+                {proposal.exams.length > 0 && <section className="bank-import-uses">
+                  <h4>Used by</h4>
+                  {bank.exams.length > 0
+                    ? bank.exams.map((key) => (
+                        <TabLink
+                          key={key}
+                          kind="exam"
+                          name={examName(key)}
+                          onShow={() => showItem({ kind: 'exam', key }, true)}
+                        />
+                      ))
+                    : <p>No Test in this file</p>}
+                </section>}
+
+                {/* Where the bank goes is a setting of the import, not a fact
+                    about the bank, so it comes after everything that is. */}
                 {chosen.allowed && <fieldset className="bank-import-target" disabled={busy}>
-                  <legend className="sr-only">Where {name} goes</legend>
+                  <legend>Import settings</legend>
                   <label>
                     <input
                       type="radio"
@@ -766,22 +786,6 @@ export function QuestionBankImportDialog({
                     ))}
                   </select>}
                 </fieldset>}
-
-                <BankSummary bank={bank} />
-
-                {proposal.exams.length > 0 && <section className="bank-import-uses">
-                  <h4>Used by</h4>
-                  {bank.exams.length > 0
-                    ? bank.exams.map((key) => (
-                        <TabLink
-                          key={key}
-                          kind="exam"
-                          name={examName(key)}
-                          onShow={() => showItem({ kind: 'exam', key }, true)}
-                        />
-                      ))
-                    : <p>No Test in this file</p>}
-                </section>}
               </aside>
             })()}
 
