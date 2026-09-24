@@ -97,6 +97,7 @@ import {
   ListChecks,
   ToggleLeft,
   Link2,
+  Pencil,
   Plus,
   Redo2,
   RefreshCw,
@@ -131,6 +132,7 @@ import {
 } from './export-history'
 import { AppShell } from './app-shell'
 import { AboutPage, PrivacyPage } from './site-pages'
+import { SettingsPage } from './settings-page'
 import { persistentStorageStatus, requestPersistentStorage, type PersistentStorageStatus } from './durable-storage'
 import { ResourceCollectionPage } from './resource-collection-page'
 import { BankFileDropTarget } from './bank-file-drop'
@@ -968,6 +970,7 @@ function ResourcePicker({
  */
 function QuestionBankWorkspace({
   bank,
+  layout,
   heading,
   extraActions,
   service,
@@ -986,6 +989,7 @@ function QuestionBankWorkspace({
   onQuestionDeleted,
 }: {
   bank: QuestionBankResource
+  layout?: 'rows' | 'page'
   /** Handed to the pane's header, where the surface this is mounted on names
    *  the bank and adds the actions that belong to the surface rather than to
    *  the bank. See `QuestionBankPane`. */
@@ -1019,6 +1023,7 @@ function QuestionBankWorkspace({
   return <>
     <QuestionBankPane
       bank={{ questions: bank.questions }}
+      layout={layout}
       heading={heading}
       extraActions={extraActions}
       workingCopyIds={workingCopyIds}
@@ -1422,6 +1427,25 @@ function QuestionBankTabsPane({
 }
 
 
+/** The line under a bank's name: how many Questions it holds and whatever it
+ *  declares about itself. A detail nobody entered is left out, not blanked. */
+function BankPageFacts({ bank }: { bank: QuestionBankResource }) {
+  const count = bank.questions.length
+  const facts: ReactNode[] = [`${count} ${count === 1 ? 'question' : 'questions'}`]
+  if (bank.author?.trim()) facts.push(`By ${bank.author.trim()}`)
+  if (bank.license?.name.trim()) {
+    facts.push(bank.license.url
+      ? <a href={bank.license.url} target="_blank" rel="noreferrer">{bank.license.name}</a>
+      : bank.license.name)
+  }
+  return <div className="bank-page-facts">
+    <p>
+      {facts.map((fact, index) => <span key={index}>{fact}</span>)}
+    </p>
+    {bank.description?.trim() && <p className="bank-page-description">{bank.description.trim()}</p>}
+  </div>
+}
+
 /**
  * The Question Bank page: one bank, full screen, in the same chrome as Home
  * and the collections.
@@ -1494,29 +1518,42 @@ function QuestionBankPage({
       <QuestionBankWorkspace
         key={bank.id}
         bank={bank}
+        layout="page"
         // The bank's name is the page's title, so it is what the pane's header
-        // row is built around: the actions sit beside it rather than under a
-        // second heading that would only say "Question Bank" again.
+        // row is built around. What the bank says about itself — who wrote it,
+        // under what license — reads on the line beneath, and the pencil beside
+        // the name is the one way into changing any of it.
         heading={<div className="bank-page-heading">
-          <input
-            aria-label="Question Bank name"
-            className="bank-page-title"
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            onBlur={() => void commitName()}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') event.currentTarget.blur()
-            }}
-          />
+          <div className="bank-page-title-row">
+            <input
+              aria-label="Question Bank name"
+              className="bank-page-title"
+              value={name}
+              size={Math.max(name.length, 8)}
+              onChange={(event) => setName(event.target.value)}
+              onBlur={() => void commitName()}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') event.currentTarget.blur()
+              }}
+            />
+            <button
+              type="button"
+              className="toolbar-icon-button bank-page-details-button"
+              aria-label="Edit Question Bank details"
+              title="Edit details"
+              aria-haspopup="dialog"
+              onClick={() => setEditingDetails(true)}
+            >
+              <Pencil aria-hidden="true" />
+            </button>
+          </div>
+          <BankPageFacts bank={bank} />
           {nameError && <p className="home-error bank-name-error" role="alert">{nameError}</p>}
         </div>}
-        extraActions={<>
-          <button type="button" className="secondary-button" aria-haspopup="dialog" onClick={() => onImportInto(bank.id)}>
-            <Import aria-hidden="true" />
-            Import into this bank
-          </button>
-          <button type="button" className="secondary-button" aria-haspopup="dialog" onClick={() => setEditingDetails(true)}>Bank details</button>
-        </>}
+        extraActions={<button type="button" className="secondary-button" aria-haspopup="dialog" onClick={() => onImportInto(bank.id)}>
+          <Import aria-hidden="true" />
+          Import
+        </button>}
         service={bankWorkspaces}
         filter={filter}
         onFilterChange={setFilter}
@@ -2707,6 +2744,7 @@ export default function App({
   </>
   if (route === '/about') return <>{globalChrome}<AboutPage persistentStorage={storageStatus} /></>
   if (route === '/privacy') return <>{globalChrome}<PrivacyPage persistentStorage={storageStatus} /></>
+  if (route === '/settings') return <>{globalChrome}<SettingsPage persistentStorage={storageStatus} /></>
   if (route === '/exams') return <>{globalChrome}<ResourceCollectionPage
     kind="exams"
     exams={exams}

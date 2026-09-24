@@ -3,7 +3,8 @@ import type { ImportProposal, ProposedBank, ProposedExam } from './package-impor
 import {
   deniedBanksOf,
   hasAllowedItems,
-  importTitle,
+  importCounts,
+  importSentence,
   initialSelection,
   setBankAllowed,
   setBankTarget,
@@ -109,28 +110,67 @@ describe("a bank's target", () => {
   })
 })
 
-describe('the dialog title', () => {
+describe('the import counts', () => {
+  test('follow the selection, and the file when nothing is allowed', () => {
+    let selection = setExamAllowed(proposal, initialSelection(proposal), 'exam-2', false)
+    selection = setBankAllowed(proposal, selection, 'spare', false)
+    expect(importCounts(proposal, selection)).toEqual({ banks: 2, exams: 2 })
+    for (const id of ['chem', 'phys']) selection = setBankAllowed(proposal, selection, id, false)
+    expect(importCounts(proposal, selection)).toEqual({ banks: 3, exams: 3 })
+  })
+})
+
+describe('the sentence saying what Import will do', () => {
   const only = (banks: number, exams: number): ImportProposal => ({
     ...proposal,
     banks: proposal.banks.slice(0, banks).map((item) => ({ ...item, exams: [] })),
     exams: proposal.exams.slice(0, exams).map((item) => ({ ...item, banks: [] })),
   })
+  const local: Record<string, string> = { 'local-1': 'Year 10 Chemistry', 'local-2': 'Year 10 Physics' }
+  const sentence = (item: ImportProposal, selection = initialSelection(item)) =>
+    importSentence(item, selection, (id) => local[id] ?? 'this Question Bank')
 
-  test('says what is being imported', () => {
-    const title = (item: ImportProposal) => importTitle(item, initialSelection(item))
-    expect(title(only(1, 0))).toBe('Import Question Bank')
-    expect(title(only(1, 1))).toBe('Import Question Bank and Exam')
-    expect(title(only(3, 2))).toBe('Import 3 Question Banks and 2 Exams')
-    expect(title(only(2, 0))).toBe('Import 2 Question Banks')
-    expect(title(only(1, 3))).toBe('Import 1 Question Bank and 3 Exams')
-    expect(title(only(2, 1))).toBe('Import 2 Question Banks and 1 Exam')
+  test('names one new bank and one Test, calling an Exam a Test', () => {
+    expect(sentence(only(1, 0))).toBe('Will create the new Question Bank “Chemistry”.')
+    expect(sentence(only(1, 1))).toBe('Will create the new Question Bank “Chemistry” and the Test “exam-1”.')
   })
 
-  test('follows the selection, and the file when nothing is allowed', () => {
-    let selection = setExamAllowed(proposal, initialSelection(proposal), 'exam-2', false)
-    selection = setBankAllowed(proposal, selection, 'spare', false)
-    expect(importTitle(proposal, selection)).toBe('Import 2 Question Banks and 2 Exams')
-    for (const id of ['chem', 'phys']) selection = setBankAllowed(proposal, selection, id, false)
-    expect(importTitle(proposal, selection)).toBe('Import 3 Question Banks and 3 Exams')
+  test('counts several', () => {
+    expect(sentence(only(3, 2))).toBe('Will create 3 new Question Banks and 2 Tests.')
+  })
+
+  test('uses the name the teacher gave a new bank', () => {
+    const selection = setBankTarget(initialSelection(only(1, 0)), 'chem', { kind: 'new', name: 'Renamed' })
+    expect(sentence(only(1, 0), selection)).toBe('Will create the new Question Bank “Renamed”.')
+  })
+
+  test('says which bank each merge goes into', () => {
+    let selection = setBankTarget(initialSelection(only(2, 1)), 'chem', { kind: 'existing', bankId: 'local-1' })
+    expect(sentence(only(2, 1), selection)).toBe(
+      'Will create the new Question Bank “Physics” and the Test “exam-1”, and merge “Chemistry” into “Year 10 Chemistry”.',
+    )
+    expect(sentence(only(2, 0), selection)).toBe(
+      'Will create the new Question Bank “Physics” and merge “Chemistry” into “Year 10 Chemistry”.',
+    )
+    selection = setBankTarget(selection, 'phys', { kind: 'existing', bankId: 'local-2' })
+    expect(sentence(only(2, 0), selection)).toBe(
+      'Will merge “Chemistry” into “Year 10 Chemistry” and “Physics” into “Year 10 Physics”.',
+    )
+  })
+
+  test('counts merges once there are too many to spell out', () => {
+    let selection = initialSelection(only(3, 0))
+    for (const id of ['chem', 'phys', 'spare']) {
+      selection = setBankTarget(selection, id, { kind: 'existing', bankId: 'local-1' })
+    }
+    expect(sentence(only(3, 0), selection)).toBe('Will merge 3 Question Banks into existing ones.')
+  })
+
+  test('leaves out what is not allowed, and says when nothing is', () => {
+    let selection = setBankAllowed(proposal, initialSelection(proposal), 'spare', false)
+    selection = setBankAllowed(proposal, selection, 'phys', false)
+    expect(sentence(proposal, selection)).toBe('Will create the new Question Bank “Chemistry” and the Test “exam-2”.')
+    selection = setBankAllowed(proposal, selection, 'chem', false)
+    expect(sentence(proposal, selection)).toBe('Nothing is selected to import.')
   })
 })

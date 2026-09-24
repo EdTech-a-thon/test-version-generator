@@ -3,7 +3,7 @@
 // row that shows them must agree — a Topic that is one colour in the front
 // matter and another in the bank would read as two Topics.
 
-import { SignalHigh, SignalLow, SignalMedium } from 'lucide-react'
+import { SignalHigh, SignalLow, SignalMedium, Tag } from 'lucide-react'
 import { DIFFICULTY_LABELS, type Difficulty } from './exam'
 import type { ReactNode } from 'react'
 
@@ -42,6 +42,16 @@ function topicTint(topic: string): number {
     hash = (hash * 31 + topic.charCodeAt(index)) >>> 0
   }
   return hash % TOPIC_TINTS
+}
+
+/** A topic's tag icon alone, in the topic's own colours — for a list that
+ *  names the topic in plain text beside it. */
+export function TopicSwatch({ topic }: { topic: string }) {
+  return (
+    <span className="topic-swatch" data-tint={topicTint(topic)} aria-hidden="true">
+      <Tag />
+    </span>
+  )
 }
 
 export function TopicBadge({ topic }: { topic: string }) {
