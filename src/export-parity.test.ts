@@ -231,7 +231,7 @@ describe('the supported document vocabulary', () => {
         ),
       ),
     )
-    expect([...headers].sort()).toEqual(['answer-key', 'first', 'later'])
+    expect([...headers].sort()).toEqual(['answer-key', 'answer-key-later', 'first', 'later'])
   })
 })
 

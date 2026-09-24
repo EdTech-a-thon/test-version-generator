@@ -352,3 +352,55 @@ describe('one combined package for a Export Artifact', () => {
     ])
   })
 })
+
+// Every fixture, test and key, packaged the way the application packages it.
+async function packagedFixture(fixture: (typeof FIXTURES)[number]): Promise<JSZip> {
+  const plans = plansOf(
+    prepareExport({
+      examId: 'fixture-exam',
+      exam: fixture.exam,
+      arrangement: fixture.arrangement,
+      configuration: { selection: { test: true, answerKey: true } },
+      history: EMPTY_EXPORT_HISTORY,
+      measure: fixture.measure,
+      createdAt: '2026-09-04T12:00:00.000Z',
+    }),
+  )
+  return packageOf(await createExamDocx(plans, async () => PIXEL_PNG))
+}
+
+describe('what Word is asked to draw stays on the sheet', () => {
+  // A hanging indent pulls a paragraph's first line back out by its size. With
+  // no left indent to pull back into, the first line starts outside its cell —
+  // which is exactly where a choice or Word Bank letter is — and is clipped.
+  test('no paragraph’s first line starts left of its container', async () => {
+    const outside: string[] = []
+    for (const fixture of FIXTURES) {
+      const xml = await part(await packagedFixture(fixture), 'word/document.xml')
+      for (const [ind] of xml.matchAll(/<w:ind\b[^>]*\/>/g)) {
+        const left = Number(/w:(?:left|start)="(-?\d+)"/.exec(ind)?.[1] ?? 0)
+        const hanging = Number(/w:hanging="(\d+)"/.exec(ind)?.[1] ?? 0)
+        if (left < hanging) outside.push(`${fixture.name}: ${ind}`)
+      }
+    }
+    expect(outside).toEqual([])
+  })
+
+  // Without explicit column widths the writer emits a 100-twip grid column per
+  // cell. Word partly recovers from the cell widths; Pages, Quick Look and
+  // Google Docs lay the table out from the grid, and a matching set's items and
+  // Word Bank wrap one letter to a line.
+  test('every table’s grid columns are its cells’ widths', async () => {
+    const wrong: string[] = []
+    for (const fixture of FIXTURES) {
+      const xml = await part(await packagedFixture(fixture), 'word/document.xml')
+      for (const [table] of xml.matchAll(/<w:tbl>.*?<\/w:tbl>/gs)) {
+        const grid = [...table.matchAll(/<w:gridCol w:w="(\d+)"\/>/g)].map((match) => Number(match[1]))
+        const firstRow = /<w:tr\b.*?<\/w:tr>/s.exec(table)![0]
+        const cells = [...firstRow.matchAll(/<w:tcW w:type="dxa" w:w="(\d+)"\/>/g)].map((match) => Number(match[1]))
+        if (grid.join() !== cells.join()) wrong.push(`${fixture.name}: grid ${grid} for cells ${cells}`)
+      }
+    }
+    expect(wrong).toEqual([])
+  })
+})

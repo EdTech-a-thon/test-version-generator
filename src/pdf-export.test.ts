@@ -7,6 +7,7 @@ import {
   type PdfFontLoader,
 } from './pdf-export'
 import { FIXTURES, PIXEL_PNG } from './export-fixtures'
+import { questionIndentOf } from './export-plan'
 import {
   DEFAULT_EXPORT_CONFIGURATION,
   EMPTY_EXPORT_HISTORY,
@@ -14,11 +15,11 @@ import {
 } from './export-preparation'
 
 const fontFiles = {
-  regular: '/usr/share/fonts/truetype/freefont/FreeSerif.ttf',
-  bold: '/usr/share/fonts/truetype/freefont/FreeSerifBold.ttf',
-  italic: '/usr/share/fonts/truetype/freefont/FreeSerifItalic.ttf',
-  boldItalic: '/usr/share/fonts/truetype/freefont/FreeSerifBoldItalic.ttf',
-  mono: '/usr/share/fonts/truetype/freefont/FreeMono.ttf',
+  regular: new URL('../public/fonts/FreeSerif.ttf', import.meta.url).pathname,
+  bold: new URL('../public/fonts/FreeSerifBold.ttf', import.meta.url).pathname,
+  italic: new URL('../public/fonts/FreeSerifItalic.ttf', import.meta.url).pathname,
+  boldItalic: new URL('../public/fonts/FreeSerifBoldItalic.ttf', import.meta.url).pathname,
+  mono: new URL('../public/fonts/FreeMono.ttf', import.meta.url).pathname,
 } as const
 
 const fonts: PdfFontLoader = async (style) => Bun.file(fontFiles[style]).arrayBuffer()
@@ -98,6 +99,32 @@ describe('PDF Export Adapter', () => {
     expect(source).not.toContain('[Image:')
   })
 
+  // A picture on a line of its own was drawn at the page's left margin, under
+  // the question's blank and number, instead of in the column its block is in.
+  test('draws a picture in the column of the block that holds it', async () => {
+    const { plans } = plansOf('pictures in a multiple-choice stem and choice')
+    const bytes = await createPublicationPdf(plans, pixel, fonts)
+    const page = await (await getDocument({ data: bytes, disableWorker: true }).promise).getPage(1)
+    const operators = await page.getOperatorList()
+    // pdf-lib draws an image as save, translate to its corner, scale, paint;
+    // the translation is the last non-identity unit matrix before the paint.
+    const lefts: number[] = []
+    let translate = 0
+    for (const [index, op] of operators.fnArray.entries()) {
+      const args = operators.argsArray[index] as number[]
+      const moves = args?.[0] === 1 && args[3] === 1 && (args[4] !== 0 || args[5] !== 0)
+      if (op === OPS.transform && moves) translate = args[4]!
+      if (op === OPS.paintImageXObject) lefts.push(translate)
+    }
+    const margin = 72 * 0.75
+    const body = margin + questionIndentOf({ type: 'multiple-choice' }) * 0.75
+    // The stem's block picture, its inline one, and the first choice's.
+    expect(lefts).toHaveLength(3)
+    for (const left of lefts) expect(left).toBeGreaterThanOrEqual(body - 0.5)
+    // The choice's picture sits past its letter, not on it.
+    expect(Math.max(...lefts)).toBeGreaterThanOrEqual(body + 17)
+  })
+
   test('typesets common inline and display math rather than printing LaTeX commands', async () => {
     const { plans } = plansOf('inline and display mathematics')
     const bytes = await createPublicationPdf(plans, noImages, fonts)
@@ -175,5 +202,41 @@ describe('PDF Export Adapter', () => {
     await expect(createPublicationPdf(changed, noImages, fonts)).rejects.toThrow(
       'does not fit its planned page',
     )
+  })
+
+  // A matching question once printed its stem and nothing else: no prompts, no
+  // Word Bank. Every prompt's number and text, and every answer's letter and
+  // text, must reach the page the plan put them on.
+  test.each([
+    'a matching set with a shuffled word bank and an unmatched item',
+    'a matching set whose long word bank prints above its items',
+    'a matching set too long for one page, its word bank on every piece',
+  ])('draws every prompt and Word Bank answer of %s', async (name) => {
+    const { plans } = plansOf(name)
+    const bytes = await createPublicationPdf(plans, noImages, fonts)
+    const document = await getDocument({ data: bytes, disableWorker: true }).promise
+    const plainText = (node: { text?: string; content?: unknown[] }): string =>
+      node.text ?? (node.content ?? []).map((child) => plainText(child as typeof node)).join('')
+    const normalize = (value: string) => value.replace(/\s+/g, ' ').trim()
+
+    for (const [index, page] of plans.flatMap((plan) => plan.pages).entries()) {
+      const drawn = normalize(
+        (await (await document.getPage(index + 1)).getTextContent()).items
+          .map((item) => ('str' in item ? item.str : ''))
+          .join(' '),
+      )
+      for (const item of page.items) {
+        if (item.kind !== 'question' || !item.matching) continue
+        for (const prompt of item.matching.prompts) {
+          expect(drawn).toContain(normalize(`${prompt.number}. ${plainText(prompt.node)}`))
+        }
+        for (const answer of item.matching.bank) {
+          expect(drawn).toContain(normalize(`${answer.letter}. ${plainText(answer.node)}`))
+        }
+        // The set's numbers print on its prompts; its directions print unnumbered.
+        const [directions] = item.stem
+        if (directions) expect(drawn).not.toContain(normalize(`1. ${plainText(directions)}`))
+      }
+    }
   })
 })

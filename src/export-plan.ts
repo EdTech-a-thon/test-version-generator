@@ -131,9 +131,9 @@ export type BankGrid = {
   cells: (PlannedBankAnswer | null)[][]
 }
 
-// A matching set as it prints. Drawn as one block and never split across
-// pages — a bank on a different page from its prompts is no use to a student.
-// A short bank prints beside the numbered prompts, in a column of its own to
+// A matching set as it prints. A bank on a different page from its prompts is
+// no use to a student, so a set too long for one page breaks only between its
+// prompts, and every piece prints the whole bank. A short bank prints beside the numbered prompts, in a column of its own to
 // their right; a long one prints above them in `bankGrid`, as the source tests
 // lay it out once it no longer fits down the side.
 export type MatchingSet = {
@@ -259,7 +259,8 @@ export type QuestionItem = {
   numbered: boolean
   /** The choice grid, on the single piece that prints it. Never split. */
   grid: ChoiceGrid | null
-  /** The matching set, on the single piece that prints it. Never split. */
+  /** The matching set: this piece's run of prompts, with the whole Word Bank
+   *  on every piece of a set split across pages. */
   matching: MatchingSet | null
   /** A Short Answer question's work space, on its last piece — so the room
    *  for an answer always follows the whole question. `null` on every other
@@ -631,9 +632,8 @@ function wholeQuestion(question: PlannedQuestion): QuestionItem {
 // to the first stem block, so a split can never strand a bare number at the foot
 // of a page; then one part per remaining top-level block; then the choice grid
 // whole, since a grid is never split. A question with no stem at all is a
-// single part, so it moves rather than coming apart — and so is a matching
-// set, always: its stem is the set's directions, and directions on one page
-// with the items and Word Bank on the next is no matching set at all.
+// single part, so it moves rather than coming apart. A matching set has parts
+// of its own (see `matchingPartsOf`).
 type QuestionPart = {
   stem: ProseMirrorJSON[]
   numbered: boolean
@@ -647,14 +647,15 @@ type QuestionPart = {
 // before, is room nobody would think to use.
 function partsOf(question: PlannedQuestion): QuestionPart[] {
   const workSpace = question.workSpace ? plannedWorkSpace(question.workSpace) : null
+  if (question.matching) return matchingPartsOf(question, question.matching, workSpace)
   const [first, ...rest] = question.stem
-  if (first === undefined || question.matching) {
+  if (first === undefined) {
     return [
       {
         stem: question.stem,
         numbered: true,
         grid: question.grid,
-        matching: question.matching,
+        matching: null,
         workSpace,
       },
     ]
@@ -668,9 +669,31 @@ function partsOf(question: PlannedQuestion): QuestionPart[] {
   if (question.grid) {
     parts.push({ stem: [], numbered: false, grid: question.grid, matching: null, workSpace: null })
   }
-  if (question.matching) {
-    parts.push({ stem: [], numbered: false, grid: null, matching: question.matching, workSpace: null })
+  parts[parts.length - 1]!.workSpace = workSpace
+  return parts
+}
+
+// A matching set breaks only between its items: the directions glued to the
+// first, then one part per item after it. Each part carries the whole Word
+// Bank, so a set too long for one page continues on the next with its bank
+// printed again beside (or above) the items that page holds — items on a page
+// with no answers to match them against would be no matching set at all.
+function matchingPartsOf(
+  question: PlannedQuestion,
+  set: MatchingSet,
+  workSpace: PlannedWorkSpace | null,
+): QuestionPart[] {
+  const withPrompts = (prompts: PlannedPrompt[]): MatchingSet => ({ ...set, prompts })
+  if (set.prompts.length === 0) {
+    return [{ stem: question.stem, numbered: true, grid: question.grid, matching: set, workSpace }]
   }
+  const parts = set.prompts.map((prompt, index): QuestionPart => ({
+    stem: index === 0 ? question.stem : [],
+    numbered: index === 0,
+    grid: index === 0 ? question.grid : null,
+    matching: withPrompts([prompt]),
+    workSpace: null,
+  }))
   parts[parts.length - 1]!.workSpace = workSpace
   return parts
 }
@@ -680,13 +703,16 @@ function pieceOf(
   question: PlannedQuestion,
   parts: readonly QuestionPart[],
 ): QuestionItem {
+  const sets = parts.flatMap((part) => (part.matching ? [part.matching] : []))
   return {
     kind: 'question',
     question,
     stem: parts.flatMap((part) => part.stem),
     numbered: parts.some((part) => part.numbered),
     grid: parts.find((part) => part.grid !== null)?.grid ?? null,
-    matching: parts.find((part) => part.matching !== null)?.matching ?? null,
+    // A matching set's parts each hold some of its items and all of its bank.
+    matching:
+      sets.length === 0 ? null : { ...sets[0]!, prompts: sets.flatMap((set) => set.prompts) },
     workSpace: parts.find((part) => part.workSpace !== null)?.workSpace ?? null,
   }
 }

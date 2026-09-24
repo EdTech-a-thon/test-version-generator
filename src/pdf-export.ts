@@ -29,25 +29,31 @@ import {
   type MediaLoader,
 } from './export-media'
 import {
+  MATCHING_BANK_WIDTH,
+  printsNumberLine,
   questionIndentOf,
   type AnswerKeyEntryItem,
   type ChoiceGrid,
   type LayoutPlan,
+  type MatchingSet,
+  type PlannedBankAnswer,
   type PageFurniture,
   type PageItem,
   type PlannedWorkSpace,
   type QuestionItem,
 } from './export-plan'
 import { DIFFICULTY_LABELS, WORK_SPACE_LINE_PITCH } from './exam'
+import { pointsOf } from './export-typography'
 import type { ProseMirrorJSON } from './question-doc'
 
 const PDF_MIME = 'application/pdf'
 const POINTS_PER_PX = 0.75
-const BODY_SIZE = 11.25
+const BODY_SIZE = pointsOf('body')
 const BODY_LINE = 16.3
-const SMALL_SIZE = 9.75
-const HEADING_SIZE = 12.75
-const TITLE_SIZE = 19.5
+const SMALL_SIZE = pointsOf('small')
+const HEADING_SIZE = pointsOf('sectionTitle')
+const TITLE_SIZE = pointsOf('title')
+const ANSWER_KEY_HEADING_SIZE = pointsOf('answerKeyHeading')
 const INK = rgb(0.2, 0.165, 0.14)
 /** Where the key's answer column starts: past `.answer-key-entry`'s 42px
  *  number column and its 8px gap. */
@@ -408,9 +414,12 @@ function drawTextLine(
   }], options)
 }
 
+// At the left of the column its block sits in, as print sets it: past a
+// question's blank and number, past a choice's letter — never at the margin.
 function drawImage(
   context: DrawContext,
   source: string,
+  x: number,
   maxWidth: number,
   ratio = 1,
 ): void {
@@ -422,7 +431,7 @@ function drawImage(
   const height = naturalHeight * (width / naturalWidth)
   ensureRoom(context, height + 4)
   context.page.drawImage(loaded.image, {
-    x: context.x,
+    x,
     y: context.y - height,
     width,
     height,
@@ -490,10 +499,10 @@ function drawBlocks(
         break
       }
       case 'image':
-        drawImage(context, stringOf(attrs.src), width)
+        drawImage(context, stringOf(attrs.src), x, width)
         break
       case 'image-block': {
-        drawImage(context, stringOf(attrs.src), width, authoredImageRatio(attrs))
+        drawImage(context, stringOf(attrs.src), x, width, authoredImageRatio(attrs))
         const caption = stringOf(attrs.caption)
         if (caption) drawTextLine(context, caption, { size: SMALL_SIZE, x, width })
         break
@@ -602,11 +611,78 @@ function drawWorkSpace(
   context.y = top - height
 }
 
+// A matching set as print lays it out (`.matching-*` in styles.css), across the
+// question's full width. Each prompt opens with its bold blank and number in a
+// 92px column and a 6px gap. A short Word Bank stands in a 240px column to the
+// prompts' right, set in 24px from its edge; a long one prints above them in
+// columns, under the number column.
+const MATCHING_NUMBER_COLUMN = 98
+const MATCHING_BANK_INSET = 24
+const MATCHING_GAP = 10
+
+function drawMatchingAnswer(context: DrawContext, answer: PlannedBankAnswer): void {
+  const top = context.y
+  drawTextLine(context, `${answer.letter}.`, { width: 16 })
+  context.y = top
+  drawBlocks(context, childrenOf(answer.node), { x: context.x + 18, width: context.width - 18 })
+}
+
+function drawMatchingPrompts(context: DrawContext, set: MatchingSet): void {
+  const column = pt(MATCHING_NUMBER_COLUMN)
+  for (const prompt of set.prompts) {
+    const top = context.y
+    drawTextLine(context, `_______  ${prompt.number}.`, { font: 'bold', width: column - 5 })
+    context.y = top
+    drawBlocks(context, childrenOf(prompt.node), {
+      x: context.x + column,
+      width: context.width - column,
+    })
+    context.y -= pt(MATCHING_GAP)
+  }
+}
+
+function drawMatching(context: DrawContext, set: MatchingSet): void {
+  if (set.bankGrid) {
+    const column = pt(MATCHING_NUMBER_COLUMN)
+    const cellWidth = (context.width - column) / set.bankGrid.columns
+    for (const row of set.bankGrid.cells) {
+      const top = context.y
+      let rowBottom = top
+      for (const [index, answer] of row.entries()) {
+        if (!answer) continue
+        const cell = { ...context, x: context.x + column + index * cellWidth, y: top, width: cellWidth - 9 }
+        drawMatchingAnswer(cell, answer)
+        rowBottom = Math.min(rowBottom, cell.y)
+      }
+      context.y = rowBottom - 3
+    }
+    context.y -= pt(14)
+    drawMatchingPrompts(context, set)
+    return
+  }
+
+  const top = context.y
+  const bankWidth = pt(MATCHING_BANK_WIDTH)
+  const prompts = { ...context, width: context.width - bankWidth }
+  drawMatchingPrompts(prompts, set)
+  const bank = {
+    ...context,
+    x: context.x + context.width - bankWidth + pt(MATCHING_BANK_INSET),
+    y: top,
+    width: bankWidth - pt(MATCHING_BANK_INSET),
+  }
+  for (const answer of set.bank) {
+    drawMatchingAnswer(bank, answer)
+    bank.y -= pt(MATCHING_GAP)
+  }
+  context.y = Math.min(prompts.y, bank.y)
+}
+
 function drawQuestion(context: DrawContext, item: QuestionItem): void {
   const indent = questionIndentOf(item.question) * POINTS_PER_PX
   const bodyX = context.x + indent
   const bodyWidth = context.width - indent
-  if (item.numbered) {
+  if (printsNumberLine(item)) {
     const prefix = item.question.answerBlank
       ? `_______  ${item.question.number}.`
       : `${item.question.number}.`
@@ -615,6 +691,7 @@ function drawQuestion(context: DrawContext, item: QuestionItem): void {
   }
   drawBlocks(context, item.stem, { x: bodyX, width: bodyWidth })
   if (item.grid) drawChoiceGrid(context, item.grid, bodyX, bodyWidth)
+  if (item.matching) drawMatching(context, item.matching)
   if (item.workSpace) {
     drawWorkSpace(context, item.workSpace, bodyX, bodyWidth)
     // Nothing follows a space that fills its page, so it keeps the foot.
@@ -635,7 +712,7 @@ function drawItem(context: DrawContext, item: PageItem): void {
       drawQuestion(context, item)
       return
     case 'answer-key-heading':
-      drawTextLine(context, 'Answer Section', { font: 'bold', size: 15, line: 20 })
+      drawTextLine(context, 'Answer Section', { font: 'bold', size: ANSWER_KEY_HEADING_SIZE, line: 20 })
       context.y -= 8
       return
     case 'answer-key-section':
