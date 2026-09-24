@@ -21,12 +21,20 @@ An independently reusable, named collection of canonical Questions whose confirm
 _Avoid_: Question library
 
 **Question Bank File**:
-A self-contained PDF for sharing one complete Question Bank. Its complete teacher-readable preview is derived from its embedded Question Bank Record, which is the authoritative source for importing a new independent Question Bank.
+A self-contained PDF for sharing one complete Question Bank. Its complete teacher-readable preview is derived from its embedded Question Bank Record, which is the authoritative source for importing that bank.
 _Avoid_: Exam export, printable question bank, backup
 
 **Question Bank Record**:
-The versioned, format-owned machine-readable representation of one complete Question Bank and every Media Asset it needs. It travels either embedded in a Question Bank File or as a standalone JSON file, and is the authoritative source for import either way. Import creates a new independent Question Bank from this record rather than preserving local identities or inferring Question Content from PDF pages.
+The versioned, format-owned machine-readable representation of one Question Bank and every Media Asset it needs. It travels embedded in a Question Bank File, as a standalone JSON file, or inside a Test Parrot Package, and is the authoritative source for import in every case. Import either creates a new independent Question Bank from it or adds its Questions to an existing bank as new Questions, never preserving local identities or inferring Question Content from PDF pages.
 _Avoid_: PDF metadata, extracted questions
+
+**Exam Record**:
+The versioned, format-owned machine-readable composition of one Exam: its name and, for each position, the Question it references in a Question Bank Record travelling in the same Test Parrot Package, with that position's answer columns, answer order, and Work Space. It never references a Question outside its package, and it carries no Section order, because Sections always follow Test Parrot's own order.
+_Avoid_: Exam layout, test JSON
+
+**Test Parrot Package**:
+A versioned bundle of one or more Question Bank Records and any number of Exam Records that reference Questions in them, versioned separately from both. It travels as a standalone JSON file or embedded in an exported Exam PDF whose Content Selection includes the answer key; importing it lets the teacher choose which banks and Exams to bring in.
+_Avoid_: Import package, bundle, transfer file
 
 **Difficulty**:
 An optional classification of a question as easy, medium, or hard.
