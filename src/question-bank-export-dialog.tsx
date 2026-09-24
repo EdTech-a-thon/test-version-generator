@@ -246,9 +246,9 @@ export function QuestionBankExportDialog({
                     </div>
                   )}
                   {question.parts && (
-                    // The Stimulus is the stem above; its Parts follow,
+                    // The Multipart question is the stem above; its Parts follow,
                     // lettered as the test prints them.
-                    <ol type="a" className="record-stimulus-parts">
+                    <ol type="a" className="record-multipart-parts">
                       {question.parts.map((part) => (
                         <li key={part.id} aria-label={RECORD_PART_TYPE_LABELS[part.type]}>
                           <DocView

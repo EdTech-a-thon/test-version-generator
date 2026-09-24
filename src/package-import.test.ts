@@ -70,10 +70,10 @@ function matching(id: string): QuestionBankRecordQuestion {
   }
 }
 
-function stimulus(id: string): QuestionBankRecordQuestion {
+function multipart(id: string): QuestionBankRecordQuestion {
   return {
     id,
-    type: 'stimulus',
+    type: 'multipart',
     stem: paragraph(`Read ${id}`),
     parts: [
       {
@@ -218,7 +218,7 @@ describe('inspecting a Test Parrot Package', () => {
   test('positions regroup into Section order, keeping order within each Section', async () => {
     const record = bankRecord('Mixed', [
       multipleChoice('q1'), multipleChoice('q2'), trueFalse('q3'), matching('q4'), shortAnswer('q5'), shortAnswer('q6'),
-      stimulus('q7'),
+      multipart('q7'),
     ])
     const proposal = await inspectImportRecord(bytesOf(packageOf(
       [{ id: 'b', record }],
@@ -227,22 +227,22 @@ describe('inspecting a Test Parrot Package', () => {
       ])],
     )))
 
-    // A Stimulus prints last, in a Section of its own.
+    // A Multipart question prints last, in a Section of its own.
     expect(proposal.exams[0]!.positions.map(({ question }) => question.question)).toEqual([
       'q2', 'q1', 'q3', 'q4', 'q6', 'q5', 'q7',
     ])
   })
 
-  test('a Stimulus position is accepted as a whole Question, and per-Part presentation is not carried', async () => {
-    const record = bankRecord('Passages', [stimulus('q1')])
+  test('a Multipart position is accepted as a whole Question, and per-Part presentation is not carried', async () => {
+    const record = bankRecord('Passages', [multipart('q1')])
     const proposal = await inspectImportRecord(bytesOf(packageOf(
       [{ id: 'b', record }],
       [examRecord('Reading', [at('b', 'q1')])],
     )))
 
-    expect(proposal.banks[0]!.summary.questionCounts.stimulus).toBe(1)
+    expect(proposal.banks[0]!.summary.questionCounts.multipart).toBe(1)
     expect(proposal.exams[0]!.positions).toEqual([at('b', 'q1')])
-    // Answer order belongs to a Part, not the Stimulus, and 0.1.0 cannot say
+    // Answer order belongs to a Part, not the Multipart question, and 0.1.0 cannot say
     // which Part it would be for.
     await rejected(
       packageOf([{ id: 'b', record }], [

@@ -868,14 +868,14 @@ function questionContent(
   ]
 }
 
-// A Stimulus's Part, one level in: its letter hanging off its own letter column inside the Stimulus's body,
+// A Multipart question's Part, one level in: its letter hanging off its own letter column inside the Multipart question's body,
 // then its choice grid or its work space, as a question of its kind prints.
 function partContent(
   part: PlannedPart,
-  stimulusIndentPx: number,
+  multipartIndentPx: number,
   build: BuildContext,
 ): (Paragraph | Table)[] {
-  const indentPx = stimulusIndentPx + PART_INDENT
+  const indentPx = multipartIndentPx + PART_INDENT
   const indent = twips(indentPx)
   const prefix: ParagraphChild[] = [
     new TextRun({
@@ -934,7 +934,7 @@ function answerKeyEntry(item: AnswerKeyEntryItem, build: BuildContext): (Paragra
   const suggested = item.suggestedAnswer
     ? blocks(item.suggestedAnswer, { indent: ANSWER_KEY_ANSWER_INDENT }, build)
     : []
-  // A Stimulus's Parts each take a line under its number: the Part's letter,
+  // A Multipart question's Parts each take a line under its number: the Part's letter,
   // then its answer in bold, then any Suggested Answer beneath.
   const parts = (item.parts ?? []).flatMap((part) => [
     new Paragraph({

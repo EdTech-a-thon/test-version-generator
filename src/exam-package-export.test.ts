@@ -206,21 +206,21 @@ describe('an Exam PDF carrying its Exam', () => {
   })
 })
 
-describe('a Stimulus in an Exam package', () => {
+describe('a Multipart question in an Exam package', () => {
   test('travels as one whole position, its Parts in its bank record, and imports again', async () => {
     const reading: Question = {
       id: 'reading-1',
-      type: 'stimulus',
+      type: 'multipart',
       columns: 2,
       doc: {
         type: 'doc',
         content: [paragraph('The power of the Empire was waning by 1683.'), {
-          type: 'stimulusParts',
+          type: 'multipartParts',
           content: [{
-            type: 'stimulusPart',
+            type: 'multipartPart',
             attrs: { id: 'reading-1-part-a', columns: 4 },
             content: [
-              { type: 'stimulusPartStem', content: [paragraph('Which region?')] },
+              { type: 'multipartPartStem', content: [paragraph('Which region?')] },
               {
                 type: 'multipleChoice',
                 content: ['Middle East', 'East Asia'].map((answer, index) => ({
@@ -247,7 +247,7 @@ describe('a Stimulus in an Exam package', () => {
     expect(carried.exams[0]!.positions).toEqual([{ question: { bank: 'bank-1', question: 'q1' } }])
     const proposal = await inspectImportRecord(new TextEncoder().encode(JSON.stringify(carried)))
     expect(proposal.banks[0]!.record.bank.questions[0]).toMatchObject({
-      type: 'stimulus',
+      type: 'multipart',
       parts: [{ id: 'q1-s1', type: 'multiple-choice', choices: [{ correct: true }, { correct: false }] }],
     })
     expect(proposal.exams[0]!.positions).toHaveLength(1)

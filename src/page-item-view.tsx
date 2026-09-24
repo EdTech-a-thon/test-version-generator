@@ -192,7 +192,7 @@ export function WorkSpaceView({ space }: { space: PlannedWorkSpace }) {
   )
 }
 
-// One Part of a Stimulus, drawn the way a question of its kind is, one level
+// One Part of a Multipart question, drawn the way a question of its kind is, one level
 // in: a short letter column — no answer blank, for either kind — then its
 // stem, its choice grid or its work space. `renderWorkSpace` lets the sheet wrap a Short Answer Part's space in
 // the handle that sizes it.
@@ -206,7 +206,7 @@ export function PartContent({
   renderWorkSpace?: (part: PlannedPart, space: PlannedWorkSpace) => ReactNode
 }) {
   return (
-    <div className="stimulus-part-print" data-part-id={part.id} data-part-type={part.type}>
+    <div className="multipart-part-print" data-part-id={part.id} data-part-type={part.type}>
       <div className="part-letter">
         <span className="part-count">{part.letter}.</span>
       </div>
@@ -242,7 +242,7 @@ export function QuestionContent({
   return (
     <>
       {/* A Short Answer question has no blank to make room for, nor does a
-          Stimulus, whose blanks are on its Parts, so its column holds the
+          Multipart question, which prints none, so its column holds the
           number alone — `questionIndentOf` in export-plan.ts is the same width
           for the adapters. */}
       <div
@@ -264,7 +264,7 @@ export function QuestionContent({
         )}
         {item.workSpace && <WorkSpaceView space={item.workSpace} />}
         {item.parts && item.parts.length > 0 && (
-          <div className="stimulus-parts-print">
+          <div className="multipart-parts-print">
             {item.parts.map((part) => (
               <PartContent
                 key={part.id}

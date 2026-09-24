@@ -7,11 +7,11 @@
   },
   "requiredFeatures": [],
   "bank": {
-    "name": "Malformed Stimulus",
+    "name": "Malformed Multipart",
     "questions": [
       {
         "id": "q1",
-        "type": "stimulus",
+        "type": "multipart",
         "stem": {
           "type": "document",
           "content": [

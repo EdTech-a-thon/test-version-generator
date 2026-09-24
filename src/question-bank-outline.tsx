@@ -20,7 +20,7 @@ const TYPE_ICONS: Record<QuestionType, ComponentType<{ 'aria-hidden'?: boolean }
   'true-false': ToggleLeft,
   matching: Link2,
   open: AlignLeft,
-  stimulus: BookOpenText,
+  multipart: BookOpenText,
 }
 
 export function QuestionBankOutline({

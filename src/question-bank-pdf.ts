@@ -596,7 +596,7 @@ export async function createQuestionBankPdf(
       })
     }
     if (question.parts) {
-      // The Stimulus above, then each Part lettered as the test prints it,
+      // The shared material above, then each Part lettered as the test prints it,
       // with its own choices or Suggested Answer beneath it.
       if (question.parts.length === 0) {
         drawText(context, 'No Parts yet.', { font: 'italic' })

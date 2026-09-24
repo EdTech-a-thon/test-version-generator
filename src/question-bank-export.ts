@@ -85,7 +85,7 @@ export type QuestionBankRecordQuestionType =
   | 'true-false'
   | 'matching'
   | 'short-answer'
-  | 'stimulus'
+  | 'multipart'
 
 /** How each record Question Type is written wherever a teacher reads one — the
  *  export preview, the import preview, and the Question Bank File's own pages. */
@@ -94,7 +94,7 @@ export const RECORD_TYPE_LABELS: Record<QuestionBankRecordQuestionType, string> 
   'true-false': 'True/False',
   matching: 'Matching',
   'short-answer': 'Short Answer',
-  stimulus: 'Stimulus',
+  multipart: 'Multipart',
 }
 
 /** The order a summary counts the Question Types off in — the order a test
@@ -104,7 +104,7 @@ export const RECORD_TYPE_ORDER: readonly QuestionBankRecordQuestionType[] = [
   'true-false',
   'matching',
   'short-answer',
-  'stimulus',
+  'multipart',
 ]
 
 /** One item of a matching set. `answer` is the package-local id of the Word
@@ -126,11 +126,11 @@ export function wordBankLettersOf(
   )
 }
 
-/** What a Part of a Stimulus can be. A Part is never True/False, Matching or a
- *  Stimulus of its own. */
+/** What a Part of a Multipart question can be. A Part is never True/False,
+ *  Matching or Multipart itself. */
 export type QuestionBankRecordPartType = 'multiple-choice' | 'short-answer'
 
-/** One lettered Part of a Stimulus: its own stem, then the choices of a
+/** One lettered Part of a Multipart question: its own stem, then the choices of a
  *  Multiple Choice Part or the optional Suggested Answer of a Short Answer
  *  one. Answer columns and Work Space are Exam presentation, as they are for a
  *  whole Question, so neither is written here. */
@@ -162,7 +162,7 @@ export type QuestionBankRecordQuestion = {
   choices?: { id: string; content: SemanticDocument; correct: boolean }[]
   prompts?: QuestionBankRecordPrompt[]
   wordBank?: { id: string; content: SemanticDocument }[]
-  /** A Stimulus's Parts, in lettered order; `stem` is the Stimulus itself. */
+  /** A Multipart question's Parts, in lettered order; `stem` is the shared material. */
   parts?: QuestionBankRecordPart[]
   suggestedAnswer?: SemanticDocument
 }
@@ -365,10 +365,10 @@ function semanticNode(node: ProseMirrorJSON, mediaIds: ReadonlyMap<string, strin
     case 'matchingPrompt':
     case 'matchingAnswer':
       throw new Error('Matching structure must remain separate from its stem.')
-    case 'stimulusParts':
-    case 'stimulusPart':
-    case 'stimulusPartStem':
-      throw new Error('Stimulus Parts must remain separate from the Stimulus.')
+    case 'multipartParts':
+    case 'multipartPart':
+    case 'multipartPartStem':
+      throw new Error('Multipart Parts must remain separate from their question’s stem.')
     case 'image':
     case 'image-block':
       return imageSemanticNode(node, mediaIds)
@@ -394,7 +394,7 @@ const RECORD_TYPES: Record<QuestionType, QuestionBankRecordQuestionType> = {
   'true-false': 'true-false',
   matching: 'matching',
   open: 'short-answer',
-  stimulus: 'stimulus',
+  multipart: 'multipart',
 }
 
 function portableQuestion(
@@ -456,8 +456,8 @@ function portableQuestion(
       })),
     }
   }
-  if (question.type === 'stimulus') {
-    // The stem is the Stimulus; each Part follows it under an id of its own.
+  if (question.type === 'multipart') {
+    // The stem is the Multipart question; each Part follows it under an id of its own.
     // Parts are lettered where they stand, so they keep authored order.
     return {
       ...base,

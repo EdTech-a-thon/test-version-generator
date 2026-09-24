@@ -29,7 +29,7 @@ Every record has these required members:
 
 ### What 0.4.0 changed
 
-`0.4.0` adds the `stimulus` Question Type and nothing else, as `0.3.0` added only `matching` and `0.2.0` only `true-false`. Every `0.3.0` record — and so every `0.2.0` and `0.1.0` record — is therefore also a conforming `0.4.0` record once its `formatVersion` is restated, and migration rewrites no content. The reverse does not hold: a `0.4.0` record containing a Stimulus Question must be rejected by an older consumer, which is why the addition is a minor version rather than a patch.
+`0.4.0` adds the `multipart` Question Type and nothing else, as `0.3.0` added only `matching` and `0.2.0` only `true-false`. Every `0.3.0` record — and so every `0.2.0` and `0.1.0` record — is therefore also a conforming `0.4.0` record once its `formatVersion` is restated, and migration rewrites no content. The reverse does not hold: a `0.4.0` record containing a Multipart Question must be rejected by an older consumer, which is why the addition is a minor version rather than a patch.
 
 A producer writes `0.4.0`. A consumer implements `0.1.0`, `0.2.0`, `0.3.0` and `0.4.0` — a Question Bank File that has already been shared must keep opening — and reports to the teacher the version the file declared, not the version it migrated to.
 
@@ -39,7 +39,7 @@ Unknown optional fields may be ignored and need not survive re-export. Unknown Q
 
 ## Identity and ordering
 
-`bank.questions` is in canonical authored Question order. A Question has a package-local ordinal ID such as `q1`; a Multiple Choice choice has one such as `q1-c1`, a Matching item one such as `q1-p1`, a Word Bank answer one such as `q1-a1`, a Stimulus Part one such as `q1-s1` and a Part's own Multiple Choice choice one such as `q1-s1-c1`. These IDs exist only to make references inside one record readable — a Matching item names its answer by one. They are not local application identities, synchronization keys, or IDs to preserve on import. An application creates fresh local IDs for an imported bank, its Questions, its Parts, and its choices. The `s` prefix keeps a Part apart from a Matching item's `p`, and a Part choice carries its Part's ID so two Parts' choices never collide.
+`bank.questions` is in canonical authored Question order. A Question has a package-local ordinal ID such as `q1`; a Multiple Choice choice has one such as `q1-c1`, a Matching item one such as `q1-p1`, a Word Bank answer one such as `q1-a1`, a Multipart Part one such as `q1-s1` and a Part's own Multiple Choice choice one such as `q1-s1-c1`. These IDs exist only to make references inside one record readable — a Matching item names its answer by one. They are not local application identities, synchronization keys, or IDs to preserve on import. An application creates fresh local IDs for an imported bank, its Questions, its Parts, and its choices. The `s` prefix keeps a Part apart from a Matching item's `p`, and a Part choice carries its Part's ID so two Parts' choices never collide.
 
 Media Asset IDs are different: `sha256:<digest>` is a content address derived from immutable bytes. Implementations may use that hash to reuse identical media locally. It is not the identity of a Question or Question Bank.
 
@@ -75,16 +75,16 @@ Neither list carries correctness or letters. An answer's letter is its position 
 
 A `short-answer` Question has no choices and may have a rich-text `suggestedAnswer`. A structurally present but visibly blank stem is valid.
 
-### Stimulus
+### Multipart
 
-A `stimulus` Question is one Stimulus with its Parts: its `stem` is the Stimulus itself — the shared material a student answers from, such as a passage, a quote, an image, or a table — and its `parts` are the questions asked about it, in the order they are lettered. The Stimulus is ordinary rich text: a source or attribution line is written as part of it, not as a field of its own. `parts` is required and may be empty; a Stimulus with no Parts is conforming but represents incomplete authoring, as a Multiple Choice Question with no correct choice does.
+A `multipart` Question is a stem with its Parts: its `stem` is usually the shared material a student answers from, such as a passage, a quote, an image, or a table, and its `parts` are the questions asked about it, in the order they are lettered. The stem is ordinary rich text: a source or attribution line is written as part of it, not as a field of its own. `parts` is required and may be empty; a Multipart question with no Parts is conforming but represents incomplete authoring, as a Multiple Choice Question with no correct choice does.
 
-Each Part has a package-local `id`, a `type`, and its own semantic `stem`. A Part's `type` is `multiple-choice` or `short-answer`, and no other value is conforming — there are no True/False, Matching or Stimulus Parts:
+Each Part has a package-local `id`, a `type`, and its own semantic `stem`. A Part's `type` is `multiple-choice` or `short-answer`, and no other value is conforming — there are no True/False, Matching or Multipart Parts:
 
 - A `multiple-choice` Part has an authored `choices` list of at least two entries, each with a package-local `id`, semantic `content`, and boolean `correct`, under the same correctness rule as a Multiple Choice Question: zero or one may be correct, and zero is conforming but represents incomplete authoring. It must not contain `suggestedAnswer`.
 - A `short-answer` Part has no `choices` and may have a rich-text `suggestedAnswer`.
 
-Question Metadata — `difficulty` and `topics` — belongs to the Stimulus Question, not to its Parts: a Part is never a Question of its own. On a test the Stimulus takes one question number and its Parts print lettered beneath it. A producer must not reorder the Parts, which are lettered in place and often build on one another; a producer that varies a test may shuffle a Multiple Choice Part's choices as it would a Multiple Choice Question's. A Stimulus Question must not contain `choices`, `prompts`, `wordBank`, or `suggestedAnswer` of its own — each Part carries its own — and no other Question Type may contain `parts`.
+Question Metadata — `difficulty` and `topics` — belongs to the Multipart Question, not to its Parts: a Part is never a Question of its own. On a test a Multipart Question takes one question number and its Parts print lettered beneath it. A producer must not reorder the Parts, which are lettered in place and often build on one another; a producer that varies a test may shuffle a Multiple Choice Part's choices as it would a Multiple Choice Question's. A Multipart Question must not contain `choices`, `prompts`, `wordBank`, or `suggestedAnswer` of its own — each Part carries its own — and no other Question Type may contain `parts`.
 
 Answer columns and Work Space are Exam presentation, as they are for a whole Question, and are not part of the record.
 
@@ -136,7 +136,7 @@ The PDF preview is a teacher aid containing answers. It is generated from the re
 
 ## Examples and counterexamples
 
-The canonical examples cover a minimal Multiple Choice bank, a True/False bank, a Matching bank with a distractor and an unmatched item, a Stimulus bank with Multiple Choice and Short Answer Parts and a Stimulus with no Parts yet, Short Answer with Suggested Answer, every supported rich-text node and mark, provenance and external links, and referenced Media Assets. Their formatting and generator values are deliberately not Test Parrot output requirements.
+The canonical examples cover a minimal Multiple Choice bank, a True/False bank, a Matching bank with a distractor and an unmatched item, a Multipart question bank with Multiple Choice and Short Answer Parts and a Multipart question with no Parts yet, Short Answer with Suggested Answer, every supported rich-text node and mark, provenance and external links, and referenced Media Assets. Their formatting and generator values are deliberately not Test Parrot output requirements.
 
 The invalid fixture manifest records the expected application-level rejection category for unsupported versions and required features, unsafe URLs, malformed Questions, dangling references, and invalid Media Assets. Conformance tests validate examples directly with an independent JSON Schema implementation, inspect them through Test Parrot's public import seam, validate Test Parrot-generated records against the published schema, and assert that schema vocabulary, adapters, and examples remain aligned.
 

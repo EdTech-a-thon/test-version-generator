@@ -6,10 +6,11 @@ import { Plugin, TextSelection } from '@milkdown/kit/prose/state'
 import type { EditorView, NodeView } from '@milkdown/kit/prose/view'
 import { multipleChoiceEditableCtx, newMultipleChoiceNode } from './multiple-choice'
 
-// A Stimulus: shared material — a passage, a quote, an image, a table — and
-// the lettered Parts a student answers from it. The Stimulus is written at the
-// top of the document, unnested, exactly where any other question's stem goes.
-// Below it one `stimulusParts` box holds every Part; each Part carries its own
+// A Multipart question: a stem — often shared material such as a passage, a
+// quote, an image or a table — and the lettered Parts a student answers from
+// it. The stem is written at the top of the document, unnested, exactly where
+// any other question's stem goes.
+// Below it one `multipartParts` box holds every Part; each Part carries its own
 // stem and, nested inside it, the answer component a question of its kind
 // already uses — a `multipleChoice` list or a `suggestedAnswer` block. Which
 // of the two it holds is what kind of Part it is, so a Part's kind can never
@@ -18,15 +19,15 @@ import { multipleChoiceEditableCtx, newMultipleChoiceNode } from './multiple-cho
 // The editor does not letter Parts: their order is what letters them on the
 // paper, and the editor shows that order directly.
 
-// Whether the question being edited is a Stimulus. On for one in the editor,
+// Whether the question being edited is a Multipart question. On for one in the editor,
 // off everywhere else: it is what lets the Parts box be regrown if the teacher
 // deletes it, since there is no other way to put one back.
-export const stimulusModeCtx = createSlice(false, 'stimulusMode')
+export const multipartModeCtx = createSlice(false, 'multipartMode')
 
-export const stimulusMode = (enabled: boolean): MilkdownPlugin => (ctx) => {
-  ctx.inject(stimulusModeCtx, enabled)
+export const multipartMode = (enabled: boolean): MilkdownPlugin => (ctx) => {
+  ctx.inject(multipartModeCtx, enabled)
   return () => () => {
-    ctx.remove(stimulusModeCtx)
+    ctx.remove(multipartModeCtx)
   }
 }
 
@@ -47,27 +48,27 @@ function answerJSON(kind: PartKind) {
 
 function partJSON(kind: PartKind) {
   return {
-    type: 'stimulusPart',
+    type: 'multipartPart',
     attrs: { id: crypto.randomUUID(), columns: 2 },
     content: [
-      { type: 'stimulusPartStem', content: [{ type: 'paragraph' }] },
+      { type: 'multipartPartStem', content: [{ type: 'paragraph' }] },
       answerJSON(kind),
     ],
   }
 }
 
-/** The Parts box a new Stimulus opens with: one blank Multiple Choice Part. */
-export function newStimulusPartsNode() {
-  return { type: 'stimulusParts', content: [partJSON('multiple-choice')] }
+/** The Parts box a new Multipart question opens with: one blank Multiple Choice Part. */
+export function newMultipartPartsNode() {
+  return { type: 'multipartParts', content: [partJSON('multiple-choice')] }
 }
 
 // A Part's stem: the question this Part asks, as any blocks.
-export const stimulusPartStemSchema = $nodeSchema('stimulusPartStem', () => ({
+export const multipartPartStemSchema = $nodeSchema('multipartPartStem', () => ({
   content: 'block+',
   defining: true,
   isolating: true,
-  parseDOM: [{ tag: 'div[data-type="stimulus-part-stem"]' }],
-  toDOM: () => ['div', { 'data-type': 'stimulus-part-stem' }, 0],
+  parseDOM: [{ tag: 'div[data-type="multipart-part-stem"]' }],
+  toDOM: () => ['div', { 'data-type': 'multipart-part-stem' }, 0],
   parseMarkdown: { match: () => false, runner: () => undefined },
   toMarkdown: { match: () => false, runner: () => undefined },
 }))
@@ -76,14 +77,14 @@ export const stimulusPartStemSchema = $nodeSchema('stimulusPartStem', () => ({
 // it is. `id` is the Part's stable identity — its answer order and Work Space
 // on an Exam are keyed by it — and `columns` is the answer layout a Multiple
 // Choice Part starts with, as a question's own `columns` is.
-export const stimulusPartSchema = $nodeSchema('stimulusPart', () => ({
-  content: 'stimulusPartStem (multipleChoice | suggestedAnswer)',
+export const multipartPartSchema = $nodeSchema('multipartPart', () => ({
+  content: 'multipartPartStem (multipleChoice | suggestedAnswer)',
   defining: true,
   isolating: true,
   attrs: { id: { default: '' }, columns: { default: 2 } },
   parseDOM: [
     {
-      tag: 'div[data-type="stimulus-part"]',
+      tag: 'div[data-type="multipart-part"]',
       getAttrs: (element) => ({
         id: (element as HTMLElement).getAttribute('data-id') ?? '',
         columns: Number((element as HTMLElement).getAttribute('data-columns')) || 2,
@@ -92,22 +93,22 @@ export const stimulusPartSchema = $nodeSchema('stimulusPart', () => ({
   ],
   toDOM: (node) => [
     'div',
-    { 'data-type': 'stimulus-part', 'data-id': node.attrs.id, 'data-columns': node.attrs.columns },
+    { 'data-type': 'multipart-part', 'data-id': node.attrs.id, 'data-columns': node.attrs.columns },
     0,
   ],
   parseMarkdown: { match: () => false, runner: () => undefined },
   toMarkdown: { match: () => false, runner: () => undefined },
 }))
 
-// The box of Parts. It may be empty: a Stimulus with no Parts is incomplete
+// The box of Parts. It may be empty: a Multipart question with no Parts is incomplete
 // rather than invalid, and the box stays to show where one goes.
-export const stimulusPartsSchema = $nodeSchema('stimulusParts', () => ({
+export const multipartPartsSchema = $nodeSchema('multipartParts', () => ({
   group: 'block',
-  content: 'stimulusPart*',
+  content: 'multipartPart*',
   defining: true,
   isolating: true,
-  parseDOM: [{ tag: 'div[data-type="stimulus-parts"]' }],
-  toDOM: () => ['div', { 'data-type': 'stimulus-parts' }, 0],
+  parseDOM: [{ tag: 'div[data-type="multipart-parts"]' }],
+  toDOM: () => ['div', { 'data-type': 'multipart-parts' }, 0],
   parseMarkdown: { match: () => false, runner: () => undefined },
   toMarkdown: { match: () => false, runner: () => undefined },
 }))
@@ -133,7 +134,7 @@ export function setPartKind(
   setAside?: SetAsideAnswers,
 ) {
   const part = view.state.doc.nodeAt(partPosition)
-  if (part?.type.name !== 'stimulusPart') return false
+  if (part?.type.name !== 'multipartPart') return false
   const current = partKindOf(part)
   if (current === kind) return false
   const answer = part.lastChild!
@@ -154,7 +155,7 @@ export function addPart(
   kind: PartKind,
 ) {
   const box = view.state.doc.nodeAt(boxPosition)
-  if (box?.type.name !== 'stimulusParts') return false
+  if (box?.type.name !== 'multipartParts') return false
   const part = view.state.schema.nodeFromJSON(partJSON(kind))
   const insertAt = boxPosition + box.nodeSize - 1
   const tr = view.state.tr.insert(insertAt, part)
@@ -174,7 +175,7 @@ export function movePartTo(
 ) {
   const $part = view.state.doc.resolve(partPosition)
   const box = $part.parent
-  if (box.type.name !== 'stimulusParts') return false
+  if (box.type.name !== 'multipartParts') return false
   const index = $part.index()
   if (targetIndex === index || targetIndex === index + 1) return false
   if (targetIndex < 0 || targetIndex > box.childCount) return false
@@ -194,28 +195,28 @@ export function deletePart(
   partPosition: number,
 ) {
   const part = view.state.doc.nodeAt(partPosition)
-  if (part?.type.name !== 'stimulusPart') return false
+  if (part?.type.name !== 'multipartPart') return false
   view.dispatch(view.state.tr.delete(partPosition, partPosition + part.nodeSize))
   return true
 }
 
 /**
- * Keep the Parts box on the page. A Stimulus without it has nowhere to put a
+ * Keep the Parts box on the page. A Multipart question without it has nowhere to put a
  * Part, and the editor offers no other way to put one back, so a selection
  * that swallowed the box — a select-all delete, a paste over everything —
  * regrows an empty one at the end. Off for every other question type.
  */
-export const keepStimulusParts = $prose((ctx: Ctx) =>
+export const keepMultipartParts = $prose((ctx: Ctx) =>
   new Plugin({
     appendTransaction(transactions, _oldState, newState) {
-      if (!ctx.get(stimulusModeCtx)) return null
+      if (!ctx.get(multipartModeCtx)) return null
       if (!transactions.some((tr) => tr.docChanged)) return null
       let present = false
       newState.doc.forEach((node) => {
-        if (node.type.name === 'stimulusParts') present = true
+        if (node.type.name === 'multipartParts') present = true
       })
       if (present) return null
-      const box = newState.schema.nodes.stimulusParts
+      const box = newState.schema.nodes.multipartParts
       if (!box) return null
       return newState.tr.insert(newState.doc.content.size, box.create())
     },
@@ -273,9 +274,9 @@ function kindMenu(
   choose: (kind: PartKind) => void,
 ) {
   const wrap = document.createElement('span')
-  wrap.className = 'stimulus-menu-anchor'
+  wrap.className = 'multipart-menu-anchor'
   const menu = document.createElement('div')
-  menu.className = `stimulus-menu ${className}`
+  menu.className = `multipart-menu ${className}`
   menu.setAttribute('role', 'menu')
   menu.hidden = true
   button.setAttribute('aria-haspopup', 'menu')
@@ -306,7 +307,7 @@ function kindMenu(
   const items = (['multiple-choice', 'open'] as const).map((kind) => {
     const item = document.createElement('button')
     item.type = 'button'
-    item.className = 'stimulus-menu-item'
+    item.className = 'multipart-menu-item'
     item.setAttribute('role', 'menuitem')
     item.setAttribute('aria-label', PART_KIND_LABELS[kind])
     item.append(kindBadge(kind))
@@ -329,10 +330,10 @@ function kindMenu(
     /** Mark the kind the Part already is, with the tick a chosen value has. */
     mark(chosen: PartKind | null) {
       for (const { kind, item } of items) {
-        item.querySelector('.stimulus-menu-check')?.remove()
+        item.querySelector('.multipart-menu-check')?.remove()
         if (kind === chosen) {
           const check = icon('check')
-          check.classList.add('stimulus-menu-check')
+          check.classList.add('multipart-menu-check')
           item.append(check)
           item.setAttribute('aria-checked', 'true')
         } else item.removeAttribute('aria-checked')
@@ -344,7 +345,7 @@ function kindMenu(
 function addPartButton() {
   const button = document.createElement('button')
   button.type = 'button'
-  button.className = 'stimulus-add-part'
+  button.className = 'multipart-add-part'
   const label = document.createElement('span')
   label.textContent = 'Add Part'
   button.append(icon('plus'), label)
@@ -354,9 +355,9 @@ function addPartButton() {
 // Node view for the Parts box: a "Parts" heading ruled full width, with
 // "+ Add Part" at its right end; the Parts under it; and "+ Add Part" again
 // after the last of them. Either one offers the two kinds a Part can be.
-// Editor only: read-only views draw a Stimulus from the plan.
-export const stimulusPartsView = $view(
-  stimulusPartsSchema.node,
+// Editor only: read-only views draw a Multipart question from the plan.
+export const multipartPartsView = $view(
+  multipartPartsSchema.node,
   (ctx: Ctx) => {
     return (initialNode, view, getPos): NodeView => {
       let node: ProseNode = initialNode
@@ -370,29 +371,29 @@ export const stimulusPartsView = $view(
       }
 
       const dom = document.createElement('div')
-      dom.className = 'stimulus-parts'
-      dom.dataset.type = 'stimulus-parts'
+      dom.className = 'multipart-parts'
+      dom.dataset.type = 'multipart-parts'
 
       const head = document.createElement('div')
-      head.className = 'stimulus-parts-head'
+      head.className = 'multipart-parts-head'
       head.contentEditable = 'false'
       const title = document.createElement('span')
       title.textContent = 'Parts'
-      const headAdd = kindMenu(addPartButton(), 'stimulus-menu--below stimulus-menu--end', add)
+      const headAdd = kindMenu(addPartButton(), 'multipart-menu--below multipart-menu--end', add)
       head.append(title, headAdd.wrap)
 
       const contentDOM = document.createElement('div')
-      contentDOM.className = 'stimulus-parts-list'
+      contentDOM.className = 'multipart-parts-list'
 
       const empty = document.createElement('p')
-      empty.className = 'stimulus-parts-empty'
+      empty.className = 'multipart-parts-empty'
       empty.contentEditable = 'false'
       empty.textContent = 'No parts yet.'
 
       const actions = document.createElement('div')
-      actions.className = 'stimulus-parts-actions'
+      actions.className = 'multipart-parts-actions'
       actions.contentEditable = 'false'
-      const footAdd = kindMenu(addPartButton(), 'stimulus-menu--above', add)
+      const footAdd = kindMenu(addPartButton(), 'multipart-menu--above', add)
       actions.append(footAdd.wrap)
 
       dom.append(head, contentDOM, empty, actions)
@@ -436,8 +437,8 @@ export const stimulusPartsView = $view(
 // opens a menu to switch it — with the controls that move the Part up, move it
 // down and delete it at the right; then, ruled off, its stem; then its answer
 // component as the box's last cells.
-export const stimulusPartView = $view(
-  stimulusPartSchema.node,
+export const multipartPartView = $view(
+  multipartPartSchema.node,
   (ctx: Ctx) => {
     // One editor's answers set aside by switching a Part's kind, so switching
     // back brings them again. Never saved: see `SetAsideAnswers`.
@@ -447,21 +448,21 @@ export const stimulusPartView = $view(
       const editable = () => ctx.get(multipleChoiceEditableCtx)
 
       const dom = document.createElement('div')
-      dom.className = 'stimulus-part'
-      dom.dataset.type = 'stimulus-part'
+      dom.className = 'multipart-part'
+      dom.dataset.type = 'multipart-part'
 
       const header = document.createElement('div')
-      header.className = 'stimulus-part-header'
+      header.className = 'multipart-part-header'
       header.contentEditable = 'false'
 
       const label = document.createElement('span')
-      label.className = 'stimulus-part-label'
+      label.className = 'multipart-part-label'
       label.append(icon('type'), 'Type')
 
       const kindButton = document.createElement('button')
       kindButton.type = 'button'
-      kindButton.className = 'stimulus-part-kind'
-      const kind = kindMenu(kindButton, 'stimulus-menu--below', (next) => {
+      kindButton.className = 'multipart-part-kind'
+      const kind = kindMenu(kindButton, 'multipart-menu--below', (next) => {
         if (!editable()) return
         const pos = getPos()
         if (pos == null) return
@@ -470,11 +471,11 @@ export const stimulusPartView = $view(
       })
 
       const controls = document.createElement('span')
-      controls.className = 'stimulus-part-controls'
+      controls.className = 'multipart-part-controls'
       const control = (name: 'up' | 'down' | 'x', text: string, run: (pos: number) => void) => {
         const button = document.createElement('button')
         button.type = 'button'
-        button.className = `stimulus-part-control stimulus-part-${name}`
+        button.className = `multipart-part-control multipart-part-${name}`
         button.setAttribute('aria-label', text)
         button.title = text
         button.append(icon(name))
@@ -496,7 +497,7 @@ export const stimulusPartView = $view(
       header.append(label, kind.wrap, controls)
 
       const contentDOM = document.createElement('div')
-      contentDOM.className = 'stimulus-part-body'
+      contentDOM.className = 'multipart-part-body'
 
       dom.append(header, contentDOM)
 
@@ -533,13 +534,13 @@ export const stimulusPartView = $view(
 // Node view for a Part's stem: the middle of the Part's box, under its header
 // and over its answers, with a placeholder the stylesheet words for the Part's
 // kind.
-export const stimulusPartStemView = $view(
-  stimulusPartStemSchema.node,
+export const multipartPartStemView = $view(
+  multipartPartStemSchema.node,
   () => (initialNode: ProseNode): NodeView => {
     let node: ProseNode = initialNode
     const dom = document.createElement('div')
-    dom.className = 'stimulus-part-stem'
-    dom.dataset.type = 'stimulus-part-stem'
+    dom.className = 'multipart-part-stem'
+    dom.dataset.type = 'multipart-part-stem'
     return {
       dom,
       contentDOM: dom,

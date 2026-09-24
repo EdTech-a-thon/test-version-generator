@@ -43,14 +43,14 @@ Semantic rules:
 
 ## Sections and order
 
-Test Parrot always prints Question Sections in its own order: Multiple Choice, True/False, Matching, Short Answer, Stimulus. An Exam Record carries no Section order. On import, positions are stably regrouped into that order, keeping only their order within each Section. A record whose positions interleave Sections is conforming; it is not rejected and no warning is given.
+Test Parrot always prints Question Sections in its own order: Multiple Choice, True/False, Matching, Short Answer, Multipart. An Exam Record carries no Section order. On import, positions are stably regrouped into that order, keeping only their order within each Section. A record whose positions interleave Sections is conforming; it is not rejected and no warning is given.
 
 ## Defaults
 
 - A Multiple Choice position without `columns` takes the answer columns of the Multiple Choice position before it, or one column if it is the first — the same rule that applies when a teacher adds a Question to an Exam.
 - A position without `answerOrder` prints its answers in their authored order.
 - A Short Answer position without `workSpace` leaves no room.
-- A **Stimulus** position (Question Bank Record `0.4.0`) carries only `question`. Answer order, answer columns and Work Space are set per Part in Test Parrot, and this version has no member for a Part's, so none of the three is allowed on a Stimulus position and every Part imports with its defaults: answers in authored order, the default answer columns, and a Short Answer Part's default Work Space.
+- A **Multipart** position (Question Bank Record `0.4.0`) carries only `question`. Answer order, answer columns and Work Space are set per Part in Test Parrot, and this version has no member for a Part's, so none of the three is allowed on a Multipart position and every Part imports with its defaults: answers in authored order, the default answer columns, and a Short Answer Part's default Work Space.
 
 ## Producers
 

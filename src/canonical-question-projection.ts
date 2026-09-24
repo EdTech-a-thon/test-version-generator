@@ -29,7 +29,7 @@ function withoutChoiceArrangement(draft: ExamWorkingCopy, questionId: string): E
 }
 
 /** The ids of the Parts whose answers changed identity between two revisions
- *  of a Stimulus — a Part added, removed, or given a different set of choices.
+ *  of a Multipart question — a Part added, removed, or given a different set of choices.
  *  Their answer arrangements no longer describe anything, exactly as a
  *  question's does not. */
 function partsWithNewChoices(left: Question | undefined, right: Question): string[] {

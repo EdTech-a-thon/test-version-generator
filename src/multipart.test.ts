@@ -24,7 +24,7 @@ import {
 import { cleanDocument, stemNodesOf, type ProseMirrorJSON } from './question-doc'
 import { searchableText, stemPreview } from './stem-preview'
 import { createMemoryBackend, loadExamStore, type AuthoringState, type SavedState } from './exam-store'
-import { movePartTo, partKindOf, setPartKind, type SetAsideAnswers } from './stimulus'
+import { movePartTo, partKindOf, setPartKind, type SetAsideAnswers } from './multipart'
 
 function paragraph(text: string): ProseMirrorJSON {
   return { type: 'paragraph', content: [{ type: 'text', text }] }
@@ -36,10 +36,10 @@ function choice(id: string, correct = false): ProseMirrorJSON {
 
 function mcPart(id: string, choiceIds: string[], correctId = ''): ProseMirrorJSON {
   return {
-    type: 'stimulusPart',
+    type: 'multipartPart',
     attrs: { id, columns: 2 },
     content: [
-      { type: 'stimulusPartStem', content: [paragraph(`part ${id}`)] },
+      { type: 'multipartPartStem', content: [paragraph(`part ${id}`)] },
       { type: 'multipleChoice', content: choiceIds.map((cid) => choice(cid, cid === correctId)) },
     ],
   }
@@ -47,21 +47,21 @@ function mcPart(id: string, choiceIds: string[], correctId = ''): ProseMirrorJSO
 
 function saPart(id: string, answer?: string): ProseMirrorJSON {
   return {
-    type: 'stimulusPart',
+    type: 'multipartPart',
     attrs: { id, columns: 2 },
     content: [
-      { type: 'stimulusPartStem', content: [paragraph(`part ${id}`)] },
+      { type: 'multipartPartStem', content: [paragraph(`part ${id}`)] },
       { type: 'suggestedAnswer', content: [answer ? paragraph(answer) : { type: 'paragraph' }] },
     ],
   }
 }
 
-function stimulus(id: string, material: ProseMirrorJSON[], parts: ProseMirrorJSON[]): Question {
+function multipart(id: string, material: ProseMirrorJSON[], parts: ProseMirrorJSON[]): Question {
   return {
     id,
-    type: 'stimulus',
+    type: 'multipart',
     columns: DEFAULT_COLUMNS,
-    doc: { type: 'doc', content: [...material, { type: 'stimulusParts', content: parts }] },
+    doc: { type: 'doc', content: [...material, { type: 'multipartParts', content: parts }] },
   }
 }
 
@@ -74,14 +74,14 @@ function arrangementOf(questionOrder: string[], choiceOrder: Record<string, stri
 }
 
 const ottoman = () =>
-  stimulus('s1', [paragraph('The power of the Empire was waning.'), paragraph('Source: BBC')], [
+  multipart('s1', [paragraph('The power of the Empire was waning.'), paragraph('Source: BBC')], [
     mcPart('s1-a', ['a1', 'a2', 'a3', 'a4'], 'a4'),
     saPart('s1-b', 'Trade routes shifted.'),
   ])
 
-describe('a Stimulus question', () => {
+describe('a Multipart question', () => {
   test('starts with one blank Multiple Choice Part', () => {
-    const question = createQuestion('stimulus')
+    const question = createQuestion('multipart')
     const parts = partsOf(question)
     expect(parts).toHaveLength(1)
     expect(parts[0]!.type).toBe('multiple-choice')
@@ -98,7 +98,7 @@ describe('a Stimulus question', () => {
     expect(parts[1]!.suggestedAnswer).toEqual({ type: 'doc', content: [paragraph('Trade routes shifted.')] })
   })
 
-  test('its stem is the Stimulus alone, without the Parts box', () => {
+  test('its stem is the Multipart question alone, without the Parts box', () => {
     expect(stemNodesOf(ottoman().doc)).toEqual([
       paragraph('The power of the Empire was waning.'),
       paragraph('Source: BBC'),
@@ -125,8 +125,8 @@ describe('a Stimulus question', () => {
     const cleaned = cleanDocument({
       type: 'doc',
       content: [{
-        type: 'stimulusParts',
-        content: [{ type: 'stimulusPart', attrs: { id: 'p' }, content: [] }],
+        type: 'multipartParts',
+        content: [{ type: 'multipartPart', attrs: { id: 'p' }, content: [] }],
       }],
     })
     const question: Question = { ...ottoman(), doc: cleaned }
@@ -135,8 +135,8 @@ describe('a Stimulus question', () => {
     expect(part?.choices).toHaveLength(2)
   })
 
-  test('a Stimulus with no Parts is still a Stimulus', () => {
-    expect(partsOf(stimulus('s0', [paragraph('Just a passage.')], []))).toEqual([])
+  test('a Multipart question with no Parts is still a Multipart question', () => {
+    expect(partsOf(multipart('s0', [paragraph('Just a passage.')], []))).toEqual([])
   })
 
   test('Vary shuffles each Multiple Choice Part’s answers under the Part’s own id', () => {
@@ -154,15 +154,15 @@ describe('a Stimulus question', () => {
   })
 })
 
-describe('a Stimulus on the paper', () => {
+describe('a Multipart question on the paper', () => {
   const exam: Exam = { title: 'T', questions: [open('o1'), ottoman(), open('o2')] }
   const document = () => buildExportDocument(exam, arrangementOf(['o1', 's1', 'o2'], { 's1-a': ['a4', 'a1', 'a2', 'a3'] }), { test: true, answerKey: true })
   const planned = () =>
     document().test.flatMap((item) => (item.kind === 'question' ? [item.question] : []))
 
-  test('prints last, in a Stimulus section of its own, under one number', () => {
+  test('prints last, in a Multipart section of its own, under one number', () => {
     const headings = document().test.flatMap((item) => (item.kind === 'section-heading' ? [item.section] : []))
-    expect(headings).toEqual(['open', 'stimulus'])
+    expect(headings).toEqual(['open', 'multipart'])
     expect(planned().map((question) => [question.id, question.number])).toEqual([
       ['o1', 1],
       ['o2', 2],
@@ -215,7 +215,7 @@ describe('a Stimulus on the paper', () => {
   })
 })
 
-describe('a Stimulus across pages', () => {
+describe('a Multipart question across pages', () => {
   const box = pageContentHeight('first')
   // Each stem block and each Part is given a height; a piece is their sum.
   const measureOf = (block: number, part: number): Measure => ({
@@ -236,7 +236,7 @@ describe('a Stimulus across pages', () => {
       ),
     )
   const three = () =>
-    stimulus('s', [paragraph('one'), paragraph('two')], [
+    multipart('s', [paragraph('one'), paragraph('two')], [
       mcPart('p1', ['x', 'y']),
       mcPart('p2', ['x2', 'y2']),
       mcPart('p3', ['x3', 'y3']),
@@ -248,7 +248,7 @@ describe('a Stimulus across pages', () => {
     ])
   })
 
-  test('breaks only between its Parts, keeping the Stimulus with Part a', () => {
+  test('breaks only between its Parts, keeping the stem with Part a', () => {
     const part = Math.floor(box / 3)
     expect(pieces(three(), measureOf(part / 2, part))).toEqual([
       [{ stem: 2, numbered: true, parts: ['a', 'b'] }],
@@ -256,7 +256,7 @@ describe('a Stimulus across pages', () => {
     ])
   })
 
-  test('splits the Stimulus itself only when it cannot share a page with Part a', () => {
+  test('splits the stem only when it cannot share a page with Part a', () => {
     expect(pieces(three(), measureOf(Math.floor(box * 0.6), 40))).toEqual([
       [{ stem: 1, numbered: true, parts: [] }],
       [{ stem: 1, numbered: false, parts: ['a', 'b', 'c'] }],
@@ -264,7 +264,7 @@ describe('a Stimulus across pages', () => {
   })
 
   test('a Part that fills its page ends it, and the Parts after it go on the next page', () => {
-    const question = stimulus('s', [paragraph('one')], [saPart('p1'), mcPart('p2', ['x', 'y'])])
+    const question = multipart('s', [paragraph('one')], [saPart('p1'), mcPart('p2', ['x', 'y'])])
     expect(
       pieces(question, measureOf(10, 10), { p1: { height: 32, style: 'blank', fill: true } }),
     ).toEqual([
@@ -274,7 +274,7 @@ describe('a Stimulus across pages', () => {
   })
 
   test('a Part that fills its page grows to its foot', () => {
-    const question = stimulus('s', [paragraph('one')], [saPart('p1')])
+    const question = multipart('s', [paragraph('one')], [saPart('p1')])
     const plan = planExport({
       exam: { title: 'T', questions: [question], workSpace: { p1: { height: 32, style: 'lines', fill: true } } },
       arrangement: arrangementOf(['s']),
@@ -286,7 +286,7 @@ describe('a Stimulus across pages', () => {
   })
 })
 
-describe('a Stimulus on the Working Copy', () => {
+describe('a Multipart question on the Working Copy', () => {
   async function storeWith(question: Question) {
     const store = await loadExamStore(
       createMemoryBackend<AuthoringState>(null),
@@ -341,7 +341,7 @@ describe('a Stimulus on the Working Copy', () => {
   test('Replace carries each Part’s presentation to the Part in the same place', async () => {
     const store = await storeWith(ottoman())
     store.setQuestionWorkSpace(['s1-b'], { height: 64 })
-    const incoming = stimulus('s2', [paragraph('Another passage.')], [
+    const incoming = multipart('s2', [paragraph('Another passage.')], [
       mcPart('s2-a', ['b1', 'b2']),
       saPart('s2-b'),
     ])
@@ -356,7 +356,7 @@ describe('a Stimulus on the Working Copy', () => {
 describe('switching a Part between Multiple Choice and Short Answer', () => {
   const schema = new Schema({
     nodes: {
-      doc: { content: 'stimulusParts' },
+      doc: { content: 'multipartParts' },
       text: { group: 'inline' },
       paragraph: { group: 'block', content: 'inline*' },
       image: { group: 'inline', inline: true, atom: true },
@@ -366,12 +366,12 @@ describe('switching a Part between Multiple Choice and Short Answer', () => {
       },
       multipleChoice: { content: 'multipleChoiceChoice+' },
       suggestedAnswer: { content: 'block+' },
-      stimulusPartStem: { content: 'block+' },
-      stimulusPart: {
-        content: 'stimulusPartStem (multipleChoice | suggestedAnswer)',
+      multipartPartStem: { content: 'block+' },
+      multipartPart: {
+        content: 'multipartPartStem (multipleChoice | suggestedAnswer)',
         attrs: { id: { default: '' }, columns: { default: 2 } },
       },
-      stimulusParts: { content: 'stimulusPart*' },
+      multipartParts: { content: 'multipartPart*' },
     },
   })
 
@@ -381,11 +381,11 @@ describe('switching a Part between Multiple Choice and Short Answer', () => {
       doc: schema.nodeFromJSON({
         type: 'doc',
         content: [{
-          type: 'stimulusParts',
+          type: 'multipartParts',
           content: [{
-            type: 'stimulusPart',
+            type: 'multipartPart',
             attrs: { id: 'p1', columns: 1 },
-            content: [{ type: 'stimulusPartStem', content: [paragraph('Which region?')] }, answer],
+            content: [{ type: 'multipartPartStem', content: [paragraph('Which region?')] }, answer],
           }],
         }],
       }),
@@ -440,10 +440,10 @@ describe('switching a Part between Multiple Choice and Short Answer', () => {
       return pos
     }
     const second = schema.nodeFromJSON({
-      type: 'stimulusPart',
+      type: 'multipartPart',
       attrs: { id: 'p2' },
       content: [
-        { type: 'stimulusPartStem', content: [paragraph('Explain one factor.')] },
+        { type: 'multipartPartStem', content: [paragraph('Explain one factor.')] },
         { type: 'suggestedAnswer', content: [{ type: 'paragraph' }] },
       ],
     })

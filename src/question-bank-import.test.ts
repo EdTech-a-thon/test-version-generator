@@ -53,10 +53,10 @@ function baseRecord(): QuestionBankRecord {
   }
 }
 
-function stimulusQuestion(): QuestionBankRecordQuestion {
+function multipartQuestion(): QuestionBankRecordQuestion {
   return {
     id: 'q1',
-    type: 'stimulus',
+    type: 'multipart',
     stem: paragraph('The power of the [Ottoman] Empire was waning by 1683 …'),
     difficulty: 'medium',
     topics: ['Ottoman Empire'],
@@ -80,9 +80,9 @@ function stimulusQuestion(): QuestionBankRecordQuestion {
   }
 }
 
-function stimulusRecord(): QuestionBankRecord {
+function multipartRecord(): QuestionBankRecord {
   const record = baseRecord()
-  record.bank.questions = [stimulusQuestion()]
+  record.bank.questions = [multipartQuestion()]
   return record
 }
 
@@ -369,8 +369,8 @@ describe('hostile Question Bank File inspection', () => {
     )
   })
 
-  test('refuses a Stimulus Question in a 0.3.0 record', async () => {
-    const source = stimulusRecord() as QuestionBankRecord & Record<string, unknown>
+  test('refuses a Multipart Question in a 0.3.0 record', async () => {
+    const source = multipartRecord() as QuestionBankRecord & Record<string, unknown>
     source.formatVersion = '0.3.0'
     await rejected(
       inspectQuestionBankRecord(bytesOf(source)),
@@ -386,18 +386,18 @@ describe('hostile Question Bank File inspection', () => {
 
     expect(proposal.record.formatVersion).toBe(QUESTION_BANK_FORMAT_VERSION)
     expect(proposal.summary.formatVersion).toBe('0.3.0')
-    expect(proposal.summary.questionCounts.stimulus).toBe(0)
+    expect(proposal.summary.questionCounts.multipart).toBe(0)
   })
 
-  test('reads a Stimulus and imports it whole, every Part and choice under a fresh id', async () => {
-    const proposal = await inspectQuestionBankRecord(bytesOf(stimulusRecord()))
+  test('reads a Multipart question and imports it whole, every Part and choice under a fresh id', async () => {
+    const proposal = await inspectQuestionBankRecord(bytesOf(multipartRecord()))
 
-    expect(proposal.summary.questionCounts.stimulus).toBe(1)
+    expect(proposal.summary.questionCounts.multipart).toBe(1)
     expect(proposal.summary.questionsWithoutCorrectAnswer).toBe(0)
     const [imported] = importedQuestionsFromRecord(proposal.record)
-    expect(imported).toMatchObject({ type: 'stimulus', difficulty: 'medium', topics: ['Ottoman Empire'] })
+    expect(imported).toMatchObject({ type: 'multipart', difficulty: 'medium', topics: ['Ottoman Empire'] })
     // The Short Answer Part's Suggested Answer stays in the document, beside
-    // its stem, rather than becoming the Stimulus's own.
+    // its stem, rather than becoming the Multipart question's own.
     expect(imported!.suggestedAnswer).toBeUndefined()
     const parts = partsOf(imported!)
     expect(parts.map((part) => part.type)).toEqual(['multiple-choice', 'open'])
@@ -410,19 +410,19 @@ describe('hostile Question Bank File inspection', () => {
     expect(JSON.stringify(imported!.doc)).toContain('The power of the [Ottoman] Empire was waning by 1683')
   })
 
-  test('reads a Stimulus with no Parts as incomplete rather than invalid', async () => {
-    const source = stimulusRecord()
+  test('reads a Multipart question with no Parts as incomplete rather than invalid', async () => {
+    const source = multipartRecord()
     source.bank.questions[0]!.parts = []
     const proposal = await inspectQuestionBankRecord(bytesOf(source))
 
     expect(proposal.summary.questionsWithoutCorrectAnswer).toBe(1)
     const [imported] = importedQuestionsFromRecord(proposal.record)
-    expect(imported!.type).toBe('stimulus')
+    expect(imported!.type).toBe('multipart')
     expect(partsOf(imported!)).toEqual([])
   })
 
   test('refuses a Multiple Choice Part with fewer than two choices', async () => {
-    const source = stimulusRecord()
+    const source = multipartRecord()
     source.bank.questions[0]!.parts![0]!.choices!.splice(1)
     await rejected(
       inspectQuestionBankRecord(bytesOf(source)),
@@ -438,7 +438,7 @@ describe('hostile Question Bank File inspection', () => {
   })
 
   test('refuses a Short Answer Part that carries choices', async () => {
-    const source = stimulusRecord()
+    const source = multipartRecord()
     source.bank.questions[0]!.parts![1]!.choices = [
       { id: 'q1-s2-c1', content: paragraph('One'), correct: false },
       { id: 'q1-s2-c2', content: paragraph('Two'), correct: true },
@@ -446,12 +446,12 @@ describe('hostile Question Bank File inspection', () => {
     await rejected(
       inspectQuestionBankRecord(bytesOf(source)),
       'invalid-question',
-      'Part b (“q1-s2”) of Stimulus Question “q1” is Short Answer and cannot contain choices.',
+      'Part b (“q1-s2”) of Multipart Question “q1” is Short Answer and cannot contain choices.',
     )
   })
 
   test('refuses a Part of any type but Multiple Choice or Short Answer', async () => {
-    const source = stimulusRecord()
+    const source = multipartRecord()
     ;(source.bank.questions[0]!.parts![0] as { type: string }).type = 'true-false'
     await rejected(
       inspectQuestionBankRecord(bytesOf(source)),
@@ -461,7 +461,7 @@ describe('hostile Question Bank File inspection', () => {
   })
 
   test('refuses a Multiple Choice Part with two correct choices, or a Suggested Answer', async () => {
-    const source = stimulusRecord()
+    const source = multipartRecord()
     const part = source.bank.questions[0]!.parts![0]!
     part.choices![0]!.correct = true
     await rejected(
@@ -478,15 +478,15 @@ describe('hostile Question Bank File inspection', () => {
     )
   })
 
-  test('refuses Parts on a Question that is not a Stimulus, and choices on a Stimulus itself', async () => {
+  test('refuses Parts on a Question that is not a Multipart question, and choices on a Multipart question itself', async () => {
     const onMultipleChoice = baseRecord()
     onMultipleChoice.bank.questions[0]!.parts = []
     await rejected(
       inspectQuestionBankRecord(bytesOf(onMultipleChoice)),
       'invalid-question',
-      'cannot contain Stimulus Parts',
+      'cannot contain Multipart Parts',
     )
-    const withChoices = stimulusRecord()
+    const withChoices = multipartRecord()
     withChoices.bank.questions[0]!.choices = [
       { id: 'q1-c1', content: paragraph('One'), correct: false },
       { id: 'q1-c2', content: paragraph('Two'), correct: true },
@@ -499,7 +499,7 @@ describe('hostile Question Bank File inspection', () => {
   })
 
   test('refuses a Part id used twice', async () => {
-    const source = stimulusRecord()
+    const source = multipartRecord()
     source.bank.questions[0]!.parts![1]!.id = 'q1-s1'
     await rejected(
       inspectQuestionBankRecord(bytesOf(source)),

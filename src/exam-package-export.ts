@@ -106,7 +106,7 @@ export async function examPackage({
     return { id: bankId, record: prepared.record }
   }))
 
-  // A Stimulus travels as a bare position. Its Parts' answer order, answer
+  // A Multipart question travels as a bare position. Its Parts' answer order, answer
   // columns and Work Space are not carried yet — Exam Record 0.1.0 keys
   // presentation by Question and has nowhere to put a Part's — so the
   // imported Exam gives each Part its defaults.

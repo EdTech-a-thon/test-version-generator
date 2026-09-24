@@ -78,9 +78,9 @@ describe('public Question Bank Record 0.4.0 contract', () => {
       'matching.json',
       'media-rich.json',
       'minimal-multiple-choice.json',
+      'multipart.json',
       'provenance-and-links.json',
       'short-answer.json',
-      'stimulus.json',
       'true-false.json',
     ])
     for (const name of names) {
@@ -101,7 +101,7 @@ describe('public Question Bank Record 0.4.0 contract', () => {
       'true-false': 2,
       matching: 0,
       'short-answer': 0,
-      stimulus: 0,
+      multipart: 0,
     })
     expect(proposal.record.bank.questions[0]).toMatchObject({
       type: 'true-false',
@@ -120,7 +120,7 @@ describe('public Question Bank Record 0.4.0 contract', () => {
       'true-false': 0,
       matching: 2,
       'short-answer': 0,
-      stimulus: 0,
+      multipart: 0,
     })
     // The second set leaves an item unmatched; that is reported, not refused.
     expect(proposal.summary.questionsWithoutCorrectAnswer).toBe(1)
@@ -146,9 +146,9 @@ describe('public Question Bank Record 0.4.0 contract', () => {
     expect(terms!.wordBank).toHaveLength(3)
   })
 
-  test('a Stimulus Question keeps its Parts in lettered order, each answering as its own type', async () => {
+  test('a Multipart Question keeps its Parts in lettered order, each answering as its own type', async () => {
     const proposal = await inspectQuestionBankRecord(
-      await Bun.file(join(exampleRoot, 'stimulus.json')).bytes(),
+      await Bun.file(join(exampleRoot, 'multipart.json')).bytes(),
     )
 
     expect(proposal.summary.questionCounts).toEqual({
@@ -156,15 +156,15 @@ describe('public Question Bank Record 0.4.0 contract', () => {
       'true-false': 0,
       matching: 0,
       'short-answer': 0,
-      stimulus: 3,
+      multipart: 3,
     })
-    // The third Stimulus has no Parts yet; that is reported, not refused.
+    // The third Multipart question has no Parts yet; that is reported, not refused.
     expect(proposal.summary.questionsWithoutCorrectAnswer).toBe(1)
     const [ottoman, liberty, unfinished] = proposal.record.bank.questions
-    // The source line is ordinary Stimulus content, not a field of its own.
+    // The source line is ordinary stem content, not a field of its own.
     expect(JSON.stringify(ottoman!.stem)).toContain('Source: “Ottoman Empire (1301–1922),” BBC online')
     expect(ottoman).toMatchObject({
-      type: 'stimulus',
+      type: 'multipart',
       difficulty: 'medium',
       topics: ['Ottoman Empire'],
       parts: [
@@ -189,7 +189,7 @@ describe('public Question Bank Record 0.4.0 contract', () => {
     expect(unfinished!.parts).toEqual([])
 
     const imported = importedQuestionsFromRecord(proposal.record)
-    expect(imported.map((question) => question.type)).toEqual(['stimulus', 'stimulus', 'stimulus'])
+    expect(imported.map((question) => question.type)).toEqual(['multipart', 'multipart', 'multipart'])
     expect(partsOf(imported[1]!).map((part) => part.type)).toEqual([
       'multiple-choice',
       'open',
@@ -259,8 +259,8 @@ describe('public Question Bank Record 0.4.0 contract', () => {
       'bad-reference.json',
       'invalid-media.json',
       'malformed-matching.json',
+      'malformed-multipart.json',
       'malformed-question.json',
-      'malformed-stimulus.json',
       'malformed-true-false.json',
       'unsafe-url.json',
       'unsupported-required-feature.json',
@@ -324,7 +324,7 @@ describe('public Question Bank Record 0.4.0 contract', () => {
       'multipleChoiceChoice',
       'matchingPrompt',
       'matchingAnswer',
-      'stimulusPart',
+      'multipartPart',
       'Exam Layout Plan',
       'Working Copy',
     ])
@@ -354,21 +354,21 @@ describe('public Question Bank Record 0.4.0 contract', () => {
           },
         },
         {
-          id: 'local-stimulus',
-          type: 'stimulus',
+          id: 'local-multipart',
+          type: 'multipart',
           columns: 2,
           doc: {
             type: 'doc',
             content: [
               { type: 'paragraph', content: [{ type: 'text', text: 'Read the passage.' }] },
               {
-                type: 'stimulusParts',
+                type: 'multipartParts',
                 content: [
                   {
-                    type: 'stimulusPart',
+                    type: 'multipartPart',
                     attrs: { id: 'local-part-a', columns: 4 },
                     content: [
-                      { type: 'stimulusPartStem', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Which?' }] }] },
+                      { type: 'multipartPartStem', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Which?' }] }] },
                       {
                         type: 'multipleChoice',
                         content: ['This', 'That'].map((answer, index) => ({
@@ -380,10 +380,10 @@ describe('public Question Bank Record 0.4.0 contract', () => {
                     ],
                   },
                   {
-                    type: 'stimulusPart',
+                    type: 'multipartPart',
                     attrs: { id: 'local-part-b', columns: 2 },
                     content: [
-                      { type: 'stimulusPartStem', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Why?' }] }] },
+                      { type: 'multipartPartStem', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Why?' }] }] },
                       { type: 'suggestedAnswer', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Because.' }] }] },
                     ],
                   },
@@ -470,18 +470,18 @@ describe('retained Question Bank Record 0.3.0 contract', () => {
     }
   })
 
-  test('a 0.3.0 record cannot hold a Stimulus, since a 0.3.0 consumer would reject one', async () => {
-    const stimulus = (await fixture(
+  test('a 0.3.0 record cannot hold a Multipart question, since a 0.3.0 consumer would reject one', async () => {
+    const multipart = (await fixture(
       join(exampleRoot),
-      'stimulus.json',
+      'multipart.json',
     )) as QuestionBankRecord & { formatVersion: string }
-    stimulus.formatVersion = '0.3.0'
+    multipart.formatVersion = '0.3.0'
     const validate = new Ajv2020({ allErrors: true, strict: false }).compile(publicSchema030)
 
-    expect(validate(stimulus)).toBe(false)
+    expect(validate(multipart)).toBe(false)
     try {
-      await inspectQuestionBankRecord(new TextEncoder().encode(JSON.stringify(stimulus)))
-      throw new Error('A 0.3.0 Stimulus unexpectedly conformed')
+      await inspectQuestionBankRecord(new TextEncoder().encode(JSON.stringify(multipart)))
+      throw new Error('A 0.3.0 Multipart question unexpectedly conformed')
     } catch (error) {
       expect(error).toBeInstanceOf(QuestionBankImportError)
       expect((error as QuestionBankImportError).code).toBe('invalid-structure')
@@ -605,7 +605,7 @@ describe('retained Question Bank Record 0.1.0 contract', () => {
       'true-false',
       'matching',
       'short-answer',
-      'stimulus',
+      'multipart',
     ])
   })
 

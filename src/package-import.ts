@@ -255,10 +255,10 @@ function proposedExam(
     used.add(key)
     if (!bankOrder.includes(bank)) bankOrder.push(bank)
 
-    // A Stimulus position is accepted as a whole Question and sets none of
+    // A Multipart position is accepted as a whole Question and sets none of
     // these: its answer columns, answer order and Work Space are set per Part,
     // and Exam Record 0.1.0 has nowhere yet to carry per-Part presentation, so
-    // an imported Stimulus takes each Part's defaults.
+    // an imported Multipart question takes each Part's defaults.
     if (position.columns !== undefined && question.type !== 'multiple-choice') {
       throw new QuestionBankImportError(
         'invalid-position',

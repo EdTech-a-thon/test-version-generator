@@ -25,8 +25,8 @@ export type QuestionReadingContent = {
     wordBank: { id: string; content: ProseMirrorJSON[] }[]
   }
   suggestedAnswer?: ProseMirrorJSON[]
-  /** A Stimulus's Parts, lettered as the test prints them, each with its own
-   *  answers; the Stimulus itself is `stem`. */
+  /** A Multipart question's Parts, lettered as the test prints them, each with its own
+   *  answers; the shared material is `stem`. */
   parts?: {
     id: string
     letter: string
@@ -56,7 +56,7 @@ export function readingOfQuestion(question: Question): QuestionReadingContent {
         : {}),
     }
   }
-  if (question.type === 'stimulus') {
+  if (question.type === 'multipart') {
     return {
       ...base,
       parts: partsOf(question).map((part, index) => ({

@@ -192,12 +192,12 @@ const matching: Question = {
   },
 }
 
-// A Stimulus with one Multiple Choice Part and one Short Answer Part. The
+// A Multipart question with one Multiple Choice Part and one Short Answer Part. The
 // Short Answer Part's Suggested Answer stays inside the document, and the
 // Multiple Choice Part's answer columns are presentation the record omits.
-const stimulus: Question = {
-  id: 'local-stimulus-id',
-  type: 'stimulus',
+const multipart: Question = {
+  id: 'local-multipart-id',
+  type: 'multipart',
   columns: 2,
   difficulty: 'medium',
   topics: ['Ottoman Empire'],
@@ -207,14 +207,14 @@ const stimulus: Question = {
       paragraph(text('The power of the [Ottoman] Empire was waning by 1683 …')),
       paragraph(text('Source: “Ottoman Empire (1301–1922),” BBC online, 2009 (adapted)')),
       {
-        type: 'stimulusParts',
+        type: 'multipartParts',
         content: [
           {
-            type: 'stimulusPart',
+            type: 'multipartPart',
             attrs: { id: 'local-part-a', columns: 4 },
             content: [
               {
-                type: 'stimulusPartStem',
+                type: 'multipartPartStem',
                 content: [paragraph(text('Which region was controlled by the Ottoman Empire in 1683?'))],
               },
               {
@@ -229,11 +229,11 @@ const stimulus: Question = {
             ],
           },
           {
-            type: 'stimulusPart',
+            type: 'multipartPart',
             attrs: { id: 'local-part-b', columns: 2 },
             content: [
               {
-                type: 'stimulusPartStem',
+                type: 'multipartPartStem',
                 content: [paragraph(text('Identify an issue faced by the Ottoman Empire in the 1600s.'))],
               },
               {
@@ -248,15 +248,15 @@ const stimulus: Question = {
   },
 }
 
-const emptyStimulus: Question = {
-  id: 'local-empty-stimulus-id',
-  type: 'stimulus',
+const emptyMultipart: Question = {
+  id: 'local-empty-multipart-id',
+  type: 'multipart',
   columns: 2,
   doc: {
     type: 'doc',
     content: [
       paragraph(text('Study the map of the Silk Road.')),
-      { type: 'stimulusParts', content: [] },
+      { type: 'multipartParts', content: [] },
     ],
   },
 }
@@ -404,13 +404,13 @@ describe('Question Bank exchange export seam', () => {
     )
   })
 
-  test('writes a Stimulus as its material and lettered Parts, each under a package-local id', async () => {
-    const { record } = await prepareQuestionBankExport(bank([stimulus, emptyStimulus]))
+  test('writes a Multipart question as its material and lettered Parts, each under a package-local id', async () => {
+    const { record } = await prepareQuestionBankExport(bank([multipart, emptyMultipart]))
 
     expect(record.formatVersion).toBe('0.4.0')
     expect(record.bank.questions[0]).toEqual({
       id: 'q1',
-      type: 'stimulus',
+      type: 'multipart',
       stem: {
         type: 'document',
         content: [
@@ -451,20 +451,20 @@ describe('Question Bank exchange export seam', () => {
         },
       ],
     })
-    // A Stimulus with no Parts yet is incomplete, not unexportable.
-    expect(record.bank.questions[1]).toMatchObject({ id: 'q2', type: 'stimulus', parts: [] })
+    // A Multipart question with no Parts yet is incomplete, not unexportable.
+    expect(record.bank.questions[1]).toMatchObject({ id: 'q2', type: 'multipart', parts: [] })
     const encoded = JSON.stringify(record)
     expect(encoded).not.toContain('local-')
-    expect(encoded).not.toContain('stimulusPart')
+    expect(encoded).not.toContain('multipartPart')
     expect(encoded).not.toContain('columns')
   })
 
-  test('a Stimulus round-trips through the record with its Parts, answers and Suggested Answer intact', async () => {
-    const first = await prepareQuestionBankExport(bank([stimulus, emptyStimulus]))
+  test('a Multipart question round-trips through the record with its Parts, answers and Suggested Answer intact', async () => {
+    const first = await prepareQuestionBankExport(bank([multipart, emptyMultipart]))
     const inspected = await inspectQuestionBankRecord(first.recordBytes)
     const imported = importedQuestionsFromRecord(inspected.record)
 
-    expect(imported.map((question) => question.type)).toEqual(['stimulus', 'stimulus'])
+    expect(imported.map((question) => question.type)).toEqual(['multipart', 'multipart'])
     const parts = partsOf(imported[0]!)
     expect(parts.map((part) => part.type)).toEqual(['multiple-choice', 'open'])
     expect(parts[0]!.choices.map((choice) => choice.correct)).toEqual([false, false, false, true])
@@ -476,7 +476,7 @@ describe('Question Bank exchange export seam', () => {
   })
 
   test('collects images inside Part stems, choices and Suggested Answers into media', async () => {
-    const withImages = structuredClone(stimulus)
+    const withImages = structuredClone(multipart)
     const [partA, partB] = (withImages.doc.content as Record<string, unknown>[]).at(-1)!
       .content as { content: Record<string, unknown>[] }[]
     const image = (name: string) => ({ type: 'image-block', attrs: { src: `/local-images/${name}` } })
@@ -498,7 +498,7 @@ describe('Question Bank exchange export seam', () => {
   })
 
   test('refuses a Multiple Choice Part with fewer than two choices', async () => {
-    const thin = structuredClone(stimulus)
+    const thin = structuredClone(multipart)
     const [partA] = (thin.doc.content as Record<string, unknown>[]).at(-1)!
       .content as { content: { content: unknown[] }[] }[]
     partA!.content[1]!.content.splice(1)
@@ -683,8 +683,8 @@ describe('Question Bank exchange export seam', () => {
     expect(source).toContain('/AFRelationship /Source')
   })
 
-  test('previews a Stimulus as its material, then its lettered Parts with their answers', async () => {
-    const prepared = await prepareQuestionBankExport(bank([stimulus, emptyStimulus]))
+  test('previews a Multipart question as its material, then its lettered Parts with their answers', async () => {
+    const prepared = await prepareQuestionBankExport(bank([multipart, emptyMultipart]))
     const bytes = await createQuestionBankPdf(prepared, fonts)
     const reader = await getDocument({ data: bytes.slice(), disableWorker: true }).promise
     const preview = (
@@ -697,7 +697,7 @@ describe('Question Bank exchange export seam', () => {
       )
     ).join(' ')
 
-    expect(preview).toMatch(/Question Type:\s+Stimulus/)
+    expect(preview).toMatch(/Question Type:\s+Multipart/)
     const order = [
       'The power of the [Ottoman] Empire',
       'Source:',

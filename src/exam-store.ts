@@ -351,7 +351,7 @@ function sameExamWorkingCopy(left: ExamWorkingCopy, right: ExamWorkingCopy): boo
     )
 }
 
-/** The Part with this id, when it belongs to a Stimulus this Exam references.
+/** The Part with this id, when it belongs to a Multipart question this Exam references.
  *  Part ids and question ids never collide — both are fresh UUIDs — so a
  *  presentation setting addressed to one can tell which it is by looking. */
 function referencedPartOf(state: AuthoringState, id: string): Part | undefined {
@@ -363,7 +363,7 @@ function referencedPartOf(state: AuthoringState, id: string): Part | undefined {
   return undefined
 }
 
-/** A duplicate Stimulus looks like its original on the sheet: each of its
+/** A duplicate Multipart question looks like its original on the sheet: each of its
  *  Parts takes the answer order, columns and work space its original Part had
  *  here, under the copy's fresh Part and choice ids. */
 function withPartPresentationCopied(
@@ -683,7 +683,7 @@ export function createExamStore(options: {
         let changed = false
         const nextColumns = { ...currentColumns }
         for (const questionId of targeted) {
-          // A Multiple Choice Part of a Stimulus on this Exam lays its answers
+          // A Multiple Choice Part of a Multipart question on this Exam lays its answers
           // out under its own id, as a question does under its.
           const part = referencedPartOf(current, questionId)
           if (part && part.type !== 'multiple-choice') continue
@@ -708,7 +708,7 @@ export function createExamStore(options: {
         let changed = false
         const nextSpaces = { ...currentSpaces }
         for (const questionId of targeted) {
-          // A Short Answer Part of a Stimulus on this Exam leaves room under
+          // A Short Answer Part of a Multipart question on this Exam leaves room under
           // its own id, as a Short Answer question does under its.
           const part = referencedPartOf(current, questionId)
           if (part) {

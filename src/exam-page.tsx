@@ -292,9 +292,9 @@ function questionMenuItems({
       columnsMenu('Answer columns', columns, (next) => onSetColumns(actedOnIds, next)),
     )
   }
-  // A Stimulus lays out each Part the way a question of its kind is laid out,
+  // A Multipart question lays out each Part the way a question of its kind is laid out,
   // so each Part gets the controls a question of its kind would — for that
-  // Part alone, since Parts of different Stimulus questions have nothing to
+  // Part alone, since Parts of different Multipart questions have nothing to
   // line up with one another.
   for (const part of question.parts ?? []) {
     items.push({ kind: 'separator' })
@@ -559,7 +559,7 @@ function QuestionView({
   const question = item.question
   // The height a work-space drag is showing before it commits, or `null`.
   const [previewHeight, setPreviewHeight] = useState<number | null>(null)
-  // The same for one of a Stimulus's Short Answer Parts, by the Part's id.
+  // The same for one of a Multipart question's Short Answer Parts, by the Part's id.
   const [partPreview, setPartPreview] = useState<{ partId: string; height: number } | null>(null)
   const previewed = (space: PlannedWorkSpace, height: number): PlannedWorkSpace => ({
     ...space,

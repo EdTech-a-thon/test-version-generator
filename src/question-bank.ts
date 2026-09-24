@@ -103,7 +103,7 @@ export function withReferenceAdded(
 
 /** Removes references from the Working Copy. The Question Bank is not this
  *  function's business: Remove excludes, it never deletes. `partIds` are the
- *  Parts of any Stimulus among them — only the bank knows what they are — whose
+ *  Parts of any Multipart question among them — only the bank knows what they are — whose
  *  answer order, columns and work space this Exam set under their own ids. */
 export function withReferencesRemoved(
   draft: ExamWorkingCopy,
@@ -178,7 +178,7 @@ export function withChoiceOrder(
   return { ...draft, choiceOrder }
 }
 
-/** What a Replace of one Stimulus by another knows about their Parts: every
+/** What a Replace of one Multipart question by another knows about their Parts: every
  *  Part id of the outgoing question, and which outgoing Part each incoming Part
  *  stands in for. */
 export type ReplacedParts = {
@@ -230,7 +230,7 @@ export function withReferenceReplaced(
   delete workSpace?.[outgoingQuestionId]
   delete workSpace?.[incomingQuestionId]
   if (outgoingWorkSpace !== undefined) workSpace![incomingQuestionId] = outgoingWorkSpace
-  // A Stimulus's Parts keep the page's shape position by position: each
+  // A Multipart question's Parts keep the page's shape position by position: each
   // incoming Part takes the columns and work space of the outgoing Part in the
   // same place, where the two are the same kind. Answer order starts fresh, as
   // it does for the question.

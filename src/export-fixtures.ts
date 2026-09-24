@@ -131,9 +131,9 @@ function part(
   columns: Question['columns'] = DEFAULT_COLUMNS,
 ): ProseMirrorJSON {
   return {
-    type: 'stimulusPart',
+    type: 'multipartPart',
     attrs: { id, columns },
-    content: [{ type: 'stimulusPartStem', content: stem }, answer],
+    content: [{ type: 'multipartPartStem', content: stem }, answer],
   }
 }
 
@@ -145,18 +145,18 @@ function suggestedAnswer(...blocks: ProseMirrorJSON[]): ProseMirrorJSON {
   return { type: 'suggestedAnswer', content: blocks.length > 0 ? blocks : [paragraph()] }
 }
 
-function stimulus(
+function multipart(
   id: string,
   material: ProseMirrorJSON[],
   parts: ProseMirrorJSON[],
 ): Question {
   return {
     id,
-    type: 'stimulus',
+    type: 'multipart',
     columns: DEFAULT_COLUMNS,
     doc: {
       type: 'doc',
-      content: [...material, { type: 'stimulusParts', content: parts }],
+      content: [...material, { type: 'multipartParts', content: parts }],
     },
   }
 }
@@ -293,18 +293,18 @@ const COMPOSITE_EXAM: Exam = {
 }
 
 export const FIXTURES: readonly Fixture[] = [
-  // A Stimulus is the one shape that takes one number for several questions:
+  // A Multipart question is the one shape that takes one number for several questions:
   // the material prints under the number, and each Part prints lettered
   // beneath it the way a question of its kind prints — a Multiple Choice Part
   // with its blank and grid, a Short Answer Part with its work space. Its
   // Multiple Choice Part's answers are shuffled under the Part's own id, so
   // the letter the key reports is the arrangement's.
   fixture(
-    'a stimulus with a multiple-choice part and a short-answer part',
+    'a multipart with a multiple-choice part and a short-answer part',
     {
       title: 'Ottoman Empire',
       questions: [
-        stimulus(
+        multipart(
           's1',
           [
             paragraph(
@@ -354,15 +354,15 @@ export const FIXTURES: readonly Fixture[] = [
     { answerKey: true },
   ),
 
-  // A Stimulus too tall for one page with all its Parts breaks between them:
+  // A Multipart question too tall for one page with all its Parts breaks between them:
   // the material stays with Part a, and later Parts go on to the next page,
   // each whole.
   fixture(
-    'a stimulus whose later parts continue on the next page',
+    'a multipart whose later parts continue on the next page',
     {
       title: 'Reading',
       questions: [
-        stimulus(
+        multipart(
           's2',
           [paragraph(text('Read the passage below.')), paragraph(text('A long passage.'))],
           ['a', 'b', 'c'].map((letter) =>

@@ -142,15 +142,15 @@ import { questionBankCollection, type QuestionBankCollectionItem } from './resou
 import { QuestionBankExportDialog } from './question-bank-export-dialog'
 import { QuestionBankImportDialog } from './question-bank-import-dialog'
 import {
-  keepStimulusParts,
-  stimulusMode,
-  stimulusPartSchema,
-  stimulusPartStemSchema,
-  stimulusPartStemView,
-  stimulusPartView,
-  stimulusPartsSchema,
-  stimulusPartsView,
-} from './stimulus'
+  keepMultipartParts,
+  multipartMode,
+  multipartPartSchema,
+  multipartPartStemSchema,
+  multipartPartStemView,
+  multipartPartView,
+  multipartPartsSchema,
+  multipartPartsView,
+} from './multipart'
 import {
   keepSuggestedAnswer,
   suggestedAnswerMode,
@@ -165,7 +165,7 @@ const QUESTION_TYPE_ICONS: Record<QuestionType, ReactNode> = {
   'true-false': <ToggleLeft />,
   matching: <Link2 />,
   open: <AlignLeft />,
-  stimulus: <BookOpenText />,
+  multipart: <BookOpenText />,
 }
 
 const STORAGE_NOTICE_DURATION = 8_000
@@ -406,7 +406,7 @@ function CrepeQuestion({
   suggestedAnswer = false,
   fixedChoices = false,
   matching = false,
-  stimulus = false,
+  multipart = false,
 }: {
   value: ProseMirrorJSON
   onChange: (doc: ProseMirrorJSON) => void
@@ -418,9 +418,9 @@ function CrepeQuestion({
   /** Whether the question is a matching set, whose prompts and Word Bank are
    *  kept on the page the way a Suggested Answer block is. */
   matching?: boolean
-  /** Whether the question is a Stimulus, whose Parts box is kept on the page
+  /** Whether the question is a Multipart question, whose Parts box is kept on the page
    *  the way a matching set is. */
-  stimulus?: boolean
+  multipart?: boolean
 }) {
   useEditor((root) => {
     const safeValue = cleanDocument(value)
@@ -461,8 +461,8 @@ function CrepeQuestion({
         [Crepe.Feature.Cursor]: { virtual: false },
         [Crepe.Feature.ImageBlock]: { onUpload: saveImage },
         [Crepe.Feature.Placeholder]: {
-          text: stimulus
-            ? 'Stimulus: a passage, quote, image, or table…'
+          text: multipart
+            ? 'Write the shared material: a passage, quote, image or table…'
             : 'Write the question…',
         },
         [Crepe.Feature.Toolbar]: {
@@ -497,7 +497,7 @@ function CrepeQuestion({
       .use(multipleChoiceMode(true, fixedChoices))
       .use(suggestedAnswerMode(suggestedAnswer))
       .use(matchingMode(matching))
-      .use(stimulusMode(stimulus))
+      .use(multipartMode(multipart))
       .use(subscriptSchema)
       .use(superscriptSchema)
       .use(scriptKeymap)
@@ -522,13 +522,13 @@ function CrepeQuestion({
       .use(matchingKeymap)
       .use(syncMatchingPicks)
       .use(keepMatching)
-      .use(stimulusPartsSchema)
-      .use(stimulusPartSchema)
-      .use(stimulusPartStemSchema)
-      .use(stimulusPartsView)
-      .use(stimulusPartView)
-      .use(stimulusPartStemView)
-      .use(keepStimulusParts)
+      .use(multipartPartsSchema)
+      .use(multipartPartSchema)
+      .use(multipartPartStemSchema)
+      .use(multipartPartsView)
+      .use(multipartPartView)
+      .use(multipartPartStemView)
+      .use(keepMultipartParts)
     // Make the whole multiple-choice block — or matching set — the drag target
     // instead of a single answer row: never offer a handle for a choice, prompt
     // or Word Bank answer itself, so Crepe's handle climbs to the block.
@@ -554,16 +554,16 @@ function CrepeQuestion({
             || node?.type?.name === 'matchingPrompt'
             || node?.type?.name === 'matchingAnswer'
             || node?.type?.name === 'suggestedAnswer'
-            || node?.type?.name === 'stimulusParts'
-            || node?.type?.name === 'stimulusPart'
-            || node?.type?.name === 'stimulusPartStem'
+            || node?.type?.name === 'multipartParts'
+            || node?.type?.name === 'multipartPart'
+            || node?.type?.name === 'multipartPartStem'
           ) return false
           // A Part's answers belong to that Part, and a Part is moved with
           // its own controls, so nothing inside the box offers a handle of
           // its own but the blocks a stem or an answer is written in.
           if (node?.type?.name === 'multipleChoice') {
             for (let depth = pos.depth; depth > 0; depth -= 1) {
-              if (pos.node(depth).type.name === 'stimulusPart') return false
+              if (pos.node(depth).type.name === 'multipartPart') return false
             }
           }
           // A True/False question's pair is not the teacher's to move: it has
@@ -782,7 +782,7 @@ function QuestionDialog({
             suggestedAnswer={type === 'open'}
             fixedChoices={type === 'true-false'}
             matching={type === 'matching'}
-            stimulus={type === 'stimulus'}
+            multipart={type === 'multipart'}
             onReady={(readDocument) => {
               readEditorDocument.current = readDocument
             }}

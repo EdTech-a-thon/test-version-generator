@@ -22,7 +22,7 @@ export type StemPreview = {
   /** Which kinds of non-prose content the stem holds, in the order the stem
    *  reaches them and each named once. */
   badges: StemPreviewBadge[]
-  /** How many Parts a Stimulus holds — the row says so beside the Stimulus's
+  /** How many Parts a Multipart question holds — the row says so beside the Multipart question's
    *  own line. Absent for every other Question Type. */
   parts?: number
 }
@@ -56,15 +56,15 @@ const BADGE_NODES: Record<string, StemPreviewBadge> = {
  */
 export function stemPreview(question: Question): StemPreview {
   const preview = previewOf(stemNodesOf(question.doc))
-  return question.type === 'stimulus'
+  return question.type === 'multipart'
     ? { ...preview, parts: partsOf(question).length }
     : preview
 }
 
 /**
  * Everything a stem search reads for this question: the row's own line and,
- * for a Stimulus, each Part's stem as well — a teacher looking for "Ottoman"
- * should find the Stimulus whether the word is in the passage or in the
+ * for a Multipart question, each Part's stem as well — a teacher looking for "Ottoman"
+ * should find the Multipart question whether the word is in the passage or in the
  * question asked about it. Answers stay out of reach, as they do for any
  * question.
  */

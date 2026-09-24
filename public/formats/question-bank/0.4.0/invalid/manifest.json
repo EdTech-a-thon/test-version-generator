@@ -3,7 +3,7 @@
   "invalid-media.json": "invalid-media",
   "malformed-matching.json": "dangling-reference",
   "malformed-question.json": "invalid-structure",
-  "malformed-stimulus.json": "invalid-question",
+  "malformed-multipart.json": "invalid-question",
   "malformed-true-false.json": "invalid-structure",
   "unsafe-url.json": "unsafe-url",
   "unsupported-required-feature.json": "unsupported-feature",

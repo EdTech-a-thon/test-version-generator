@@ -491,7 +491,7 @@
             "true-false",
             "matching",
             "short-answer",
-            "stimulus"
+            "multipart"
           ]
         },
         "stem": {
@@ -621,7 +621,7 @@
           "if": {
             "properties": {
               "type": {
-                "const": "stimulus"
+                "const": "multipart"
               }
             },
             "required": [

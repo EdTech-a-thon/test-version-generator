@@ -46,7 +46,7 @@ function sameWorkSpace(
     })
 }
 
-/** A Stimulus with this Exam's answer columns written onto its Multiple
+/** A Multipart question with this Exam's answer columns written onto its Multiple
  *  Choice Parts, as a question's own `columns` is overridden: the Part nodes
  *  carry the layout each Part starts with, and the Working Copy the layout this
  *  Exam gives it. The same question comes back when nothing differs, so a
@@ -67,7 +67,7 @@ function withPartColumns(
     doc: {
       ...question.doc,
       content: content.map((node) =>
-        node.type !== 'stimulusParts' || !Array.isArray(node.content)
+        node.type !== 'multipartParts' || !Array.isArray(node.content)
           ? node
           : {
               ...node,
@@ -116,14 +116,14 @@ export function selectedExam(
   // Question's authored/default layout only until this Exam specifies one.
   const columns = draft.columns ?? {}
   const questions = bankedQuestions.map((question) =>
-    question.type === 'stimulus'
+    question.type === 'multipart'
       ? withPartColumns(question, columns)
       : columns[question.id] === undefined || columns[question.id] === columnsOf(question)
         ? question
         : { ...question, columns: columns[question.id]! },
   )
   // Work space is this Exam's presentation too. Only referenced questions —
-  // and the Parts of referenced Stimulus questions — carry one, and only a
+  // and the Parts of referenced Multipart questions — carry one, and only a
   // readable record, so nothing downstream has to guard.
   const presented = new Set(bankedQuestions.flatMap(presentationIdsOf))
   const workSpace: Record<string, WorkSpace> = {}

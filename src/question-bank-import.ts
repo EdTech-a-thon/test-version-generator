@@ -117,7 +117,7 @@ export type QuestionBankImportProposal = {
     questionCounts: Record<QuestionBankRecordQuestionType, number>
     topics: string[]
     /** Questions that answer with choices but have none marked correct,
-     *  matching sets with an item left unmatched, and Stimuli with no Parts or
+     *  matching sets with an item left unmatched, and Multipart questions with no Parts or
      *  with a Multiple Choice Part none of whose choices is correct. That is
      *  conforming — a bank may be shared mid-authoring — so it is reported
      *  rather than refused. */
@@ -136,14 +136,14 @@ const LOCAL_TYPES: Record<QuestionBankRecordQuestionType, QuestionType> = {
   'true-false': 'true-false',
   matching: 'matching',
   'short-answer': 'open',
-  stimulus: 'stimulus',
+  multipart: 'multipart',
 }
 
 /** Where each package-local id of one record Question landed locally. */
 export type ImportedQuestionIdentity = {
   question: Question
   /** Choice ids for Multiple Choice and True/False; Word Bank ids for
-   *  Matching; Part ids and every Part's choice ids for a Stimulus. Answer
+   *  Matching; Part ids and every Part's choice ids for a Multipart question. Answer
    *  order in an Exam Record is written in these. */
   answers: ReadonlyMap<string, string>
 }
@@ -177,7 +177,7 @@ function importedMatching(
   }
 }
 
-/** A Stimulus's Parts box: each Part given a fresh local id, its stem, then
+/** A Multipart question's Parts box: each Part given a fresh local id, its stem, then
  *  its answer component — a Multiple Choice Part's choices, each with a fresh
  *  id, or a Short Answer Part's Suggested Answer, which stays inside the
  *  document beside the stem it answers, unlike a Short Answer question's. A
@@ -189,15 +189,15 @@ function importedParts(
   answerIds: Map<string, string>,
 ): ProseMirrorJSON {
   return {
-    type: 'stimulusParts',
+    type: 'multipartParts',
     content: parts.map((part) => {
       const id = createId()
       answerIds.set(part.id, id)
       return {
-        type: 'stimulusPart',
+        type: 'multipartPart',
         attrs: { id, columns: DEFAULT_COLUMNS },
         content: [
-          { type: 'stimulusPartStem', content: blocksOrBlank(part.stem) },
+          { type: 'multipartPartStem', content: blocksOrBlank(part.stem) },
           part.type === 'multiple-choice'
             ? {
                 type: 'multipleChoice',
@@ -250,7 +250,7 @@ export function importedQuestionIdentities(
         content:
           question.type === 'matching'
             ? [...stem, importedMatching(question, createId, answers)]
-            : question.type === 'stimulus'
+            : question.type === 'multipart'
               ? [...stem, importedParts(question.parts ?? [], createId, answers)]
               : question.choices
               ? [
@@ -490,7 +490,7 @@ function parseWith(
 /**
  * Every retained version migrates forward without rewriting anything. 0.2.0
  * added `true-false` to 0.1.0, 0.3.0 added `matching` to 0.2.0, and 0.4.0
- * added `stimulus` to 0.3.0; none can appear in an older record, and no
+ * added `multipart` to 0.3.0; none can appear in an older record, and no
  * version changed anything an older record already says — so a record that
  * satisfies an older schema is already a conforming 0.4.0 record once its
  * version is restated.
@@ -740,7 +740,7 @@ async function validateSemantics(
     'true-false': 0,
     matching: 0,
     'short-answer': 0,
-    stimulus: 0,
+    multipart: 0,
   }
 
   for (const question of record.bank.questions) {
@@ -760,27 +760,27 @@ async function validateSemantics(
         `${RECORD_TYPE_LABELS[question.type]} Question “${question.id}” cannot contain matching items or a Word Bank.`,
       )
     }
-    if (question.type !== 'stimulus' && question.parts !== undefined) {
+    if (question.type !== 'multipart' && question.parts !== undefined) {
       throw new QuestionBankImportError(
         'invalid-question',
-        `${RECORD_TYPE_LABELS[question.type]} Question “${question.id}” cannot contain Stimulus Parts.`,
+        `${RECORD_TYPE_LABELS[question.type]} Question “${question.id}” cannot contain Multipart Parts.`,
       )
     }
-    if (question.type === 'stimulus') {
-      // The Stimulus answers nothing itself: every answer belongs to a Part,
+    if (question.type === 'multipart') {
+      // The Multipart question answers nothing itself: every answer belongs to a Part,
       // and a Part obeys the rules of the Question Type it is named for. A
-      // Stimulus with no Parts, or with a Multiple Choice Part none of whose
+      // Multipart question with no Parts, or with a Multiple Choice Part none of whose
       // choices is correct, is incomplete — conforming, but reported.
       if (question.choices !== undefined || question.suggestedAnswer !== undefined) {
         throw new QuestionBankImportError(
           'invalid-question',
-          `Stimulus Question “${question.id}” cannot contain choices or a Suggested Answer of its own; each Part carries its own.`,
+          `Multipart Question “${question.id}” cannot contain choices or a Suggested Answer of its own; each Part carries its own.`,
         )
       }
       const parts = question.parts ?? []
       let incomplete = parts.length === 0
       parts.forEach((part, partIndex) => {
-        const where = `Part ${partLetter(partIndex)} (“${part.id}”) of Stimulus Question “${question.id}”`
+        const where = `Part ${partLetter(partIndex)} (“${part.id}”) of Multipart Question “${question.id}”`
         const label = RECORD_PART_TYPE_LABELS[part.type]
         if (part.type === 'short-answer') {
           if (part.choices !== undefined) {
@@ -899,7 +899,7 @@ async function validateSemantics(
       ids.add(part.id)
       return part.content
     }
-    // A Stimulus Part claims its own id, then brings its stem, its choices
+    // A Multipart Part claims its own id, then brings its stem, its choices
     // and its Suggested Answer under the Question's node and depth limits:
     // the limits bound the whole Question, however it is divided.
     const partDocuments = (part: QuestionBankRecordPart): SemanticDocument[] => [

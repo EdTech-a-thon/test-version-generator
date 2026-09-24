@@ -7,11 +7,11 @@
   },
   "requiredFeatures": [],
   "bank": {
-    "name": "Stimulus",
+    "name": "Multipart",
     "questions": [
       {
         "id": "q1",
-        "type": "stimulus",
+        "type": "multipart",
         "stem": {
           "type": "document",
           "content": [
@@ -233,7 +233,7 @@
       },
       {
         "id": "q2",
-        "type": "stimulus",
+        "type": "multipart",
         "stem": {
           "type": "document",
           "content": [
@@ -389,7 +389,7 @@
       },
       {
         "id": "q3",
-        "type": "stimulus",
+        "type": "multipart",
         "stem": {
           "type": "document",
           "content": [

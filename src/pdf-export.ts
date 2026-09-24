@@ -685,8 +685,8 @@ function drawMatching(context: DrawContext, set: MatchingSet): void {
   context.y = Math.min(prompts.y, bank.y)
 }
 
-// A Stimulus's Parts, one level in under the Stimulus, as print lays them out
-// (`.stimulus-parts-print` in styles.css): 14px below the Stimulus, 18px
+// A Multipart question's Parts, one level in under the Multipart question, as print lays them out
+// (`.multipart-parts-print` in styles.css): 14px below the Multipart question, 18px
 // apart, each opening with its letter in a short letter column of its own.
 const PARTS_GAP_ABOVE = 14
 const PARTS_GAP_BETWEEN = 18
@@ -828,7 +828,7 @@ function drawAnswerKeyEntry(context: DrawContext, item: AnswerKeyEntryItem): voi
     })
     context.y -= 4
   }
-  // A Stimulus's Parts each take a line under its number, the Part's letter
+  // A Multipart question's Parts each take a line under its number, the Part's letter
   // where a question's number goes and its answer on the blank beside it.
   for (const part of item.parts ?? []) {
     ensureRoom(context, BODY_LINE + 2)

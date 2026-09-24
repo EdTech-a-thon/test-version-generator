@@ -177,7 +177,7 @@ function blockLines(
   // The key's line is a number and, for multiple choice, the letter it earned —
   // bold in print by stylesheet, bold in Word by run property.
   if (has(node, 'answer-key-entry')) {
-    // A Stimulus's Part lines are read on their own, after the entry's own
+    // A Multipart question's Part lines are read on their own, after the entry's own
     // line, so nothing below looks inside them for the entry's answer.
     const partsBlock = node.children.find((child) => has(child, 'answer-key-parts'))
     if (partsBlock) {
@@ -256,10 +256,10 @@ function blockLines(
       : opener
     return body ? childBlocks(body, reader, cellOpener) : []
   }
-  // A Stimulus's Part opens with its blank and letter, from its own letter
+  // A Multipart question's Part opens with its blank and letter, from its own letter
   // column, as a question opens with its number — then its stem, then its
   // choice grid or work space.
-  if (has(node, 'stimulus-part-print')) {
+  if (has(node, 'multipart-part-print')) {
     const letter = find(node, 'part-letter')
     const body = find(node, 'part-body')
     const text = letter

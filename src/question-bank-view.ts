@@ -77,7 +77,7 @@ function matchesSearch(question: Question, search: string): boolean {
   const wanted = search.trim().toLowerCase()
   if (wanted === '') return true
   // The projection the row showed, so what can be found is what was on screen —
-  // and, for a Stimulus, the stems of the Parts the row counts: answer choices,
+  // and, for a Multipart question, the stems of the Parts the row counts: answer choices,
   // correctness and everything else behind the popup are out of reach of search
   // by construction rather than by a second rule.
   return searchableText(question).toLowerCase().includes(wanted)
@@ -111,7 +111,7 @@ const TYPE_RANK: Record<QuestionType, number> = {
   'true-false': 1,
   matching: 2,
   open: 3,
-  stimulus: 4,
+  multipart: 4,
 }
 
 const DIFFICULTY_RANK: Record<DifficultyFilter, number> = {

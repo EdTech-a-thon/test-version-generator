@@ -20,22 +20,22 @@ import {
   partAnswerNodeOf,
   partStemNodesOf,
   promptAnswerIdOf,
-  stimulusPartNodesOf,
+  multipartPartNodesOf,
   withFreshChoiceIds,
   type ProseMirrorJSON,
 } from './question-doc'
 import { newMultipleChoiceNode, newTrueFalseNode } from './multiple-choice'
 import { newMatchingNode } from './matching'
-import { newStimulusPartsNode } from './stimulus'
+import { newMultipartPartsNode } from './multipart'
 
 export type QuestionType =
   | 'multiple-choice'
   | 'true-false'
   | 'matching'
   | 'open'
-  | 'stimulus'
+  | 'multipart'
 
-/** What a Part of a Stimulus can be: Multiple Choice, or Short Answer — the
+/** What a Part of a Multipart question can be: Multiple Choice, or Short Answer — the
  *  `'open'` type's internal name, as for a whole question. */
 export type PartType = 'multiple-choice' | 'open'
 
@@ -82,7 +82,7 @@ export const SECTION_LABELS: Record<QuestionType, string> = {
   'true-false': 'True/False',
   matching: 'Matching',
   open: 'Short answer',
-  stimulus: 'Stimulus',
+  multipart: 'Multipart',
 }
 
 /** How each Difficulty is written wherever a teacher sees it, so the popup that
@@ -208,11 +208,11 @@ export type Prompt = {
   node: ProseMirrorJSON
 }
 
-// One Part of a Stimulus, read out of its document: its stable id, what it
+// One Part of a Multipart question, read out of its document: its stable id, what it
 // asks for, its own stem, and — for a Multiple Choice Part — its answers and
 // the columns they lay out in, or — for a Short Answer Part — its Suggested
 // Answer. Parts are never Questions of their own: they print lettered under
-// their Stimulus's one number, and the Question Bank keeps them together.
+// their question's one number, and the Question Bank keeps them together.
 export type Part = {
   id: string
   type: PartType
@@ -225,22 +225,22 @@ export type Part = {
 
 // Sections are derived from question type, never stored, and always appear in
 // this order. `'open'` is the section a school test calls "Short Answer". A
-// Stimulus prints last, in a section of its own, because its Parts mix types
+// Multipart prints last, in a section of its own, because its Parts mix types
 // and a Section holds one.
 export const SECTION_ORDER: readonly QuestionType[] = [
   'multiple-choice',
   'true-false',
   'matching',
   'open',
-  'stimulus',
+  'multipart',
 ]
 
 export const DEFAULT_EXAM_TITLE = 'Untitled Exam'
 
 function newQuestionDoc(type: QuestionType): ProseMirrorJSON {
   if (type === 'open') return structuredClone(emptyDoc)
-  if (type === 'stimulus') {
-    return { type: 'doc', content: [{ type: 'paragraph' }, newStimulusPartsNode()] }
+  if (type === 'multipart') {
+    return { type: 'doc', content: [{ type: 'paragraph' }, newMultipartPartsNode()] }
   }
   const answers =
     type === 'true-false'
@@ -417,11 +417,11 @@ function isBlankDocument(doc: ProseMirrorJSON | undefined): boolean {
   )
 }
 
-// A Stimulus's Parts in authored order — the order they are lettered in on
+// A Multipart question's Parts in authored order — the order they are lettered in on
 // every arrangement. Empty for any other question type.
 export function partsOf(question: Question): Part[] {
-  if (question.type !== 'stimulus') return []
-  return stimulusPartNodesOf(question.doc).map((node) => {
+  if (question.type !== 'multipart') return []
+  return multipartPartNodesOf(question.doc).map((node) => {
     const answer = partAnswerNodeOf(node)
     const attrs = (node.attrs ?? {}) as Record<string, unknown>
     const columns = attrs.columns
@@ -451,7 +451,7 @@ export function partsOf(question: Question): Part[] {
   })
 }
 
-/** The one Part with this id among an Exam's Stimulus questions, along with
+/** The one Part with this id among an Exam's Multipart questions, along with
  *  the question that holds it. */
 export function partById(
   exam: Pick<Exam, 'questions'>,
@@ -466,8 +466,8 @@ export function partById(
 
 /** Every key an Exam's presentation settings may file under for this
  *  question: its own id, and each of its Parts' ids. Answer order, answer
- *  columns and Work Space are set per Part on a Stimulus, so removing or
- *  replacing the Stimulus has to reach them all. */
+ *  columns and Work Space are set per Part on a Multipart question, so removing or
+ *  replacing the Multipart question has to reach them all. */
 export function presentationIdsOf(question: Question): string[] {
   return [question.id, ...partsOf(question).map((part) => part.id)]
 }
@@ -661,7 +661,7 @@ export function shuffleSelectedQuestions(
 /**
  * Shuffles the answers of every selected eligible Multiple Choice question, the
  * Word Bank of every selected matching set, and the answers of every Multiple
- * Choice Part of a selected Stimulus, independently. A Stimulus's Parts
+ * Choice Part of a selected Multipart question, independently. A Multipart question's Parts
  * themselves never move: they are lettered in place. The Question
  * Content is not changed: this records an order of stable choice ids in the
  * arrangement alone, so correctness remains on the choice it was authored on
@@ -685,12 +685,12 @@ export function shuffleSelectedAnswers(
   let changed = false
 
   // Everything whose answers may vary: each eligible question, and each
-  // Multiple Choice Part of a selected Stimulus, which Varies as a Multiple
+  // Multiple Choice Part of a selected Multipart question, which Varies as a Multiple
   // Choice question does under the Part's own id.
   const targets: { id: string; current: Choice[] }[] = []
   for (const question of exam.questions) {
     if (!selected.has(question.id)) continue
-    if (question.type === 'stimulus') {
+    if (question.type === 'multipart') {
       for (const part of partsOf(question)) {
         if (part.type === 'multiple-choice') {
           targets.push({ id: part.id, current: orderedPartChoices(part, arrangement) })

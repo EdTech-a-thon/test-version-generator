@@ -524,7 +524,7 @@ function planQuestion(item: QuestionItem, images: ImageOrdinals): ContentLine[] 
   ]
 }
 
-// A Stimulus's Part reads as a question of its kind does: its blank and letter
+// A Multipart question's Part reads as a question of its kind does: its blank and letter
 // open its stem, and its grid or work space follows.
 function planPart(part: PlannedPart, images: ImageOrdinals): ContentLine[] {
   const opener: Segment[] = [

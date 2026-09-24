@@ -3,7 +3,7 @@
 // The one place a bank's Question is drawn whole rather than as a row: its
 // type and classification, the stem, the answers with the correct one
 // marked, a matching set's items and Word Bank, a Short Answer's suggested
-// answer, and a Stimulus's lettered Parts. The import dialog reads a file's banks this way before anything is
+// answer, and a Multipart question's lettered Parts. The import dialog reads a file's banks this way before anything is
 // imported, and the Question Bank page reads its own bank this way, so a bank
 // looks the same on the way in as it does once it is here.
 //
@@ -78,9 +78,9 @@ export function QuestionReading({
       </section>
     )}
     {content.parts && (
-      // The Stimulus is the stem above; its Parts follow, lettered as the
+      // The Multipart question is the stem above; its Parts follow, lettered as the
       // test prints them, each drawn the way a question of its kind is.
-      <ol type="a" className="record-stimulus-parts question-reading-parts">
+      <ol type="a" className="record-multipart-parts question-reading-parts">
         {content.parts.map((part) => (
           <li key={part.id} aria-label={`Part ${part.letter}, ${part.typeLabel}`}>
             <DocView className="question-reading-stem" content={part.stem} />
