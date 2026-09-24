@@ -9,7 +9,19 @@ import { Upload } from 'lucide-react'
  * else — a pasted image dragged into a question, an internal authoring drag —
  * is left strictly alone: nothing is intercepted unless the pointer is
  * carrying a file this app can actually import.
+ *
+ * A drop over an element marked `data-import-bank-id` — a Question Bank's
+ * page, or the editor's open bank — names that bank, so the import defaults
+ * to adding into it. The overlay lets the pointer through so the element under
+ * it can be read.
  */
+
+/** Where a drop lands: the bank marked under the pointer, if any. */
+function bankUnder(target: EventTarget | null): { id: string; name: string } | null {
+  const element = target instanceof Element ? target.closest<HTMLElement>('[data-import-bank-id]') : null
+  const id = element?.dataset.importBankId
+  return id ? { id, name: element.dataset.importBankName ?? '' } : null
+}
 
 const IMPORTABLE_TYPES = new Set(['application/pdf', 'application/json'])
 
@@ -28,8 +40,13 @@ function carriesImportableFile(transfer: DataTransfer | null): boolean {
   )
 }
 
-export function BankFileDropTarget({ onFile }: { onFile: (file: File) => void }) {
+export function BankFileDropTarget({
+  onFile,
+}: {
+  onFile: (file: File, targetBankId?: string) => void
+}) {
   const [over, setOver] = useState(false)
+  const [target, setTarget] = useState<{ id: string; name: string } | null>(null)
   useEffect(() => {
     const claim = (event: DragEvent) => {
       if (!carriesImportableFile(event.dataTransfer)) return false
@@ -39,7 +56,10 @@ export function BankFileDropTarget({ onFile }: { onFile: (file: File) => void })
       return true
     }
     const onDragOver = (event: DragEvent) => {
-      if (claim(event)) setOver(true)
+      if (!claim(event)) return
+      setOver(true)
+      const next = bankUnder(event.target)
+      setTarget((current) => current?.id === next?.id && current?.name === next?.name ? current : next)
     }
     const onDragLeave = (event: DragEvent) => {
       // Only the drag actually leaving the window clears the overlay; moving
@@ -53,7 +73,7 @@ export function BankFileDropTarget({ onFile }: { onFile: (file: File) => void })
       }
       setOver(false)
       const file = Array.from(event.dataTransfer?.files ?? []).find(importable)
-      if (file) onFile(file)
+      if (file) onFile(file, bankUnder(event.target)?.id)
     }
     const onDragEnd = () => setOver(false)
     window.addEventListener('dragover', onDragOver, true)
@@ -72,8 +92,13 @@ export function BankFileDropTarget({ onFile }: { onFile: (file: File) => void })
     <div className="bank-drop-overlay" role="presentation">
       <div className="bank-drop-card">
         <Upload aria-hidden="true" />
-        <strong>Drop to import a Question Bank</strong>
-        <span>A Question Bank PDF or JSON file</span>
+        {target ? <>
+          <strong>Drop to add to {target.name || 'this Question Bank'}</strong>
+          <span>Its Questions are added to this bank, and any Exams come too</span>
+        </> : <>
+          <strong>Drop to import a Question Bank</strong>
+          <span>A Question Bank or Exam PDF, or a JSON file</span>
+        </>}
       </div>
     </div>
   )

@@ -1273,7 +1273,12 @@ function QuestionBankTabsPane({
     })
   }
 
-  return <div className="bank-tabs-pane">
+  return <div
+    className="bank-tabs-pane"
+    // A file dropped here adds into the bank on show.
+    data-import-bank-id={active?.id}
+    data-import-bank-name={active?.name}
+  >
     {message && <p className="home-error bank-tabs-error" role="alert">{message}</p>}
     <div className="bank-tabs-bar">
       <div className="bank-tabs" role="tablist" aria-label="Open Question Banks">
@@ -1432,12 +1437,16 @@ function QuestionBankPage({
   workspaces,
   persistentStorage,
   launchError,
+  onImportInto,
 }: {
   bank: QuestionBankResource
   bankWorkspaces: QuestionBankWorkspaceService
   workspaces: ExamWorkspaceService
   persistentStorage: PersistentStorageStatus
   launchError: string | null
+  /** Opens the import dialog with every bank in the file defaulting to
+   *  adding into this one. */
+  onImportInto: (bankId: string) => void
 }) {
   const [bank, setBank] = useState(initialBank)
   const [name, setName] = useState(initialBank.name)
@@ -1480,7 +1489,8 @@ function QuestionBankPage({
   >
     {launchError && <p className="home-error" role="alert">{launchError}</p>}
     {importAnnouncement && <p className="sr-only" role="status" aria-live="polite">{importAnnouncement}</p>}
-    <div className="bank-page">
+    {/* A file dropped anywhere on the page adds into this bank. */}
+    <div className="bank-page" data-import-bank-id={bank.id} data-import-bank-name={bank.name}>
       <QuestionBankWorkspace
         key={bank.id}
         bank={bank}
@@ -1500,7 +1510,13 @@ function QuestionBankPage({
           />
           {nameError && <p className="home-error bank-name-error" role="alert">{nameError}</p>}
         </div>}
-        extraActions={<button type="button" className="secondary-button" aria-haspopup="dialog" onClick={() => setEditingDetails(true)}>Bank details</button>}
+        extraActions={<>
+          <button type="button" className="secondary-button" aria-haspopup="dialog" onClick={() => onImportInto(bank.id)}>
+            <Import aria-hidden="true" />
+            Import into this bank
+          </button>
+          <button type="button" className="secondary-button" aria-haspopup="dialog" onClick={() => setEditingDetails(true)}>Bank details</button>
+        </>}
         service={bankWorkspaces}
         filter={filter}
         onFilterChange={setFilter}
@@ -1960,7 +1976,12 @@ function ExamEditor({
     try {
       if (format === 'pdf') {
         const pdf = await import('./pdf-export')
-        blob = pdf.pdfBlob(await pdf.createPublicationPdf(prepared.documents))
+        blob = pdf.pdfBlob(await pdf.createPublicationPdf(
+          prepared.documents,
+          undefined,
+          undefined,
+          prepared.record.examPackage,
+        ))
       } else {
         const docx = await import('./docx-export')
         blob = await docx.createPublicationDocx(prepared.documents)
@@ -2268,7 +2289,12 @@ function ExamEditor({
           empty={exam.questions.length === 0}
           initialError={exportDialog.error ?? previewError}
           onSubmit={async (configuration, onProgress) => {
-            await runPreparedExport(prepareForPublication(configuration, onProgress))
+            const { withExamPackage } = await import('./exam-package-export')
+            await runPreparedExport(await withExamPackage(prepareForPublication(configuration, onProgress), {
+              exam,
+              arrangement,
+              ownerOf: (questionId) => bankWorkspaces.ownerOfQuestion(questionId),
+            }))
             closeExportDialog()
           }}
           onCancel={closeExportDialog}
@@ -2536,35 +2562,68 @@ export default function App({
   const [droppedBankFile, setDroppedBankFile] = useState<File | null>(null)
   const homeError = initialError
   const [bankLibraryRevision, setBankLibraryRevision] = useState(0)
+  const [importTargetBankId, setImportTargetBankId] = useState<string | null>(null)
+  const openImport = useCallback((file?: File | null, targetBankId?: string | null) => {
+    setDroppedBankFile(file ?? null)
+    setImportTargetBankId(targetBankId ?? null)
+    setInspectingBankFile(true)
+  }, [])
+  const closeImport = useCallback(() => {
+    setInspectingBankFile(false)
+    setDroppedBankFile(null)
+    setImportTargetBankId(null)
+  }, [])
+  const loadImportBanks = useCallback(
+    async () => (await bankWorkspaces.recent()).map(({ id, name }) => ({ id, name })),
+    [bankWorkspaces],
+  )
   const importBank = useCallback(async (
-    proposal: import('./question-bank-import').QuestionBankImportProposal,
-    proposedName: string,
+    proposal: import('./package-import').ImportProposal,
+    selection: import('./import-selection').ImportSelection,
   ) => {
-    const imported = await bankWorkspaces.import(proposal, proposedName)
-    // From inside the editor, the imported bank is wanted where the teacher
-    // is: as the active tab of this Exam's bank pane, with the Exam untouched.
-    // Everywhere else it opens on its own page.
+    const result = await bankWorkspaces.commitImport(proposal, selection)
+    // One Exam is what a converted test is: it opens in the editor with the
+    // banks it was built from as its tabs, from onboarding as from anywhere.
+    const [onlyExam, ...otherExams] = result.createdExamIds
+    if (onlyExam && otherExams.length === 0) {
+      window.location.assign(`/editor?exam=${onlyExam}`)
+      return
+    }
+    if (onlyExam) {
+      window.location.assign('/exams')
+      return
+    }
+    const bankIds = [...result.createdBankIds, ...result.updatedBankIds]
+    const [firstBankId] = bankIds
+    if (!firstBankId) return
+    // From inside the editor, the imported banks are wanted where the teacher
+    // is: as tabs of this Exam's bank pane, with the Exam untouched.
+    // Everywhere else they open on their own page.
     if (route === '/editor' && editorId) {
-      await bankWorkspaces.openTab({ examId: editorId }, imported.id)
-      setInspectingBankFile(false)
-      setDroppedBankFile(null)
+      for (const bankId of bankIds) await bankWorkspaces.openTab({ examId: editorId }, bankId)
+      await bankWorkspaces.openTab({ examId: editorId }, firstBankId)
+      closeImport()
       setBankLibraryRevision((revision) => revision + 1)
       return
     }
-    // From onboarding, the bank was imported in order to write an Exam from
-    // it: a fresh Exam opens with the bank as its pane's one tab.
+    // From onboarding, banks were imported in order to write an Exam from
+    // them: a fresh Exam opens with them as its pane's tabs.
     if (route.startsWith('/get-started')) {
       const exam = await workspaces.create()
-      await bankWorkspaces.openTab({ examId: exam.id }, imported.id)
+      for (const bankId of bankIds) await bankWorkspaces.openTab({ examId: exam.id }, bankId)
       window.location.assign(`/editor?exam=${exam.id}`)
       return
     }
+    const first = await bankWorkspaces.read(firstBankId)
+    const questions = `${result.questionCount} ${result.questionCount === 1 ? 'Question' : 'Questions'}`
     window.sessionStorage.setItem(
       'test-parrot-import-announcement',
-      `Imported ${imported.questions.length} ${imported.questions.length === 1 ? 'Question' : 'Questions'} into ${imported.name}.`,
+      bankIds.length > 1
+        ? `Imported ${questions} into ${bankIds.length} Question Banks.`
+        : `Imported ${questions} into ${first?.name ?? 'the Question Bank'}.`,
     )
-    window.location.assign(`/question-bank?id=${imported.id}`)
-  }, [bankWorkspaces, editorId, route, workspaces])
+    window.location.assign(`/question-bank?id=${firstBankId}`)
+  }, [bankWorkspaces, closeImport, editorId, route, workspaces])
   const requestBankDeletion = useCallback((bank: QuestionBankCollectionItem) => {
     void bankWorkspaces.read(bank.id).then(async (resource) => {
       const impact = await workspaces.deletionImpact(resource?.questions.map(({ id }) => id) ?? [])
@@ -2633,15 +2692,17 @@ export default function App({
   const openExam = (id: string) => window.location.assign(`/editor?exam=${id}`)
   const openBank = (id: string) => window.location.assign(`/question-bank?id=${id}`)
   const importDialog = inspectingBankFile && <QuestionBankImportDialog
-    key={droppedBankFile ? `${droppedBankFile.name}:${droppedBankFile.lastModified}` : 'chosen'}
+    key={`${droppedBankFile ? `${droppedBankFile.name}:${droppedBankFile.lastModified}` : 'chosen'}:${importTargetBankId ?? ''}`}
     initialFile={droppedBankFile ?? undefined}
-    onClose={() => { setInspectingBankFile(false); setDroppedBankFile(null) }}
+    targetBankId={importTargetBankId ?? undefined}
+    loadBanks={loadImportBanks}
+    onClose={closeImport}
     onImport={importBank}
   />
   // Importing by drop is offered on every page, the editor included, so the
   // overlay and the dialog live outside the route switch below.
   const globalChrome = <>
-    <BankFileDropTarget onFile={(file) => { setDroppedBankFile(file); setInspectingBankFile(true) }} />
+    <BankFileDropTarget onFile={openImport} />
     {importDialog}
   </>
   if (route === '/about') return <>{globalChrome}<AboutPage persistentStorage={storageStatus} /></>
@@ -2664,7 +2725,7 @@ export default function App({
     onOpenBank={openBank}
     onNewBank={newBank}
     onDeleteBank={requestBankDeletion}
-    onImportBank={() => setInspectingBankFile(true)}
+    onImportBank={() => openImport()}
   />{bankDeletionConfirmation}</>
   // A device that has never been here gets the front door instead of empty
   // shelves; the same page stays reachable at /welcome afterwards.
@@ -2682,7 +2743,7 @@ export default function App({
     onNewExam={newExam}
     onOpen={openExam}
     onNewBank={newBank}
-    onImportBank={() => setInspectingBankFile(true)}
+    onImportBank={() => openImport()}
     onOpenBank={openBank}
     onDeleteBank={requestBankDeletion}
   />{bankDeletionConfirmation}</>
@@ -2692,6 +2753,7 @@ export default function App({
     workspaces={workspaces}
     persistentStorage={storageStatus}
     launchError={initialError}
+    onImportInto={(bankId) => openImport(null, bankId)}
   /></> : globalChrome
   return editorStore && editorId ? <>{globalChrome}<ExamEditor
     store={editorStore}
@@ -2701,7 +2763,7 @@ export default function App({
     exams={exams}
     launchError={initialError}
     bankLibraryRevision={bankLibraryRevision}
-    onImportBank={(file) => { setDroppedBankFile(file ?? null); setInspectingBankFile(true) }}
+    onImportBank={(file) => openImport(file)}
     onSaveAs={saveAs}
     onOpenExam={(id) => {
       void (async () => {

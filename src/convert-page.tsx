@@ -78,7 +78,7 @@ export function ConvertPage() {
         <div className="convert-head">
           <h1>Convert a test you already have</h1>
           <p className="landing-lede">
-            Any AI assistant can turn a PDF, scan or screenshot into a Question Bank file. Five
+            Any AI assistant can turn a PDF, scan or screenshot into a file Test Parrot imports: your questions, and the test laid out as you gave it. Five
             steps, about a minute.
           </p>
         </div>
@@ -134,7 +134,7 @@ export function ConvertPage() {
               <div className="convert-step-text">
                 <strong>Download the question file</strong>
                 <span>
-                  It replies with a <code>.question-bank.json</code>. Save it.
+                  It replies with a <code>.parrot.json</code>. Save it.
                 </span>
               </div>
             </li>

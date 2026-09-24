@@ -62,6 +62,11 @@ export type ExportRecord = {
   plans: LayoutPlan[]
   mediaHashes: string[]
   sourceRecordId?: string
+  /** The Test Parrot Package this export's PDF carries, serialized exactly as
+   *  attached, so a re-export attaches the same bytes. Only a PDF including
+   *  the answer key has one. It sits beside the plans, not in them: nothing
+   *  about the pages depends on it. */
+  examPackage?: string
 }
 
 export type ExportHistory = { records: ExportRecord[] }

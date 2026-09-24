@@ -1,28 +1,28 @@
-import type { QuestionBankImportProposal } from './question-bank-import'
+import type { ImportProposal } from './package-import'
 
 /**
  * Reading a file a teacher has handed over, wherever they handed it over: the
- * import dialog and the conversion page both take the same PDF or JSON and
- * ask the same question of it — is this a Question Bank yet?
+ * import dialog takes the same PDF or JSON however it arrived and asks the
+ * same question of it — what banks and Exams are in here?
  */
 
-/** A JSON file carries the canonical record directly; a PDF carries it as an
+/** A JSON file carries its record or package directly; a PDF carries it as an
  *  attachment. Nothing downstream can tell the two apart, because what is
- *  inspected, verified and imported is the same record either way. */
+ *  inspected, verified and imported is the same either way. */
 export function isRecordFile(file: File): boolean {
   return file.type === 'application/json' || /\.json$/i.test(file.name)
 }
 
-export async function inspectUploadedQuestionBank(file: File): Promise<QuestionBankImportProposal> {
+export async function inspectUploadedFile(file: File): Promise<ImportProposal> {
   const bytes = new Uint8Array(await file.arrayBuffer())
-  const importer = await import('./question-bank-import')
-  if (isRecordFile(file)) return importer.inspectQuestionBankRecord(bytes)
+  const importer = await import('./package-import')
+  if (isRecordFile(file)) return importer.inspectImportRecord(bytes)
   const pdf = await import('pdfjs-dist/legacy/build/pdf.mjs')
   pdf.GlobalWorkerOptions.workerSrc = new URL(
     'pdfjs-dist/legacy/build/pdf.worker.min.mjs',
     import.meta.url,
   ).href
-  return importer.inspectQuestionBankFile(bytes)
+  return importer.inspectImportFile(bytes)
 }
 
 /**
