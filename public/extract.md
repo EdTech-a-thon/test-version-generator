@@ -16,7 +16,8 @@ When finished:
 
 1. Give the user the JSON as a downloadable file. Do not provide only a JSON code block when you can create a file attachment.
 2. Tell the user: **Download the JSON file, open [testparrot.com](https://testparrot.com), and drag the file into Test Parrot to import it.**
-3. Report any ambiguity, unreadable source content, or unsupported material. If there are no such limitations, explicitly say that the complete source was converted.
+3. **If you are Gemini,** do not try to create, attach, or present a file. Show the complete JSON in a single `json` code block instead, and follow the Gemini delivery instructions under **Final validation and delivery**.
+4. Report any ambiguity, unreadable source content, or unsupported material. If there are no such limitations, explicitly say that the complete source was converted.
 
 Do not generate a PDF. Do not return a summary in place of the JSON file.
 
@@ -607,6 +608,10 @@ Relevant import limits include:
 Deliver exactly one complete `.question-bank.json` file. Then tell the user:
 
 > Download the JSON file, open [testparrot.com](https://testparrot.com), and drag the file into Test Parrot to import it.
+
+**If you are Gemini,** show the complete JSON in one `json` code block rather than trying to present a file, and never shorten or elide any part of it. Then tell the user:
+
+> Copy the JSON from the code block (use its copy button), paste it into a plain-text editor, and save it as `<short-bank-name>.question-bank.json`. Then open [testparrot.com](https://testparrot.com) and drag the saved file into Test Parrot to import it.
 
 Also include a concise conversion report containing:
 
