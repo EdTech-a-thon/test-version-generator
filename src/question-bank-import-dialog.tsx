@@ -240,6 +240,26 @@ function ExamPreview({
     : <p className="bank-import-empty">This Test has no Questions yet.</p>
 }
 
+/** How many of a Test's positions are of each Question Type, read from the
+ *  bank Question each position references — the same rows a bank's summary
+ *  counts, so a Test and the banks it draws on read alike. */
+function examTypeCounts(
+  proposal: ImportProposal,
+  exam: ProposedExam,
+): Record<(typeof RECORD_TYPE_ORDER)[number], number> {
+  const counts = Object.fromEntries(RECORD_TYPE_ORDER.map((type) => [type, 0])) as Record<
+    (typeof RECORD_TYPE_ORDER)[number],
+    number
+  >
+  for (const { question } of exam.positions) {
+    const type = proposal.banks
+      .find(({ id }) => id === question.bank)
+      ?.record.bank.questions.find(({ id }) => id === question.question)?.type
+    if (type) counts[type] += 1
+  }
+  return counts
+}
+
 /** One bank's facts, in the rows the Question Bank import has always shown. */
 function BankSummary({ bank }: { bank: ProposedBank }) {
   const { record, summary } = bank
@@ -781,10 +801,15 @@ export function QuestionBankImportDialog({
                 </p>}
 
                 <dl className="bank-import-summary">
-                  <div>
-                    <dt>Questions</dt>
-                    <dd>{exam.positions.length}</dd>
-                  </div>
+                  {(() => {
+                    const counts = examTypeCounts(proposal, exam)
+                    return RECORD_TYPE_ORDER.map((type) => (
+                      <div key={type}>
+                        <dt>{RECORD_TYPE_LABELS[type]}</dt>
+                        <dd>{counts[type]}</dd>
+                      </div>
+                    ))
+                  })()}
                   <div>
                     <dt>Format version</dt>
                     <dd>{exam.formatVersion}</dd>
