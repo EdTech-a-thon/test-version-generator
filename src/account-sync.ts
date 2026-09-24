@@ -70,8 +70,8 @@ export type SyncState = {
   /** `undefined` while unknown; `null` when signed out of Google. */
   connection: DriveConnection | null | undefined
   error: string
-  /** Set when the teacher came back from Google and should see the dialog. */
-  dialogRequested: boolean
+  /** Set when the teacher came back from Google and should land back on Settings. */
+  settingsRequested: boolean
   /** When Drive's copy last changed, for an incoming change or a conflict. */
   remoteModifiedAt?: string
 }
@@ -98,7 +98,7 @@ let state: SyncState = {
   link: readLink(),
   connection: undefined,
   error: '',
-  dialogRequested: false,
+  settingsRequested: false,
 }
 const listeners = new Set<() => void>()
 
@@ -115,8 +115,8 @@ export function subscribeSync(listener: () => void) {
 
 export function syncState() { return state }
 
-export function dismissSyncDialogRequest() {
-  if (state.dialogRequested) update({ dialogRequested: false })
+export function dismissSettingsRequest() {
+  if (state.settingsRequested) update({ settingsRequested: false })
 }
 
 // ---------------------------------------------------------------------------
@@ -142,7 +142,7 @@ export async function prepareAccountSync(
   const resume = sessionStorage.getItem(RESUME_KEY)
   sessionStorage.removeItem(RESUME_KEY)
   if (arrival || resume) {
-    update({ dialogRequested: true, error: arrival ? describeArrivalError(arrival) : '' })
+    update({ settingsRequested: true, error: arrival ? describeArrivalError(arrival) : '' })
   }
   if (resume === 'enable' && !arrival) enableAfterStart = true
   return { restoredFromFile: Boolean(outcome?.applied && outcome.staged.source === 'file'), restoreError }

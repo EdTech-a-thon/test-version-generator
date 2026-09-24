@@ -13,6 +13,7 @@
 }
 .account-panel > strong { display: block; margin-bottom: 6px; }
 .account-panel p { margin: 0; color: #6e5b4d; }
+.account-panel p + p { margin-top: 4px; }
 .account-panel .account-warning, .account-dialog .account-warning { margin-top: 8px; color: var(--paper-danger); font-weight: 600; }
 .account-panel .account-ok { margin-top: 8px; color: #3f6b46; font-weight: 600; }
 
@@ -21,10 +22,6 @@
 .account-action { display: inline-flex; align-items: center; gap: 6px; }
 .account-action svg { width: 15px; height: 15px; }
 
-.account-sync-row {
-  display: flex; align-items: center; justify-content: space-between; gap: 10px;
-  margin-top: 12px; padding-top: 11px; border-top: 1px solid #e8dfd2;
-}
 .account-sync-status { color: #6e5b4d; font-weight: 600; }
 .account-sync-status[data-sync='synced'] { color: #3f6b46; }
 .account-sync-status[data-sync='reconnect'], .account-sync-status[data-sync='conflict'] { color: var(--paper-danger); }
@@ -86,3 +83,10 @@
   .account-step { grid-template-columns: 28px minmax(0, 1fr); }
   .account-step > button { grid-column: 2; justify-self: start; }
 }
+
+/* On the Settings page each way of keeping a copy is its own card. */
+.account-settings .account-warning { color: var(--paper-danger); font-weight: 600; }
+.account-settings .account-ok { color: #3f6b46; font-weight: 600; }
+.account-settings .account-actions { margin-top: 0; }
+.account-settings .account-steps { margin-top: 0; }
+.account-settings > * + .account-warning { margin-top: 12px; }

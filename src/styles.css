@@ -1495,8 +1495,9 @@ button { cursor: pointer; }
 .app-nav-link[aria-current='page'] svg { color: var(--paper-accent); }
 /* The question mark at the foot of the nav. `margin-top: auto` puts it at
    the bottom of the column; in the one-row layout it simply ends the row. */
+.app-nav-foot { margin-top: auto; display: flex; align-items: center; gap: 6px; }
 .help-button {
-  margin-top: auto; align-self: flex-start; display: inline-flex; align-items: center; justify-content: center;
+  flex: none; display: inline-flex; align-items: center; justify-content: center;
   width: 38px; height: 38px; padding: 0; border: 0; border-radius: 50%;
   color: #90786a; background: transparent;
 }
@@ -1879,7 +1880,7 @@ button { cursor: pointer; }
   }
   .app-nav-list { grid-auto-flow: column; justify-content: start; }
   .app-nav-link { white-space: nowrap; }
-  .help-button { margin-top: 0; margin-left: auto; align-self: center; flex: none; }
+  .app-nav-foot { margin-top: 0; margin-left: auto; flex: none; }
   .app-frame { min-height: 0; }
 }
 

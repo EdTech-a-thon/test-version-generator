@@ -1,8 +1,8 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { CircleQuestionMark, FileText, House, Library, X } from 'lucide-react'
-import { AccountBadge } from './account-menu'
+import { CircleQuestionMark, FileText, House, Library, Settings, X } from 'lucide-react'
+import { AccountBadge, SETTINGS_PATH } from './account-menu'
 import type { PersistentStorageStatus } from './durable-storage'
 import { Footer, Link } from './site-chrome'
 import { useRoute } from './use-route'
@@ -143,7 +143,17 @@ export function AppShell({
             ))}
           </ul>
         </nav>
-        <HelpButton />
+        <div className="app-nav-foot">
+          <HelpButton />
+          <Link
+            href={SETTINGS_PATH}
+            className="app-nav-link"
+            {...(route === SETTINGS_PATH ? { 'aria-current': 'page' } : {})}
+          >
+            <Settings aria-hidden="true" />
+            Settings
+          </Link>
+        </div>
       </aside>
       <div className="app-frame">
         <header className="app-topbar">

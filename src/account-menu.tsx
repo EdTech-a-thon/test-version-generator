@@ -7,10 +7,11 @@ import {
   CloudAlert,
   CloudCheck,
   CloudDownload,
+  CloudOff,
   Download,
   ExternalLink,
-  HardDrive,
   RefreshCw,
+  Settings,
   Upload,
   X,
 } from 'lucide-react'
@@ -25,7 +26,7 @@ import {
 } from './account-backup'
 import {
   disableSync,
-  dismissSyncDialogRequest,
+  dismissSettingsRequest,
   enableSync,
   loadIncoming,
   refreshConnection,
@@ -40,13 +41,16 @@ import { allowDrive, driveAllowed, signIn, signOut } from './google-broker'
 import { folderUrl, DRIVE_FOLDER_NAME } from './google-drive'
 import type { PersistentStorageStatus } from './durable-storage'
 import { useModalScrollLock } from './use-modal-scroll-lock'
+import { navigate, useRoute } from './use-route'
 import './account-menu.css'
 
 /**
- * Where the work lives, and the ways to keep it: an icon in the top bar that
- * opens a small panel. Backing up the whole account is one click; syncing
- * through Google Drive is offered beneath it as the quieter, optional step.
+ * Where the work lives, and the ways to keep it. An icon in the top bar says
+ * where the work is saved and points to Settings, which holds the two ways to
+ * keep a copy: a backup file, and syncing through Google Drive.
  */
+
+export const SETTINGS_PATH = '/settings'
 
 function useSync(): SyncState {
   return useSyncExternalStore(subscribeSync, syncState)
@@ -76,7 +80,7 @@ function syncSummary(sync: SyncState): string {
 }
 
 function BadgeIcon({ sync }: { sync: SyncState }) {
-  if (sync.status === 'off') return <HardDrive aria-hidden="true" />
+  if (sync.status === 'off') return <CloudOff aria-hidden="true" />
   if (sync.status === 'syncing') return <RefreshCw aria-hidden="true" className="account-spin" />
   if (sync.status === 'synced') return <CloudCheck aria-hidden="true" />
   if (sync.status === 'incoming') return <CloudDownload aria-hidden="true" />
@@ -98,21 +102,15 @@ async function downloadBackup() {
 
 export function AccountBadge({ status }: { status: PersistentStorageStatus }) {
   const sync = useSync()
+  const route = useRoute()
   const [open, setOpen] = useState(false)
-  const [dialog, setDialog] = useState<'sync' | null>(null)
-  const [restoring, setRestoring] = useState<{ file: File; manifest: AccountManifest } | null>(null)
-  const [busy, setBusy] = useState<'backup' | 'restore' | null>(null)
-  const [error, setError] = useState('')
   const root = useRef<HTMLDivElement>(null)
-  const fileInput = useRef<HTMLInputElement>(null)
   const panelId = useId()
 
-  // Coming back from Google, the teacher lands where they left the dialog.
+  // Coming back from Google, the teacher lands on Settings, where the steps are.
   useEffect(() => {
-    if (!sync.dialogRequested) return
-    dismissSyncDialogRequest()
-    setDialog('sync')
-  }, [sync.dialogRequested])
+    if (sync.settingsRequested && route !== SETTINGS_PATH) navigate(SETTINGS_PATH)
+  }, [sync.settingsRequested, route])
 
   useEffect(() => {
     if (!open) return
@@ -127,34 +125,6 @@ export function AccountBadge({ status }: { status: PersistentStorageStatus }) {
       document.removeEventListener('keydown', onKey)
     }
   }, [open])
-
-  const backup = async () => {
-    setBusy('backup')
-    setError('')
-    try {
-      await downloadBackup()
-    } catch {
-      setError('The backup could not be created. Try again.')
-    } finally {
-      setBusy(null)
-    }
-  }
-
-  const chooseRestore = async (file: File | undefined) => {
-    if (!file) return
-    setBusy('restore')
-    setError('')
-    try {
-      const snapshot = await readAccountBackup(file)
-      setRestoring({ file, manifest: snapshot.manifest })
-      setOpen(false)
-    } catch (caught) {
-      setError(caught instanceof AccountBackupError ? caught.message : 'This backup could not be read.')
-    } finally {
-      setBusy(null)
-      if (fileInput.current) fileInput.current.value = ''
-    }
-  }
 
   const syncing = sync.status !== 'off'
   const label = syncing ? `Backup and sync: ${syncSummary(sync)}` : 'Where your work is stored'
@@ -175,67 +145,110 @@ export function AccountBadge({ status }: { status: PersistentStorageStatus }) {
       </button>
       {open && (
         <div className="account-panel" id={panelId} role="region" aria-label="Backup and sync">
-          <strong>{syncing ? 'Your work syncs with Google Drive' : 'Your work stays in this browser'}</strong>
+          <strong>{syncing ? 'Your work syncs with Google Drive.' : 'Your work is saved in your browser.'}</strong>
+          {syncing && <p className="account-sync-status" data-sync={sync.status}>{syncSummary(sync)}</p>}
           <p>
-            Exams, Question Banks, Working Copies, and Export History are saved in this browser.
             {syncing
-              ? ' A copy is kept in the Test Parrot folder of your own Google Drive, and every device you sync stays up to date.'
-              : ' Download a backup now and then, or sync with Google Drive to keep your work across devices.'}
+              ? 'Go to Settings to export your data or change how it syncs.'
+              : 'Go to Settings to either export your data or sync it across devices.'}
           </p>
           {status === 'denied' && (
             <p className="account-warning">
               Persistent storage was denied. Your browser may clear this local data when space is needed.
             </p>
           )}
-          {status === 'granted' && !syncing && (
-            <p className="account-ok">Persistent browser storage is enabled.</p>
-          )}
           <div className="account-actions">
-            <button type="button" className="secondary-button account-action" onClick={backup} disabled={busy !== null}>
-              {busy === 'backup' ? <RefreshCw aria-hidden="true" className="account-spin" /> : <Download aria-hidden="true" />}
-              {busy === 'backup' ? 'Preparing…' : 'Download backup'}
+            <button
+              type="button"
+              className="secondary-button account-action"
+              onClick={() => { setOpen(false); navigate(SETTINGS_PATH) }}
+            >
+              <Settings aria-hidden="true" />
+              Settings
             </button>
-            <button type="button" className="secondary-button account-action" onClick={() => fileInput.current?.click()} disabled={busy !== null}>
-              <Upload aria-hidden="true" />
-              {busy === 'restore' ? 'Reading…' : 'Restore…'}
-            </button>
-            <input
-              ref={fileInput}
-              type="file"
-              accept=".zip,application/zip"
-              hidden
-              aria-label="Choose an account backup to restore"
-              onChange={(event) => void chooseRestore(event.target.files?.[0])}
-            />
-          </div>
-          {error && <p className="account-warning" role="alert">{error}</p>}
-          <div className="account-sync-row">
-            {syncing ? (
-              <>
-                <span className="account-sync-status" data-sync={sync.status}>{syncSummary(sync)}</span>
-                <button type="button" className="account-link" onClick={() => { setOpen(false); setDialog('sync') }}>
-                  Sync settings
-                </button>
-              </>
-            ) : (
-              <button type="button" className="account-link" onClick={() => { setOpen(false); setDialog('sync') }}>
-                <Cloud aria-hidden="true" />
-                Sync across devices with Google Drive
-              </button>
-            )}
           </div>
         </div>
       )}
-      {dialog === 'sync' && <SyncDialog onClose={() => setDialog(null)} />}
+    </div>
+  )
+}
+
+/** Download the whole account as one file, or replace it from one. */
+export function BackupSettings({ status }: { status: PersistentStorageStatus }) {
+  const sync = useSync()
+  const [restoring, setRestoring] = useState<{ file: File; manifest: AccountManifest } | null>(null)
+  const [busy, setBusy] = useState<'backup' | 'restore' | null>(null)
+  const [error, setError] = useState('')
+  const fileInput = useRef<HTMLInputElement>(null)
+
+  const backup = async () => {
+    setBusy('backup')
+    setError('')
+    try {
+      await downloadBackup()
+    } catch {
+      setError('The backup could not be created. Try again.')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const chooseRestore = async (file: File | undefined) => {
+    if (!file) return
+    setBusy('restore')
+    setError('')
+    try {
+      const snapshot = await readAccountBackup(file)
+      setRestoring({ file, manifest: snapshot.manifest })
+    } catch (caught) {
+      setError(caught instanceof AccountBackupError ? caught.message : 'This backup could not be read.')
+    } finally {
+      setBusy(null)
+      if (fileInput.current) fileInput.current.value = ''
+    }
+  }
+
+  return (
+    <section className="site-card account-settings" aria-labelledby="settings-backup">
+      <h2 id="settings-backup">Back up your work</h2>
+      <p>
+        Exams, Question Banks, Working Copies, and Export History are saved in this browser. Download
+        a backup now and then, and restore it here or in another browser.
+      </p>
+      {status === 'denied' && (
+        <p className="account-warning">
+          Persistent storage was denied. Your browser may clear this local data when space is needed.
+        </p>
+      )}
+      {status === 'granted' && <p className="account-ok">Persistent browser storage is enabled.</p>}
+      <div className="account-actions">
+        <button type="button" className="secondary-button account-action" onClick={backup} disabled={busy !== null}>
+          {busy === 'backup' ? <RefreshCw aria-hidden="true" className="account-spin" /> : <Download aria-hidden="true" />}
+          {busy === 'backup' ? 'Preparing…' : 'Download backup'}
+        </button>
+        <button type="button" className="secondary-button account-action" onClick={() => fileInput.current?.click()} disabled={busy !== null}>
+          <Upload aria-hidden="true" />
+          {busy === 'restore' ? 'Reading…' : 'Restore…'}
+        </button>
+        <input
+          ref={fileInput}
+          type="file"
+          accept=".zip,application/zip"
+          hidden
+          aria-label="Choose an account backup to restore"
+          onChange={(event) => void chooseRestore(event.target.files?.[0])}
+        />
+      </div>
+      {error && <p className="account-warning" role="alert">{error}</p>}
       {restoring && (
         <RestoreDialog
           file={restoring.file}
           manifest={restoring.manifest}
-          syncing={syncing}
+          syncing={sync.status !== 'off'}
           onClose={() => setRestoring(null)}
         />
       )}
-    </div>
+    </section>
   )
 }
 
@@ -327,17 +340,20 @@ function Step({ done, number, title, detail, action }: {
   )
 }
 
-function SyncDialog({ onClose }: { onClose: () => void }) {
+/** Sign in, allow Drive access, turn sync on, and settle what it reports. */
+export function SyncSettings() {
   const sync = useSync()
   const [working, setWorking] = useState<string | null>(null)
   const [localError, setLocalError] = useState('')
 
   useEffect(() => { void refreshConnection() }, [])
+  useEffect(() => { if (sync.settingsRequested) dismissSettingsRequest() }, [sync.settingsRequested])
 
   const connection = sync.connection
   const signedIn = Boolean(connection)
   const allowed = driveAllowed(connection ?? null)
-  const loading = connection === undefined
+  // Still asking the broker; if it could not be reached, offer the steps anyway.
+  const loading = connection === undefined && !sync.error
 
   const run = async (name: string, task: () => Promise<void>) => {
     setWorking(name)
@@ -354,8 +370,9 @@ function SyncDialog({ onClose }: { onClose: () => void }) {
   const error = localError || sync.error
 
   return (
-    <Modal title="Sync with Google Drive" onClose={onClose} className="account-sync-dialog">
-      <p className="account-dialog-copy">
+    <section className="site-card account-settings" aria-labelledby="settings-sync">
+      <h2 id="settings-sync">Sync with Google Drive</h2>
+      <p>
         Keep your work in a <strong>{DRIVE_FOLDER_NAME}</strong> folder in your own Google Drive and
         pick it up on any device. Test Parrot never stores your work, and it can see only the files it
         creates in your Drive.
@@ -485,7 +502,7 @@ function SyncDialog({ onClose }: { onClose: () => void }) {
           </button>
         </p>
       )}
-    </Modal>
+    </section>
   )
 }
 
