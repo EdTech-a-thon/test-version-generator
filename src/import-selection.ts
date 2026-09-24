@@ -116,22 +116,54 @@ export function importCounts(
   }
 }
 
-function counted(count: number, singular: string, bare: boolean): string {
-  if (count !== 1) return `${count} ${singular}s`
-  return bare ? singular : `1 ${singular}`
+/** “a”, “a and b”, “a, b, and c”. */
+function listed(parts: string[]): string {
+  if (parts.length <= 2) return parts.join(' and ')
+  return `${parts.slice(0, -1).join(', ')}, and ${parts.at(-1)}`
 }
 
-/** “Import Question Bank”, “Import Question Bank and Test”, “Import 3
- *  Question Banks and 2 Tests”: the words on the import's confirm button. The
- *  dialog calls an Exam a Test, the word a teacher uses for the file in hand. */
-export function importActionLabel(proposal: ImportProposal, selection: ImportSelection): string {
-  const { banks, exams } = importCounts(proposal, selection)
-  // “Question Bank and Test” reads as a pair; once either is counted, both
-  // are, so it never reads “2 Question Banks and Test”.
-  const bare = banks <= 1 && exams <= 1
-  const parts = [
-    ...(banks > 0 ? [counted(banks, 'Question Bank', bare)] : []),
-    ...(exams > 0 ? [counted(exams, 'Test', bare)] : []),
+/** Beyond this many, merges are counted rather than each spelled out. */
+const MERGES_SPELLED_OUT = 2
+
+/**
+ * What pressing Import will do, as one sentence: “Will create the new
+ * Question Bank “Chemistry” and the Test “Unit 3”.”, “Will merge “Physics”
+ * into “Year 10 Physics”.” The dialog calls an Exam a Test, the word a
+ * teacher uses for the file in hand.
+ *
+ * `existingName` names a bank already on this device, by id.
+ */
+export function importSentence(
+  proposal: ImportProposal,
+  selection: ImportSelection,
+  existingName: (bankId: string) => string,
+): string {
+  const banks = proposal.banks.filter(({ id }) => selection.banks[id]?.allowed)
+  const exams = proposal.exams.filter(({ key }) => selection.exams[key]?.allowed)
+  if (!banks.length && !exams.length) return 'Nothing is selected to import.'
+
+  const created = banks.flatMap(({ id }) => {
+    const target = selection.banks[id]!.target
+    return target.kind === 'new' ? [target.name.trim() || 'Untitled Question Bank'] : []
+  })
+  const merged = banks.flatMap(({ id, record }) => {
+    const target = selection.banks[id]!.target
+    return target.kind === 'existing'
+      ? [{ from: record.bank.name || 'Untitled Question Bank', into: existingName(target.bankId) }]
+      : []
+  })
+
+  const creating = [
+    ...(created.length === 1 ? [`the new Question Bank “${created[0]}”`]
+      : created.length > 1 ? [`${created.length} new Question Banks`] : []),
+    ...(exams.length === 1 ? [`the Test “${exams[0]!.name || 'Untitled Test'}”`]
+      : exams.length > 1 ? [`${exams.length} Tests`] : []),
   ]
-  return `Import ${parts.join(' and ')}`
+  const create = creating.length ? `create ${creating.join(' and ')}` : ''
+  const merge = !merged.length ? ''
+    : merged.length > MERGES_SPELLED_OUT ? `merge ${merged.length} Question Banks into existing ones`
+    : `merge ${listed(merged.map(({ from, into }) => `“${from}” into “${into}”`))}`
+  if (!create || !merge) return `Will ${create || merge}.`
+  // A comma keeps the second “and” from reading as part of the first list.
+  return `Will ${create}${creating.length > 1 ? ',' : ''} and ${merge}.`
 }

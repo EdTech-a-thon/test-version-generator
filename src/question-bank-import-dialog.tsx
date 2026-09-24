@@ -16,7 +16,7 @@ import type { ImportProposal, ProposedBank, ProposedExam } from './package-impor
 import {
   deniedBanksOf,
   hasAllowedItems,
-  importActionLabel,
+  importSentence,
   importCounts,
   initialSelection,
   setBankAllowed,
@@ -841,19 +841,14 @@ export function QuestionBankImportDialog({
         )}
 
         <footer className="dialog-actions">
-          {proposal && (
-            <button
-              type="button"
-              className="secondary-button bank-import-back"
-              disabled={busy}
-              onClick={() => {
-                setProposal(null)
-                setSelection(null)
-                setError(null)
-              }}
-            >
-              Choose a different file
-            </button>
+          {proposal && selection && (
+            <p className="bank-import-outcome" id={`${listId}-outcome`}>
+              {importSentence(
+                proposal,
+                selection,
+                (id) => existingBanks.find((existing) => existing.id === id)?.name ?? 'this Question Bank',
+              )}
+            </p>
           )}
           <button
             type="button"
@@ -868,9 +863,10 @@ export function QuestionBankImportDialog({
               type="button"
               className="primary-button"
               disabled={busy || !importable}
+              aria-describedby={`${listId}-outcome`}
               onClick={() => void confirm()}
             >
-              {phase === 'saving' ? 'Importing…' : importActionLabel(proposal, selection)}
+              {phase === 'saving' ? 'Importing…' : 'Import'}
             </button>
           )}
         </footer>

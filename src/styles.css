@@ -2037,9 +2037,12 @@ button { cursor: pointer; }
 .bank-import-rail-head .bank-import-left-out {
   color: var(--paper-ink-soft); font-weight: 600; text-transform: none; letter-spacing: 0;
 }
-/* Backing out of a review is a different kind of act from cancelling, so it
-   sits apart from the pair that resolve the dialog. */
-.bank-import-back { margin-right: auto; }
+/* What pressing Import will do, in a sentence, across from the button that
+   does it. */
+.bank-import-outcome {
+  flex: 1; min-width: 0; margin: 0 auto 0 0;
+  color: var(--paper-ink-soft); font-size: 13.5px; line-height: 1.4;
+}
 .bank-import-choose { padding: 4px 18px 0; }
 /* The drop zone is the same dotted ground as an empty shelf, in the accent
    the app uses for anything that takes a file, and the input beneath it is
