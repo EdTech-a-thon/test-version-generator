@@ -39,6 +39,7 @@ import {
 import { allowDrive, driveAllowed, signIn, signOut } from './google-broker'
 import { folderUrl, DRIVE_FOLDER_NAME } from './google-drive'
 import type { PersistentStorageStatus } from './durable-storage'
+import { useModalScrollLock } from './use-modal-scroll-lock'
 import './account-menu.css'
 
 /**
@@ -248,6 +249,7 @@ function Modal({ title, onClose, children, className = '' }: {
 }) {
   const titleId = useId()
   const dialog = useRef<HTMLElement>(null)
+  useModalScrollLock()
   const onCloseRef = useRef(onClose)
   useEffect(() => { onCloseRef.current = onClose }, [onClose])
   useEffect(() => {
