@@ -14,11 +14,11 @@ import {
 } from './export-preparation'
 
 const fontFiles = {
-  regular: '/usr/share/fonts/truetype/freefont/FreeSerif.ttf',
-  bold: '/usr/share/fonts/truetype/freefont/FreeSerifBold.ttf',
-  italic: '/usr/share/fonts/truetype/freefont/FreeSerifItalic.ttf',
-  boldItalic: '/usr/share/fonts/truetype/freefont/FreeSerifBoldItalic.ttf',
-  mono: '/usr/share/fonts/truetype/freefont/FreeMono.ttf',
+  regular: new URL('../public/fonts/FreeSerif.ttf', import.meta.url).pathname,
+  bold: new URL('../public/fonts/FreeSerifBold.ttf', import.meta.url).pathname,
+  italic: new URL('../public/fonts/FreeSerifItalic.ttf', import.meta.url).pathname,
+  boldItalic: new URL('../public/fonts/FreeSerifBoldItalic.ttf', import.meta.url).pathname,
+  mono: new URL('../public/fonts/FreeMono.ttf', import.meta.url).pathname,
 } as const
 
 const fonts: PdfFontLoader = async (style) => Bun.file(fontFiles[style]).arrayBuffer()

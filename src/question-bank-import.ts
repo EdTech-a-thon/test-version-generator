@@ -45,6 +45,11 @@ export type QuestionBankImportErrorCode =
   | 'unsupported-feature'
   | 'duplicate-id'
   | 'dangling-reference'
+  | 'duplicate-reference'
+  | 'invalid-position'
+  | 'invalid-answer-order'
+  | 'bank-count-limit'
+  | 'exam-count-limit'
   | 'invalid-question'
   | 'unsafe-url'
   | 'question-count-limit'
@@ -73,6 +78,8 @@ export class QuestionBankImportError extends Error {
  * reader. `sourceVersion` is what the file actually said, kept because that is
  * what a teacher is told they are importing.
  */
+export type ParsedQuestionBankRecord = ParsedRecord
+
 type ParsedRecord = {
   format: typeof QUESTION_BANK_FORMAT
   formatVersion: typeof QUESTION_BANK_FORMAT_VERSION
@@ -96,6 +103,8 @@ type ParsedMediaAsset = {
   height: number
   bytes: string
 }
+
+export type QuestionBankRecordSummary = QuestionBankImportProposal['summary']
 
 export type QuestionBankImportProposal = {
   record: ParsedRecord
@@ -123,16 +132,23 @@ const LOCAL_TYPES: Record<QuestionBankRecordQuestionType, QuestionType> = {
   'short-answer': 'open',
 }
 
+/** Where each package-local id of one record Question landed locally. */
+export type ImportedQuestionIdentity = {
+  question: Question
+  /** Choice ids for Multiple Choice and True/False; Word Bank ids for
+   *  Matching. Answer order in an Exam Record is written in these. */
+  answers: ReadonlyMap<string, string>
+}
+
 /** A matching set's editor node: its prompts, then its Word Bank, each given
  *  a fresh local id — and each prompt pointed at its answer's new id, since a
  *  package-local id is only meaningful inside the record. */
 function importedMatching(
   question: QuestionBankRecordQuestion,
   createId: () => string,
+  answerIds: Map<string, string>,
 ): ProseMirrorJSON {
-  const answerIds = new Map(
-    (question.wordBank ?? []).map((answer) => [answer.id, createId()]),
-  )
+  for (const answer of question.wordBank ?? []) answerIds.set(answer.id, createId())
   return {
     type: 'matching',
     content: [
@@ -153,14 +169,18 @@ function importedMatching(
   }
 }
 
-/** Map a validated portable record into fresh local authoring identities. */
-export function importedQuestionsFromRecord(
+/** Map a validated portable record into fresh local authoring identities,
+ *  keyed by each Question's package-local id so an Exam Record travelling
+ *  beside it can be pointed at what was made. */
+export function importedQuestionIdentities(
   record: Pick<ParsedRecord, 'bank'>,
   createId: () => string = () => crypto.randomUUID(),
-): Question[] {
-  return record.bank.questions.map((question) => {
+): Map<string, ImportedQuestionIdentity> {
+  const imported = new Map<string, ImportedQuestionIdentity>()
+  for (const question of record.bank.questions) {
     const stem = recordDocumentToEditorNodes(question.stem)
-    const imported: Question = {
+    const answers = new Map<string, string>()
+    const local: Question = {
       id: createId(),
       type: LOCAL_TYPES[question.type],
       columns: 1,
@@ -168,17 +188,21 @@ export function importedQuestionsFromRecord(
         type: 'doc',
         content:
           question.type === 'matching'
-            ? [...stem, importedMatching(question, createId)]
+            ? [...stem, importedMatching(question, createId, answers)]
             : question.choices
               ? [
                   ...stem,
                   {
                     type: 'multipleChoice',
-                    content: question.choices.map((choice) => ({
-                      type: 'multipleChoiceChoice',
-                      attrs: { id: createId(), correct: choice.correct },
-                      content: recordDocumentToEditorNodes(choice.content),
-                    })),
+                    content: question.choices.map((choice) => {
+                      const id = createId()
+                      answers.set(choice.id, id)
+                      return {
+                        type: 'multipleChoiceChoice',
+                        attrs: { id, correct: choice.correct },
+                        content: recordDocumentToEditorNodes(choice.content),
+                      }
+                    }),
                   },
                 ]
               : stem,
@@ -194,8 +218,19 @@ export function importedQuestionsFromRecord(
           }
         : {}),
     }
-    return imported
-  })
+    imported.set(question.id, { question: local, answers })
+  }
+  return imported
+}
+
+/** Map a validated portable record into fresh local authoring identities. */
+export function importedQuestionsFromRecord(
+  record: Pick<ParsedRecord, 'bank'>,
+  createId: () => string = () => crypto.randomUUID(),
+): Question[] {
+  return [...importedQuestionIdentities(record, createId).values()].map(
+    ({ question }) => question,
+  )
 }
 
 type Parser = (value: unknown) => ParsedRecord
@@ -386,7 +421,7 @@ export const SUPPORTED_QUESTION_BANK_VERSIONS: Readonly<Record<string, Parser>> 
 
 const utf8 = new TextDecoder('utf-8', { fatal: true })
 
-function decodeJson(bytes: Uint8Array): unknown {
+export function decodeRecordJson(bytes: Uint8Array): unknown {
   let source: string
   try {
     source = utf8.decode(bytes)
@@ -844,6 +879,19 @@ async function validateSemantics(
   }
 }
 
+/** One Question Bank Record already decoded from JSON, checked against its
+ *  version's schema and every semantic rule and limit. A package inspects each
+ *  of its banks through this, so a bank inside a package obeys exactly the
+ *  rules a bare one does. */
+export async function inspectQuestionBankRecordValue(
+  value: unknown,
+  limits: QuestionBankImportLimits = DEFAULT_QUESTION_BANK_IMPORT_LIMITS,
+): Promise<QuestionBankImportProposal> {
+  const record = structuralParse(value)
+  const summary = await validateSemantics(record, limits)
+  return { record, summary }
+}
+
 export async function inspectQuestionBankRecord(
   bytes: Uint8Array,
   options: { limits?: QuestionBankImportLimits } = {},
@@ -855,9 +903,7 @@ export async function inspectQuestionBankRecord(
       `The decoded canonical JSON attachment exceeds the ${limits.recordBytes} byte limit.`,
     )
   }
-  const record = structuralParse(decodeJson(bytes))
-  const summary = await validateSemantics(record, limits)
-  return { record, summary }
+  return inspectQuestionBankRecordValue(decodeRecordJson(bytes), limits)
 }
 
 export async function inspectQuestionBankFile(
@@ -865,6 +911,16 @@ export async function inspectQuestionBankFile(
   options: { limits?: QuestionBankImportLimits } = {},
 ): Promise<QuestionBankImportProposal> {
   const limits = options.limits ?? DEFAULT_QUESTION_BANK_IMPORT_LIMITS
+  return inspectQuestionBankRecord(await readCanonicalAttachment(bytes, limits), { limits })
+}
+
+/** The bytes of the one `pdf-canonical-extraction` attachment a Test Parrot
+ *  PDF carries — a Question Bank File's Question Bank Record, or an Exam PDF's
+ *  Test Parrot Package. What those bytes are is for the caller to read. */
+export async function readCanonicalAttachment(
+  bytes: Uint8Array,
+  limits: QuestionBankImportLimits = DEFAULT_QUESTION_BANK_IMPORT_LIMITS,
+): Promise<Uint8Array> {
   if (bytes.byteLength > limits.pdfBytes) {
     throw new QuestionBankImportError(
       'pdf-size-limit',
@@ -924,7 +980,7 @@ export async function inspectQuestionBankFile(
         `The decoded canonical JSON attachment exceeds the ${limits.recordBytes} byte limit.`,
       )
     }
-    return await inspectQuestionBankRecord(content, { limits })
+    return content
   } finally {
     await loadingTask.destroy()
   }
