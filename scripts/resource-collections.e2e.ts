@@ -74,10 +74,11 @@ test('Home empty state explains local storage without creating resources', async
   await page.goto('/')
   const storage = page.getByRole('button', { name: 'Where your work is stored' })
   await expect(storage).toBeVisible()
-  await storage.hover()
-  await expect(page.getByRole('tooltip')).toContainText(
+  await storage.click()
+  await expect(page.getByRole('region', { name: 'Backup and sync' })).toContainText(
     'Your work stays in this browser',
   )
+  await storage.click()
   await expect(
     page.getByRole('button', { name: 'Create your first Exam' }),
   ).toBeVisible()

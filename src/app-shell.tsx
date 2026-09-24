@@ -1,7 +1,8 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { CircleQuestionMark, FileText, HardDrive, House, Library, X } from 'lucide-react'
+import { CircleQuestionMark, FileText, House, Library, X } from 'lucide-react'
+import { AccountBadge } from './account-menu'
 import type { PersistentStorageStatus } from './durable-storage'
 import { Footer, Link } from './site-chrome'
 import { useRoute } from './use-route'
@@ -20,44 +21,6 @@ const NAV = [
   { href: '/exams', label: 'Exams', Icon: FileText },
   { href: '/question-banks', label: 'Question Banks', Icon: Library },
 ] as const
-
-/**
- * Where the work lives, said once, quietly. It is a standing fact about the
- * whole app rather than news, so it gets an icon in the bar and a tooltip —
- * not a banner across the top of Home.
- */
-function StorageBadge({ status }: { status: PersistentStorageStatus }) {
-  return (
-    <div className="storage-badge">
-      <button
-        type="button"
-        className="storage-badge-button"
-        data-status={status}
-        aria-label="Where your work is stored"
-        aria-describedby="storage-tip"
-      >
-        <HardDrive aria-hidden="true" />
-      </button>
-      <div className="storage-tip" id="storage-tip" role="tooltip">
-        <strong>Your work stays in this browser</strong>
-        <p>
-          Exams, Question Banks, Working Copies, and Export History are saved in this browser.
-          There is no account, cloud sync, cross-device recovery, or archival guarantee. Export
-          or back up important work externally.
-        </p>
-        {status === 'denied' && (
-          <p className="storage-warning">
-            Persistent storage was denied. Your browser may clear this local data when space is
-            needed.
-          </p>
-        )}
-        {status === 'granted' && (
-          <p className="storage-status">Persistent browser storage is enabled.</p>
-        )}
-      </div>
-    </div>
-  )
-}
 
 const SUPPORT_EMAIL = 'support@teacher.dev'
 
@@ -204,7 +167,7 @@ export function AppShell({
           </nav>
           <div className="app-topbar-actions">
             {actions}
-            <StorageBadge status={persistentStorage} />
+            <AccountBadge status={persistentStorage} />
           </div>
         </header>
         <main className="app-main">{children}</main>

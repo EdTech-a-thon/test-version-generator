@@ -10,6 +10,8 @@ import {
 } from './question-bank-workspaces'
 import { persistentStorageStatus } from './durable-storage'
 import { questionBankCollection } from './resource-collections'
+import { applyStagedRestore } from './account-backup'
+import { prepareAccountSync, pullBeforeStart, startAccountSync } from './account-sync'
 import './styles.css'
 
 async function start() {
@@ -18,6 +20,10 @@ async function start() {
     await navigator.serviceWorker.ready
     if (!navigator.serviceWorker.controller) { window.location.reload(); return }
   }
+  // A restore, or newer work from Google Drive, replaces the account before
+  // anything below opens it.
+  const { restoreError } = await prepareAccountSync(await applyStagedRestore())
+  await pullBeforeStart()
   const workspaces = createExamWorkspaceService()
   const bankWorkspaces = createQuestionBankWorkspaceService()
   const startingOnEditor = window.location.pathname === '/editor'
@@ -33,7 +39,7 @@ async function start() {
   let store = null
   let bank: QuestionBankResource | null = null
   let editorId: string | null = null
-  let error: string | null = null
+  let error: string | null = restoreError || null
 
   if (startingOnBank) {
     // Unlike the editor's one-time launch parameters, the bank page keeps its
@@ -77,5 +83,6 @@ async function start() {
   ])
   const collection = await questionBankCollection(banks, bankWorkspaces, workspaces)
   createRoot(document.getElementById('root')!).render(<StrictMode><MilkdownProvider><App store={store} bank={bank} workspaces={workspaces} bankWorkspaces={bankWorkspaces} initialExams={exams} initialBankCollection={collection} persistentStorage={storageStatus} initialEditorId={editorId} initialError={error} /></MilkdownProvider></StrictMode>)
+  startAccountSync()
 }
 void start()
