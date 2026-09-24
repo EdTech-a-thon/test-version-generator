@@ -963,7 +963,7 @@ button { cursor: pointer; }
   opacity: 0; transition: opacity 90ms ease-in;
 }
 .work-space-grip {
-  width: 44px; height: 4px; border-radius: 2px; background: #c9b49b;
+  width: 44px; height: 4px; border-radius: 2px; background: #b3a498;
 }
 .exam-question:hover .work-space-handle,
 .exam-question--selected .work-space-handle,

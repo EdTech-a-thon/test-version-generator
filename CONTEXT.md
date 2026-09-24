@@ -97,6 +97,10 @@ _Avoid_: Open, Open ended, Open Response, Short Response
 Optional rich-text material authored for a Short Answer question to represent its answer in the Answer Key.
 _Avoid_: Correct answer, sample response, rubric
 
+**Work Space**:
+Room an Exam leaves below a Short Answer question for a student's working: blank or ruled, as tall as the teacher drags it, or filling the rest of its page. It is Exam presentation set on the exam sheet like answer columns, never Question Content, so the same Question may take different room on another Exam; Replace keeps a position's Work Space and Duplicate copies it.
+_Avoid_: White space, answer box, response area
+
 **Question Section**:
 A group of questions of the same Question Type whose boundary remains fixed within an Exam and its exported output, such as Multiple Choice, True/False, Matching, or Short Answer. A Section prints its own heading and its own directions, and is omitted entirely when it holds no Questions.
 _Avoid_: Question category
