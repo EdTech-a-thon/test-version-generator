@@ -1,16 +1,18 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { Check, ChevronRight, Copy, FileText, Library, UploadCloud, type LucideIcon } from 'lucide-react'
-import { DocView } from './doc-view'
 import extractInstructions from '../public/extract.md?raw'
 import {
   RECORD_TYPE_LABELS,
   RECORD_TYPE_ORDER,
   recordDocumentToEditorNodes,
   wordBankLettersOf,
+  type QuestionBankRecordQuestion,
   type SemanticDocument,
 } from './question-bank-export'
-import { DifficultyBadge, TopicBadge } from './badges'
-import type { Difficulty, Question } from './exam'
+import { TopicBadge } from './badges'
+import type { Question } from './exam'
+import { QuestionReading } from './question-reading'
+import type { QuestionReadingContent } from './question-reading-content'
 import type { ProseMirrorJSON } from './question-doc'
 import type { ImportProposal, ProposedBank, ProposedExam } from './package-import'
 import {
@@ -138,6 +140,41 @@ async function examPreviewPlan(
   })
 }
 
+/** A record Question, as the reading draws it. */
+function readingOfRecordQuestion(
+  question: QuestionBankRecordQuestion,
+  previewDocument: (document: SemanticDocument) => ProseMirrorJSON[],
+): QuestionReadingContent {
+  const letters = wordBankLettersOf(question)
+  return {
+    typeLabel: RECORD_TYPE_LABELS[question.type],
+    difficulty: question.difficulty,
+    topics: question.topics ?? [],
+    stem: previewDocument(question.stem),
+    ...(question.choices ? {
+      choices: question.choices.map((choice) => ({
+        id: choice.id,
+        content: previewDocument(choice.content),
+        correct: choice.correct,
+      })),
+    } : {}),
+    ...(question.prompts && question.wordBank ? {
+      matching: {
+        prompts: question.prompts.map((prompt) => ({
+          id: prompt.id,
+          content: previewDocument(prompt.content),
+          letter: letters.get(prompt.answer ?? ''),
+        })),
+        wordBank: question.wordBank.map((answer) => ({
+          id: answer.id,
+          content: previewDocument(answer.content),
+        })),
+      },
+    } : {}),
+    ...(question.suggestedAnswer ? { suggestedAnswer: previewDocument(question.suggestedAnswer) } : {}),
+  }
+}
+
 /** A bank read as a list of its questions. It has no printable page, so it
  *  is shown borderless rather than on a sheet that would suggest one. */
 function BankPreview({
@@ -157,57 +194,9 @@ function BankPreview({
         <p className="bank-import-preview-description">{record.bank.description}</p>
       )}
     </header>
-    {questions.map((question, index) => (
-      <article key={question.id} className="bank-import-question">
-        <div className="bank-import-question-head">
-          <span className="bank-import-question-number">{index + 1}</span>
-          <span className="bank-import-question-type">{RECORD_TYPE_LABELS[question.type]}</span>
-          {question.difficulty && <DifficultyBadge difficulty={question.difficulty as Difficulty} />}
-          {question.topics?.map((topic) => <TopicBadge key={topic} topic={topic} />)}
-        </div>
-        <DocView className="bank-import-stem" content={previewDocument(question.stem)} />
-        {question.choices && (
-          <ol type="A" className="bank-import-choices">
-            {question.choices.map((choice) => (
-              <li key={choice.id} className={choice.correct ? 'is-correct' : undefined}>
-                <DocView content={previewDocument(choice.content)} />
-                {choice.correct && (
-                  <Check className="bank-import-correct" role="img" aria-label="Correct answer" />
-                )}
-              </li>
-            ))}
-          </ol>
-        )}
-        {question.prompts && question.wordBank && (
-          <div className="record-matching bank-import-matching">
-            <ol className="record-matching-items">
-              {question.prompts.map((prompt) => (
-                <li key={prompt.id}>
-                  <span
-                    className="record-matching-blank"
-                    aria-label={prompt.answer ? 'Matched answer' : 'Unmatched'}
-                  >
-                    {wordBankLettersOf(question).get(prompt.answer ?? '') ?? '—'}
-                  </span>
-                  <DocView content={previewDocument(prompt.content)} />
-                </li>
-              ))}
-            </ol>
-            <ol type="A" className="bank-import-choices">
-              {question.wordBank.map((answer) => (
-                <li key={answer.id}>
-                  <DocView content={previewDocument(answer.content)} />
-                </li>
-              ))}
-            </ol>
-          </div>
-        )}
-        {question.suggestedAnswer && (
-          <section className="bank-import-answer">
-            <h4>Suggested Answer</h4>
-            <DocView content={previewDocument(question.suggestedAnswer)} />
-          </section>
-        )}
+    {questions.map((question) => (
+      <article key={question.id} className="question-reading">
+        <QuestionReading content={readingOfRecordQuestion(question, previewDocument)} />
       </article>
     ))}
   </div>

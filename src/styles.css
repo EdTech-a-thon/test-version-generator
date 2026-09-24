@@ -487,7 +487,7 @@ button { cursor: pointer; }
 }
 .question-bank-header h2 { margin: 0; font-size: 16px; }
 .question-bank-header-actions { display: flex; align-items: center; gap: 6px; }
-.question-bank-header .secondary-button {
+.question-bank-header .secondary-button, .question-bank-header .primary-button {
   display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 6px 11px;
 }
 .question-bank-header .toolbar-icon-button { width: 32px; height: 32px; }
@@ -570,6 +570,84 @@ button { cursor: pointer; }
   padding: 18px 16px; border: 1px dashed #d8c7b2; border-radius: 8px;
   background: #fdf6ec; text-align: center;
 }
+/* On the Question Bank page the bank is read, not scanned: each Question in
+   full, on its own card of the same paper the editor's sheet is. The cards
+   are the part that scrolls. */
+/* The lane and the search row above it both keep a scrollbar's width at their
+   right, so the cards end exactly where the search box does. */
+.question-bank-reading-lane {
+  flex: 1 1 auto; min-height: 0; overflow-y: auto; scrollbar-gutter: stable;
+  padding-bottom: 4px;
+}
+.bank-page-column > .question-bank-filters {
+  flex: none; overflow: hidden; scrollbar-gutter: stable; padding: 2px 0;
+}
+.question-bank-reading { display: grid; gap: 16px; margin: 0; padding: 0; list-style: none; }
+.question-reading.question-bank-reading-item {
+  padding: 18px 22px; border: 1px solid var(--paper-outline); border-radius: 10px;
+  background: #fffdf8; cursor: pointer;
+  transition: border-color .12s ease, box-shadow .12s ease;
+}
+.question-bank-reading-item:hover,
+.question-bank-reading-item:focus {
+  border-color: #cdb9a6; box-shadow: 0 2px 8px rgb(91 68 47 / 12%);
+}
+.question-bank-reading-item:focus-visible { outline: 2px solid #8a6a4c; outline-offset: 2px; }
+/* The pencil says what a click does; it waits at the end of the head row
+   until the Question is pointed at or focused. */
+.question-bank-reading-edit { width: 28px; height: 28px; margin: -4px 0 -4px auto; opacity: 0; }
+.question-bank-reading-edit svg { width: 15px; height: 15px; }
+.question-bank-reading-item:hover .question-bank-reading-edit,
+.question-bank-reading-item:focus-within .question-bank-reading-edit { opacity: 1; }
+
+/* The page's body: the outline down the left, the cards beside it. Each
+   scrolls on its own, so the outline stays in reach however far down the
+   cards have got. */
+.bank-page-body {
+  flex: 1 1 auto; min-height: 0;
+  display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 20px;
+}
+.bank-page-column { min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 10px; }
+.bank-outline {
+  min-height: 0; overflow-y: auto; padding: 2px 4px 12px 0;
+  display: flex; flex-direction: column; gap: 18px;
+}
+.bank-outline section { display: grid; gap: 2px; }
+.bank-outline h3 {
+  margin: 0 0 4px; padding: 0 8px; color: #6e5b4d;
+  font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+}
+.bank-outline-row {
+  min-width: 0; display: flex; align-items: center; gap: 8px;
+  padding: 6px 8px; border: 1px solid transparent; border-radius: 7px;
+  color: #332a24; background: transparent; font: inherit; font-size: 13.5px; text-align: left; cursor: pointer;
+}
+.bank-outline-row > svg { flex: none; width: 15px; height: 15px; color: var(--paper-accent); stroke-width: 2; }
+.bank-outline-row > span:not(.topic-swatch) { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bank-outline-row small {
+  flex: none; margin-left: auto; color: #6e5b4d; font-size: 12px; font-variant-numeric: tabular-nums;
+}
+.bank-outline-row:hover { background: var(--paper-surface-low); }
+.bank-outline-row[aria-pressed='true'] {
+  border-color: #d8bfa6; background: var(--paper-accent-wash); font-weight: 700;
+}
+/* A topic's icon, in the topic's own wash, outline and ink, so the list says
+   which tag it means by colour as well as by name. */
+.topic-swatch {
+  flex: none; display: inline-grid; place-items: center; width: 20px; height: 20px;
+  border: 1px solid; border-radius: 50%;
+}
+.topic-swatch svg { width: 12px; height: 12px; stroke-width: 2.2; }
+.topic-swatch[data-tint='0'] { color: var(--tint-0-ink); background: var(--tint-0-wash); border-color: var(--tint-0-line); }
+.topic-swatch[data-tint='1'] { color: var(--tint-1-ink); background: var(--tint-1-wash); border-color: var(--tint-1-line); }
+.topic-swatch[data-tint='2'] { color: var(--tint-2-ink); background: var(--tint-2-wash); border-color: var(--tint-2-line); }
+.topic-swatch[data-tint='3'] { color: var(--tint-3-ink); background: var(--tint-3-wash); border-color: var(--tint-3-line); }
+.topic-swatch[data-tint='4'] { color: var(--tint-4-ink); background: var(--tint-4-wash); border-color: var(--tint-4-line); }
+.topic-swatch[data-tint='5'] { color: var(--tint-5-ink); background: var(--tint-5-wash); border-color: var(--tint-5-line); }
+/* The other rows' icons take the swatch's width, so every name starts on
+   the same line. */
+.bank-outline-row > svg { margin-inline: 2.5px; }
+.bank-outline-empty { margin: 0; padding: 0 8px; color: #7a6a5c; font-size: 12.5px; line-height: 1.4; }
 .question-bank-list {
   flex: 1 1 auto; min-height: 0; overflow-y: auto;
   display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none;
@@ -1666,11 +1744,23 @@ button { cursor: pointer; }
 /* The bank's name is the heading of that row, so it takes the width the row
    has left over and the actions keep their own. */
 .bank-page-heading { flex: 1 1 auto; min-width: 0; }
+.bank-page > .question-bank .question-bank-header { align-items: flex-start; }
+.bank-page > .question-bank .question-bank-header-actions { padding-top: 4px; }
+/* The name is only as wide as what it says, so the pencil that edits the rest
+   of the bank's details sits right after it rather than out at the far end. */
+.bank-page-title-row { display: flex; align-items: center; gap: 2px; min-width: 0; }
 .bank-page-title {
-  width: 100%; padding: 4px 7px;
+  min-width: 0; max-width: 100%; padding: 4px 7px; field-sizing: content;
   border: 1px solid transparent; border-radius: 6px;
-  color: #332a24; background: transparent; font: 700 26px/1.2 inherit; outline: none;
+  color: #332a24; background: transparent; font: 700 26px/1.2 Arial, Helvetica, sans-serif; outline: none;
 }
+.bank-page-details-button { flex: none; width: 32px; height: 32px; }
+.bank-page-details-button svg { width: 16px; height: 16px; }
+.bank-page-facts { padding: 0 8px; color: #6e5b4d; font-size: 13px; line-height: 1.45; }
+.bank-page-facts p { margin: 2px 0 0; }
+.bank-page-facts span + span::before { content: '·'; margin: 0 7px; color: #b3a192; }
+.bank-page-facts a { color: inherit; }
+.bank-page-description { max-width: 72ch; }
 .bank-page-title:hover { border-color: #d8cbbb; }
 .bank-page-title:focus { border-color: var(--paper-accent); }
 .bank-save-status { color: #6e5b4d; font-size: 13px; }
@@ -1896,8 +1986,8 @@ button { cursor: pointer; }
   flex: none; min-width: 2.2em; padding: 0 4px; border-radius: 4px;
   background: #e6f0e3; color: #27643a; font-size: 12px; font-weight: 700; text-align: center;
 }
-.bank-import-matching { margin-top: 10px; }
-.bank-import-matching .record-matching-items { color: var(--paper-ink-soft); }
+.question-reading-matching { margin-top: 10px; }
+.question-reading-matching .record-matching-items { color: var(--paper-ink-soft); }
 .question-bank-details-dialog {
   width: min(620px, calc(100vw - 32px)); max-height: calc(100vh - 40px);
   padding: 22px; overflow: auto; border-radius: 12px; background: #fffdf8;
@@ -2098,44 +2188,39 @@ button { cursor: pointer; }
 .bank-import-preview-head p { margin: 4px 0 0; color: var(--paper-ink-soft); font-size: 13px; }
 .bank-import-preview-description { max-width: 62ch; }
 
-.bank-import-question { padding: 18px 0; border-top: 1px solid var(--paper-outline); }
-.bank-import-question-head {
+.question-reading { padding: 18px 0; border-top: 1px solid var(--paper-outline); }
+.question-reading-head {
   display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 8px;
 }
-.bank-import-question-number {
-  display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%;
-  background: var(--paper-surface-low); color: var(--paper-ink-soft);
-  font-size: 12px; font-weight: 700;
-}
-.bank-import-question-type {
+.question-reading-type {
   color: var(--paper-ink-soft); font-size: 12px; font-weight: 700;
   text-transform: uppercase; letter-spacing: 0.04em;
 }
-.bank-import-stem { line-height: 1.5; }
-.bank-import-stem p { margin: 0 0 6px; }
-.bank-import-stem img { max-width: 100%; height: auto; }
+.question-reading-stem { line-height: 1.5; }
+.question-reading-stem p { margin: 0 0 6px; }
+.question-reading-stem img { max-width: 100%; height: auto; }
 
-.bank-import-choices { display: grid; gap: 5px; margin: 10px 0 0; padding-left: 22px; }
-.bank-import-choices li { padding-left: 3px; color: var(--paper-ink-soft); }
-.bank-import-choices .doc-content, .bank-import-choices .doc-content p {
+.question-reading-choices { display: grid; gap: 5px; margin: 10px 0 0; padding-left: 22px; }
+.question-reading-choices li { padding-left: 3px; color: var(--paper-ink-soft); }
+.question-reading-choices .doc-content, .question-reading-choices .doc-content p {
   display: inline; margin: 0;
 }
-.bank-import-choices li.is-correct { color: #27643a; font-weight: 600; }
+.question-reading-choices li.is-correct { color: #27643a; font-weight: 600; }
 /* The mark sits with the answer it belongs to rather than out at the margin,
    so the eye finds it on the text it is about. */
-.bank-import-correct {
+.question-reading-correct {
   width: 15px; height: 15px; margin-left: 6px; color: #27643a; vertical-align: -3px;
 }
 
-.bank-import-answer {
+.question-reading-answer {
   margin-top: 10px; padding-left: 11px; border-left: 2px solid var(--paper-outline);
 }
-.bank-import-answer h4 {
+.question-reading-answer h4 {
   margin: 0 0 4px; color: var(--paper-ink-soft); font-size: 12px;
   text-transform: uppercase; letter-spacing: 0.04em;
 }
-.bank-import-answer .doc-content { color: var(--paper-ink-soft); font-size: 14px; }
-.bank-import-answer .doc-content p { margin: 0; }
+.question-reading-answer .doc-content { color: var(--paper-ink-soft); font-size: 14px; }
+.question-reading-answer .doc-content p { margin: 0; }
 
 .bank-import-controls {
   min-width: 0; padding: 18px; display: flex; flex-direction: column; gap: 16px;
