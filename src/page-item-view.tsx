@@ -204,7 +204,16 @@ export function QuestionContent({
   const numbered = printsNumberLine(item)
   return (
     <>
-      <div className="question-number">
+      {/* A Short Answer question has no blank to make room for, so its
+          column holds the number alone — `questionIndentOf` in export-plan.ts
+          is the same width for the adapters. */}
+      <div
+        className={
+          item.question.type === 'open'
+            ? 'question-number question-number--compact'
+            : 'question-number'
+        }
+      >
         {numbered && item.question.answerBlank && (
           <span className="answer-blank" aria-label="Answer blank" />
         )}
@@ -253,6 +262,9 @@ export function AnswerKeyEntry({ item }: { item: AnswerKeyEntryItem }) {
           {item.difficulty && <DifficultyBadge difficulty={item.difficulty} />}
           {(item.topics ?? []).map((topic) => <TopicBadge topic={topic} key={topic} />)}
         </span>
+      )}
+      {item.suggestedAnswer && (
+        <DocView className="answer-key-suggested" content={item.suggestedAnswer} />
       )}
     </div>
   )

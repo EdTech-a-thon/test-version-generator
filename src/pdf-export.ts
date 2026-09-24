@@ -28,14 +28,15 @@ import {
   type ExportImage,
   type MediaLoader,
 } from './export-media'
-import type {
-  AnswerKeyEntryItem,
-  ChoiceGrid,
-  LayoutPlan,
-  PageFurniture,
-  PageItem,
-  PlannedWorkSpace,
-  QuestionItem,
+import {
+  questionIndentOf,
+  type AnswerKeyEntryItem,
+  type ChoiceGrid,
+  type LayoutPlan,
+  type PageFurniture,
+  type PageItem,
+  type PlannedWorkSpace,
+  type QuestionItem,
 } from './export-plan'
 import { DIFFICULTY_LABELS, WORK_SPACE_LINE_PITCH } from './exam'
 import type { ProseMirrorJSON } from './question-doc'
@@ -47,8 +48,10 @@ const BODY_LINE = 16.3
 const SMALL_SIZE = 9.75
 const HEADING_SIZE = 12.75
 const TITLE_SIZE = 19.5
-const QUESTION_INDENT = (92 + 6) * POINTS_PER_PX
 const INK = rgb(0.2, 0.165, 0.14)
+/** Where the key's answer column starts: past `.answer-key-entry`'s 42px
+ *  number column and its 8px gap. */
+const ANSWER_KEY_ANSWER_X = 38
 const LINK = rgb(0.08, 0.3, 0.7)
 const RULE = rgb(0.55, 0.5, 0.45)
 const TAG_FILL = rgb(0.95, 0.91, 0.86)
@@ -600,13 +603,14 @@ function drawWorkSpace(
 }
 
 function drawQuestion(context: DrawContext, item: QuestionItem): void {
-  const bodyX = context.x + QUESTION_INDENT
-  const bodyWidth = context.width - QUESTION_INDENT
+  const indent = questionIndentOf(item.question) * POINTS_PER_PX
+  const bodyX = context.x + indent
+  const bodyWidth = context.width - indent
   if (item.numbered) {
     const prefix = item.question.answerBlank
       ? `_______  ${item.question.number}.`
       : `${item.question.number}.`
-    drawTextLine(context, prefix, { font: 'bold', width: QUESTION_INDENT - 5 })
+    drawTextLine(context, prefix, { font: 'bold', width: indent - 5 })
     context.y += BODY_LINE
   }
   drawBlocks(context, item.stem, { x: bodyX, width: bodyWidth })
@@ -675,7 +679,7 @@ function drawAnswerKeyEntry(context: DrawContext, item: AnswerKeyEntryItem): voi
 
   drawTextLine(context, `${item.number}.`, { width: 32 })
   context.y = rowY
-  if (item.letter) drawTextLine(context, item.letter, { font: 'bold', x: context.x + 38, width: 42 })
+  if (item.letter) drawTextLine(context, item.letter, { font: 'bold', x: context.x + ANSWER_KEY_ANSWER_X, width: 42 })
   else context.y -= BODY_LINE
   context.page.drawLine({
     start: { x: context.x + 36, y: rowY - BODY_LINE + 3 },
@@ -704,6 +708,14 @@ function drawAnswerKeyEntry(context: DrawContext, item: AnswerKeyEntryItem): voi
     })
   }
   context.y = rowY - lines * BODY_LINE - 2
+  // A Suggested Answer starts under the blank, below the whole row.
+  if (item.suggestedAnswer) {
+    drawBlocks(context, item.suggestedAnswer, {
+      x: context.x + ANSWER_KEY_ANSWER_X,
+      width: context.width - ANSWER_KEY_ANSWER_X,
+    })
+    context.y -= 4
+  }
 }
 
 function drawFurniture(
