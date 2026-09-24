@@ -815,6 +815,31 @@ describe('the dirty flag and persistence', () => {
     expect(store.getState().dirty).toBe(true)
   })
 
+  test('section wording and heading size are saved Exam presentation that reaches the rendered Exam', async () => {
+    const { store } = await withExamWorkingCopy(1)
+    await store.save()
+
+    store.setSectionHeading('multiple-choice', { title: 'Choose One', instructions: '' })
+    expect(store.getState().dirty).toBe(true)
+    expect(store.selectedExam().exam.sectionHeadings).toEqual({
+      'multiple-choice': { title: 'Choose One', instructions: '' },
+    })
+    store.setHeadingSize('small')
+    expect(store.selectedExam().exam.headingSize).toBe('small')
+
+    // Set back to the defaults, the Working Copy stores nothing and matches
+    // the saved Exam again.
+    store.setSectionHeading('multiple-choice', { title: null, instructions: null })
+    store.setHeadingSize('normal')
+    expect(store.getState().workingCopy.sectionHeadings).toBeUndefined()
+    expect(store.getState().workingCopy.headingSize).toBeUndefined()
+    expect(store.selectedExam().exam.headingSize).toBeUndefined()
+    expect(store.getState().dirty).toBe(false)
+
+    store.undo()
+    expect(store.selectedExam().exam.headingSize).toBe('small')
+  })
+
   test('a change that changes nothing costs no undo step, dirty flag, or write', async () => {
     // The store's one-action invariant cuts both ways: an action that leaves
     // the state exactly as it found it is not an action. Setting the title it
@@ -823,6 +848,8 @@ describe('the dirty flag and persistence', () => {
     const cases: Array<(store: ExamStore, question: Question) => void> = [
       (store) => store.setTitle('Chem Unit 3'),
       (store, question) => store.setQuestionColumns([question.id], 4),
+      (store) => store.setSectionHeading('open', { title: 'Essays' }),
+      (store) => store.setHeadingSize('large'),
     ]
     for (const act of cases) {
       const { backend, store, questions } = await withExamWorkingCopy(1)

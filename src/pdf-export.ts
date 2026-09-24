@@ -46,7 +46,7 @@ import {
   type QuestionItem,
 } from './export-plan'
 import { DIFFICULTY_LABELS, WORK_SPACE_LINE_PITCH } from './exam'
-import { pointsOf } from './export-typography'
+import { pointsOf, sectionHeadingPoints } from './export-typography'
 import type { ProseMirrorJSON } from './question-doc'
 import {
   QUESTION_BANK_ATTACHMENT_DESCRIPTION,
@@ -737,12 +737,29 @@ function drawQuestion(context: DrawContext, item: QuestionItem): void {
 
 function drawItem(context: DrawContext, item: PageItem): void {
   switch (item.kind) {
-    case 'section-heading':
+    case 'section-heading': {
+      // A cleared part draws nothing, and a heading cleared of both draws
+      // nothing at all — the plan packed it at no height.
+      if (!item.title && !item.instructions) return
+      // Line heights grow with the Exam's heading size, as print's ratios do.
+      const size = sectionHeadingPoints(item.size)
       context.y -= 12
-      drawTextLine(context, item.title, { font: 'bold', size: HEADING_SIZE, line: 17 })
-      drawTextLine(context, item.instructions, { size: BODY_SIZE, line: 17 })
+      if (item.title) {
+        drawTextLine(context, item.title, {
+          font: 'bold',
+          size: size.title,
+          line: 17 * (size.title / HEADING_SIZE),
+        })
+      }
+      if (item.instructions) {
+        drawTextLine(context, item.instructions, {
+          size: size.instructions,
+          line: 17 * (size.instructions / BODY_SIZE),
+        })
+      }
       context.y -= 8
       return
+    }
     case 'question':
       drawQuestion(context, item)
       return

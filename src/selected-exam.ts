@@ -17,6 +17,12 @@
 // Arrangement, and nothing here writes anything back.
 
 import {
+  DEFAULT_HEADING_SIZE,
+  isHeadingSize,
+  isSectionHeadings,
+  sameSectionHeadings,
+} from './section-headings'
+import {
   columnsOf,
   isWorkSpace,
   partsOf,
@@ -131,17 +137,32 @@ export function selectedExam(
     if (presented.has(id) && isWorkSpace(space)) workSpace[id] = space
   }
   const hasAnyWorkSpace = Object.keys(workSpace).length > 0
+  // Section wording and size are this Exam's presentation too, carried only
+  // when readable and only when they say something other than the default.
+  const sectionHeadings =
+    draft.sectionHeadings && isSectionHeadings(draft.sectionHeadings)
+      && Object.keys(draft.sectionHeadings).length > 0
+      ? draft.sectionHeadings
+      : undefined
+  const headingSize =
+    isHeadingSize(draft.headingSize) && draft.headingSize !== DEFAULT_HEADING_SIZE
+      ? draft.headingSize
+      : undefined
   const exam: Exam =
     previous
     && previous.exam.title === draft.title
     && previous.exam.questions.length === questions.length
     && previous.exam.questions.every((question, index) => question === questions[index])
     && sameWorkSpace(previous.exam.workSpace, hasAnyWorkSpace ? workSpace : undefined)
+    && sameSectionHeadings(previous.exam.sectionHeadings, sectionHeadings)
+    && previous.exam.headingSize === headingSize
       ? previous.exam
       : {
           title: draft.title,
           questions,
           ...(hasAnyWorkSpace ? { workSpace } : {}),
+          ...(sectionHeadings ? { sectionHeadings } : {}),
+          ...(headingSize ? { headingSize } : {}),
         }
 
   // Only ids the bank can resolve: an ordering may tolerate a stranger, but an

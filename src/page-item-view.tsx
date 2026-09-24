@@ -12,6 +12,7 @@
 // page, not to the items on it.
 
 import type { HTMLAttributes, ReactNode } from 'react'
+import { sectionHeadingStyles } from './export-typography'
 import { Check } from 'lucide-react'
 import { DifficultyBadge, TopicBadge } from './badges'
 import { DocView } from './doc-view'
@@ -283,12 +284,18 @@ export function QuestionContent({
   )
 }
 
+// A cleared part prints nothing — not an empty line — and a heading cleared of
+// both prints nothing at all, so it measures, and packs, at no height.
 export function SectionHeadingContent({ item }: { item: SectionHeadingItem }) {
+  if (!item.title && !item.instructions) return null
+  const styles = sectionHeadingStyles(item.size)
   return (
-    <>
-      <h2 className="section-title">{item.title}</h2>
-      <p className="section-instructions">{item.instructions}</p>
-    </>
+    <header className="exam-section">
+      {item.title && <h2 className="section-title" style={styles.title}>{item.title}</h2>}
+      {item.instructions && (
+        <p className="section-instructions" style={styles.instructions}>{item.instructions}</p>
+      )}
+    </header>
   )
 }
 
@@ -420,9 +427,7 @@ export function PageItemMeasureView({ item }: { item: PageItem }) {
   switch (item.kind) {
     case 'section-heading':
       return (
-        <header className="exam-section">
-          <SectionHeadingContent item={item} />
-        </header>
+        <SectionHeadingContent item={item} />
       )
     case 'question':
       return (

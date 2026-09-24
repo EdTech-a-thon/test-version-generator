@@ -7,7 +7,7 @@ import {
   type PdfFontLoader,
 } from './pdf-export'
 import { FIXTURES, PIXEL_PNG } from './export-fixtures'
-import { questionIndentOf } from './export-plan'
+import { SECTION_INSTRUCTIONS, questionIndentOf } from './export-plan'
 import {
   DEFAULT_EXPORT_CONFIGURATION,
   EMPTY_EXPORT_HISTORY,
@@ -202,6 +202,27 @@ describe('PDF Export Adapter', () => {
     await expect(createPublicationPdf(changed, noImages, fonts)).rejects.toThrow(
       'does not fit its planned page',
     )
+  })
+
+  // An Exam's own section wording reaches the PDF, and a part it cleared does
+  // not — neither the words nor the default they replaced.
+  test('draws reworded section headings and nothing for a cleared one', async () => {
+    const { plans } = plansOf('reworded, cleared and large section headings')
+    const bytes = await createPublicationPdf(plans, noImages, fonts)
+    const document = await getDocument({ data: bytes, disableWorker: true }).promise
+    let drawn = ''
+    for (let index = 1; index <= document.numPages; index += 1) {
+      drawn += ' ' + (await (await document.getPage(index)).getTextContent()).items
+        .map((item) => ('str' in item ? item.str : ''))
+        .join(' ')
+    }
+    drawn = drawn.replace(/\s+/g, ' ')
+    expect(drawn).toContain('Choose One')
+    expect(drawn).toContain('Write the letter of the matching definition.')
+    expect(drawn).not.toContain(SECTION_INSTRUCTIONS['multiple-choice'])
+    expect(drawn).not.toContain(SECTION_INSTRUCTIONS.open)
+    // Cleared from the test, the Short Answer group is still named in the key.
+    expect(drawn).toContain('Short Answer')
   })
 
   // A matching question once printed its stem and nothing else: no prompts, no

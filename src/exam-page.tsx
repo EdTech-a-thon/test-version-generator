@@ -44,6 +44,7 @@ import {
   type PlannedPage,
   type PageItem,
   type QuestionItem,
+  type SectionHeadingItem,
   type PlannedPart,
   type PlannedQuestion,
   type PlannedWorkSpace,
@@ -59,9 +60,17 @@ import {
   type ColumnSetting,
   type Exam,
   type Arrangement,
+  type QuestionType,
   type WorkSpace,
 } from './exam'
 import type { Selection } from './use-selection'
+import {
+  SECTION_INSTRUCTIONS,
+  SECTION_TITLE,
+  sectionHeadingOf,
+  type SectionHeadingChange,
+} from './section-headings'
+import { sectionHeadingStyles } from './export-typography'
 import type { WorkspaceDrag } from './use-workspace-drag'
 import { dropStateOf, type QuestionDropState } from './workspace-drag'
 import {
@@ -74,6 +83,7 @@ import {
   ListRestart,
   Pencil,
   PencilLine,
+  RotateCcw,
   Shuffle,
   SquareDashed,
 } from 'lucide-react'
@@ -776,6 +786,123 @@ function QuestionView({
   )
 }
 
+/** Rewords a Question Section's heading on this Exam; `null` restores a part. */
+export type SetSectionHeading = (section: QuestionType, change: SectionHeadingChange) => void
+
+// One part of a section heading, typed where it prints. The underline and the
+// field are the Exam title's: a transparent line until hover, the accent once
+// focused. It is a textarea laid over a hidden copy of its own value, so it
+// wraps exactly as the printed text does and the heading keeps the height
+// `dom-measure.ts` measured; the text is a single line, so Enter finishes.
+function SectionHeadingField({
+  label,
+  value,
+  placeholder,
+  disabled,
+  onChange,
+  onFocusChange,
+}: {
+  label: string
+  value: string
+  placeholder: string
+  disabled: boolean
+  onChange: (value: string) => void
+  onFocusChange: (focused: boolean) => void
+}) {
+  return (
+    <span className="section-heading-field" data-value={value || placeholder}>
+      <textarea
+        aria-label={label}
+        className="section-heading-input"
+        rows={1}
+        value={value}
+        placeholder={placeholder}
+        disabled={disabled}
+        spellCheck
+        onChange={(event) => onChange(event.target.value.replace(/\s*\n\s*/g, ' '))}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === 'Escape') {
+            event.preventDefault()
+            event.currentTarget.blur()
+          }
+        }}
+        onFocus={() => onFocusChange(true)}
+        onBlur={() => onFocusChange(false)}
+      />
+    </span>
+  )
+}
+
+// A section heading on the sheet, reworded where it prints. A part the teacher
+// clears stays open to type into while it has focus, and prints nothing once
+// they leave it; a heading cleared of both is kept at no height, with a way to
+// bring it back in the page margin, where the question handles sit.
+function EditableSectionHeading({
+  item,
+  edited,
+  disabled,
+  onChange,
+}: {
+  item: SectionHeadingItem
+  edited: boolean
+  disabled: boolean
+  onChange: SetSectionHeading
+}) {
+  const [focused, setFocused] = useState<'title' | 'instructions' | null>(null)
+  const focus = (part: 'title' | 'instructions') => (on: boolean) =>
+    setFocused((current) => (on ? part : current === part ? null : current))
+  const name = SECTION_TITLE[item.section]
+  const reset = (
+    <div className="section-heading-handles">
+      <button
+        type="button"
+        className="question-handle"
+        aria-label={`Restore the ${name} heading`}
+        title="Restore the default heading and directions"
+        disabled={disabled}
+        onClick={() => onChange(item.section, { title: null, instructions: null })}
+      >
+        <RotateCcw aria-hidden="true" />
+      </button>
+    </div>
+  )
+  const showTitle = item.title !== '' || focused === 'title'
+  const showInstructions = item.instructions !== '' || focused === 'instructions'
+  if (!showTitle && !showInstructions) {
+    return <div className="exam-section-hidden">{reset}</div>
+  }
+  const styles = sectionHeadingStyles(item.size)
+  return (
+    <header className="exam-section exam-section--editable">
+      {edited && reset}
+      {showTitle && (
+        <h2 className="section-title" style={styles.title}>
+          <SectionHeadingField
+            label={`${name} heading`}
+            value={item.title}
+            placeholder={name}
+            disabled={disabled}
+            onChange={(title) => onChange(item.section, { title })}
+            onFocusChange={focus('title')}
+          />
+        </h2>
+      )}
+      {showInstructions && (
+        <p className="section-instructions" style={styles.instructions}>
+          <SectionHeadingField
+            label={`${name} directions`}
+            value={item.instructions}
+            placeholder={SECTION_INSTRUCTIONS[item.section]}
+            disabled={disabled}
+            onChange={(instructions) => onChange(item.section, { instructions })}
+            onFocusChange={focus('instructions')}
+          />
+        </p>
+      )}
+    </header>
+  )
+}
+
 /** Which question an answer-key line belongs to, and whether it is the first or
  *  last of that question's lines on its page — a matching set takes several. */
 type AnswerKeyLine = { question: PlannedQuestion; first: boolean; last: boolean }
@@ -841,8 +968,15 @@ function PageItemView({
   onDrop,
   onDragEnd,
   keyLine,
+  onSectionHeadingChange,
+  sectionHeadingEdited,
+  sectionHeadingDisabled = false,
 }: {
   item: PageItem
+  /** Present in the editor: rewords a section heading where it prints. */
+  onSectionHeadingChange?: SetSectionHeading
+  sectionHeadingEdited?: (section: QuestionType) => boolean
+  sectionHeadingDisabled?: boolean
   /** The question an answer-key line belongs to, when the test it answers is
    *  on the sheet to be reordered. */
   keyLine?: AnswerKeyLine
@@ -865,10 +999,15 @@ function PageItemView({
 }) {
   switch (item.kind) {
     case 'section-heading':
-      return (
-        <header className="exam-section">
-          <SectionHeadingContent item={item} />
-        </header>
+      return onSectionHeadingChange ? (
+        <EditableSectionHeading
+          item={item}
+          edited={sectionHeadingEdited?.(item.section) ?? false}
+          disabled={sectionHeadingDisabled}
+          onChange={onSectionHeadingChange}
+        />
+      ) : (
+        <SectionHeadingContent item={item} />
       )
     case 'question':
       return (
@@ -1147,6 +1286,7 @@ export function ExamPage({
   onSetColumns,
   onSetWorkSpace,
   onTitleChange,
+  onSectionHeadingChange,
   titleDisabled = false,
   unsavedDraft = false,
   contentSelection = { test: true, answerKey: true },
@@ -1171,6 +1311,8 @@ export function ExamPage({
   onSetWorkSpace: SetWorkSpace
   /** Renames the Exam from its own title line. See `PageHeaderContent`. */
   onTitleChange?: (title: string) => void
+  /** Rewords a section heading from where it prints. See `EditableSectionHeading`. */
+  onSectionHeadingChange?: SetSectionHeading
   titleDisabled?: boolean
   unsavedDraft?: boolean
   contentSelection?: ExportContentSelection
@@ -1257,6 +1399,8 @@ export function ExamPage({
           : [],
       ),
   )
+  const sectionHeadingEdited = (section: QuestionType) =>
+    sectionHeadingOf(exam.sectionHeadings, section).edited
   const questionByNumber = new Map<number, PlannedQuestion>()
   for (const question of questionsById.values()) {
     for (let offset = 0; offset < numbersTakenBy(question); offset += 1) {
@@ -1355,6 +1499,9 @@ export function ExamPage({
                   key={keyOf(item)}
                   item={item}
                   keyLine={keyLines.get(itemIndex)}
+                onSectionHeadingChange={onSectionHeadingChange}
+                sectionHeadingEdited={sectionHeadingEdited}
+                sectionHeadingDisabled={titleDisabled}
                   orderedIds={orderedIds}
                   selection={selection}
                   onEdit={onEdit}

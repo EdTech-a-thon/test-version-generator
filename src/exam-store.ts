@@ -34,8 +34,18 @@ import {
   type Part,
   type Question,
   type QuestionPlacement,
+  type QuestionType,
   type WorkSpace,
 } from './exam'
+import {
+  DEFAULT_HEADING_SIZE,
+  isHeadingSize,
+  isSectionHeadings,
+  sameSectionHeadings,
+  withSectionHeading,
+  type HeadingSize,
+  type SectionHeadingChange,
+} from './section-headings'
 import {
   bankQuestionById,
   createWorkingCopy,
@@ -167,7 +177,9 @@ function isWorkingCopy(value: unknown): value is ExamWorkingCopy {
     draft.questionIds.every((id) => typeof id === 'string') &&
     (draft.columns === undefined || isColumnSettings(draft.columns)) &&
     (draft.workSpace === undefined || isWorkSpaceSettings(draft.workSpace)) &&
-    (draft.choiceOrder === undefined || isChoiceOrder(draft.choiceOrder))
+    (draft.choiceOrder === undefined || isChoiceOrder(draft.choiceOrder)) &&
+    (draft.sectionHeadings === undefined || isSectionHeadings(draft.sectionHeadings)) &&
+    (draft.headingSize === undefined || isHeadingSize(draft.headingSize))
   )
 }
 
@@ -207,6 +219,11 @@ export type ExamStore = {
   backupStatus(): BackupStatus
 
   setTitle(title: string): void
+  /** Rewords one Question Section's heading on this Exam. `null` sets a part
+   *  back to its default; an empty string clears it from the printed page. */
+  setSectionHeading(section: QuestionType, change: SectionHeadingChange): void
+  /** How large every section heading prints on this Exam. */
+  setHeadingSize(size: HeadingSize): void
   /** Refreshes the canonical Questions projected from open Question Banks.
    * Workspace browsing is not an Exam command and creates no Undo step. */
   syncCanonicalQuestions(questions: readonly Question[]): void
@@ -330,8 +347,8 @@ function withResolvedColumns(state: AuthoringState): ExamWorkingCopy {
 
 /** Savedness is a composition comparison. Canonical Question Content is live,
  * so it intentionally does not participate: only the Exam name, membership,
- * question order, answer order, column layout and work space are explicitly
- * saved. */
+ * question order, answer order, column layout, work space and section
+ * headings are explicitly saved. */
 function sameExamWorkingCopy(left: ExamWorkingCopy, right: ExamWorkingCopy): boolean {
   const sameEntries = <T>(first: Record<string, T> | undefined, second: Record<string, T> | undefined, equal: (left: T, right: T) => boolean) => {
     const firstEntries = Object.entries(first ?? {})
@@ -349,6 +366,8 @@ function sameExamWorkingCopy(left: ExamWorkingCopy, right: ExamWorkingCopy): boo
     && sameEntries(left.choiceOrder, right.choiceOrder, (first, second) =>
       first.length === second.length && first.every((id, index) => id === second[index]),
     )
+    && sameSectionHeadings(left.sectionHeadings, right.sectionHeadings)
+    && (left.headingSize ?? DEFAULT_HEADING_SIZE) === (right.headingSize ?? DEFAULT_HEADING_SIZE)
 }
 
 /** The Part with this id, when it belongs to a Multipart question this Exam references.
@@ -609,6 +628,28 @@ export function createExamStore(options: {
           ? current
           : { ...current, workingCopy: { ...current.workingCopy, title } },
       ),
+
+    setSectionHeading: (section, headingChange) =>
+      change((current) => {
+        const sectionHeadings = withSectionHeading(
+          current.workingCopy.sectionHeadings,
+          section,
+          headingChange,
+        )
+        if (sameSectionHeadings(sectionHeadings, current.workingCopy.sectionHeadings)) return current
+        const workingCopy: ExamWorkingCopy = { ...current.workingCopy, sectionHeadings }
+        if (!sectionHeadings) delete workingCopy.sectionHeadings
+        return { ...current, workingCopy }
+      }),
+
+    setHeadingSize: (size) =>
+      change((current) => {
+        if ((current.workingCopy.headingSize ?? DEFAULT_HEADING_SIZE) === size) return current
+        // The default is stored as its absence, like every other default here.
+        const workingCopy: ExamWorkingCopy = { ...current.workingCopy, headingSize: size }
+        if (size === DEFAULT_HEADING_SIZE) delete workingCopy.headingSize
+        return { ...current, workingCopy }
+      }),
 
     syncCanonicalQuestions: (questions) => {
       let working = state

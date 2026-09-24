@@ -48,27 +48,15 @@ import {
 } from './exam'
 import { stemNodesOf, type ProseMirrorJSON } from './question-doc'
 
-// The section headings and instruction lines a school test carries. Hardcoded
-// per section kind, never stored, never editable. The `'open'` question type
-// prints under "Short Answer".
-export const SECTION_TITLE: Record<QuestionType, string> = {
-  'multiple-choice': 'Multiple Choice',
-  'true-false': 'True/False',
-  matching: 'Matching',
-  open: 'Short Answer',
-  multipart: 'Multipart',
-}
-
-export const SECTION_INSTRUCTIONS: Record<QuestionType, string> = {
-  'multiple-choice':
-    'Identify the choice that best completes the statement or answers the question.',
-  'true-false':
-    'Write T if the statement is true and F if it is false.',
-  matching:
-    'Match each item with the correct answer from the word bank. Write its letter in the blank.',
-  open: 'Answer the following questions in the space provided. Show all work.',
-  multipart: 'Answer every part of each question.',
-}
+// The default section wording lives with the rest of what an Exam may say
+// about its sections; re-exported for the adapters and tests that print it.
+export { SECTION_INSTRUCTIONS, SECTION_TITLE } from './section-headings'
+import {
+  DEFAULT_HEADING_SIZE,
+  SECTION_TITLE,
+  sectionHeadingOf,
+  type HeadingSize,
+} from './section-headings'
 
 // How many columns a choice grid is drawn in — the same set a question's
 // `columns` setting comes from, named here because the plan is what the
@@ -267,6 +255,9 @@ export type SectionHeadingItem = {
   /** A heading is never left at the foot of a page without its first question.
    *  Packing enforces it; adapters carry it into their own keep-with-next. */
   keepWithNext: true
+  /** The Exam's heading size, present only when it is not `'normal'` — so an
+   *  Exam that never chose one plans exactly as it always did. */
+  size?: HeadingSize
 }
 
 // A question, or as much of one as this page has room for.
@@ -712,12 +703,19 @@ function deriveItems(exam: Exam, arrangement: Arrangement): PageItem[] {
   for (const section of SECTION_ORDER) {
     const questions = questionsInSection(exam, arrangement, section)
     if (questions.length > 0) {
+      // A part the teacher cleared is an empty string: it prints nothing, and
+      // a heading cleared of both still holds its place in the plan — at no
+      // height — so the sheet can offer to bring it back.
+      const heading = sectionHeadingOf(exam.sectionHeadings, section)
       items.push({
         kind: 'section-heading',
         section,
-        title: SECTION_TITLE[section],
-        instructions: SECTION_INSTRUCTIONS[section],
+        title: heading.title,
+        instructions: heading.instructions,
         keepWithNext: true,
+        ...(exam.headingSize && exam.headingSize !== DEFAULT_HEADING_SIZE
+          ? { size: exam.headingSize }
+          : {}),
       })
     }
     for (const question of questions) {
@@ -1084,6 +1082,13 @@ function paginate(
 // is a number on the test — because the key is derived before layout and the
 // id set guards repeats.
 function deriveAnswerKey(testItems: readonly PageItem[]): PageItem[] {
+  // The key's section titles are the test's own, as the Exam words them. A
+  // heading cleared from the test still names its group here: the key is a
+  // teacher's reference, and a run of answers with no label is not one.
+  const titles = new Map<QuestionType, string>()
+  for (const item of testItems) {
+    if (item.kind === 'section-heading' && item.title) titles.set(item.section, item.title)
+  }
   const items: PageItem[] = [{ kind: 'answer-key-heading' }]
   const seen = new Set<string>()
   let section: QuestionType | null = null
@@ -1096,7 +1101,7 @@ function deriveAnswerKey(testItems: readonly PageItem[]): PageItem[] {
       items.push({
         kind: 'answer-key-section',
         section,
-        title: SECTION_TITLE[section],
+        title: titles.get(section) ?? SECTION_TITLE[section],
       })
     }
     const metadata = {

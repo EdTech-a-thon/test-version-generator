@@ -34,6 +34,10 @@ export type ExamWorkingCopy = {
    *  Absent means authored order, preserving compatibility with drafts stored
    *  before answer shuffling existed. */
   choiceOrder?: Record<string, string[]>
+  /** This Exam's rewording of its section headings, and the size they print
+   *  at. Exam presentation like `workSpace`; absent means the defaults. */
+  sectionHeadings?: import('./section-headings').SectionHeadings
+  headingSize?: import('./section-headings').HeadingSize
 }
 
 export function createQuestionBank(): QuestionBank {

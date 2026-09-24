@@ -54,7 +54,7 @@ import {
   type TabStopDefinition,
 } from 'docx'
 import { arrangementRange } from './export-preparation'
-import { EXAM_FONT, halfPointsOf } from './export-typography'
+import { EXAM_FONT, halfPointsOf, sectionHeadingHalfPoints } from './export-typography'
 import {
   authoredImageRatio,
   authoredImageWidth,
@@ -956,21 +956,38 @@ function itemContent(
   build: BuildContext,
 ): (Paragraph | Table)[] {
   switch (item.kind) {
-    case 'section-heading':
+    case 'section-heading': {
+      // Heading 1 and the body style already are `'normal'`; any other size is
+      // stated on the runs, from the same table print reads.
+      const sized = item.size && item.size !== 'normal'
+        ? sectionHeadingHalfPoints(item.size)
+        : null
+      // A cleared part prints no paragraph, not an empty one.
       return [
-        new Paragraph({
-          text: item.title,
-          heading: HeadingLevel.HEADING_1,
-          // The plan's own keep decision, not a second guess at one.
-          keepNext: item.keepWithNext,
-          spacing: { before: 120, after: 60 },
-        }),
-        new Paragraph({
-          children: [new TextRun({ text: item.instructions, italics: true })],
-          keepNext: item.keepWithNext,
-          spacing: { after: 160 },
-        }),
+        ...(item.title
+          ? [new Paragraph({
+              ...(sized
+                ? { children: [new TextRun({ text: item.title, size: sized.title })] }
+                : { text: item.title }),
+              heading: HeadingLevel.HEADING_1,
+              // The plan's own keep decision, not a second guess at one.
+              keepNext: item.keepWithNext,
+              spacing: { before: 120, after: 60 },
+            })]
+          : []),
+        ...(item.instructions
+          ? [new Paragraph({
+              children: [new TextRun({
+                text: item.instructions,
+                italics: true,
+                ...(sized ? { size: sized.instructions } : {}),
+              })],
+              keepNext: item.keepWithNext,
+              spacing: { after: 160 },
+            })]
+          : []),
       ]
+    }
     case 'question':
       return questionContent(item, build)
     case 'answer-key-heading':

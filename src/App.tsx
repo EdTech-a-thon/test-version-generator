@@ -93,6 +93,7 @@ import {
   FileType2,
   FolderOpen,
   Gauge,
+  Heading,
   Import,
   History,
   Library,
@@ -112,6 +113,11 @@ import {
   X,
 } from 'lucide-react'
 import { ContextMenu, type MenuPoint } from './context-menu'
+import {
+  DEFAULT_HEADING_SIZE,
+  HEADING_SIZES,
+  HEADING_SIZE_LABELS,
+} from './section-headings'
 import { BEFORE_NAVIGATE_EVENT, useRoute } from './use-route'
 import { Footer } from './site-chrome'
 import { HomePage } from './home-page'
@@ -169,6 +175,15 @@ const QUESTION_TYPE_ICONS: Record<QuestionType, ReactNode> = {
 }
 
 const STORAGE_NOTICE_DURATION = 8_000
+
+/** The Exam's menu bar, in the order a document's menus are read. */
+const DOCUMENT_MENUS = ['file', 'edit', 'format'] as const
+type DocumentMenuKind = (typeof DOCUMENT_MENUS)[number]
+const DOCUMENT_MENU_LABELS: Record<DocumentMenuKind, string> = {
+  file: 'File',
+  edit: 'Edit',
+  format: 'Format',
+}
 
 /**
  * One line of a question's front matter: an icon and a label on the left, and
@@ -1739,7 +1754,7 @@ function ExamEditor({
   const [storageNotice, setStorageNotice] = useState<string | null>(null)
   const [choosingExam, setChoosingExam] = useState(false)
   const [documentMenu, setDocumentMenu] = useState<{
-    kind: 'file' | 'edit'
+    kind: DocumentMenuKind
     point: MenuPoint
   } | null>(null)
   const closeExportHistory = useCallback(() => {
@@ -2165,7 +2180,7 @@ function ExamEditor({
               onChange={(event) => store.setTitle(event.target.value)}
             />
             <nav className="document-menus" aria-label="Exam menus">
-              {(['file', 'edit'] as const).map((kind) => (
+              {DOCUMENT_MENUS.map((kind) => (
                 <button
                   key={kind}
                   type="button"
@@ -2179,7 +2194,7 @@ function ExamEditor({
                       : { kind, point: { x: bounds.left, y: bounds.bottom + 4 } })
                   }}
                 >
-                  {kind === 'file' ? 'File' : 'Edit'}
+                  {DOCUMENT_MENU_LABELS[kind]}
                 </button>
               ))}
             </nav>
@@ -2262,8 +2277,24 @@ function ExamEditor({
 
       {documentMenu && <ContextMenu
         point={documentMenu.point}
-        ariaLabel={`${documentMenu.kind === 'file' ? 'File' : 'Edit'} menu`}
-        items={documentMenu.kind === 'file' ? [
+        ariaLabel={`${DOCUMENT_MENU_LABELS[documentMenu.kind]} menu`}
+        items={documentMenu.kind === 'format' ? [
+          // How the Exam's page is set, as distinct from what is on it. Every
+          // setting here is this Exam's presentation, saved and undone with it.
+          {
+            kind: 'submenu',
+            label: 'Heading size',
+            icon: <Heading />,
+            items: HEADING_SIZES.map((size) => ({
+              kind: 'radio' as const,
+              label: HEADING_SIZE_LABELS[size],
+              checked: (state.workingCopy.headingSize ?? DEFAULT_HEADING_SIZE) === size,
+              onSelect: () => {
+                if (!isHistoricalBrowsing) store.setHeadingSize(size)
+              },
+            })),
+          },
+        ] : documentMenu.kind === 'file' ? [
           {
             kind: 'action',
             label: 'Open Exam',
@@ -2443,6 +2474,7 @@ function ExamEditor({
             revealQuestionId={revealQuestionId}
             onRevealed={clearReveal}
             onTitleChange={(title) => store.setTitle(title)}
+            onSectionHeadingChange={(section, change) => store.setSectionHeading(section, change)}
             titleDisabled={isHistoricalBrowsing}
             onEdit={(questionId) => {
               const question = bankQuestionById(state.questionBank, questionId)

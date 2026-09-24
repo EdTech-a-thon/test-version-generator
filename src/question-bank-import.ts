@@ -131,7 +131,7 @@ export type QuestionBankImportProposal = {
 
 /** The local Question Type each record Question Type reads as — the inverse of
  *  the exporter's `RECORD_TYPES`. */
-const LOCAL_TYPES: Record<QuestionBankRecordQuestionType, QuestionType> = {
+export const LOCAL_TYPES: Record<QuestionBankRecordQuestionType, QuestionType> = {
   'multiple-choice': 'multiple-choice',
   'true-false': 'true-false',
   matching: 'matching',

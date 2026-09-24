@@ -9,10 +9,12 @@ import {
   type Arrangement,
   type Exam,
   type Question,
+  type QuestionType,
 } from './exam'
 import type { PreparedExport } from './export-preparation'
 import {
   QUESTION_BANK_FORMAT_VERSION,
+  RECORD_TYPES,
   prepareQuestionBankExport,
   type QuestionBankMediaLoader,
 } from './question-bank-export'
@@ -122,10 +124,20 @@ export async function examPackage({
       ...(takesWorkSpace(question.type) && hasWorkSpace(space) ? { workSpace: { ...space } } : {}),
     }
   })
+  // Section wording travels in the record's own vocabulary, where a Short
+  // Answer section is `'short-answer'`.
+  const sectionHeadings = Object.fromEntries(
+    Object.entries(exam.sectionHeadings ?? {}).map(([type, heading]) => [
+      RECORD_TYPES[type as QuestionType],
+      { ...heading },
+    ]),
+  )
   const examRecord: ExamRecord = {
     format: EXAM_FORMAT,
     formatVersion: EXAM_FORMAT_VERSION,
     name: exam.title,
+    ...(Object.keys(sectionHeadings).length > 0 ? { sectionHeadings } : {}),
+    ...(exam.headingSize && exam.headingSize !== 'normal' ? { headingSize: exam.headingSize } : {}),
     positions,
   }
   return {

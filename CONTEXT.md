@@ -122,7 +122,7 @@ Room an Exam leaves below a Short Answer question or Short Answer Part for a stu
 _Avoid_: White space, answer box, response area
 
 **Question Section**:
-A group of questions of the same Question Type whose boundary remains fixed within an Exam and its exported output, such as Multiple Choice, True/False, Matching, Short Answer, or Multipart. A Section prints its own heading and its own directions, and is omitted entirely when it holds no Questions.
+A group of questions of the same Question Type whose boundary remains fixed within an Exam and its exported output, such as Multiple Choice, True/False, Matching, Short Answer, or Multipart. A Section prints its own heading and its own directions, and is omitted entirely when it holds no Questions. Each Section has default wording, which an Exam may reword, or clear so it prints nothing, for that Exam alone; every heading on an Exam prints at one of three sizes. The Answer Key's section titles follow the test's.
 _Avoid_: Question category
 
 **Vary**:

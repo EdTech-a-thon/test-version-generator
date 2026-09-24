@@ -538,6 +538,50 @@ export const FIXTURES: readonly Fixture[] = [
     arrangement(['o1', 't1', 'x1', 'm1']),
   ),
 
+  // An Exam that rewords its section headings: a new Multiple Choice heading
+  // with its directions cleared, a Short Answer heading cleared of both — so it
+  // prints nothing at all — and new Matching directions under the default
+  // heading, every heading at the large size. The key's section titles follow
+  // the test's, and name the cleared Short Answer group by its default.
+  fixture(
+    'reworded, cleared and large section headings',
+    {
+      title: 'Reworded sections',
+      questions: [
+        open('o1', paragraph(text('Explain osmosis.'))),
+        matching(
+          'x1',
+          [paragraph(text('Match each term with its definition.'))],
+          [
+            prompt('x1-p1', 'x1-a2', paragraph(text('Osmosis'))),
+            prompt('x1-p2', 'x1-a1', paragraph(text('Diffusion'))),
+          ],
+          [
+            bankAnswer('x1-a1', paragraph(text('Particles spread out.'))),
+            bankAnswer('x1-a2', paragraph(text('Water crosses a membrane.'))),
+          ],
+        ),
+        multipleChoice(
+          'm1',
+          2,
+          [paragraph(text('Which particle is neutral?'))],
+          [
+            choice('m1-a', false, paragraph(text('Proton'))),
+            choice('m1-b', true, paragraph(text('Neutron'))),
+          ],
+        ),
+      ],
+      sectionHeadings: {
+        'multiple-choice': { title: 'Choose One', instructions: '' },
+        open: { title: '', instructions: '' },
+        matching: { instructions: 'Write the letter of the matching definition.' },
+      },
+      headingSize: 'large',
+    },
+    arrangement(['o1', 'x1', 'm1']),
+    { answerKey: true },
+  ),
+
   fixture(
     'a plain short-answer question',
     {

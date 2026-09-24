@@ -550,14 +550,17 @@ export function planItemLines(
 ): ContentLine[] {
   switch (item.kind) {
     case 'section-heading':
+      // A cleared part says nothing in any format, so it says nothing here.
       return [
-        `heading:1 ${item.title}`,
-        line(
-          'para',
-          renderInline([
-            { kind: 'text', text: item.instructions, marks: ['emphasis'] },
-          ]),
-        ),
+        ...(item.title ? [`heading:1 ${item.title}`] : []),
+        ...(item.instructions
+          ? [line(
+              'para',
+              renderInline([
+                { kind: 'text', text: item.instructions, marks: ['emphasis'] },
+              ]),
+            )]
+          : []),
       ]
     case 'question':
       return planQuestion(item, images)

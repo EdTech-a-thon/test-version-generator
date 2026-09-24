@@ -1,14 +1,18 @@
 import Ajv2020, { type ErrorObject } from 'ajv/dist/2020'
 import type { ColumnSetting, WorkSpace } from './exam'
+import type { HeadingSize, SectionHeadings } from './section-headings'
 import examSchema010 from './exam-record-0.1.0.schema.json'
+import examSchema020 from './exam-record-0.2.0.schema.json'
 import packageSchema010 from './test-parrot-package-0.1.0.schema.json'
 import {
   QUESTION_BANK_FORMAT,
   RECORD_TYPE_ORDER,
   type QuestionBankRecordQuestion,
+  type QuestionBankRecordQuestionType,
 } from './question-bank-export'
 import {
   DEFAULT_QUESTION_BANK_IMPORT_LIMITS,
+  LOCAL_TYPES,
   QuestionBankImportError,
   decodeRecordJson,
   inspectQuestionBankRecordValue,
@@ -29,7 +33,7 @@ import {
  */
 
 export const EXAM_FORMAT = 'test-parrot/exam'
-export const EXAM_FORMAT_VERSION = '0.1.0'
+export const EXAM_FORMAT_VERSION = '0.2.0'
 export const PACKAGE_FORMAT = 'test-parrot/package'
 export const PACKAGE_FORMAT_VERSION = '0.1.0'
 /** The conventional extension a standalone package is saved under. */
@@ -55,10 +59,19 @@ export type ExamRecordPosition = {
   workSpace?: WorkSpace
 }
 
+/** One Question Section's wording, as an Exam Record 0.2.0 writes it. */
+export type ExamRecordSectionHeading = { title?: string; instructions?: string }
+
 export type ExamRecord = {
   format: typeof EXAM_FORMAT
-  formatVersion: typeof EXAM_FORMAT_VERSION
+  /** The version the record was written in. A parser migrates an older
+   *  record's content forward but keeps saying which version it came from. */
+  formatVersion: keyof typeof SUPPORTED_EXAM_VERSIONS
   name: string
+  /** Keyed by the record's own Question Type names (`'short-answer'`, not
+   *  `'open'`); only departures from the default wording. */
+  sectionHeadings?: Partial<Record<QuestionBankRecordQuestionType, ExamRecordSectionHeading>>
+  headingSize?: HeadingSize
   positions: ExamRecordPosition[]
 }
 
@@ -86,6 +99,10 @@ export type ProposedExam = {
   key: string
   name: string
   formatVersion: string
+  /** The Exam's section wording, keyed by local Question Type, and heading
+   *  size — absent when the record says nothing but the defaults. */
+  sectionHeadings?: SectionHeadings
+  headingSize?: HeadingSize
   /** Positions regrouped into Test Parrot's Section order, keeping only the
    *  order within each Section. */
   positions: ExamRecordPosition[]
@@ -104,6 +121,7 @@ export const BARE_RECORD_BANK_ID = 'bank'
 
 const ajv = new Ajv2020({ allErrors: true, strict: false })
 const validateExam010 = ajv.compile(examSchema010)
+const validateExam020 = ajv.compile(examSchema020)
 const validatePackage010 = ajv.compile(packageSchema010)
 
 function schemaFailure(
@@ -144,23 +162,64 @@ function copyPosition(position: ExamRecordPosition): ExamRecordPosition {
   }
 }
 
+/** An Exam Record's section wording in the local vocabulary, where a Short
+ *  Answer section is `'open'` — or nothing, when it keeps the defaults. */
+function localHeadingsOf(
+  exam: ExamRecord,
+): { sectionHeadings?: SectionHeadings; headingSize?: HeadingSize } {
+  const entries = Object.entries(exam.sectionHeadings ?? {}) as [
+    QuestionBankRecordQuestionType,
+    ExamRecordSectionHeading,
+  ][]
+  const sectionHeadings: SectionHeadings = Object.fromEntries(
+    entries.map(([type, heading]) => [LOCAL_TYPES[type], { ...heading }]),
+  )
+  return {
+    ...(entries.length > 0 ? { sectionHeadings } : {}),
+    ...(exam.headingSize && exam.headingSize !== 'normal' ? { headingSize: exam.headingSize } : {}),
+  }
+}
+
 type ExamParser = (value: unknown) => ExamRecord
 
+// 0.1.0 had no section wording or heading size, so it migrates forward as an
+// Exam that prints the defaults.
 const examParser010: ExamParser = (value) => {
   if (!validateExam010(value)) throw schemaFailure('Exam Record', validateExam010.errors)
   const exam = value as ExamRecord
   return {
     format: EXAM_FORMAT,
-    formatVersion: EXAM_FORMAT_VERSION,
+    formatVersion: '0.1.0',
     name: exam.name,
+    positions: exam.positions.map(copyPosition),
+  }
+}
+
+const examParser020: ExamParser = (value) => {
+  if (!validateExam020(value)) throw schemaFailure('Exam Record', validateExam020.errors)
+  const exam = value as ExamRecord
+  const sectionHeadings = Object.fromEntries(
+    Object.entries(exam.sectionHeadings ?? {}).map(([type, heading]) => [type, {
+      ...(heading.title !== undefined ? { title: heading.title } : {}),
+      ...(heading.instructions !== undefined ? { instructions: heading.instructions } : {}),
+    }]),
+  )
+  return {
+    format: EXAM_FORMAT,
+    formatVersion: '0.2.0',
+    name: exam.name,
+    ...(Object.keys(sectionHeadings).length > 0 ? { sectionHeadings } : {}),
+    ...(exam.headingSize ? { headingSize: exam.headingSize } : {}),
     positions: exam.positions.map(copyPosition),
   }
 }
 
 /** Exact versions only, as for the Question Bank Record: each supported
  *  version names its own parser, which migrates it forward. */
-export const SUPPORTED_EXAM_VERSIONS: Readonly<Record<string, ExamParser>> =
-  Object.freeze({ '0.1.0': examParser010 })
+export const SUPPORTED_EXAM_VERSIONS = Object.freeze({
+  '0.1.0': examParser010,
+  '0.2.0': examParser020,
+} satisfies Record<string, ExamParser>)
 
 type PackageParser = (value: unknown) => TestParrotPackage
 
@@ -303,6 +362,7 @@ function proposedExam(
     key: `exam-${index + 1}`,
     name: exam.name,
     formatVersion: exam.formatVersion,
+    ...localHeadingsOf(exam),
     positions,
     banks: bankOrder,
   }

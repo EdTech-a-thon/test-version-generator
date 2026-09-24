@@ -389,7 +389,7 @@ function semanticDocument(
 /** The local Question Type each record Question Type is written as. The one
  *  place the two vocabularies meet on the way out; `LOCAL_TYPES` in the
  *  importer is its inverse. */
-const RECORD_TYPES: Record<QuestionType, QuestionBankRecordQuestionType> = {
+export const RECORD_TYPES: Record<QuestionType, QuestionBankRecordQuestionType> = {
   'multiple-choice': 'multiple-choice',
   'true-false': 'true-false',
   matching: 'matching',

@@ -4,6 +4,8 @@ import { readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import publicExamSchema from '../public/formats/exam/0.1.0/schema.json'
 import applicationExamSchema from './exam-record-0.1.0.schema.json'
+import publicExamSchema020 from '../public/formats/exam/0.2.0/schema.json'
+import applicationExamSchema020 from './exam-record-0.2.0.schema.json'
 import publicPackageSchema from '../public/formats/package/0.1.0/schema.json'
 import applicationPackageSchema from './test-parrot-package-0.1.0.schema.json'
 import publicQuestionBankSchema from '../public/formats/question-bank/0.3.0/schema.json'
@@ -15,7 +17,10 @@ import {
 } from './package-import'
 
 const formats = join(import.meta.dir, '..', 'public', 'formats')
-const examRoot = join(formats, 'exam', EXAM_FORMAT_VERSION)
+// Packages still carry, and Test Parrot still reads, Exam Record 0.1.0; its
+// contract stays pinned while Test Parrot writes the current version.
+const examRoot = join(formats, 'exam', '0.1.0')
+const currentExamRoot = join(formats, 'exam', EXAM_FORMAT_VERSION)
 const packageRoot = join(formats, 'package', PACKAGE_FORMAT_VERSION)
 
 async function filesIn(directory: string): Promise<string[]> {
@@ -43,6 +48,41 @@ describe('public Exam Record 0.1.0 contract', () => {
     for (const name of names) {
       expect(validate(await read(join(examRoot, 'examples'), name)), `${name}: ${JSON.stringify(validate.errors)}`).toBe(true)
     }
+  })
+})
+
+describe('public Exam Record 0.2.0 contract', () => {
+  test('is the version Test Parrot writes', () => {
+    expect(EXAM_FORMAT_VERSION).toBe('0.2.0')
+  })
+
+  test('the published schema is the one the application reads', async () => {
+    expect(publicExamSchema020.$id).toBe('https://testparrot.com/formats/exam/0.2.0/schema.json')
+    expect(applicationExamSchema020).toEqual(publicExamSchema020)
+    expect(
+      await Bun.file(join(import.meta.dir, '..', 'public', 'exam-record-0.2.0.schema.json')).json(),
+    ).toEqual(publicExamSchema020)
+  })
+
+  test('canonical examples validate independently against the published schema', async () => {
+    const validate = strict().compile(publicExamSchema020)
+    const names = await filesIn(join(currentExamRoot, 'examples'))
+    expect(names).toEqual(['minimal.json', 'section-headings.json'])
+    for (const name of names) {
+      expect(validate(await read(join(currentExamRoot, 'examples'), name)), `${name}: ${JSON.stringify(validate.errors)}`).toBe(true)
+    }
+  })
+
+  test('section wording names only Question Sections, with string parts', () => {
+    const validate = strict().compile(publicExamSchema020)
+    const exam = (sectionHeadings: unknown) => ({
+      format: 'test-parrot/exam', formatVersion: '0.2.0', name: 'Quiz', positions: [], sectionHeadings,
+    })
+    expect(validate(exam({ 'short-answer': { title: '' } }))).toBe(true)
+    expect(validate(exam({ open: { title: 'Essays' } }))).toBe(false)
+    expect(validate(exam({ matching: { title: 3 } }))).toBe(false)
+    expect(validate(exam({ matching: { colour: 'red' } }))).toBe(false)
+    expect(validate({ ...exam(undefined), sectionHeadings: undefined, headingSize: 'huge' })).toBe(false)
   })
 })
 

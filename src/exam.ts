@@ -25,6 +25,7 @@ import {
   type ProseMirrorJSON,
 } from './question-doc'
 import { newMultipleChoiceNode, newTrueFalseNode } from './multiple-choice'
+import type { HeadingSize, SectionHeadings } from './section-headings'
 import { newMatchingNode } from './matching'
 import { newMultipartPartsNode } from './multipart'
 
@@ -116,6 +117,12 @@ export type Exam = {
    *  Question may want a quarter page on one test and none on another. Absent
    *  means no work space anywhere. */
   workSpace?: Record<string, WorkSpace>
+  /** This Exam's own wording for its section headings, where it departs from
+   *  the defaults. Absent means every section says what it always has. See
+   *  `section-headings.ts`. */
+  sectionHeadings?: SectionHeadings
+  /** How large every section heading prints. Absent means `'normal'`. */
+  headingSize?: HeadingSize
 }
 
 /** What a work space prints as: an empty area, or ruled writing lines. */
