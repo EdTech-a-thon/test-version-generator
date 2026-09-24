@@ -4,7 +4,8 @@ import type { ProseMirrorJSON } from './question-doc'
 /** One decoded image, ready for an Export Adapter to embed. */
 export type ExportImage = {
   data: Uint8Array
-  /** The shared browser loader normalizes unsupported package formats to PNG. */
+  /** The shared browser loader normalizes unsupported package formats to PNG,
+   *  and a camera JPEG stored turned to upright pixels. */
   type: 'png' | 'jpg'
   width: number
   height: number
@@ -33,15 +34,55 @@ const IMAGE_TYPES: Record<string, ExportImage['type']> = {
   'image/jpg': 'jpg',
 }
 
-async function asPng(bitmap: ImageBitmap): Promise<Uint8Array | null> {
+async function encoded(bitmap: ImageBitmap, mime: 'image/png' | 'image/jpeg'): Promise<Uint8Array | null> {
   const canvas = document.createElement('canvas')
   canvas.width = bitmap.width
   canvas.height = bitmap.height
   canvas.getContext('2d')?.drawImage(bitmap, 0, 0)
-  const png = await new Promise<Blob | null>((resolve) =>
-    canvas.toBlob(resolve, 'image/png'),
+  const blob = await new Promise<Blob | null>((resolve) =>
+    canvas.toBlob(resolve, mime, 0.92),
   )
-  return png ? new Uint8Array(await png.arrayBuffer()) : null
+  return blob ? new Uint8Array(await blob.arrayBuffer()) : null
+}
+
+// A camera JPEG's EXIF Orientation: 1 (as stored) through 8, per the EXIF
+// standard's TIFF tag 0x0112. A phone held upright usually stores its pixels
+// sideways and says 6, "turn a quarter clockwise to view". A browser honours
+// that, both when it draws the picture and when `createImageBitmap` measures
+// it, but PDF and Word embed the stored pixels as they are.
+export function jpegOrientation(data: Uint8Array): number {
+  if (data[0] !== 0xff || data[1] !== 0xd8) return 1
+  let offset = 2
+  while (offset + 4 <= data.length && data[offset] === 0xff) {
+    const marker = data[offset + 1]!
+    // Metadata segments all come before the scan.
+    if (marker === 0xda || marker === 0xd9) return 1
+    const length = (data[offset + 2]! << 8) | data[offset + 3]!
+    const body = data.subarray(offset + 4, offset + 2 + length)
+    const isExif = marker === 0xe1 && body.length >= 14
+      && String.fromCharCode(body[0]!, body[1]!, body[2]!, body[3]!, body[4]!, body[5]!) === 'Exif\0\0'
+    if (isExif) return tiffOrientation(body.subarray(6))
+    offset += 2 + length
+  }
+  return 1
+}
+
+function tiffOrientation(tiff: Uint8Array): number {
+  const order = String.fromCharCode(tiff[0]!, tiff[1]!)
+  if (order !== 'II' && order !== 'MM') return 1
+  const little = order === 'II'
+  const view = new DataView(tiff.buffer, tiff.byteOffset, tiff.byteLength)
+  const ifd = view.getUint32(4, little)
+  if (ifd + 2 > tiff.length) return 1
+  const entries = view.getUint16(ifd, little)
+  for (let index = 0; index < entries; index += 1) {
+    const entry = ifd + 2 + index * 12
+    if (entry + 12 > tiff.length) return 1
+    if (view.getUint16(entry, little) !== 0x0112) continue
+    const value = view.getUint16(entry + 8, little)
+    return value >= 1 && value <= 8 ? value : 1
+  }
+  return 1
 }
 
 export const browserMedia: MediaLoader = async (src) => {
@@ -51,9 +92,16 @@ export const browserMedia: MediaLoader = async (src) => {
     const blob = await response.blob()
     const bitmap = await createImageBitmap(blob)
     const type = IMAGE_TYPES[blob.type.toLowerCase()]
-    const data = type
-      ? new Uint8Array(await blob.arrayBuffer())
-      : await asPng(bitmap)
+    const bytes = new Uint8Array(await blob.arrayBuffer())
+    // The bitmap is already turned upright and measured that way; a JPEG that
+    // is stored turned is re-encoded from it, so the pixels an adapter embeds
+    // are the ones these dimensions describe.
+    const turned = type === 'jpg' && jpegOrientation(bytes) !== 1
+    const data = !type
+      ? await encoded(bitmap, 'image/png')
+      : turned
+        ? await encoded(bitmap, 'image/jpeg')
+        : bytes
     const image = data
       ? {
           data,
