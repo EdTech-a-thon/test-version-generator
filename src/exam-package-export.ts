@@ -15,6 +15,7 @@ import type { PreparedExport } from './export-preparation'
 import {
   QUESTION_BANK_FORMAT_VERSION,
   RECORD_TYPES,
+  portableDocuments,
   prepareQuestionBankExport,
   type QuestionBankMediaLoader,
 } from './question-bank-export'
@@ -132,12 +133,27 @@ export async function examPackage({
       { ...heading },
     ]),
   )
+  // The Exam's own header, and the images it shows, travel in the Exam
+  // Record in the same document vocabulary a Question Bank Record uses.
+  const header = exam.header
+    ? await portableDocuments([exam.header.first, exam.header.later], loadMedia)
+    : null
   const examRecord: ExamRecord = {
     format: EXAM_FORMAT,
     formatVersion: EXAM_FORMAT_VERSION,
     name: exam.title,
     ...(Object.keys(sectionHeadings).length > 0 ? { sectionHeadings } : {}),
     ...(exam.headingSize && exam.headingSize !== 'normal' ? { headingSize: exam.headingSize } : {}),
+    ...(exam.header && header
+      ? {
+          header: {
+            differentFirstPage: exam.header.differentFirstPage,
+            first: header.documents[0]!,
+            later: header.documents[1]!,
+          },
+          ...(header.media.length > 0 ? { media: header.media } : {}),
+        }
+      : {}),
     positions,
   }
   return {

@@ -121,6 +121,10 @@ _Avoid_: Sub-question, item (Item is Matching's), sub-part
 Room an Exam leaves below a Short Answer question or Short Answer Part for a student's working: blank or ruled, as tall as the teacher drags it, or filling the rest of its page. It is Exam presentation set on the exam sheet like answer columns, never Question Content, so the same Question may take different room on another Exam; Replace keeps a position's Work Space and Duplicate copies it.
 _Avoid_: White space, answer box, response area
 
+**Page Header**:
+What an Exam prints at the top of each test page, above its questions. By default it is Name, Class and Date blanks on the first page, a Name blank on later ones, and the paper's ID on each; an Exam may replace it with its own rich text, tables and images, give its first page a different one, or remove it. The paper's ID is the one value a header fills in for each paper. The Exam's title prints on its own line under the first page's header, and Answer Key pages keep their own header.
+_Avoid_: Letterhead, banner, identity line (the default header's blanks only)
+
 **Question Section**:
 A group of questions of the same Question Type whose boundary remains fixed within an Exam and its exported output, such as Multiple Choice, True/False, Matching, Short Answer, or Multipart. A Section prints its own heading and its own directions, and is omitted entirely when it holds no Questions. Each Section has default wording, which an Exam may reword, or clear so it prints nothing, for that Exam alone; every heading on an Exam prints at one of three sizes. The Answer Key's section titles follow the test's.
 _Avoid_: Question category

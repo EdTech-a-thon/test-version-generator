@@ -3,6 +3,7 @@ import {
   CHOICE_AREA_WIDTH,
   FOOTER_HEIGHT,
   HEADER_HEIGHT,
+  MAX_HEADER_HEIGHT,
   PAGE_CONTENT_WIDTH,
   PAGE_HEIGHT,
   PAGE_MARGIN,
@@ -1493,5 +1494,61 @@ describe('section headings as the Exam words them', () => {
       .flatMap((page) => page.items)
       .flatMap((item) => (item.kind === 'answer-key-section' ? [item.title] : []))
     expect(titles).toEqual(['Choose One', 'Short Answer'])
+  })
+})
+
+describe('an Exam’s own header', () => {
+  const line = (value: string) => ({ type: 'paragraph', content: [{ type: 'text', text: value }] })
+  const headerMeasure = (headerHeight: number): Measure => ({
+    itemHeight: (item) => (item.kind === 'question' ? 100 : 0),
+    blocksHeight: () => headerHeight,
+  })
+  const withHeader = (exam: Exam, first: string, later: string): Exam => ({
+    ...exam,
+    header: { differentFirstPage: true, first: [line(first)], later: [line(later)] },
+  })
+
+  test('prints in place of the identity line, measured, with the title below it on the first page', () => {
+    const exam = withHeader(examOf([open('o1')]), 'School', 'Chemistry')
+    const [first] = testPages(planPages(exam, arrangementOf(), headerMeasure(60)))
+    expect(first!.furniture.customHeader).toEqual({ content: [line('School')], height: 60 })
+    expect(first!.furniture.identityFields).toEqual([])
+    expect(first!.furniture.title).toBe('Chemistry Unit 3')
+  })
+
+  test('gives packing back the room a short header leaves, and takes the room a tall one needs', () => {
+    const questions = Array.from({ length: 20 }, (_unused, index) => open(`o${index}`))
+    const pagesWith = (height: number) =>
+      testPages(planPages(withHeader(examOf(questions), 'A', 'B'), arrangementOf(), headerMeasure(height)))
+    const perPage = (height: number) => pagesWith(height).map((page) => page.items.length)
+    const defaultPerPage = testPages(planPages(examOf(questions), arrangementOf(), headerMeasure(0)))
+      .map((page) => page.items.length)
+    // A 20px header leaves more room than the default's 42px identity line…
+    expect(perPage(20)[1]!).toBeGreaterThanOrEqual(defaultPerPage[1]!)
+    // …and a 200px one leaves less.
+    expect(perPage(200)[1]!).toBeLessThan(defaultPerPage[1]!)
+  })
+
+  test('is capped at a quarter of the page', () => {
+    const exam = withHeader(examOf([open('o1')]), 'School', 'Chemistry')
+    const [first] = testPages(planPages(exam, arrangementOf(), headerMeasure(5000)))
+    expect(first!.furniture.customHeader!.height).toBe(MAX_HEADER_HEIGHT)
+  })
+
+  test('takes no room when it prints nothing', () => {
+    const exam: Exam = {
+      ...examOf([open('o1')]),
+      header: { differentFirstPage: false, first: [], later: [{ type: 'paragraph' }] },
+    }
+    const [first] = testPages(planPages(exam, arrangementOf(), headerMeasure(60)))
+    expect(first!.furniture.customHeader!.height).toBe(0)
+  })
+
+  test('leaves the answer key’s own header alone', () => {
+    const exam = withHeader(examOf([open('o1')]), 'School', 'Chemistry')
+    const key = planPages(exam, arrangementOf(), headerMeasure(60))
+      .filter((page) => isAnswerKeyHeader(page.header))
+    expect(key[0]!.furniture.customHeader).toBeUndefined()
+    expect(key[0]!.furniture.title).toBe('Chemistry Unit 3')
   })
 })

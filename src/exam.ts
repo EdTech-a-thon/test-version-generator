@@ -26,6 +26,7 @@ import {
 } from './question-doc'
 import { newMultipleChoiceNode, newTrueFalseNode } from './multiple-choice'
 import type { HeadingSize, SectionHeadings } from './section-headings'
+import type { ExamHeader } from './page-header'
 import { newMatchingNode } from './matching'
 import { newMultipartPartsNode } from './multipart'
 
@@ -123,6 +124,9 @@ export type Exam = {
   sectionHeadings?: SectionHeadings
   /** How large every section heading prints. Absent means `'normal'`. */
   headingSize?: HeadingSize
+  /** This Exam's own test-page header. Absent means the default header. See
+   *  `page-header.ts`. */
+  header?: ExamHeader
 }
 
 /** What a work space prints as: an empty area, or ruled writing lines. */

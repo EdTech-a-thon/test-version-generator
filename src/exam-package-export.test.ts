@@ -8,6 +8,7 @@ import {
   type Question,
 } from './exam'
 import { unmeasured } from './export-plan'
+import { PIXEL_PNG } from './export-fixtures'
 import { prepareExport, prepareHistoricalExport, EMPTY_EXPORT_HISTORY, type ExportConfiguration } from './export-preparation'
 import { printFingerprint } from './print-fingerprint'
 import { createPublicationPdf, type PdfFontLoader } from './pdf-export'
@@ -282,6 +283,75 @@ describe('a Multipart question in an Exam package', () => {
     )
     expect(imported.sectionHeadings).toEqual(worded.sectionHeadings)
     expect(imported.headingSize).toBe('small')
+  })
+
+  test('carries the Exam’s own header, its ID, table borders and images, and imports them again', async () => {
+    const pixel = PIXEL_PNG.data
+    const logo = `/local-images/${'a'.repeat(64)}`
+    const headed: Exam = {
+      ...exam,
+      header: {
+        differentFirstPage: true,
+        first: [
+          { type: 'paragraph', content: [{ type: 'text', text: 'Springfield High' }] },
+          { type: 'image-block', attrs: { src: logo, caption: '', ratio: 0.25 } },
+          {
+            type: 'table',
+            attrs: { borders: true },
+            content: [{
+              type: 'table_header_row',
+              content: [{ type: 'table_header', content: [{ type: 'paragraph', content: [{ type: 'exam_id' }] }] }],
+            }],
+          },
+        ],
+        later: [{ type: 'paragraph', content: [{ type: 'text', text: 'Chemistry' }] }],
+      },
+    }
+    const carried = await examPackage({
+      exam: headed,
+      arrangement,
+      ownerOf,
+      loadMedia: async (source) =>
+        source === logo ? { data: pixel, mimeType: 'image/png', width: 1, height: 1 } : null,
+    })
+    const record = carried.exams[0]!
+    expect(record.header?.first.content.map((node) => node.type)).toEqual(['paragraph', 'block-image', 'table'])
+    expect(record.media).toHaveLength(1)
+    expect(JSON.stringify(record.header)).toContain('"exam-id"')
+
+    const proposal = await inspectImportRecord(new TextEncoder().encode(JSON.stringify(carried)))
+    let next = 0
+    const plan = planImport(proposal, initialSelection(proposal), () => `local-${next++}`)
+    // The header's image is written with the rest of the package's media.
+    expect(plan.media.map(({ id }) => id)).toContain(record.media![0]!.id)
+    const { exam: imported } = selectedExam(
+      plan.exams[0]!.saved.questionBank,
+      plan.exams[0]!.saved.workingCopy,
+    )
+    expect(imported.header?.differentFirstPage).toBe(true)
+    expect(imported.header?.later).toEqual(headed.header!.later)
+    const [, image, table] = imported.header!.first
+    expect(image).toMatchObject({ type: 'image-block', attrs: { ratio: 0.25 } })
+    expect(table).toMatchObject({ type: 'table', attrs: { borders: true } })
+    expect(JSON.stringify(table)).toContain('"exam_id"')
+  })
+
+  test('refuses a header that shows an image it does not carry', async () => {
+    const carried = await examPackage({ exam, arrangement, ownerOf, loadMedia: noImages })
+    const record = carried.exams[0]!
+    const tampered = {
+      ...carried,
+      exams: [{
+        ...record,
+        header: {
+          differentFirstPage: false,
+          first: { type: 'document', content: [] },
+          later: { type: 'document', content: [{ type: 'block-image', asset: `sha256:${'b'.repeat(64)}` }] },
+        },
+      }],
+    }
+    await expect(inspectImportRecord(new TextEncoder().encode(JSON.stringify(tampered))))
+      .rejects.toMatchObject({ code: 'dangling-reference' })
   })
 
   test('an Exam that keeps the default headings writes nothing about them', async () => {

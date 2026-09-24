@@ -71,6 +71,13 @@ import {
   type SectionHeadingChange,
 } from './section-headings'
 import { sectionHeadingStyles } from './export-typography'
+import { HeaderEditor } from './header-editor'
+import {
+  defaultExamHeader,
+  headerContentOf,
+  type ExamHeader,
+  type HeaderSlot,
+} from './page-header'
 import type { WorkspaceDrag } from './use-workspace-drag'
 import { dropStateOf, type QuestionDropState } from './workspace-drag'
 import {
@@ -1287,6 +1294,7 @@ export function ExamPage({
   onSetWorkSpace,
   onTitleChange,
   onSectionHeadingChange,
+  onHeaderChange,
   titleDisabled = false,
   unsavedDraft = false,
   contentSelection = { test: true, answerKey: true },
@@ -1313,6 +1321,9 @@ export function ExamPage({
   onTitleChange?: (title: string) => void
   /** Rewords a section heading from where it prints. See `EditableSectionHeading`. */
   onSectionHeadingChange?: SetSectionHeading
+  /** Sets the Exam's own page header, or `null` for the default. See
+   *  `HeaderEditor`. */
+  onHeaderChange?: (header: ExamHeader | null) => void
   titleDisabled?: boolean
   unsavedDraft?: boolean
   contentSelection?: ExportContentSelection
@@ -1444,6 +1455,45 @@ export function ExamPage({
       ? drag.source.type
       : null
 
+  // Which test page's header is open for editing, and which of the Exam's
+  // headers that page prints. Editing one later page's header edits them all.
+  const [editingHeader, setEditingHeader] = useState<{ pageKey: string; slot: HeaderSlot } | null>(null)
+  const finishHeader = useCallback(() => setEditingHeader(null), [])
+  const header = exam.header ?? defaultExamHeader()
+  const contentSlot = (slot: HeaderSlot): HeaderSlot =>
+    slot === 'first' && header.differentFirstPage ? 'first' : 'later'
+  const openHeader = (page: PlannedPage) => {
+    if (!onHeaderChange || titleDisabled || page.stream !== 'test') return
+    setEditingHeader({
+      pageKey: `${page.header}-${page.number}`,
+      slot: page.header === 'first' ? 'first' : 'later',
+    })
+  }
+  const headerEditorFor = (page: PlannedPage) => {
+    if (!onHeaderChange || editingHeader?.pageKey !== `${page.header}-${page.number}`) return undefined
+    const slot = contentSlot(editingHeader.slot)
+    return (
+      <HeaderEditor
+        key={slot}
+        label={slot === 'first' ? 'First-page header' : header.differentFirstPage ? 'Header on later pages' : 'Header'}
+        value={headerContentOf(header, slot)}
+        onChange={(content) => onHeaderChange({ ...header, [slot]: content })}
+        differentFirstPage={header.differentFirstPage}
+        onDifferentFirstPageChange={(different) => onHeaderChange({
+          ...header,
+          differentFirstPage: different,
+          // A first page given its own header starts from the one it had.
+          first: different && header.first.length === 0 ? header.later : header.first,
+        })}
+        onRemove={() => {
+          onHeaderChange({ ...header, [slot]: [] })
+          finishHeader()
+        }}
+        onDone={finishHeader}
+      />
+    )
+  }
+
   // The name is typed once, on the first sheet that prints it. Every later
   // repetition — a continuation page's, the answer key's — is that same name
   // shown again, so it is drawn as text rather than as a second field.
@@ -1472,10 +1522,26 @@ export function ExamPage({
             className="exam-page"
             key={`${page.header}-${page.number}`}
             onClick={clearOnBackground}
+            // A header that says nothing takes no room, so the page's top
+            // margin is where a double-click brings one back.
+            onDoubleClick={(event) => {
+              if (event.target !== event.currentTarget) return
+              const top = event.currentTarget.getBoundingClientRect().top
+              if (event.clientY - top <= PAGE_MARGIN + 12) openHeader(page)
+            }}
           >
             <PageHeaderContent
               header={page.header}
               furniture={page.furniture}
+              editor={headerEditorFor(page)}
+              onDoubleClick={page.stream === 'test' && onHeaderChange
+                ? (event) => {
+                    // The title is a field of its own: a double-click there
+                    // selects a word of it, as it would anywhere else.
+                    if ((event.target as HTMLElement).closest('input, textarea')) return
+                    openHeader(page)
+                  }
+                : undefined}
               onTitleChange={index === titleLine ? onTitleChange : undefined}
               titleDisabled={titleDisabled}
             />

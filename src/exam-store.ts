@@ -46,6 +46,7 @@ import {
   type HeadingSize,
   type SectionHeadingChange,
 } from './section-headings'
+import { isExamHeader, sameExamHeader, type ExamHeader } from './page-header'
 import {
   bankQuestionById,
   createWorkingCopy,
@@ -179,7 +180,8 @@ function isWorkingCopy(value: unknown): value is ExamWorkingCopy {
     (draft.workSpace === undefined || isWorkSpaceSettings(draft.workSpace)) &&
     (draft.choiceOrder === undefined || isChoiceOrder(draft.choiceOrder)) &&
     (draft.sectionHeadings === undefined || isSectionHeadings(draft.sectionHeadings)) &&
-    (draft.headingSize === undefined || isHeadingSize(draft.headingSize))
+    (draft.headingSize === undefined || isHeadingSize(draft.headingSize)) &&
+    (draft.header === undefined || isExamHeader(draft.header))
   )
 }
 
@@ -224,6 +226,8 @@ export type ExamStore = {
   setSectionHeading(section: QuestionType, change: SectionHeadingChange): void
   /** How large every section heading prints on this Exam. */
   setHeadingSize(size: HeadingSize): void
+  /** This Exam's own test-page header, or `null` for the default one. */
+  setHeader(header: ExamHeader | null): void
   /** Refreshes the canonical Questions projected from open Question Banks.
    * Workspace browsing is not an Exam command and creates no Undo step. */
   syncCanonicalQuestions(questions: readonly Question[]): void
@@ -347,8 +351,8 @@ function withResolvedColumns(state: AuthoringState): ExamWorkingCopy {
 
 /** Savedness is a composition comparison. Canonical Question Content is live,
  * so it intentionally does not participate: only the Exam name, membership,
- * question order, answer order, column layout, work space and section
- * headings are explicitly saved. */
+ * question order, answer order, column layout, work space, section headings
+ * and the page header are explicitly saved. */
 function sameExamWorkingCopy(left: ExamWorkingCopy, right: ExamWorkingCopy): boolean {
   const sameEntries = <T>(first: Record<string, T> | undefined, second: Record<string, T> | undefined, equal: (left: T, right: T) => boolean) => {
     const firstEntries = Object.entries(first ?? {})
@@ -368,6 +372,7 @@ function sameExamWorkingCopy(left: ExamWorkingCopy, right: ExamWorkingCopy): boo
     )
     && sameSectionHeadings(left.sectionHeadings, right.sectionHeadings)
     && (left.headingSize ?? DEFAULT_HEADING_SIZE) === (right.headingSize ?? DEFAULT_HEADING_SIZE)
+    && sameExamHeader(left.header, right.header)
 }
 
 /** The Part with this id, when it belongs to a Multipart question this Exam references.
@@ -648,6 +653,15 @@ export function createExamStore(options: {
         // The default is stored as its absence, like every other default here.
         const workingCopy: ExamWorkingCopy = { ...current.workingCopy, headingSize: size }
         if (size === DEFAULT_HEADING_SIZE) delete workingCopy.headingSize
+        return { ...current, workingCopy }
+      }),
+
+    setHeader: (header) =>
+      change((current) => {
+        const next = header ?? undefined
+        if (sameExamHeader(next, current.workingCopy.header)) return current
+        const workingCopy: ExamWorkingCopy = { ...current.workingCopy, header: next }
+        if (!next) delete workingCopy.header
         return { ...current, workingCopy }
       }),
 

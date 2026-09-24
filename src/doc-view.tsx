@@ -166,8 +166,13 @@ function renderNode(node: ProseMirrorJSON, key: number): ReactNode {
       )
     }
     case 'table':
+      // A borderless table is layout — a header's blanks spread across the
+      // line — rather than data; it keeps its cells and loses its rules.
       return (
-        <table key={key} className="doc-table">
+        <table
+          key={key}
+          className={attrs.borderless === true ? 'doc-table doc-table--borderless' : 'doc-table'}
+        >
           <tbody>{renderAll(node)}</tbody>
         </table>
       )

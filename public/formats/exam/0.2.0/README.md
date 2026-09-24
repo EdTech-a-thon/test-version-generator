@@ -4,7 +4,8 @@
   stable identifier is `https://testparrot.com/formats/exam/0.2.0/schema.json`.
 - [`examples/`](examples/) contains conforming Exam Records. An Exam Record is
   importable only inside a Test Parrot Package. `section-headings.json` rewords
-  two sections and prints every heading large.
+  two sections and prints every heading large; `header.json` gives the Exam its own
+  header, different on its first page.
 - Invalid counterexamples are with the package, in
   [`../../package/0.1.0/invalid/`](../../package/0.1.0/invalid/).
 
