@@ -2088,8 +2088,8 @@ button { cursor: pointer; }
   overscroll-behavior: contain; background: var(--preview-ground);
 }
 /* A bank has no printable page, so it is not dressed as one: its questions
-   are read straight off the dialog's own surface, borderless. */
-.bank-import-preview[data-kind='bank'] { background: var(--paper-surface); }
+   are read straight off a plain white lane, borderless. */
+.bank-import-preview[data-kind='bank'] { background: #fff; }
 .bank-import-reading { max-width: 680px; margin: 0 auto; }
 .bank-import-preview-head h3 { margin: 0; font-size: 19px; }
 .bank-import-preview-head p { margin: 4px 0 0; color: var(--paper-ink-soft); font-size: 13px; }
