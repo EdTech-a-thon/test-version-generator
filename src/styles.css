@@ -1551,13 +1551,12 @@ button { cursor: pointer; }
 
 /* Stimulus: the Stimulus is written unnested at the top, where any other
    question's stem goes. Below it a "Parts" heading ruled full width, with
-   "+ Add Part" at its right end, and under that each Part as a question of its
-   kind: a title line — letter, type badge, × — ruled dotted, since it heads
-   less than the Parts rule does; the stem, unboxed as a question's stem is;
-   then the Multiple Choice answers or Suggested Answer exactly as that
-   question type draws them. Letters are counted by the stylesheet from
-   position, so dragging or deleting a Part reletters the rest. Editor chrome
-   only: previews and print draw a Stimulus from the plan. */
+   "+ Add Part" at its right end, and under that each Part as one dashed box:
+   a shaded header set as the question editor's front matter is — the Type
+   label, then the Part's type badge — with ↑ ↓ × at the right; then the stem;
+   then the Multiple Choice answers or Suggested Answer as the box's last
+   cells, in the same dashes those components draw with. Editor chrome only:
+   previews and print draw a Stimulus from the plan. */
 .milkdown .stimulus-parts { margin: 28px 0 20px; }
 .stimulus-parts-head {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
@@ -1565,7 +1564,6 @@ button { cursor: pointer; }
   color: #786457; font-size: 12px; font-weight: 700;
   letter-spacing: 0.02em; text-transform: uppercase; user-select: none;
 }
-.milkdown .stimulus-parts-list { counter-reset: stimulus-part; }
 .stimulus-parts-empty {
   margin: 12px 0 6px; color: #a8988c; font-size: 14px; user-select: none;
 }
@@ -1586,13 +1584,20 @@ button { cursor: pointer; }
   display: block; margin: 4px 0 0 -10px;
 }
 
-.milkdown .stimulus-part { counter-increment: stimulus-part; margin: 22px 0 26px; }
-.stimulus-part-title {
-  position: relative; display: flex; align-items: center; gap: 10px;
-  padding: 0 0 6px; border-bottom: 1px dotted #bda995; user-select: none;
+.milkdown .stimulus-part { margin: 16px 0 0; }
+.milkdown .ProseMirror[contenteditable="true"] .stimulus-part {
+  border: 1px dashed #bda995; border-radius: 6px;
 }
-.stimulus-part-letter { color: #4e3b2f; font-size: 16px; font-weight: 700; }
-.stimulus-part-letter::before { content: counter(stimulus-part, upper-alpha); }
+.stimulus-part-header {
+  display: flex; align-items: center; gap: 16px;
+  padding: 5px 6px 5px 12px; border-bottom: 1px dashed #bda995;
+  border-radius: 6px 6px 0 0; background: #f7efe4; user-select: none;
+}
+.stimulus-part-label {
+  display: inline-flex; align-items: center; gap: 7px;
+  color: var(--paper-ink-soft); font-size: 13px;
+}
+.stimulus-part-label svg { width: 14px; height: 14px; stroke-width: 2; }
 .stimulus-part-kind {
   display: inline-flex; padding: 0; border: 0; border-radius: 999px;
   background: transparent; font: inherit; cursor: pointer;
@@ -1601,32 +1606,17 @@ button { cursor: pointer; }
 .stimulus-part-kind:not(:disabled):hover .badge,
 .stimulus-part-kind[aria-expanded="true"] .badge { border-color: #cdb9a6; background: #f2e6d8; }
 .stimulus-part-kind:focus { outline: none; }
-.stimulus-part-delete {
+.stimulus-part-controls { display: inline-flex; gap: 2px; margin-left: auto; }
+.stimulus-part-control {
   display: inline-flex; align-items: center; justify-content: center;
-  width: 26px; height: 26px; margin-left: auto; padding: 0;
+  width: 26px; height: 26px; padding: 0;
   border: 0; border-radius: 5px; color: #786457; background: transparent; cursor: pointer;
 }
-.stimulus-part-delete svg { width: 16px; height: 16px; stroke-width: 2.2; }
-.stimulus-part-delete:hover { color: #a3322a; background: #fbe9e6; }
-/* The drag handle sits in the left margin, where the editor keeps every other
-   block's, and shows as that one does: while the pointer is over the Part. */
-.stimulus-part-handle {
-  position: absolute; left: -40px; top: 50%; transform: translateY(calc(-50% - 3px));
-  display: flex; align-items: center; justify-content: center;
-  width: 32px; height: 32px; padding: 4px; border-radius: 4px;
-  cursor: grab; opacity: 0; transition: opacity 0.2s;
-}
-.stimulus-part-handle svg { width: 24px; height: 24px; fill: #4e3b2f; }
-.stimulus-part-handle:hover { background: #f2e6d8; }
-.milkdown .stimulus-part:hover > .stimulus-part-title > .stimulus-part-handle { opacity: 1; }
-.stimulus-part-handle:active { cursor: grabbing; }
-body.stimulus-part-dragging, body.stimulus-part-dragging * { cursor: grabbing !important; user-select: none; }
-/* Where a dragged Part will land, drawn over the page rather than in the
-   document, so drawing it never edits what is being dragged through. */
-.stimulus-part-drop-line {
-  position: fixed; z-index: 60; height: 2px; border-radius: 1px;
-  background: var(--paper-accent); pointer-events: none;
-}
+.stimulus-part-control svg { width: 16px; height: 16px; stroke-width: 2.2; }
+.stimulus-part-control:hover { color: #9f5037; background: #f2e6d8; }
+.stimulus-part-x:hover { color: #a3322a; background: #fbe9e6; }
+.milkdown .stimulus-part:first-child .stimulus-part-up,
+.milkdown .stimulus-part:last-child .stimulus-part-down { visibility: hidden; }
 
 /* A type menu: the question types' badges, the Part's own ticked. */
 .stimulus-menu-anchor { position: relative; display: inline-flex; }
@@ -1650,22 +1640,28 @@ body.stimulus-part-dragging, body.stimulus-part-dragging * { cursor: grabbing !i
   width: 14px; height: 14px; margin-left: auto; color: var(--paper-accent); stroke-width: 2.5;
 }
 
-.milkdown .stimulus-part-stem { position: relative; margin: 12px 0 0; outline: none; }
+.milkdown .stimulus-part-stem { position: relative; padding: 10px 12px; outline: none; }
 .milkdown .ProseMirror .stimulus-part-stem > :first-child { margin-top: 0; padding-top: 0; }
 .milkdown .ProseMirror .stimulus-part-stem > :last-child { margin-bottom: 0; padding-bottom: 0; }
 .milkdown .stimulus-part-stem .crepe-placeholder::before { content: none; }
 .milkdown .stimulus-part-stem:has(> p:only-child > br.ProseMirror-trailingBreak)::before,
 .milkdown .stimulus-part-stem:has(> p:only-child:empty)::before {
   content: 'Multiple Choice question stem here…';
-  position: absolute; inset: 0 auto auto 0;
+  position: absolute; inset: 10px auto auto 12px;
   color: #a8988c; pointer-events: none;
 }
 .milkdown .stimulus-part[data-kind="open"] .stimulus-part-stem:has(> p:only-child > br.ProseMirror-trailingBreak)::before,
 .milkdown .stimulus-part[data-kind="open"] .stimulus-part-stem:has(> p:only-child:empty)::before {
   content: 'Short Answer question stem here…';
 }
+/* The answers close the Part's box: their own outline gives way to the box's,
+   leaving the dashed rule over them. */
 .milkdown .stimulus-part [data-type="multiple-choice"],
-.milkdown .stimulus-part [data-type="suggested-answer"] { margin: 16px 0 0; }
+.milkdown .stimulus-part [data-type="suggested-answer"] { margin: 0; }
+.milkdown .ProseMirror[contenteditable="true"] .stimulus-part [data-type="multiple-choice"],
+.milkdown .ProseMirror[contenteditable="true"] .stimulus-part [data-type="suggested-answer"] {
+  border: 0; border-top: 1px dashed #bda995; border-radius: 0 0 6px 6px;
+}
 .matching-add:focus { outline: none; }
 
 /* The sheet keeps its size on a narrow screen — it is a piece of paper, and

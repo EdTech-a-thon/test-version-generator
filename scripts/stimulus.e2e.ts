@@ -3,9 +3,9 @@
 // The plan's tests cover how a Stimulus numbers, letters and breaks across
 // pages. These cover what only a browser can show: that the question editor
 // lays a Stimulus out the way the paper does — the Stimulus unnested at the
-// top, a "Parts" heading, each Part titled with its letter and kind and holding
+// top, a "Parts" heading, each Part a box headed with its type and holding
 // the answer component a question of that kind uses — that Parts can be
-// added, dragged, deleted and switched between kinds there, and that the sheet
+// added, moved, deleted and switched between kinds there, and that the sheet
 // prints them lettered under the Stimulus's one number.
 //
 // A seeded Exam is enough to look at the sheet and the editor, but saving an
@@ -68,7 +68,7 @@ async function openExam(page: Page) {
 }
 
 const editor = (page: Page) => page.getByRole('dialog', { name: 'Question editor' })
-const partTags = (page: Page) => editor(page).locator('.stimulus-part-title')
+const partTags = (page: Page) => editor(page).locator('.stimulus-part-header')
 
 test('the sheet prints the Stimulus under one number with its Parts lettered beneath it', async ({ page }) => {
   await openExam(page)
@@ -90,7 +90,6 @@ test('the editor nests the Parts under the Stimulus, each tagged with its letter
 
   await expect(editor(page).getByText('Parts', { exact: true })).toBeVisible()
   await expect(partTags(page)).toHaveCount(2)
-  await expect(partTags(page).nth(0)).toContainText('A')
   await expect(partTags(page).nth(0)).toContainText('Multiple Choice')
   await expect(partTags(page).nth(1)).toContainText('Short Answer')
   await expect(editor(page).locator('.stimulus-part').nth(0).locator('[data-type="multiple-choice"]')).toBeVisible()
@@ -123,7 +122,7 @@ test('a new Stimulus opens with one blank Multiple Choice Part, and the bank cou
   await expect(questions.getByRole('listitem', { name: /^Part [a-z],/ })).toHaveCount(1)
 })
 
-test('a Part is added, dragged and deleted, and saving keeps exactly that', async ({ page }) => {
+test('a Part is added, moved and deleted, and saving keeps exactly that', async ({ page }) => {
   await newStimulus(page)
   await page.keyboard.type('A quotation to read.')
 
@@ -138,14 +137,8 @@ test('a Part is added, dragged and deleted, and saving keeps exactly that', asyn
   await page.keyboard.type('Explain one factor.')
   await expect(editor(page).locator('.stimulus-part').nth(1)).toContainText('Explain one factor.')
 
-  // Dragged by its handle above the first Part, it becomes Part A.
-  await editor(page).locator('.stimulus-part').nth(1).hover()
-  const handle = await partTags(page).nth(1).getByLabel('Drag to reorder').boundingBox()
-  const first = await editor(page).locator('.stimulus-part').nth(0).boundingBox()
-  await page.mouse.move(handle!.x + handle!.width / 2, handle!.y + handle!.height / 2)
-  await page.mouse.down()
-  await page.mouse.move(handle!.x + 60, first!.y + 4, { steps: 8 })
-  await page.mouse.up()
+  // Moving it up puts it first.
+  await partTags(page).nth(1).getByRole('button', { name: 'Move part up' }).click()
   await expect(editor(page).locator('.stimulus-part')).toHaveCount(2)
   await expect(editor(page).locator('.stimulus-part').nth(0)).toContainText('Explain one factor.')
   await expect(partTags(page).nth(0)).toContainText('Short Answer')

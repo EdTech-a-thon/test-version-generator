@@ -15,8 +15,8 @@ import { multipleChoiceEditableCtx, newMultipleChoiceNode } from './multiple-cho
 // of the two it holds is what kind of Part it is, so a Part's kind can never
 // disagree with its answers.
 //
-// Parts are lettered by the stylesheet from their position, so deleting or
-// dragging one reletters the rest without a node view having to be told.
+// The editor does not letter Parts: their order is what letters them on the
+// paper, and the editor shows that order directly.
 
 // Whether the question being edited is a Stimulus. On for one in the editor,
 // off everywhere else: it is what lets the Parts box be regrown if the teacher
@@ -230,7 +230,13 @@ const ICON_PATHS = {
   x: ['M18 6 6 18', 'm6 6 12 12'],
   plus: ['M5 12h14', 'M12 5v14'],
   check: ['M20 6 9 17l-5-5'],
-  chevron: ['m6 9 6 6 6-6'],
+  up: ['m5 12 7-7 7 7', 'M12 19V5'],
+  down: ['M12 5v14', 'm19 12-7 7-7-7'],
+  // The front matter's Type label.
+  type: [
+    'M12 22h6a2 2 0 0 0 2-2V8a2.4 2.4 0 0 0-.706-1.706l-3.588-3.588A2.4 2.4 0 0 0 14 2H6a2 2 0 0 0-2 2v6',
+    'M14 2v5a1 1 0 0 0 1 1h5', 'M3 16v-1.5a.5.5 0 0 1 .5-.5h7a.5.5 0 0 1 .5.5V16', 'M6 22h2', 'M7 14v8',
+  ],
 } as const
 
 function icon(name: keyof typeof ICON_PATHS) {
@@ -247,10 +253,6 @@ function icon(name: keyof typeof ICON_PATHS) {
   }
   return svg
 }
-
-// Crepe's own drag handle, so a Part is picked up by the handle every other
-// block in the editor is.
-const DRAG_HANDLE_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 9.83366C3.35833 9.83366 3.23961 9.78571 3.14383 9.68983C3.04794 9.59394 3 9.47516 3 9.33349C3 9.19171 3.04794 9.07299 3.14383 8.97733C3.23961 8.88155 3.35833 8.83366 3.5 8.83366H12.5C12.6417 8.83366 12.7604 8.8816 12.8562 8.97749C12.9521 9.07338 13 9.19216 13 9.33383C13 9.4756 12.9521 9.59433 12.8562 9.68999C12.7604 9.78577 12.6417 9.83366 12.5 9.83366H3.5ZM3.5 7.16699C3.35833 7.16699 3.23961 7.11905 3.14383 7.02316C3.04794 6.92727 3 6.80849 3 6.66683C3 6.52505 3.04794 6.40633 3.14383 6.31066C3.23961 6.21488 3.35833 6.16699 3.5 6.16699H12.5C12.6417 6.16699 12.7604 6.21494 12.8562 6.31083C12.9521 6.40671 13 6.52549 13 6.66716C13 6.80894 12.9521 6.92766 12.8562 7.02333C12.7604 7.1191 12.6417 7.16699 12.5 7.16699H3.5Z"/></svg>`
 
 /** A kind of Part drawn as the question type's badge: its icon and its name. */
 function kindBadge(kind: PartKind) {
@@ -428,11 +430,12 @@ export const stimulusPartsView = $view(
   },
 )
 
-// Node view for one Part: a title line — the drag handle in the margin, its
-// letter, drawn by the stylesheet, its kind as the question type's badge,
-// which opens a menu to switch it, and × to delete it at the far right — ruled
-// dotted full width; then its stem and its answer component, both editable
-// and drawn as a question of that kind draws them.
+// Node view for one Part: one dashed box, drawn as a question of its kind.
+// At the top, shaded, a header set as the question editor's front matter is —
+// the Type label, then the Part's type as the question type's badge, which
+// opens a menu to switch it — with the controls that move the Part up, move it
+// down and delete it at the right; then, ruled off, its stem; then its answer
+// component as the box's last cells.
 export const stimulusPartView = $view(
   stimulusPartSchema.node,
   (ctx: Ctx) => {
@@ -447,18 +450,13 @@ export const stimulusPartView = $view(
       dom.className = 'stimulus-part'
       dom.dataset.type = 'stimulus-part'
 
-      const title = document.createElement('div')
-      title.className = 'stimulus-part-title'
-      title.contentEditable = 'false'
+      const header = document.createElement('div')
+      header.className = 'stimulus-part-header'
+      header.contentEditable = 'false'
 
-      const handle = document.createElement('span')
-      handle.className = 'stimulus-part-handle'
-      handle.setAttribute('aria-label', 'Drag to reorder')
-      handle.title = 'Drag to reorder'
-      handle.innerHTML = DRAG_HANDLE_SVG
-
-      const letter = document.createElement('span')
-      letter.className = 'stimulus-part-letter'
+      const label = document.createElement('span')
+      label.className = 'stimulus-part-label'
+      label.append(icon('type'), 'Type')
 
       const kindButton = document.createElement('button')
       kindButton.type = 'button'
@@ -471,79 +469,36 @@ export const stimulusPartView = $view(
         view.focus()
       })
 
-      const remove = document.createElement('button')
-      remove.type = 'button'
-      remove.className = 'stimulus-part-delete'
-      remove.setAttribute('aria-label', 'Delete part')
-      remove.title = 'Delete part'
-      remove.append(icon('x'))
-      remove.addEventListener('mousedown', (event) => {
-        event.preventDefault()
-        if (!editable()) return
-        const pos = getPos()
-        if (pos == null) return
-        deletePart(view, pos)
-        view.focus()
-      })
-
-      title.append(handle, letter, kind.wrap, remove)
-
-      // Picked up by its handle, the Part follows the pointer among its
-      // siblings — and only there, so it can never land outside the Parts —
-      // with a line showing where it will go, and moves there on release.
-      // Pointer events rather than the browser's own drag and drop, which a
-      // browser will not start from inside the editable document.
-      const indicator = document.createElement('div')
-      indicator.className = 'stimulus-part-drop-line'
-      let dropIndex: number | null = null
-      const siblings = () =>
-        Array.from(dom.parentElement?.children ?? [])
-          .filter((element) => element.classList.contains('stimulus-part'))
-      const track = (event: PointerEvent) => {
-        const parts = siblings()
-        if (parts.length === 0) return
-        let index = parts.findIndex((element) => {
-          const box = element.getBoundingClientRect()
-          return event.clientY < box.top + box.height / 2
+      const controls = document.createElement('span')
+      controls.className = 'stimulus-part-controls'
+      const control = (name: 'up' | 'down' | 'x', text: string, run: (pos: number) => void) => {
+        const button = document.createElement('button')
+        button.type = 'button'
+        button.className = `stimulus-part-control stimulus-part-${name}`
+        button.setAttribute('aria-label', text)
+        button.title = text
+        button.append(icon(name))
+        button.addEventListener('mousedown', (event) => {
+          event.preventDefault()
+          if (!editable()) return
+          const pos = getPos()
+          if (pos == null) return
+          run(pos)
+          view.focus()
         })
-        if (index < 0) index = parts.length
-        dropIndex = index
-        const edge = index < parts.length
-          ? parts[index]!.getBoundingClientRect().top - 12
-          : parts.at(-1)!.getBoundingClientRect().bottom + 12
-        const list = dom.parentElement!.getBoundingClientRect()
-        Object.assign(indicator.style, {
-          top: `${edge - 1}px`, left: `${list.left}px`, width: `${list.width}px`,
-        })
+        controls.append(button)
       }
-      const finish = (event: PointerEvent) => {
-        handle.releasePointerCapture?.(event.pointerId)
-        handle.removeEventListener('pointermove', track)
-        indicator.remove()
-        document.body.classList.remove('stimulus-part-dragging')
-        const pos = getPos()
-        const target = dropIndex
-        dropIndex = null
-        if (event.type !== 'pointerup' || pos == null || target == null) return
-        movePartTo(view, pos, target)
-        view.focus()
-      }
-      handle.addEventListener('pointerdown', (event) => {
-        if (event.button !== 0 || !editable()) return
-        event.preventDefault()
-        handle.setPointerCapture?.(event.pointerId)
-        document.body.classList.add('stimulus-part-dragging')
-        document.body.append(indicator)
-        track(event)
-        handle.addEventListener('pointermove', track)
-        handle.addEventListener('pointerup', finish, { once: true })
-        handle.addEventListener('pointercancel', finish, { once: true })
-      })
+      const indexAt = (pos: number) => view.state.doc.resolve(pos).index()
+      control('up', 'Move part up', (pos) => movePartTo(view, pos, indexAt(pos) - 1))
+      control('down', 'Move part down', (pos) => movePartTo(view, pos, indexAt(pos) + 2))
+      control('x', 'Delete part', (pos) => deletePart(view, pos))
+
+      header.append(label, kind.wrap, controls)
 
       const contentDOM = document.createElement('div')
       contentDOM.className = 'stimulus-part-body'
 
-      dom.append(title, contentDOM)
+      dom.append(header, contentDOM)
 
       const render = () => {
         const current = partKindOf(node)
@@ -554,8 +509,7 @@ export const stimulusPartView = $view(
         const on = editable()
         kindButton.disabled = !on
         if (!on) kind.close()
-        handle.style.display = on ? '' : 'none'
-        remove.style.display = on ? '' : 'none'
+        controls.style.display = on ? '' : 'none'
       }
       render()
 
@@ -568,20 +522,17 @@ export const stimulusPartView = $view(
           render()
           return true
         },
-        ignoreMutation: (mutation) => title.contains(mutation.target),
-        stopEvent: (event) => title.contains(event.target as Node),
-        destroy: () => {
-          kind.close()
-          indicator.remove()
-        },
+        ignoreMutation: (mutation) => header.contains(mutation.target),
+        stopEvent: (event) => header.contains(event.target as Node),
+        destroy: () => kind.close(),
       }
     }
   },
 )
 
-// Node view for a Part's stem: written under the Part's title as a question's
-// stem is written, unboxed, with a placeholder the stylesheet words for the
-// Part's kind.
+// Node view for a Part's stem: the middle of the Part's box, under its header
+// and over its answers, with a placeholder the stylesheet words for the Part's
+// kind.
 export const stimulusPartStemView = $view(
   stimulusPartStemSchema.node,
   () => (initialNode: ProseNode): NodeView => {
