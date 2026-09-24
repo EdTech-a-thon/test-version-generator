@@ -11,10 +11,12 @@
 // reads a page's furniture: a header, a footer and a page number belong to the
 // page, not to the items on it.
 
+import type { ReactNode } from 'react'
 import { Check } from 'lucide-react'
 import { DifficultyBadge, TopicBadge } from './badges'
 import { DocView } from './doc-view'
 import {
+  hasCompactNumber,
   printsNumberLine,
   type AnswerKeyEntryItem,
   type AnswerKeySectionItem,
@@ -22,6 +24,7 @@ import {
   type MatchingSet,
   type PageFurniture,
   type PlannedBankAnswer,
+  type PlannedPart,
   type PlannedWorkSpace,
   type PageHeader,
   type PageItem,
@@ -189,6 +192,42 @@ export function WorkSpaceView({ space }: { space: PlannedWorkSpace }) {
   )
 }
 
+// One Part of a Stimulus, drawn the way a question of its kind is, one level
+// in: a letter column — holding a blank for a Multiple Choice Part, as a
+// question's number column does — then its stem, its choice grid or its work
+// space. `renderWorkSpace` lets the sheet wrap a Short Answer Part's space in
+// the handle that sizes it.
+export function PartContent({
+  part,
+  showCorrectness = false,
+  renderWorkSpace,
+}: {
+  part: PlannedPart
+  showCorrectness?: boolean
+  renderWorkSpace?: (part: PlannedPart, space: PlannedWorkSpace) => ReactNode
+}) {
+  return (
+    <div className="stimulus-part-print" data-part-id={part.id} data-part-type={part.type}>
+      <div
+        className={
+          part.type === 'open' ? 'part-letter part-letter--compact' : 'part-letter'
+        }
+      >
+        {part.answerBlank && <span className="answer-blank" aria-label="Answer blank" />}
+        <span className="part-count">{part.letter}.</span>
+      </div>
+      <div className="part-body">
+        <DocView className="question-stem" content={part.stem} />
+        {part.grid && <ChoiceGridView grid={part.grid} showCorrectness={showCorrectness} />}
+        {part.workSpace
+          && (renderWorkSpace
+            ? renderWorkSpace(part, part.workSpace)
+            : <WorkSpaceView space={part.workSpace} />)}
+      </div>
+    </div>
+  )
+}
+
 // A question, or the piece of one this page carries. The number column is drawn
 // either way so a continued question's text stays in the same place down the
 // page; only the first piece puts a number and an answer blank in it — and a
@@ -196,20 +235,25 @@ export function WorkSpaceView({ space }: { space: PlannedWorkSpace }) {
 export function QuestionContent({
   item,
   showCorrectness = false,
+  renderPartWorkSpace,
 }: {
   item: QuestionItem
   /** Correct-answer feedback is authoring chrome, never export content. */
   showCorrectness?: boolean
+  /** The sheet's own drawing of a Short Answer Part's work space, with its
+   *  sizing handle; everywhere else the space is drawn plain. */
+  renderPartWorkSpace?: (part: PlannedPart, space: PlannedWorkSpace) => ReactNode
 }) {
   const numbered = printsNumberLine(item)
   return (
     <>
-      {/* A Short Answer question has no blank to make room for, so its
-          column holds the number alone — `questionIndentOf` in export-plan.ts
-          is the same width for the adapters. */}
+      {/* A Short Answer question has no blank to make room for, nor does a
+          Stimulus, whose blanks are on its Parts, so its column holds the
+          number alone — `questionIndentOf` in export-plan.ts is the same width
+          for the adapters. */}
       <div
         className={
-          item.question.type === 'open'
+          hasCompactNumber(item.question.type)
             ? 'question-number question-number--compact'
             : 'question-number'
         }
@@ -225,6 +269,18 @@ export function QuestionContent({
           <ChoiceGridView grid={item.grid} showCorrectness={showCorrectness} />
         )}
         {item.workSpace && <WorkSpaceView space={item.workSpace} />}
+        {item.parts && item.parts.length > 0 && (
+          <div className="stimulus-parts-print">
+            {item.parts.map((part) => (
+              <PartContent
+                key={part.id}
+                part={part}
+                showCorrectness={showCorrectness}
+                renderWorkSpace={renderPartWorkSpace}
+              />
+            ))}
+          </div>
+        )}
       </div>
       {item.matching && (
         <MatchingSetView set={item.matching} showCorrectness={showCorrectness} />
@@ -265,6 +321,24 @@ export function AnswerKeyEntry({ item }: { item: AnswerKeyEntryItem }) {
       )}
       {item.suggestedAnswer && (
         <DocView className="answer-key-suggested" content={item.suggestedAnswer} />
+      )}
+      {item.parts && (
+        <div className="answer-key-parts">
+          {item.parts.map((part) => (
+            <div className="answer-key-part" key={part.letter}>
+              <span className="answer-key-part-letter">{part.letter}.</span>
+              <span
+                className="answer-key-answer"
+                aria-label={part.answer ?? 'Blank answer'}
+              >
+                {part.answer}
+              </span>
+              {part.suggestedAnswer && (
+                <DocView className="answer-key-suggested" content={part.suggestedAnswer} />
+              )}
+            </div>
+          ))}
+        </div>
       )}
     </div>
   )

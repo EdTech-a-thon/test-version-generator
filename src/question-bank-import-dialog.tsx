@@ -3,6 +3,7 @@ import { Check, Copy, Eye, UploadCloud } from 'lucide-react'
 import { DocView } from './doc-view'
 import extractInstructions from '../public/extract.md?raw'
 import {
+  RECORD_PART_TYPE_LABELS,
   RECORD_TYPE_LABELS,
   RECORD_TYPE_ORDER,
   recordDocumentToEditorNodes,
@@ -227,6 +228,35 @@ function BankPreview({
               ))}
             </ol>
           </div>
+        )}
+        {question.parts && (
+          // The Stimulus is the stem above; its Parts follow, lettered as the
+          // test prints them, each with its own answers.
+          <ol type="a" className="record-stimulus-parts bank-import-stimulus-parts">
+            {question.parts.map((part) => (
+              <li key={part.id} aria-label={RECORD_PART_TYPE_LABELS[part.type]}>
+                <DocView className="bank-import-stem" content={previewDocument(part.stem)} />
+                {part.choices && (
+                  <ol type="A" className="bank-import-choices">
+                    {part.choices.map((choice) => (
+                      <li key={choice.id} className={choice.correct ? 'is-correct' : undefined}>
+                        <DocView content={previewDocument(choice.content)} />
+                        {choice.correct && (
+                          <Check className="bank-import-correct" role="img" aria-label="Correct answer" />
+                        )}
+                      </li>
+                    ))}
+                  </ol>
+                )}
+                {part.suggestedAnswer && (
+                  <section className="bank-import-answer">
+                    <h4>Suggested Answer</h4>
+                    <DocView content={previewDocument(part.suggestedAnswer)} />
+                  </section>
+                )}
+              </li>
+            ))}
+          </ol>
         )}
         {question.suggestedAnswer && (
           <section className="bank-import-answer">

@@ -31,6 +31,7 @@ import {
 } from './export-media'
 import {
   MATCHING_BANK_WIDTH,
+  partIndentOf,
   printsNumberLine,
   questionIndentOf,
   type AnswerKeyEntryItem,
@@ -40,6 +41,7 @@ import {
   type PlannedBankAnswer,
   type PageFurniture,
   type PageItem,
+  type PlannedPart,
   type PlannedWorkSpace,
   type QuestionItem,
 } from './export-plan'
@@ -683,6 +685,29 @@ function drawMatching(context: DrawContext, set: MatchingSet): void {
   context.y = Math.min(prompts.y, bank.y)
 }
 
+// A Stimulus's Parts, one level in under the Stimulus, as print lays them out
+// (`.stimulus-parts-print` in styles.css): 14px below the Stimulus, 18px
+// apart, each opening with its letter — after a blank for a Multiple Choice
+// Part — in a letter column of its own.
+const PARTS_GAP_ABOVE = 14
+const PARTS_GAP_BETWEEN = 18
+
+function drawPart(context: DrawContext, part: PlannedPart, x: number, width: number): void {
+  const indent = pt(partIndentOf(part))
+  const bodyX = x + indent
+  const bodyWidth = width - indent
+  drawTextLine(
+    context,
+    part.answerBlank ? `_______  ${part.letter}.` : `${part.letter}.`,
+    { font: 'bold', x, width: indent - 5 },
+  )
+  context.y += BODY_LINE
+  if (part.stem.length > 0) drawBlocks(context, part.stem, { x: bodyX, width: bodyWidth })
+  else context.y -= BODY_LINE
+  if (part.grid) drawChoiceGrid(context, part.grid, bodyX, bodyWidth)
+  if (part.workSpace) drawWorkSpace(context, part.workSpace, bodyX, bodyWidth)
+}
+
 function drawQuestion(context: DrawContext, item: QuestionItem): void {
   const indent = questionIndentOf(item.question) * POINTS_PER_PX
   const bodyX = context.x + indent
@@ -702,6 +727,12 @@ function drawQuestion(context: DrawContext, item: QuestionItem): void {
     // Nothing follows a space that fills its page, so it keeps the foot.
     if (item.workSpace.fill) return
   }
+  const parts = item.parts ?? []
+  for (const [index, part] of parts.entries()) {
+    context.y -= pt(index === 0 ? PARTS_GAP_ABOVE : PARTS_GAP_BETWEEN)
+    drawPart(context, part, bodyX, bodyWidth)
+  }
+  if (parts.at(-1)?.workSpace?.fill) return
   context.y -= 10
 }
 
@@ -797,6 +828,31 @@ function drawAnswerKeyEntry(context: DrawContext, item: AnswerKeyEntryItem): voi
       width: context.width - ANSWER_KEY_ANSWER_X,
     })
     context.y -= 4
+  }
+  // A Stimulus's Parts each take a line under its number, the Part's letter
+  // where a question's number goes and its answer on the blank beside it.
+  for (const part of item.parts ?? []) {
+    ensureRoom(context, BODY_LINE + 2)
+    const partY = context.y
+    const partX = context.x + ANSWER_KEY_ANSWER_X
+    drawTextLine(context, `${part.letter}.`, { x: partX, width: 18 })
+    context.y = partY
+    if (part.answer) drawTextLine(context, part.answer, { font: 'bold', x: partX + 24, width: 42 })
+    else context.y -= BODY_LINE
+    context.page.drawLine({
+      start: { x: partX + 22, y: partY - BODY_LINE + 3 },
+      end: { x: partX + 64, y: partY - BODY_LINE + 3 },
+      thickness: 0.6,
+      color: INK,
+    })
+    context.y = partY - BODY_LINE - 2
+    if (part.suggestedAnswer) {
+      drawBlocks(context, part.suggestedAnswer, {
+        x: partX + 24,
+        width: context.width - ANSWER_KEY_ANSWER_X - 24,
+      })
+      context.y -= 4
+    }
   }
 }
 

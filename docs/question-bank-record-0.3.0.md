@@ -1,5 +1,7 @@
 # Question Bank Record 0.3.0
 
+> **Superseded by [Question Bank Record 0.4.0](question-bank-record-0.4.0.md).** Test Parrot no longer produces `0.3.0` records; it still reads them, and this contract is frozen so that every Question Bank File already shared keeps opening. The one fixture that changes after publication is `invalid/unsupported-version.json`, which names a version no Test Parrot parser implements — each time a newer version ships, it has to name the one after that to keep meaning it.
+
 The **Question Bank Record** is the authoritative, portable representation of one complete Question Bank. It is embedded in a **Question Bank File**, whose PDF pages are only a teacher-readable preview. The record, not the pages, controls import.
 
 ## Published contract

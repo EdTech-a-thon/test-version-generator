@@ -205,8 +205,14 @@ describe('question ordering', () => {
     expect(ids(orderedQuestions(exam, arrangementOf(['o1', 'q1'])))).toEqual(['q1', 'o1'])
   })
 
-  test('matching prints after true/false and before short answer', () => {
-    expect(SECTION_ORDER).toEqual(['multiple-choice', 'true-false', 'matching', 'open'])
+  test('matching prints after true/false and before short answer, and a stimulus prints last', () => {
+    expect(SECTION_ORDER).toEqual([
+      'multiple-choice',
+      'true-false',
+      'matching',
+      'open',
+      'stimulus',
+    ])
     const exam = examOf([open('o1'), matching('x1', [''], ['a', 'b']), multipleChoice('q1', ['a'])])
     expect(ids(orderedQuestions(exam, arrangementOf(['o1', 'x1', 'q1'])))).toEqual(['q1', 'x1', 'o1'])
   })

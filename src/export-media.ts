@@ -176,6 +176,12 @@ export function imageSourcesOf(plans: readonly LayoutPlan[]): string[] {
         for (const row of item.grid?.cells ?? []) {
           for (const cell of row) if (cell) visit(cell.node)
         }
+        for (const part of item.parts ?? []) {
+          for (const block of part.stem) visit(block)
+          for (const row of part.grid?.cells ?? []) {
+            for (const cell of row) if (cell) visit(cell.node)
+          }
+        }
       }
     }
   }
@@ -219,6 +225,11 @@ export function questionNumberForMedia(
             || (item.grid?.cells.flat().some(
               (cell) => cell && nodeContainsSource(cell.node, source),
             ) ?? false)
+            || (item.parts ?? []).some((part) =>
+              part.stem.some((node) => nodeContainsSource(node, source))
+              || (part.grid?.cells.flat().some(
+                (cell) => cell && nodeContainsSource(cell.node, source),
+              ) ?? false))
           )
         ) return item.question.number
       }

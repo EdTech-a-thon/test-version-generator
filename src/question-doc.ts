@@ -123,6 +123,24 @@ export function cleanDocument(value: ProseMirrorJSON): ProseMirrorJSON {
     } else if (node.type === 'matchingAnswer') {
       const attrs = (node.attrs ?? {}) as Record<string, unknown>
       clean.attrs = { id: typeof attrs.id === 'string' ? attrs.id : '' }
+    } else if (node.type === 'stimulusParts') {
+      clean.content = (Array.isArray(clean.content)
+        ? (clean.content as ProseMirrorJSON[])
+        : []
+      ).filter((child) => child.type === 'stimulusPart')
+    } else if (node.type === 'stimulusPart') {
+      const attrs = (node.attrs ?? {}) as Record<string, unknown>
+      clean.attrs = {
+        id: typeof attrs.id === 'string' ? attrs.id : '',
+        columns: attrs.columns === 1 || attrs.columns === 4 ? attrs.columns : 2,
+      }
+      clean.content = cleanPartContent(
+        Array.isArray(clean.content) ? (clean.content as ProseMirrorJSON[]) : [],
+      )
+    } else if (node.type === 'stimulusPartStem' || node.type === 'suggestedAnswer') {
+      if (!Array.isArray(clean.content) || clean.content.length === 0) {
+        clean.content = [{ type: 'paragraph' }]
+      }
     }
     return clean
   }
@@ -161,6 +179,19 @@ function cleanMatchingContent(nodes: ProseMirrorJSON[]): ProseMirrorJSON[] {
     if (!bankIds.has(String(attrs.answer))) attrs.answer = ''
   }
   return [...prompts, ...bank]
+}
+
+// A Part's content in the one shape the schema accepts: its stem, then the
+// answer node that makes it the Part it is. A Part that lost its answer node
+// in storage comes back as a Multiple Choice Part, the kind a new one starts
+// as, rather than failing to load.
+function cleanPartContent(nodes: ProseMirrorJSON[]): ProseMirrorJSON[] {
+  const stem = nodes.find((node) => node.type === 'stimulusPartStem')
+    ?? { type: 'stimulusPartStem', content: [{ type: 'paragraph' }] }
+  const answer = nodes.find(
+    (node) => node.type === 'multipleChoice' || node.type === 'suggestedAnswer',
+  ) ?? { type: 'multipleChoice', content: [blankChoice(), blankChoice()] }
+  return [stem, answer]
 }
 
 function childrenOf(node: ProseMirrorJSON): ProseMirrorJSON[] {
@@ -233,9 +264,42 @@ function isBlankParagraph(node: ProseMirrorJSON | undefined): boolean {
 // documents ignore it; any additional empty paragraphs remain and therefore
 // still add space.
 export function stemNodesOf(doc: ProseMirrorJSON): ProseMirrorJSON[] {
-  const answers = multipleChoiceNodeOf(doc) ?? matchingNodeOf(doc)
+  const answers =
+    multipleChoiceNodeOf(doc) ?? matchingNodeOf(doc) ?? stimulusPartsNodeOf(doc)
   const stem = childrenOf(doc).filter((node) => node !== answers)
   return answers && isBlankParagraph(stem.at(-1)) ? stem.slice(0, -1) : stem
+}
+
+// The `stimulusParts` node of a Stimulus document: the box that holds its
+// Parts. Everything above it at the top level is the Stimulus itself. A
+// document holds at most one.
+export function stimulusPartsNodeOf(
+  doc: ProseMirrorJSON,
+): ProseMirrorJSON | undefined {
+  return childrenOf(doc).find((node) => node.type === 'stimulusParts')
+}
+
+// A Stimulus's Parts in authored order — the order they are lettered in.
+export function stimulusPartNodesOf(doc: ProseMirrorJSON): ProseMirrorJSON[] {
+  const parts = stimulusPartsNodeOf(doc)
+  if (!parts) return []
+  return childrenOf(parts).filter((node) => node.type === 'stimulusPart')
+}
+
+// A Part's own stem, as blocks.
+export function partStemNodesOf(part: ProseMirrorJSON): ProseMirrorJSON[] {
+  const stem = childrenOf(part).find((node) => node.type === 'stimulusPartStem')
+  return stem ? childrenOf(stem) : []
+}
+
+// The node that answers a Part: its `multipleChoice` list, or its
+// `suggestedAnswer` block for a Short Answer Part. Unlike a Short Answer
+// question's, a Part's Suggested Answer stays inside the document, beside the
+// stem it answers.
+export function partAnswerNodeOf(part: ProseMirrorJSON): ProseMirrorJSON | undefined {
+  return childrenOf(part).find(
+    (node) => node.type === 'multipleChoice' || node.type === 'suggestedAnswer',
+  )
 }
 
 // The `suggestedAnswer` node of a question document being edited, or undefined
@@ -329,7 +393,8 @@ export function withMultipleChoice(
 // A copy of the document whose answers carry brand-new ids. Duplicating a
 // question must not hand the copy the original's choice ids: a version's
 // `choiceOrder` is keyed by choice id, so shared ids would make one question's
-// ordering move the other's answers. A matching set's Word Bank is renamed the
+// ordering move the other's answers. A Stimulus's Parts are renamed too, since
+// their answer order and Work Space are keyed by Part id. A matching set's Word Bank is renamed the
 // same way, and every prompt follows the answer it named to its new id, so the
 // copy matches what the original matched.
 export function withFreshChoiceIds(doc: ProseMirrorJSON): ProseMirrorJSON {
@@ -346,6 +411,7 @@ export function withFreshChoiceIds(doc: ProseMirrorJSON): ProseMirrorJSON {
       node.type === 'multipleChoiceChoice'
       || node.type === 'matchingPrompt'
       || node.type === 'matchingAnswer'
+      || node.type === 'stimulusPart'
     ) {
       copy.attrs = { ...attrs, id: freshId(choiceIdOf(node)) }
     }

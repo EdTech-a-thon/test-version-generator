@@ -1,6 +1,6 @@
 # test-parrot
 
-A Vite + React app for authoring test questions — Multiple Choice, True/False, Matching and Short Answer — in a Milkdown/Crepe rich-text editor.
+A Vite + React app for authoring test questions — Multiple Choice, True/False, Matching, Short Answer and Stimulus — in a Milkdown/Crepe rich-text editor.
 
 ## Agent skills
 

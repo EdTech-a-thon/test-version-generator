@@ -11,10 +11,10 @@ import { unmeasured } from './export-plan'
 import { prepareExport, prepareHistoricalExport, EMPTY_EXPORT_HISTORY, type ExportConfiguration } from './export-preparation'
 import { printFingerprint } from './print-fingerprint'
 import { createPublicationPdf, type PdfFontLoader } from './pdf-export'
-import { withExamPackage } from './exam-package-export'
+import { examPackage, withExamPackage } from './exam-package-export'
 import { initialSelection } from './import-selection'
 import { planImport } from './package-commit'
-import { inspectImportFile } from './package-import'
+import { inspectImportFile, inspectImportRecord } from './package-import'
 import { selectedExam } from './selected-exam'
 import type { QuestionBankResource } from './question-bank-workspaces'
 
@@ -203,5 +203,53 @@ describe('an Exam PDF carrying its Exam', () => {
       createId: () => 'record-2',
     })
     expect(again.record.examPackage).toBe(original.record.examPackage)
+  })
+})
+
+describe('a Stimulus in an Exam package', () => {
+  test('travels as one whole position, its Parts in its bank record, and imports again', async () => {
+    const reading: Question = {
+      id: 'reading-1',
+      type: 'stimulus',
+      columns: 2,
+      doc: {
+        type: 'doc',
+        content: [paragraph('The power of the Empire was waning by 1683.'), {
+          type: 'stimulusParts',
+          content: [{
+            type: 'stimulusPart',
+            attrs: { id: 'reading-1-part-a', columns: 4 },
+            content: [
+              { type: 'stimulusPartStem', content: [paragraph('Which region?')] },
+              {
+                type: 'multipleChoice',
+                content: ['Middle East', 'East Asia'].map((answer, index) => ({
+                  type: 'multipleChoiceChoice',
+                  attrs: { id: `reading-1-choice-${index}`, correct: index === 0 },
+                  content: [paragraph(answer)],
+                })),
+              },
+            ],
+          }],
+        }],
+      },
+    }
+    const sheet: Exam = { title: 'Reading', questions: [reading] }
+    const order: Arrangement = {
+      id: 'exam-draft',
+      letter: 'A',
+      questionOrder: ['reading-1'],
+      choiceOrder: { 'reading-1-part-a': ['reading-1-choice-1', 'reading-1-choice-0'] },
+    }
+    const carried = await examPackage({ exam: sheet, arrangement: order, ownerOf: async () => null, loadMedia: noImages })
+
+    // Per-Part answer order and columns are not carried yet: the position is bare.
+    expect(carried.exams[0]!.positions).toEqual([{ question: { bank: 'bank-1', question: 'q1' } }])
+    const proposal = await inspectImportRecord(new TextEncoder().encode(JSON.stringify(carried)))
+    expect(proposal.banks[0]!.record.bank.questions[0]).toMatchObject({
+      type: 'stimulus',
+      parts: [{ id: 'q1-s1', type: 'multiple-choice', choices: [{ correct: true }, { correct: false }] }],
+    })
+    expect(proposal.exams[0]!.positions).toHaveLength(1)
   })
 })

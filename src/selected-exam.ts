@@ -16,7 +16,18 @@
 // Nothing downstream can tell the difference between this and an edited
 // Arrangement, and nothing here writes anything back.
 
-import { columnsOf, isWorkSpace, type Exam, type Arrangement, type WorkSpace } from './exam'
+import {
+  columnsOf,
+  isWorkSpace,
+  partsOf,
+  presentationIdsOf,
+  type ColumnSetting,
+  type Exam,
+  type Arrangement,
+  type Question,
+  type WorkSpace,
+} from './exam'
+import type { ProseMirrorJSON } from './question-doc'
 import { bankQuestionById, type ExamWorkingCopy, type QuestionBank } from './question-bank'
 
 function sameWorkSpace(
@@ -33,6 +44,44 @@ function sameWorkSpace(
         && match.style === space.style
         && match.fill === space.fill
     })
+}
+
+/** A Stimulus with this Exam's answer columns written onto its Multiple
+ *  Choice Parts, as a question's own `columns` is overridden: the Part nodes
+ *  carry the layout each Part starts with, and the Working Copy the layout this
+ *  Exam gives it. The same question comes back when nothing differs, so a
+ *  consumer comparing by identity sees no change. */
+function withPartColumns(
+  question: Question,
+  columns: Record<string, ColumnSetting>,
+): Question {
+  const parts = partsOf(question)
+  if (!parts.some((part) => columns[part.id] !== undefined && columns[part.id] !== part.columns)) {
+    return question
+  }
+  const content = Array.isArray(question.doc.content)
+    ? (question.doc.content as ProseMirrorJSON[])
+    : []
+  return {
+    ...question,
+    doc: {
+      ...question.doc,
+      content: content.map((node) =>
+        node.type !== 'stimulusParts' || !Array.isArray(node.content)
+          ? node
+          : {
+              ...node,
+              content: (node.content as ProseMirrorJSON[]).map((part) => {
+                const attrs = (part.attrs ?? {}) as Record<string, unknown>
+                const id = typeof attrs.id === 'string' ? attrs.id : ''
+                return columns[id] === undefined
+                  ? part
+                  : { ...part, attrs: { ...attrs, columns: columns[id] } }
+              }),
+            },
+      ),
+    },
+  }
 }
 
 /** The `Exam` plus ordering that one Working Copy currently amounts to. */
@@ -67,15 +116,19 @@ export function selectedExam(
   // Question's authored/default layout only until this Exam specifies one.
   const columns = draft.columns ?? {}
   const questions = bankedQuestions.map((question) =>
-    columns[question.id] === undefined || columns[question.id] === columnsOf(question)
-      ? question
-      : { ...question, columns: columns[question.id]! },
+    question.type === 'stimulus'
+      ? withPartColumns(question, columns)
+      : columns[question.id] === undefined || columns[question.id] === columnsOf(question)
+        ? question
+        : { ...question, columns: columns[question.id]! },
   )
-  // Work space is this Exam's presentation too. Only referenced questions
-  // carry one, and only a readable record, so nothing downstream has to guard.
+  // Work space is this Exam's presentation too. Only referenced questions —
+  // and the Parts of referenced Stimulus questions — carry one, and only a
+  // readable record, so nothing downstream has to guard.
+  const presented = new Set(bankedQuestions.flatMap(presentationIdsOf))
   const workSpace: Record<string, WorkSpace> = {}
-  for (const [questionId, space] of Object.entries(draft.workSpace ?? {})) {
-    if (referenced.has(questionId) && isWorkSpace(space)) workSpace[questionId] = space
+  for (const [id, space] of Object.entries(draft.workSpace ?? {})) {
+    if (presented.has(id) && isWorkSpace(space)) workSpace[id] = space
   }
   const hasAnyWorkSpace = Object.keys(workSpace).length > 0
   const exam: Exam =

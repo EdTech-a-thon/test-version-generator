@@ -29,6 +29,8 @@ import {
   SECTION_ORDER,
   columnsOf,
   orderedChoices,
+  orderedPartChoices,
+  partsOf,
   promptsOf,
   questionsInSection,
   takesWorkSpace,
@@ -40,6 +42,7 @@ import {
   type Question,
   type QuestionType,
   type Arrangement,
+  type PartType,
   type WorkSpace,
   type WorkSpaceStyle,
 } from './exam'
@@ -53,6 +56,7 @@ export const SECTION_TITLE: Record<QuestionType, string> = {
   'true-false': 'True/False',
   matching: 'Matching',
   open: 'Short Answer',
+  stimulus: 'Stimulus',
 }
 
 export const SECTION_INSTRUCTIONS: Record<QuestionType, string> = {
@@ -63,6 +67,7 @@ export const SECTION_INSTRUCTIONS: Record<QuestionType, string> = {
   matching:
     'Match each item with the correct answer from the word bank. Write its letter in the blank.',
   open: 'Answer the following questions in the space provided. Show all work.',
+  stimulus: 'Read each stimulus and answer the questions that follow.',
 }
 
 // How many columns a choice grid is drawn in — the same set a question's
@@ -175,6 +180,31 @@ function plannedWorkSpace(space: WorkSpace, height = space.height): PlannedWorkS
   }
 }
 
+// One Part of a Stimulus as it prints: lettered `a`, `b`, … in authored order
+// beneath the Stimulus's one number, with its own stem and — for a Multiple
+// Choice Part — its answers in this arrangement's order and the grid they lay
+// out in, or — for a Short Answer Part — the room it leaves for work. A Part
+// prints the way a question of its kind does, one level in.
+export type PlannedPart = {
+  id: string
+  /** Its position under the Stimulus: `a`, `b`, …. */
+  letter: string
+  type: PartType
+  /** A Multiple Choice Part prints a blank for its choice letter. */
+  answerBlank: boolean
+  stem: ProseMirrorJSON[]
+  /** The answers in this arrangement's order, lettered `A`, `B`, …; empty for
+   *  a Short Answer Part. */
+  choices: PlannedChoice[]
+  grid: ChoiceGrid | null
+  /** The room a Short Answer Part leaves for work, resolved as a question's is
+   *  — zero-height when it leaves none, so the sheet can offer a handle to
+   *  drag some open. `null` for a Multiple Choice Part. */
+  workSpace: PlannedWorkSpace | null
+  /** A Short Answer Part's Suggested Answer, for the Answer Key only. */
+  suggestedAnswer?: ProseMirrorJSON[]
+}
+
 export type PlannedQuestion = {
   id: string
   type: QuestionType
@@ -211,6 +241,9 @@ export type PlannedQuestion = {
   /** A Short Answer question's Suggested Answer, as top-level blocks. Never
    *  printed on the test; the Answer Key prints it under the question's line. */
   suggestedAnswer?: ProseMirrorJSON[]
+  /** A Stimulus's Parts, lettered, in authored order; `null` for every other
+   *  Question Type. A Stimulus's `stem` is the Stimulus itself. */
+  parts: PlannedPart[] | null
 }
 
 /** How many numbers a question takes on the test: one, or one per prompt for
@@ -266,6 +299,11 @@ export type QuestionItem = {
    *  for an answer always follows the whole question. `null` on every other
    *  piece and for every other Question Type. */
   workSpace: PlannedWorkSpace | null
+  /** The Parts of a Stimulus this piece prints, whole; `null` for every other
+   *  Question Type. A Stimulus breaks only between its Parts, or — when the
+   *  Stimulus and its first Part cannot share a page — between the Stimulus's
+   *  own blocks. */
+  parts: PlannedPart[] | null
 }
 
 /** Whether this piece prints the question's number line: the first piece of
@@ -299,6 +337,17 @@ export type AnswerKeyEntryItem = {
   letter: string | null
   difficulty?: Difficulty
   topics?: string[]
+  suggestedAnswer?: ProseMirrorJSON[]
+  /** A Stimulus's one line per Part, under its one number. */
+  parts?: AnswerKeyPartLine[]
+}
+
+/** What the Answer Key records for one Part: the correct letter for a
+ *  Multiple Choice Part (`null` when none is marked), or the Suggested Answer
+ *  for a Short Answer Part. */
+export type AnswerKeyPartLine = {
+  letter: string
+  answer: string | null
   suggestedAnswer?: ProseMirrorJSON[]
 }
 
@@ -451,11 +500,38 @@ const COMPACT_QUESTION_NUMBER_COLUMN_WIDTH = 34
  *  number column and its gap. Every adapter indents a question by this. */
 export function questionIndentOf(question: Pick<PlannedQuestion, 'type'>): number {
   return (
-    (question.type === 'open'
+    (hasCompactNumber(question.type)
       ? COMPACT_QUESTION_NUMBER_COLUMN_WIDTH
       : QUESTION_NUMBER_COLUMN_WIDTH) + QUESTION_NUMBER_COLUMN_GAP
   )
 }
+
+/** Whether a question's number column holds its number alone, with no answer
+ *  blank to make room for: a Short Answer question, and a Stimulus, whose
+ *  blanks are on its Parts. */
+export function hasCompactNumber(type: QuestionType): boolean {
+  return type === 'open' || type === 'stimulus'
+}
+
+/** Where a Part's body starts within its Stimulus's body: past its own letter
+ *  column, which is as wide as a question's number column for a Multiple
+ *  Choice Part, whose blank it holds, and compact for a Short Answer Part. */
+export function partIndentOf(part: Pick<PlannedPart, 'type'>): number {
+  return (
+    (part.type === 'open'
+      ? COMPACT_QUESTION_NUMBER_COLUMN_WIDTH
+      : QUESTION_NUMBER_COLUMN_WIDTH) + QUESTION_NUMBER_COLUMN_GAP
+  )
+}
+
+/** The width a Multiple Choice Part's choice grid is laid out in: the page
+ *  less its Stimulus's number column and its own letter column. */
+export const PART_CHOICE_AREA_WIDTH =
+  PAGE_CONTENT_WIDTH
+  - COMPACT_QUESTION_NUMBER_COLUMN_WIDTH
+  - QUESTION_NUMBER_COLUMN_GAP
+  - QUESTION_NUMBER_COLUMN_WIDTH
+  - QUESTION_NUMBER_COLUMN_GAP
 
 /** The width a choice grid is actually laid out in — derived from
  *  `PAGE_CONTENT_WIDTH` so the two numbers cannot drift apart on their own. */
@@ -475,6 +551,12 @@ const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
  *  fixes it at two — so anything past it falls back to a choice letter rather
  *  than printing nothing. */
 const TRUE_FALSE_LETTERS = ['T', 'F']
+
+/** The letter a Part prints under its Stimulus — 'a', 'b', … — told apart
+ *  from a choice's capital letter at a glance. */
+function partLetterAt(index: number): string {
+  return letterAt(index).toLowerCase()
+}
 
 /** The letter of the choice at `index` — 'A', 'B', … then 'AA', 'AB', …. */
 function letterAt(index: number): string {
@@ -550,6 +632,49 @@ function suggestedAnswerOf(question: Question): ProseMirrorJSON[] {
   return blocks.every(blank) ? [] : structuredClone(blocks)
 }
 
+function blankBlocks(blocks: readonly ProseMirrorJSON[]): boolean {
+  return blocks.every(
+    (node) =>
+      node.type === 'paragraph' && !(Array.isArray(node.content) && node.content.length > 0),
+  )
+}
+
+// A Stimulus's Parts under this arrangement: each lettered by position, each
+// Multiple Choice Part's answers in the order recorded under its own id, and
+// each Short Answer Part's work space as this Exam sets it for that Part.
+function deriveParts(
+  exam: Exam,
+  question: Question,
+  arrangement: Arrangement,
+): PlannedPart[] {
+  return partsOf(question).map((part, index) => {
+    const choices: PlannedChoice[] = orderedPartChoices(part, arrangement).map(
+      (choice, choiceIndex) => ({
+        id: choice.id,
+        letter: letterAt(choiceIndex),
+        correct: choice.correct,
+        node: choice.node,
+      }),
+    )
+    const multipleChoice = part.type === 'multiple-choice'
+    const suggested = part.suggestedAnswer?.content
+    const suggestedBlocks = Array.isArray(suggested) ? (suggested as ProseMirrorJSON[]) : []
+    return {
+      id: part.id,
+      letter: partLetterAt(index),
+      type: part.type,
+      answerBlank: multipleChoice,
+      stem: part.stem,
+      choices,
+      grid: multipleChoice ? layOutGrid(choices, part.columns) : null,
+      workSpace: multipleChoice ? null : plannedWorkSpace(workSpaceOf(exam, part.id)),
+      ...(!multipleChoice && suggestedBlocks.length > 0 && !blankBlocks(suggestedBlocks)
+        ? { suggestedAnswer: structuredClone(suggestedBlocks) }
+        : {}),
+    }
+  })
+}
+
 function deriveQuestion(
   exam: Exam,
   question: Question,
@@ -558,7 +683,8 @@ function deriveQuestion(
 ): PlannedQuestion {
   const trueFalse = question.type === 'true-false'
   const matching = question.type === 'matching'
-  const ordered = matching ? [] : orderedChoices(question, arrangement)
+  const stimulus = question.type === 'stimulus'
+  const ordered = matching || stimulus ? [] : orderedChoices(question, arrangement)
   const choices: PlannedChoice[] = ordered.map((choice, index) => ({
     id: choice.id,
     // A True/False answer is written the way the student writes it in the
@@ -572,13 +698,14 @@ function deriveQuestion(
     type: question.type,
     number,
     // A matching set's blanks are on its prompts, one each, not beside its stem.
-    answerBlank: question.type !== 'open' && !matching,
+    // A Stimulus's blanks are on its Multiple Choice Parts.
+    answerBlank: question.type !== 'open' && !matching && !stimulus,
     stem: stemNodesOf(question.doc),
     choices,
     // A True/False question never prints its pair: the section's directions
     // already say what goes in the blank, so repeating "True / False" under
     // every statement would be furniture rather than content.
-    grid: trueFalse || matching ? null : layOutGrid(choices, columnsOf(question)),
+    grid: trueFalse || matching || stimulus ? null : layOutGrid(choices, columnsOf(question)),
     matching: matching ? deriveMatching(question, arrangement, number) : null,
     workSpace: takesWorkSpace(question.type) ? workSpaceOf(exam, question.id) : null,
     ...(question.difficulty ? { difficulty: question.difficulty } : {}),
@@ -586,6 +713,7 @@ function deriveQuestion(
     ...(question.type === 'open' && suggestedAnswerOf(question).length > 0
       ? { suggestedAnswer: suggestedAnswerOf(question) }
       : {}),
+    parts: stimulus ? deriveParts(exam, question, arrangement) : null,
   }
 }
 
@@ -625,29 +753,34 @@ function wholeQuestion(question: PlannedQuestion): QuestionItem {
     grid: question.grid,
     matching: question.matching,
     workSpace: question.workSpace ? plannedWorkSpace(question.workSpace) : null,
+    parts: question.parts,
   }
 }
 
-// The indivisible parts a question may be broken between: its number line glued
-// to the first stem block, so a split can never strand a bare number at the foot
-// of a page; then one part per remaining top-level block; then the choice grid
-// whole, since a grid is never split. A question with no stem at all is a
-// single part, so it moves rather than coming apart. A matching set has parts
-// of its own (see `matchingPartsOf`).
-type QuestionPart = {
+// The indivisible segments a question may be broken between: its number line
+// glued to the first stem block, so a split can never strand a bare number at
+// the foot of a page; then one segment per remaining top-level block; then the
+// choice grid whole, since a grid is never split. A question with no stem at
+// all is a single segment, so it moves rather than coming apart. A matching set
+// and a Stimulus have segments of their own (see `matchingSegmentsOf` and
+// `stimulusSegmentsOf`).
+type Segment = {
   stem: ProseMirrorJSON[]
   numbered: boolean
   grid: ChoiceGrid | null
   matching: MatchingSet | null
   workSpace: PlannedWorkSpace | null
+  /** A Stimulus's Parts carried by this segment, whole. */
+  parts: PlannedPart[]
 }
 
-// A work space is glued to the last part rather than being one of its own: room
-// for an answer at the top of a page, with its question at the foot of the one
-// before, is room nobody would think to use.
-function partsOf(question: PlannedQuestion): QuestionPart[] {
+// A work space is glued to the last segment rather than being one of its own:
+// room for an answer at the top of a page, with its question at the foot of
+// the one before, is room nobody would think to use.
+function segmentsOf(question: PlannedQuestion, measure: Measure, fullPage: number): Segment[] {
   const workSpace = question.workSpace ? plannedWorkSpace(question.workSpace) : null
-  if (question.matching) return matchingPartsOf(question, question.matching, workSpace)
+  if (question.matching) return matchingSegmentsOf(question, question.matching, workSpace)
+  if (question.parts) return stimulusSegmentsOf(question, question.parts, measure, fullPage)
   const [first, ...rest] = question.stem
   if (first === undefined) {
     return [
@@ -657,20 +790,69 @@ function partsOf(question: PlannedQuestion): QuestionPart[] {
         grid: question.grid,
         matching: null,
         workSpace,
+        parts: [],
       },
     ]
   }
-  const parts: QuestionPart[] = [
-    { stem: [first], numbered: true, grid: null, matching: null, workSpace: null },
+  const segments: Segment[] = [
+    { stem: [first], numbered: true, grid: null, matching: null, workSpace: null, parts: [] },
   ]
   for (const block of rest) {
-    parts.push({ stem: [block], numbered: false, grid: null, matching: null, workSpace: null })
+    segments.push({
+      stem: [block], numbered: false, grid: null, matching: null, workSpace: null, parts: [],
+    })
   }
   if (question.grid) {
-    parts.push({ stem: [], numbered: false, grid: question.grid, matching: null, workSpace: null })
+    segments.push({
+      stem: [], numbered: false, grid: question.grid, matching: null, workSpace: null, parts: [],
+    })
   }
-  parts[parts.length - 1]!.workSpace = workSpace
-  return parts
+  segments[segments.length - 1]!.workSpace = workSpace
+  return segments
+}
+
+// A Stimulus breaks only between its Parts: its number and the Stimulus glued
+// to Part a, then one segment per Part after it, so a student never turns a
+// page to find the first question about what they have just read. Only when
+// the Stimulus and Part a together are taller than a whole page does the
+// Stimulus itself come apart between its blocks, as any oversized stem does —
+// there is then no page that could hold them together.
+function stimulusSegmentsOf(
+  question: PlannedQuestion,
+  parts: readonly PlannedPart[],
+  measure: Measure,
+  fullPage: number,
+): Segment[] {
+  const partSegment = (part: PlannedPart): Segment => ({
+    stem: [], numbered: false, grid: null, matching: null, workSpace: null, parts: [part],
+  })
+  const [firstPart, ...laterParts] = parts
+  const lead: Segment = {
+    stem: question.stem,
+    numbered: true,
+    grid: null,
+    matching: null,
+    workSpace: null,
+    parts: firstPart ? [firstPart] : [],
+  }
+  if (measure.itemHeight(pieceOf(question, [lead])) <= fullPage || question.stem.length < 2) {
+    return [lead, ...laterParts.map(partSegment)]
+  }
+  const [first, ...rest] = question.stem
+  return [
+    { stem: [first!], numbered: true, grid: null, matching: null, workSpace: null, parts: [] },
+    ...rest.map((block): Segment => ({
+      stem: [block], numbered: false, grid: null, matching: null, workSpace: null, parts: [],
+    })),
+    ...parts.map(partSegment),
+  ]
+}
+
+/** Whether a Part short of a Stimulus's last fills the rest of its page. The
+ *  Parts after it cannot then share that page, so the Stimulus cannot move
+ *  whole and has to be broken up after it. */
+function fillsBeforeItsEnd(question: PlannedQuestion): boolean {
+  return (question.parts ?? []).slice(0, -1).some((part) => part.workSpace?.fill === true)
 }
 
 // A matching set breaks only between its items: the directions glued to the
@@ -678,43 +860,70 @@ function partsOf(question: PlannedQuestion): QuestionPart[] {
 // Bank, so a set too long for one page continues on the next with its bank
 // printed again beside (or above) the items that page holds — items on a page
 // with no answers to match them against would be no matching set at all.
-function matchingPartsOf(
+function matchingSegmentsOf(
   question: PlannedQuestion,
   set: MatchingSet,
   workSpace: PlannedWorkSpace | null,
-): QuestionPart[] {
+): Segment[] {
   const withPrompts = (prompts: PlannedPrompt[]): MatchingSet => ({ ...set, prompts })
   if (set.prompts.length === 0) {
-    return [{ stem: question.stem, numbered: true, grid: question.grid, matching: set, workSpace }]
+    return [{
+      stem: question.stem, numbered: true, grid: question.grid, matching: set, workSpace, parts: [],
+    }]
   }
-  const parts = set.prompts.map((prompt, index): QuestionPart => ({
+  const segments = set.prompts.map((prompt, index): Segment => ({
     stem: index === 0 ? question.stem : [],
     numbered: index === 0,
     grid: index === 0 ? question.grid : null,
     matching: withPrompts([prompt]),
     workSpace: null,
+    parts: [],
   }))
-  parts[parts.length - 1]!.workSpace = workSpace
-  return parts
+  segments[segments.length - 1]!.workSpace = workSpace
+  return segments
 }
 
-/** Consecutive parts, gathered back into the one item that prints them. */
+/** Consecutive segments, gathered back into the one item that prints them. */
 function pieceOf(
   question: PlannedQuestion,
-  parts: readonly QuestionPart[],
+  segments: readonly Segment[],
 ): QuestionItem {
-  const sets = parts.flatMap((part) => (part.matching ? [part.matching] : []))
+  const sets = segments.flatMap((segment) => (segment.matching ? [segment.matching] : []))
   return {
     kind: 'question',
     question,
-    stem: parts.flatMap((part) => part.stem),
-    numbered: parts.some((part) => part.numbered),
-    grid: parts.find((part) => part.grid !== null)?.grid ?? null,
-    // A matching set's parts each hold some of its items and all of its bank.
+    stem: segments.flatMap((segment) => segment.stem),
+    numbered: segments.some((segment) => segment.numbered),
+    grid: segments.find((segment) => segment.grid !== null)?.grid ?? null,
+    // A matching set's segments each hold some of its items and all of its bank.
     matching:
       sets.length === 0 ? null : { ...sets[0]!, prompts: sets.flatMap((set) => set.prompts) },
-    workSpace: parts.find((part) => part.workSpace !== null)?.workSpace ?? null,
+    workSpace: segments.find((segment) => segment.workSpace !== null)?.workSpace ?? null,
+    parts: question.parts ? segments.flatMap((segment) => segment.parts) : null,
   }
+}
+
+/** The work space that fills the rest of the page this piece lands on, if
+ *  any: a Short Answer question's own, or — for a Stimulus — its last Part's,
+ *  since a piece of a Stimulus ends at any Part that fills. */
+function fillingSpaceOf(item: QuestionItem): PlannedWorkSpace | null {
+  if (item.workSpace?.fill) return item.workSpace
+  const last = item.parts?.at(-1)
+  return last?.workSpace?.fill ? last.workSpace : null
+}
+
+/** The piece with its filling work space grown to `height`. */
+function withFillHeight(item: QuestionItem, height: number): QuestionItem {
+  const grow = (space: PlannedWorkSpace): PlannedWorkSpace => ({
+    ...space,
+    height,
+    lines: space.style === 'lines' ? Math.floor(height / WORK_SPACE_LINE_PITCH) : 0,
+  })
+  if (item.workSpace?.fill) return { ...item, workSpace: grow(item.workSpace) }
+  const parts = item.parts ?? []
+  const last = parts.at(-1)
+  if (!last?.workSpace) return item
+  return { ...item, parts: [...parts.slice(0, -1), { ...last, workSpace: grow(last.workSpace) }] }
 }
 
 // Packing: fill a page until the next item does not fit, then start another.
@@ -766,19 +975,10 @@ function paginate(
   const place = (item: PageItem, height: number) => {
     let placed = item
     let placedHeight = height
-    if (item.kind === 'question' && item.workSpace?.fill) {
+    const space = item.kind === 'question' ? fillingSpaceOf(item) : null
+    if (item.kind === 'question' && space) {
       const extra = Math.max(0, Math.floor(box - used - height - WORK_SPACE_FILL_SLACK))
-      const space = item.workSpace
-      placed = {
-        ...item,
-        workSpace: {
-          ...space,
-          height: space.height + extra,
-          lines: space.style === 'lines'
-            ? Math.floor((space.height + extra) / WORK_SPACE_LINE_PITCH)
-            : 0,
-        },
-      }
+      placed = withFillHeight(item, space.height + extra)
       placedHeight = height + extra
       full = true
     }
@@ -796,12 +996,18 @@ function paginate(
   // A heading alone on its page has nothing to move away from: the piece goes
   // on ahead of it only when a fresh page would actually hold it, and an
   // oversized piece overflows under the heading instead.
+  const fullPage = pageContentHeight(continuedHeader)
+  // A Part that fills its page ends the piece it is in: nothing may follow it
+  // on that page.
+  const endsPiece = (segment: Segment) =>
+    segment.parts.at(-1)?.workSpace?.fill === true
   const split = (question: PlannedQuestion) => {
-    const parts = partsOf(question)
+    const segments = segmentsOf(question, measure, fullPage)
     let start = 0
-    while (start < parts.length) {
+    while (start < segments.length) {
+      if (full) flush()
       let end = start + 1
-      let piece = pieceOf(question, parts.slice(start, end))
+      let piece = pieceOf(question, segments.slice(start, end))
       let height = measure.itemHeight(piece)
       if (height > box - used && current.length > 0) {
         const last = current.at(-1)
@@ -818,8 +1024,8 @@ function paginate(
           continue
         }
       }
-      while (end < parts.length) {
-        const grown = pieceOf(question, parts.slice(start, end + 1))
+      while (end < segments.length && !endsPiece(segments[end - 1]!)) {
+        const grown = pieceOf(question, segments.slice(start, end + 1))
         const grownHeight = measure.itemHeight(grown)
         if (grownHeight > box - used) break
         piece = grown
@@ -842,14 +1048,20 @@ function paginate(
     if (item.kind === 'section-heading') {
       const firstQuestion = items[index + 1]
       if (firstQuestion?.kind === 'question') {
-        const [firstPart] = partsOf(firstQuestion.question)
-        const firstPieceHeight = firstPart
-          ? measure.itemHeight(pieceOf(firstQuestion.question, [firstPart]))
+        const [firstSegment] = segmentsOf(firstQuestion.question, measure, fullPage)
+        const firstPieceHeight = firstSegment
+          ? measure.itemHeight(pieceOf(firstQuestion.question, [firstSegment]))
           : 0
         if (current.length > 0 && height + firstPieceHeight > box - used) {
           flush()
         }
       }
+    }
+    // A Stimulus with a Part that fills its page before the last Part cannot
+    // be placed whole: the Parts after the filling one go on the next page.
+    if (item.kind === 'question' && fillsBeforeItsEnd(item.question)) {
+      split(item.question)
+      continue
     }
     if (height <= box - used) {
       place(item, height)
@@ -904,6 +1116,23 @@ function deriveAnswerKey(testItems: readonly PageItem[]): PageItem[] {
     const metadata = {
       ...(item.question.difficulty ? { difficulty: item.question.difficulty } : {}),
       ...(item.question.topics?.length ? { topics: [...item.question.topics] } : {}),
+    }
+    if (item.question.parts) {
+      items.push({
+        kind: 'answer-key-entry',
+        number: item.question.number,
+        letter: null,
+        ...metadata,
+        parts: item.question.parts.map((part) => ({
+          letter: part.letter,
+          answer:
+            part.type === 'multiple-choice'
+              ? part.choices.find((choice) => choice.correct)?.letter ?? null
+              : null,
+          ...(part.suggestedAnswer ? { suggestedAnswer: part.suggestedAnswer } : {}),
+        })),
+      })
+      continue
     }
     if (item.question.matching) {
       for (const prompt of item.question.matching.prompts) {

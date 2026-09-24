@@ -72,6 +72,7 @@ import {
   MATCHING_BANK_WIDTH,
   PAGE_CONTENT_WIDTH,
   printsNumberLine,
+  partIndentOf,
   type AnswerKeyEntryItem,
   type AnswerKeySectionItem,
   type ChoiceGrid,
@@ -83,6 +84,7 @@ import {
   type PageItem,
   type PlannedBankAnswer,
   type PlannedPage,
+  type PlannedPart,
   type PlannedWorkSpace,
   type QuestionItem,
 } from './export-plan'
@@ -666,12 +668,17 @@ const NO_BORDERS = {
 // column count, the plan's rows, the plan's cells — including the empty ones
 // where the last column runs out of answers. On paper this is a layout, not a
 // table, which is why every border is off.
-function choiceGridTable(grid: ChoiceGrid, build: BuildContext): Table {
-  const cellWidth = CHOICE_AREA_WIDTH / grid.columns
+function choiceGridTable(
+  grid: ChoiceGrid,
+  build: BuildContext,
+  areaWidth = CHOICE_AREA_WIDTH,
+  indentPx = QUESTION_INDENT_PX,
+): Table {
+  const cellWidth = areaWidth / grid.columns
   return new Table({
-    width: { size: twips(CHOICE_AREA_WIDTH), type: WidthType.DXA },
+    width: { size: twips(areaWidth), type: WidthType.DXA },
     columnWidths: gridOf(Array.from({ length: grid.columns }, () => cellWidth)),
-    indent: { size: QUESTION_INDENT, type: WidthType.DXA },
+    indent: { size: twips(indentPx), type: WidthType.DXA },
     borders: NO_BORDERS,
     rows: grid.cells.map(
       (row) =>
@@ -855,6 +862,39 @@ function questionContent(
     ...(item.grid ? [choiceGridTable(item.grid, build)] : []),
     ...(item.matching ? matchingContent(item.matching, build) : []),
     ...(item.workSpace ? workSpaceParagraphs(item.workSpace, indent) : []),
+    ...(item.parts ?? []).flatMap((part) =>
+      partContent(part, questionIndentOf(item.question), build),
+    ),
+  ]
+}
+
+// A Stimulus's Part, one level in: its letter — after a blank for a Multiple
+// Choice Part — hanging off its own letter column inside the Stimulus's body,
+// then its choice grid or its work space, as a question of its kind prints.
+function partContent(
+  part: PlannedPart,
+  stimulusIndentPx: number,
+  build: BuildContext,
+): (Paragraph | Table)[] {
+  const indentPx = stimulusIndentPx + partIndentOf(part)
+  const indent = twips(indentPx)
+  const prefix: ParagraphChild[] = [
+    new TextRun({
+      text: part.answerBlank ? `_______  ${part.letter}.\t` : `${part.letter}.\t`,
+    }),
+  ]
+  const context: BlockContext = {
+    indent,
+    hanging: twips(partIndentOf(part)),
+    prefix,
+  }
+  const stem = blocks(part.stem, context, { ...build, contentWidth: PAGE_CONTENT_WIDTH - indentPx })
+  return [
+    ...(stem.length > 0 ? stem : [new Paragraph(paragraphOptions(context, { children: prefix }))]),
+    ...(part.grid
+      ? [choiceGridTable(part.grid, build, PAGE_CONTENT_WIDTH - indentPx, indentPx)]
+      : []),
+    ...(part.workSpace ? workSpaceParagraphs(part.workSpace, indent) : []),
   ]
 }
 
@@ -892,9 +932,24 @@ function answerKeyEntry(item: AnswerKeyEntryItem, build: BuildContext): (Paragra
     ],
   })
   // A Suggested Answer starts under the blank, on the lines below the entry.
-  return item.suggestedAnswer
-    ? [entry, ...blocks(item.suggestedAnswer, { indent: ANSWER_KEY_ANSWER_INDENT }, build)]
-    : [entry]
+  const suggested = item.suggestedAnswer
+    ? blocks(item.suggestedAnswer, { indent: ANSWER_KEY_ANSWER_INDENT }, build)
+    : []
+  // A Stimulus's Parts each take a line under its number: the Part's letter,
+  // then its answer in bold, then any Suggested Answer beneath.
+  const parts = (item.parts ?? []).flatMap((part) => [
+    new Paragraph({
+      indent: { left: ANSWER_KEY_ANSWER_INDENT },
+      children: [
+        new TextRun({ text: `${part.letter}. ` }),
+        ...(part.answer ? [new TextRun({ text: part.answer, bold: true })] : []),
+      ],
+    }),
+    ...(part.suggestedAnswer
+      ? blocks(part.suggestedAnswer, { indent: ANSWER_KEY_ANSWER_INDENT + twips(32) }, build)
+      : []),
+  ])
+  return [entry, ...suggested, ...parts]
 }
 
 function itemContent(

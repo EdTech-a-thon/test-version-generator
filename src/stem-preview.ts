@@ -10,7 +10,7 @@
 // exactly what the row showed them.
 
 import { stemNodesOf, type ProseMirrorJSON } from './question-doc'
-import type { Question } from './exam'
+import { partsOf, type Question } from './exam'
 
 /** Content a one-line row can only point at. */
 export type StemPreviewBadge = 'image' | 'math'
@@ -22,6 +22,9 @@ export type StemPreview = {
   /** Which kinds of non-prose content the stem holds, in the order the stem
    *  reaches them and each named once. */
   badges: StemPreviewBadge[]
+  /** How many Parts a Stimulus holds — the row says so beside the Stimulus's
+   *  own line. Absent for every other Question Type. */
+  parts?: number
 }
 
 // The blocks whose text a single line can carry. Everything absent from this
@@ -52,6 +55,27 @@ const BADGE_NODES: Record<string, StemPreviewBadge> = {
  * popup, and a row that showed them would give the answer away while scanning.
  */
 export function stemPreview(question: Question): StemPreview {
+  const preview = previewOf(stemNodesOf(question.doc))
+  return question.type === 'stimulus'
+    ? { ...preview, parts: partsOf(question).length }
+    : preview
+}
+
+/**
+ * Everything a stem search reads for this question: the row's own line and,
+ * for a Stimulus, each Part's stem as well — a teacher looking for "Ottoman"
+ * should find the Stimulus whether the word is in the passage or in the
+ * question asked about it. Answers stay out of reach, as they do for any
+ * question.
+ */
+export function searchableText(question: Question): string {
+  return [
+    stemPreview(question).text,
+    ...partsOf(question).map((part) => previewOf(part.stem).text),
+  ].join(' ')
+}
+
+function previewOf(blocks: readonly ProseMirrorJSON[]): StemPreview {
   const parts: string[] = []
   const badges: StemPreviewBadge[] = []
 
@@ -80,7 +104,7 @@ export function stemPreview(question: Question): StemPreview {
     parts.push(' ')
   }
 
-  for (const node of stemNodesOf(question.doc)) read(node)
+  for (const node of blocks) read(node)
 
   return { text: parts.join('').replace(/\s+/g, ' ').trim(), badges }
 }

@@ -612,6 +612,8 @@ export function QuestionBankPane({
                   <span className="question-bank-row-meta">
                     <span className="question-bank-row-type">
                       {SECTION_LABELS[question.type]}
+                      {preview.parts !== undefined
+                        && ` · ${preview.parts} ${preview.parts === 1 ? 'part' : 'parts'}`}
                     </span>
                     {question.difficulty && (
                       <DifficultyBadge difficulty={question.difficulty} />

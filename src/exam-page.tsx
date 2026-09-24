@@ -25,6 +25,7 @@ import {
   PageItemMeasureView,
   QuestionContent,
   SectionHeadingContent,
+  WorkSpaceView,
 } from './page-item-view'
 import {
   FOOTER_HEIGHT,
@@ -41,7 +42,9 @@ import {
   type PlannedPage,
   type PageItem,
   type QuestionItem,
+  type PlannedPart,
   type PlannedQuestion,
+  type PlannedWorkSpace,
 } from './export-plan'
 import {
   DEFAULT_COLUMNS,
@@ -153,6 +156,83 @@ const DEFAULT_WORK_SPACE_HEIGHT = 4 * WORK_SPACE_LINE_PITCH
 
 export type SetWorkSpace = (questionIds: readonly string[], patch: Partial<WorkSpace>) => void
 
+/** The Answer columns submenu, for a Multiple Choice question or Part. */
+function columnsMenu(
+  label: string,
+  columns: ColumnSetting,
+  onSelect: (columns: ColumnSetting) => void,
+): MenuItem {
+  return {
+    kind: 'submenu',
+    label,
+    // The parent row shows the current layout before its submenu asks the
+    // teacher to choose another one.
+    icon: <ColumnLayoutIcon columns={columns} withDataAttribute={false} />,
+    items: COLUMN_MENU_OPTIONS.map((option) => ({
+      kind: 'radio',
+      label: option.label,
+      checked: option.value === columns,
+      icon: <ColumnLayoutIcon columns={option.value} />,
+      onSelect: () => onSelect(option.value),
+    })),
+  }
+}
+
+/** The Work space submenu and its Fill toggle, for a Short Answer question or
+ *  Part: `ids` are what the setting applies to. */
+function workSpaceMenu(
+  label: string,
+  fillLabel: string,
+  workSpace: WorkSpace,
+  ids: readonly string[],
+  onSetWorkSpace: SetWorkSpace,
+): MenuItem[] {
+  const present = hasWorkSpace(workSpace)
+  // Picking a style for a question with no room gives it some, so the
+  // choice is visible at once rather than waiting on a drag.
+  const withStyle = (style: WorkSpace['style']) =>
+    onSetWorkSpace(ids, present
+      ? { style }
+      : { style, height: DEFAULT_WORK_SPACE_HEIGHT })
+  return [
+    {
+      kind: 'submenu',
+      label,
+      icon: <PencilLine />,
+      items: [
+        {
+          kind: 'radio',
+          label: 'None',
+          checked: !present,
+          icon: <Ban />,
+          onSelect: () => onSetWorkSpace(ids, { height: 0, fill: false }),
+        },
+        {
+          kind: 'radio',
+          label: 'Blank space',
+          checked: present && workSpace.style === 'blank',
+          icon: <SquareDashed />,
+          onSelect: () => withStyle('blank'),
+        },
+        {
+          kind: 'radio',
+          label: 'Lined space',
+          checked: present && workSpace.style === 'lines',
+          icon: <AlignJustify />,
+          onSelect: () => withStyle('lines'),
+        },
+      ],
+    },
+    {
+      kind: 'checkbox',
+      label: fillLabel,
+      checked: workSpace.fill,
+      icon: <ArrowDownToLine />,
+      onSelect: () => onSetWorkSpace(ids, { fill: !workSpace.fill }),
+    },
+  ]
+}
+
 // One list, however it was opened. The grip beside a question and a right-click
 // on the question itself raise exactly the same actions, which is what makes
 // the grip discoverable rather than a second, lesser control.
@@ -166,12 +246,15 @@ function questionMenuItems({
   onRemove,
   onSetColumns,
   workSpace,
+  workSpaceOfPart,
   onSetWorkSpace,
   selectedQuestionIds,
 }: {
   question: PlannedQuestion
   columns: ColumnSetting
   workSpace: WorkSpace
+  /** A Part's work space on this Exam, as its menu reports it. */
+  workSpaceOfPart: (partId: string) => WorkSpace
   onSetWorkSpace: SetWorkSpace
   onEdit: (questionId: string) => void
   onDuplicate: (questionId: string) => void
@@ -206,71 +289,43 @@ function questionMenuItems({
   if (question.type === 'multiple-choice') {
     items.push(
       { kind: 'separator' },
-      {
-        kind: 'submenu',
-        label: 'Answer columns',
-        // The parent row shows the current layout before its submenu asks the
-        // teacher to choose another one.
-        icon: <ColumnLayoutIcon columns={columns} withDataAttribute={false} />,
-        items: COLUMN_MENU_OPTIONS.map((option) => ({
-          kind: 'radio',
-          label: option.label,
-          checked: option.value === columns,
-          icon: <ColumnLayoutIcon columns={option.value} />,
-          onSelect: () => onSetColumns(actedOnIds, option.value),
-        })),
-      },
+      columnsMenu('Answer columns', columns, (next) => onSetColumns(actedOnIds, next)),
     )
+  }
+  // A Stimulus lays out each Part the way a question of its kind is laid out,
+  // so each Part gets the controls a question of its kind would — for that
+  // Part alone, since Parts of different Stimulus questions have nothing to
+  // line up with one another.
+  for (const part of question.parts ?? []) {
+    items.push({ kind: 'separator' })
+    if (part.type === 'multiple-choice') {
+      items.push(
+        columnsMenu(
+          `Part ${part.letter} · Answer columns`,
+          part.grid?.columns ?? DEFAULT_COLUMNS,
+          (next) => onSetColumns([part.id], next),
+        ),
+      )
+    } else {
+      items.push(
+        ...workSpaceMenu(
+          `Part ${part.letter} · Work space`,
+          `Part ${part.letter} · Fill rest of page`,
+          workSpaceOfPart(part.id),
+          [part.id],
+          onSetWorkSpace,
+        ),
+      )
+    }
   }
   // Room for working is a Short Answer question's business, set here on the
   // sheet rather than in the question editor: how much a student needs depends
   // on the test, and on what else shares the page. The store leaves any other
   // Question Type in the selection alone.
   if (takesWorkSpace(question.type)) {
-    const present = hasWorkSpace(workSpace)
-    // Picking a style for a question with no room gives it some, so the
-    // choice is visible at once rather than waiting on a drag.
-    const withStyle = (style: WorkSpace['style']) =>
-      onSetWorkSpace(actedOnIds, present
-        ? { style }
-        : { style, height: DEFAULT_WORK_SPACE_HEIGHT })
     items.push(
       { kind: 'separator' },
-      {
-        kind: 'submenu',
-        label: 'Work space',
-        icon: <PencilLine />,
-        items: [
-          {
-            kind: 'radio',
-            label: 'None',
-            checked: !present,
-            icon: <Ban />,
-            onSelect: () => onSetWorkSpace(actedOnIds, { height: 0, fill: false }),
-          },
-          {
-            kind: 'radio',
-            label: 'Blank space',
-            checked: present && workSpace.style === 'blank',
-            icon: <SquareDashed />,
-            onSelect: () => withStyle('blank'),
-          },
-          {
-            kind: 'radio',
-            label: 'Lined space',
-            checked: present && workSpace.style === 'lines',
-            icon: <AlignJustify />,
-            onSelect: () => withStyle('lines'),
-          },
-        ],
-      },
-      {
-        kind: 'checkbox',
-        label: 'Fill rest of page',
-        checked: workSpace.fill,
-        icon: <ArrowDownToLine />,
-        onSelect: () => onSetWorkSpace(actedOnIds, { fill: !workSpace.fill }),
-      },
+      ...workSpaceMenu('Work space', 'Fill rest of page', workSpace, actedOnIds, onSetWorkSpace),
     )
   }
   items.push(
@@ -504,19 +559,42 @@ function QuestionView({
   const question = item.question
   // The height a work-space drag is showing before it commits, or `null`.
   const [previewHeight, setPreviewHeight] = useState<number | null>(null)
-  const shown: QuestionItem =
+  // The same for one of a Stimulus's Short Answer Parts, by the Part's id.
+  const [partPreview, setPartPreview] = useState<{ partId: string; height: number } | null>(null)
+  const previewed = (space: PlannedWorkSpace, height: number): PlannedWorkSpace => ({
+    ...space,
+    height,
+    lines: space.style === 'lines' ? Math.floor(height / WORK_SPACE_LINE_PITCH) : 0,
+  })
+  const withQuestionPreview: QuestionItem =
     previewHeight === null || !item.workSpace
       ? item
+      : { ...item, workSpace: previewed(item.workSpace, previewHeight) }
+  const shown: QuestionItem =
+    partPreview === null || !withQuestionPreview.parts
+      ? withQuestionPreview
       : {
-          ...item,
-          workSpace: {
-            ...item.workSpace,
-            height: previewHeight,
-            lines: item.workSpace.style === 'lines'
-              ? Math.floor(previewHeight / WORK_SPACE_LINE_PITCH)
-              : 0,
-          },
+          ...withQuestionPreview,
+          parts: withQuestionPreview.parts.map((part) =>
+            part.id === partPreview.partId && part.workSpace
+              ? { ...part, workSpace: previewed(part.workSpace, partPreview.height) }
+              : part,
+          ),
         }
+  // A Short Answer Part's work space, with the bar that sizes it in the gap
+  // below the Part, exactly as a Short Answer question's bar sits below it.
+  const renderPartWorkSpace = (part: PlannedPart, space: PlannedWorkSpace) => (
+    <div className="part-work-space">
+      <WorkSpaceView space={space} />
+      <WorkSpaceHandle
+        label={`Work space for question ${numberLabelOf(question)} part ${part.letter}`}
+        height={item.parts?.find(({ id }) => id === part.id)?.workSpace?.height ?? space.height}
+        onPreview={(height) =>
+          setPartPreview(height === null ? null : { partId: part.id, height })}
+        onCommit={(height) => onSetWorkSpace([part.id], { height, fill: false })}
+      />
+    </div>
+  )
 
   const releasePointer = (event: ReactPointerEvent<HTMLElement>) => {
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
@@ -528,7 +606,7 @@ function QuestionView({
   if (selected) classes.push('exam-question--selected')
   if (dragging) classes.push('exam-question--dragging')
   if (dropped) classes.push('exam-question--dropped')
-  if (previewHeight !== null) classes.push('exam-question--sizing')
+  if (previewHeight !== null || partPreview !== null) classes.push('exam-question--sizing')
 
   return (
     <section
@@ -631,7 +709,11 @@ function QuestionView({
       {item.numbered && (
         <QuestionHandles question={question} onOpenMenu={onOpenMenu} />
       )}
-      <QuestionContent item={shown} showCorrectness />
+      <QuestionContent
+        item={shown}
+        showCorrectness
+        renderPartWorkSpace={renderPartWorkSpace}
+      />
       {item.workSpace && (
         <WorkSpaceHandle
           label={`Work space for question ${numberLabelOf(question)}`}
@@ -1164,6 +1246,7 @@ export function ExamPage({
             onRemove,
             onSetColumns,
             workSpace: workSpaceOf(exam, menuQuestion.id),
+            workSpaceOfPart: (partId) => workSpaceOf(exam, partId),
             onSetWorkSpace,
             selectedQuestionIds: [...selection.selectedIds],
           })}

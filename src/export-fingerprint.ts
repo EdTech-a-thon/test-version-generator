@@ -24,6 +24,7 @@ import {
   type MatchingSet,
   type PageFurniture,
   type PageItem,
+  type PlannedPart,
   type QuestionItem,
 } from './export-plan'
 import { arrangementRange } from './export-preparation'
@@ -519,6 +520,27 @@ function planQuestion(item: QuestionItem, images: ImageOrdinals): ContentLine[] 
     ...(item.workSpace && item.workSpace.height > 0
       ? [workSpaceLine(item.workSpace.style, item.workSpace.lines)]
       : []),
+    ...(item.parts ?? []).flatMap((part) => planPart(part, images)),
+  ]
+}
+
+// A Stimulus's Part reads as a question of its kind does: its blank and letter
+// open its stem, and its grid or work space follows.
+function planPart(part: PlannedPart, images: ImageOrdinals): ContentLine[] {
+  const opener: Segment[] = [
+    {
+      kind: 'text',
+      text: part.answerBlank ? `_______ ${part.letter}. ` : `${part.letter}. `,
+      marks: [],
+    },
+  ]
+  const stem = planBlocks(part.stem, { opener }, images)
+  return [
+    ...(stem.length > 0 ? stem : [line('para', renderInline(opener))]),
+    ...(part.grid ? planGrid(part.grid, images) : []),
+    ...(part.workSpace && part.workSpace.height > 0
+      ? [workSpaceLine(part.workSpace.style, part.workSpace.lines)]
+      : []),
   ]
 }
 
@@ -564,6 +586,18 @@ export function planItemLines(
           ]),
         ),
         ...(item.suggestedAnswer ? planBlocks(item.suggestedAnswer, {}, images) : []),
+        ...(item.parts ?? []).flatMap((part) => [
+          line(
+            'para',
+            renderInline([
+              { kind: 'text', text: `${part.letter}. `, marks: [] },
+              ...(part.answer
+                ? [{ kind: 'text' as const, text: part.answer, marks: ['strong'] }]
+                : []),
+            ]),
+          ),
+          ...(part.suggestedAnswer ? planBlocks(part.suggestedAnswer, {}, images) : []),
+        ]),
       ]
     }
     default: {

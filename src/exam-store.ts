@@ -24,10 +24,14 @@ import {
   snapWorkSpaceHeight,
   takesWorkSpace,
   orderedChoices,
+  orderedPartChoices,
   orderedQuestions,
+  partsOf,
   shuffleSelectedAnswers,
   shuffleSelectedQuestions,
+  type Arrangement,
   type ColumnSetting,
+  type Part,
   type Question,
   type QuestionPlacement,
   type WorkSpace,
@@ -347,6 +351,54 @@ function sameExamWorkingCopy(left: ExamWorkingCopy, right: ExamWorkingCopy): boo
     )
 }
 
+/** The Part with this id, when it belongs to a Stimulus this Exam references.
+ *  Part ids and question ids never collide — both are fresh UUIDs — so a
+ *  presentation setting addressed to one can tell which it is by looking. */
+function referencedPartOf(state: AuthoringState, id: string): Part | undefined {
+  for (const questionId of state.workingCopy.questionIds) {
+    const question = bankQuestionById(state.questionBank, questionId)
+    const part = question ? partsOf(question).find((candidate) => candidate.id === id) : undefined
+    if (part) return part
+  }
+  return undefined
+}
+
+/** A duplicate Stimulus looks like its original on the sheet: each of its
+ *  Parts takes the answer order, columns and work space its original Part had
+ *  here, under the copy's fresh Part and choice ids. */
+function withPartPresentationCopied(
+  workingCopy: ExamWorkingCopy,
+  original: Question,
+  copy: Question,
+  arrangement: Arrangement,
+): ExamWorkingCopy {
+  const originalParts = partsOf(original)
+  const copiedParts = partsOf(copy)
+  if (originalParts.length === 0) return workingCopy
+  const columns = { ...(workingCopy.columns ?? {}) }
+  const workSpace = { ...(workingCopy.workSpace ?? {}) }
+  const choiceOrder = { ...(workingCopy.choiceOrder ?? {}) }
+  originalParts.forEach((part, index) => {
+    const copied = copiedParts[index]
+    if (!copied) return
+    const partColumns = workingCopy.columns?.[part.id]
+    if (partColumns !== undefined) columns[copied.id] = partColumns
+    const space = workingCopy.workSpace?.[part.id]
+    if (space !== undefined) workSpace[copied.id] = space
+    if (arrangement.choiceOrder[part.id]) {
+      choiceOrder[copied.id] = orderedPartChoices(part, arrangement).map(
+        (choice) => copied.choices[part.choices.findIndex(({ id }) => id === choice.id)]!.id,
+      )
+    }
+  })
+  return {
+    ...workingCopy,
+    columns,
+    choiceOrder,
+    ...(Object.keys(workSpace).length > 0 ? { workSpace } : {}),
+  }
+}
+
 /** Make a referenced Question's current effective layout explicit before an
  * operation transfers its position to another Question. */
 function withColumnResolved(
@@ -631,8 +683,13 @@ export function createExamStore(options: {
         let changed = false
         const nextColumns = { ...currentColumns }
         for (const questionId of targeted) {
-          if (!current.workingCopy.questionIds.includes(questionId)) continue
+          // A Multiple Choice Part of a Stimulus on this Exam lays its answers
+          // out under its own id, as a question does under its.
+          const part = referencedPartOf(current, questionId)
+          if (part && part.type !== 'multiple-choice') continue
+          if (!part && !current.workingCopy.questionIds.includes(questionId)) continue
           const effectiveColumns = nextColumns[questionId]
+            ?? part?.columns
             ?? bankQuestionById(current.questionBank, questionId)?.columns
           if (effectiveColumns === columns) continue
           nextColumns[questionId] = columns
@@ -651,9 +708,16 @@ export function createExamStore(options: {
         let changed = false
         const nextSpaces = { ...currentSpaces }
         for (const questionId of targeted) {
-          if (!current.workingCopy.questionIds.includes(questionId)) continue
-          const question = bankQuestionById(current.questionBank, questionId)
-          if (!question || !takesWorkSpace(question.type)) continue
+          // A Short Answer Part of a Stimulus on this Exam leaves room under
+          // its own id, as a Short Answer question does under its.
+          const part = referencedPartOf(current, questionId)
+          if (part) {
+            if (part.type !== 'open') continue
+          } else {
+            if (!current.workingCopy.questionIds.includes(questionId)) continue
+            const question = bankQuestionById(current.questionBank, questionId)
+            if (!question || !takesWorkSpace(question.type)) continue
+          }
           const prior = currentSpaces[questionId] ?? NO_WORK_SPACE
           const next: WorkSpace = {
             height: snapWorkSpaceHeight(patch.height ?? prior.height),
@@ -690,7 +754,12 @@ export function createExamStore(options: {
         const copiedChoiceOrder = orderedChoices(original, selected.arrangement).map((choice) =>
           copiedChoices[originalChoices.findIndex(({ id }) => id === choice.id)]!.id,
         )
-        const workingCopy = withReferenceAdded(current.workingCopy, copy.id, questionId)
+        const workingCopy = withPartPresentationCopied(
+          withReferenceAdded(current.workingCopy, copy.id, questionId),
+          original,
+          copy,
+          selected.arrangement,
+        )
         return {
           ...current,
           questionBank: withQuestionBanked(current.questionBank, copy),
@@ -761,7 +830,15 @@ export function createExamStore(options: {
           || current.workingCopy.questionIds.includes(incomingQuestionId)
         ) return current
         const workingCopy = withColumnResolved({ ...current, questionBank: bank }, outgoingQuestionId)
-        const replaced = withReferenceReplaced(workingCopy, outgoingQuestionId, incomingQuestionId)
+        const outgoingParts = partsOf(outgoing)
+        const incomingParts = partsOf(incoming)
+        const replaced = withReferenceReplaced(workingCopy, outgoingQuestionId, incomingQuestionId, {
+          outgoing: outgoingParts.map((part) => part.id),
+          pairs: incomingParts.flatMap((part, index) => {
+            const standIn = outgoingParts[index]
+            return standIn && standIn.type === part.type ? [[standIn.id, part.id] as const] : []
+          }),
+        })
         return replaced === current.workingCopy && bank === current.questionBank
           ? current
           : { ...current, questionBank: bank, workingCopy: replaced }
@@ -806,7 +883,17 @@ export function createExamStore(options: {
 
     removeFromWorkingCopy: (questionIds) =>
       change((current) =>
-        withExamWorkingCopy(current, withReferencesRemoved(current.workingCopy, questionIds)),
+        withExamWorkingCopy(
+          current,
+          withReferencesRemoved(
+            current.workingCopy,
+            questionIds,
+            questionIds.flatMap((id) => {
+              const question = bankQuestionById(current.questionBank, id)
+              return question ? partsOf(question).map((part) => part.id) : []
+            }),
+          ),
+        ),
       ),
 
     hasSavedExam: () => saved !== null,

@@ -70,6 +70,26 @@ function matching(id: string): QuestionBankRecordQuestion {
   }
 }
 
+function stimulus(id: string): QuestionBankRecordQuestion {
+  return {
+    id,
+    type: 'stimulus',
+    stem: paragraph(`Read ${id}`),
+    parts: [
+      {
+        id: `${id}-s1`,
+        type: 'multiple-choice',
+        stem: paragraph('Which?'),
+        choices: [
+          { id: `${id}-s1-c1`, content: paragraph('This'), correct: true },
+          { id: `${id}-s1-c2`, content: paragraph('That'), correct: false },
+        ],
+      },
+      { id: `${id}-s2`, type: 'short-answer', stem: paragraph('Why?') },
+    ],
+  }
+}
+
 function bankRecord(name: string, questions: QuestionBankRecordQuestion[]): QuestionBankRecord {
   return {
     format: QUESTION_BANK_FORMAT,
@@ -123,7 +143,7 @@ describe('inspecting a Test Parrot Package', () => {
   test('a bare Question Bank Record reads as one bank and no Exams', async () => {
     const proposal = await inspectImportRecord(bytesOf(chemistry()))
 
-    expect(proposal.source).toEqual({ format: QUESTION_BANK_FORMAT, formatVersion: '0.3.0' })
+    expect(proposal.source).toEqual({ format: QUESTION_BANK_FORMAT, formatVersion: '0.4.0' })
     expect(proposal.banks).toHaveLength(1)
     expect(proposal.banks[0]).toMatchObject({
       id: BARE_RECORD_BANK_ID,
@@ -198,17 +218,39 @@ describe('inspecting a Test Parrot Package', () => {
   test('positions regroup into Section order, keeping order within each Section', async () => {
     const record = bankRecord('Mixed', [
       multipleChoice('q1'), multipleChoice('q2'), trueFalse('q3'), matching('q4'), shortAnswer('q5'), shortAnswer('q6'),
+      stimulus('q7'),
     ])
     const proposal = await inspectImportRecord(bytesOf(packageOf(
       [{ id: 'b', record }],
       [examRecord('Upside down', [
-        at('b', 'q6'), at('b', 'q2'), at('b', 'q4'), at('b', 'q5'), at('b', 'q3'), at('b', 'q1'),
+        at('b', 'q7'), at('b', 'q6'), at('b', 'q2'), at('b', 'q4'), at('b', 'q5'), at('b', 'q3'), at('b', 'q1'),
       ])],
     )))
 
+    // A Stimulus prints last, in a Section of its own.
     expect(proposal.exams[0]!.positions.map(({ question }) => question.question)).toEqual([
-      'q2', 'q1', 'q3', 'q4', 'q6', 'q5',
+      'q2', 'q1', 'q3', 'q4', 'q6', 'q5', 'q7',
     ])
+  })
+
+  test('a Stimulus position is accepted as a whole Question, and per-Part presentation is not carried', async () => {
+    const record = bankRecord('Passages', [stimulus('q1')])
+    const proposal = await inspectImportRecord(bytesOf(packageOf(
+      [{ id: 'b', record }],
+      [examRecord('Reading', [at('b', 'q1')])],
+    )))
+
+    expect(proposal.banks[0]!.summary.questionCounts.stimulus).toBe(1)
+    expect(proposal.exams[0]!.positions).toEqual([at('b', 'q1')])
+    // Answer order belongs to a Part, not the Stimulus, and 0.1.0 cannot say
+    // which Part it would be for.
+    await rejected(
+      packageOf([{ id: 'b', record }], [
+        examRecord('Reading', [at('b', 'q1', { answerOrder: ['q1-s1-c2', 'q1-s1-c1'] })]),
+      ]),
+      'invalid-position',
+      'answer order',
+    )
   })
 
   test('a PDF carrier may hold a package', async () => {

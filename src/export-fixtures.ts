@@ -124,6 +124,43 @@ function matching(
   }
 }
 
+function part(
+  id: string,
+  stem: ProseMirrorJSON[],
+  answer: ProseMirrorJSON,
+  columns: Question['columns'] = DEFAULT_COLUMNS,
+): ProseMirrorJSON {
+  return {
+    type: 'stimulusPart',
+    attrs: { id, columns },
+    content: [{ type: 'stimulusPartStem', content: stem }, answer],
+  }
+}
+
+function choicesOf(...choices: ProseMirrorJSON[]): ProseMirrorJSON {
+  return { type: 'multipleChoice', content: choices }
+}
+
+function suggestedAnswer(...blocks: ProseMirrorJSON[]): ProseMirrorJSON {
+  return { type: 'suggestedAnswer', content: blocks.length > 0 ? blocks : [paragraph()] }
+}
+
+function stimulus(
+  id: string,
+  material: ProseMirrorJSON[],
+  parts: ProseMirrorJSON[],
+): Question {
+  return {
+    id,
+    type: 'stimulus',
+    columns: DEFAULT_COLUMNS,
+    doc: {
+      type: 'doc',
+      content: [...material, { type: 'stimulusParts', content: parts }],
+    },
+  }
+}
+
 function arrangement(
   questionOrder: string[],
   choiceOrder: Record<string, string[]> = {},
@@ -256,6 +293,102 @@ const COMPOSITE_EXAM: Exam = {
 }
 
 export const FIXTURES: readonly Fixture[] = [
+  // A Stimulus is the one shape that takes one number for several questions:
+  // the material prints under the number, and each Part prints lettered
+  // beneath it the way a question of its kind prints — a Multiple Choice Part
+  // with its blank and grid, a Short Answer Part with its work space. Its
+  // Multiple Choice Part's answers are shuffled under the Part's own id, so
+  // the letter the key reports is the arrangement's.
+  fixture(
+    'a stimulus with a multiple-choice part and a short-answer part',
+    {
+      title: 'Ottoman Empire',
+      questions: [
+        stimulus(
+          's1',
+          [
+            paragraph(
+              text(
+                'The power of the Empire was waning by 1683 when the second and last attempt was made to conquer Vienna. It failed.',
+              ),
+            ),
+            paragraph(text('Several other factors contributed to the Empire’s decline:')),
+            {
+              type: 'bullet_list',
+              content: [
+                {
+                  type: 'list_item',
+                  content: [paragraph(text('Competition from trade from the Americas'))],
+                },
+                {
+                  type: 'list_item',
+                  content: [paragraph(text('Development of other trade routes'))],
+                },
+              ],
+            },
+            paragraph(text('Source: “Ottoman Empire (1301–1922),” (adapted)', mark('emphasis'))),
+          ],
+          [
+            part(
+              's1-a',
+              [paragraph(text('Which region was controlled by the Ottoman Empire in 1683?'))],
+              choicesOf(
+                choice('s1-a1', false, paragraph(text('Central America'))),
+                choice('s1-a2', false, paragraph(text('South Asia'))),
+                choice('s1-a3', false, paragraph(text('East Asia'))),
+                choice('s1-a4', true, paragraph(text('Middle East'))),
+              ),
+              4,
+            ),
+            part(
+              's1-b',
+              [paragraph(text('Identify an issue faced by the Ottoman Empire in the 1600s.'))],
+              suggestedAnswer(paragraph(text('Global trade routes shifted.'))),
+            ),
+          ],
+        ),
+      ],
+      workSpace: { 's1-b': { height: 96, style: 'lines', fill: false } },
+    },
+    arrangement(['s1'], { 's1-a': ['s1-a4', 's1-a1', 's1-a2', 's1-a3'] }),
+    { answerKey: true },
+  ),
+
+  // A Stimulus too tall for one page with all its Parts breaks between them:
+  // the material stays with Part a, and later Parts go on to the next page,
+  // each whole.
+  fixture(
+    'a stimulus whose later parts continue on the next page',
+    {
+      title: 'Reading',
+      questions: [
+        stimulus(
+          's2',
+          [paragraph(text('Read the passage below.')), paragraph(text('A long passage.'))],
+          ['a', 'b', 'c'].map((letter) =>
+            part(
+              `s2-${letter}`,
+              [paragraph(text(`Question ${letter} about the passage.`))],
+              choicesOf(
+                choice(`s2-${letter}1`, true, paragraph(text('Yes'))),
+                choice(`s2-${letter}2`, false, paragraph(text('No'))),
+              ),
+            ),
+          ),
+        ),
+      ],
+    },
+    arrangement(['s2']),
+    {
+      measure: {
+        itemHeight: (item) =>
+          item.kind === 'question'
+            ? item.stem.length * 200 + (item.parts?.length ?? 0) * 260
+            : 40,
+      },
+    },
+  ),
+
   // A True/False question is the one shape where an answer blank prints with no
   // choice grid behind it, and where the key letter is not a choice letter.
   // Both adapters have to agree about that on their own.
