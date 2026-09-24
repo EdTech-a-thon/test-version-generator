@@ -2389,6 +2389,9 @@ function ExamEditor({
             onSetColumns={(questionIds, columns) =>
               store.setQuestionColumns(questionIds, columns)
             }
+            onSetWorkSpace={(questionIds, patch) =>
+              store.setQuestionWorkSpace(questionIds, patch)
+            }
                 unsavedDraft={!store.hasSavedExam()}
               />
             </div>

@@ -206,6 +206,7 @@ button { cursor: pointer; }
 .export-preview .exam-question:hover {
   background: transparent; box-shadow: none;
 }
+.export-preview .work-space { outline: none; }
 .export-controls {
   min-width: 0; padding: 18px; display: flex; flex-direction: column; gap: 18px;
   overflow-y: auto; border-left: 1px solid #e0d3c5;
@@ -934,6 +935,45 @@ button { cursor: pointer; }
 .matching-body p { margin: 0 0 2px; }
 .matching-body img { max-width: 100%; }
 
+/* A Short Answer question's work space: exactly as tall as the plan says, and
+   either empty or ruled. No margin of its own, so the height packing was told
+   is the height it takes; the first rule sits one pitch below the question,
+   which is the gap a student starts writing in. Each line is one pitch tall
+   with its rule along its foot — the pitch `WORK_SPACE_LINE_PITCH` names. */
+.work-space { display: flow-root; }
+.work-space-line {
+  box-sizing: border-box; height: 32px; border-bottom: 1px solid #8f847a;
+}
+
+/* On the sheet a teacher edits, blank space is otherwise invisible, so the
+   question that owns it shows its extent while hovered, selected or being
+   sized. The outline paints outside the box and takes no height. */
+.exam-question:has(.work-space-handle):hover .work-space,
+.exam-question--selected .work-space,
+.exam-question--sizing .work-space {
+  outline: 1px dashed #d4c3ae; outline-offset: -1px;
+}
+
+/* The bar that drags a work space open: in the gap below the question, over
+   the body column, taking none of the question's measured height. */
+.work-space-handle {
+  position: absolute; left: 98px; right: 0; bottom: -17px; z-index: 2;
+  display: flex; align-items: center; justify-content: center;
+  height: 14px; border-radius: 7px; cursor: ns-resize; touch-action: none;
+  opacity: 0; transition: opacity 90ms ease-in;
+}
+.work-space-grip {
+  width: 44px; height: 4px; border-radius: 2px; background: #c9b49b;
+}
+.exam-question:hover .work-space-handle,
+.exam-question--selected .work-space-handle,
+.exam-question--sizing .work-space-handle,
+.work-space-handle:focus-visible { opacity: 1; }
+.work-space-handle:hover .work-space-grip,
+.exam-question--sizing .work-space-grip { background: #9f5037; }
+.work-space-handle:focus-visible { outline: 2px solid #9f5037; outline-offset: 1px; }
+.exam-question--sizing, .exam-question--sizing * { cursor: ns-resize !important; }
+
 /* The handles: a plus and a grip in the margin beside a question, hidden until
    it is hovered or one of them has focus, so the page still reads as paper.
 
@@ -1009,6 +1049,7 @@ button { cursor: pointer; }
 .context-menu-dot {
   width: 6px; height: 6px; border-radius: 50%; background: #9f5037;
 }
+.context-menu-check { width: 13px; height: 13px; stroke-width: 2.4; color: #9f5037; }
 .context-menu-label {
   padding: 7px 8px 3px; color: #8b7868;
   font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
@@ -1440,6 +1481,7 @@ button { cursor: pointer; }
      is judged against, without making that browser path available to people. */
   html[data-export-reference-print] .document-bar,
   html[data-export-reference-print] .question-handles,
+  html[data-export-reference-print] .work-space-handle,
   html[data-export-reference-print] .context-menu,
   html[data-export-reference-print] .vary-summary,
   html[data-export-reference-print] .measure-host,

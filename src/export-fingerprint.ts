@@ -64,6 +64,8 @@ export type ExportFingerprint = {
 //   table:<rows>x<columns>         a table or a choice grid opens
 //   cell:<row>,<column>            one cell opens; its own lines follow
 //   /table                         the table closes
+//   space:blank                    a Short Answer question's empty work space
+//   space:lines:<n>                …or its work space ruled with n lines
 //
 // and inline content as:
 //
@@ -485,6 +487,13 @@ function planMatching(set: MatchingSet, images: ImageOrdinals): ContentLine[] {
   ]
 }
 
+/** A work space as the vocabulary writes it. Its height is geometry and is not
+ *  compared; whether it is there, blank or ruled, and how many rules it
+ *  carries, is content a student writes on. */
+export function workSpaceLine(style: string, lines: number): ContentLine {
+  return style === 'lines' ? `space:lines:${lines}` : 'space:blank'
+}
+
 function planQuestion(item: QuestionItem, images: ImageOrdinals): ContentLine[] {
   const opener: Segment[] = printsNumberLine(item)
     ? [
@@ -507,6 +516,9 @@ function planQuestion(item: QuestionItem, images: ImageOrdinals): ContentLine[] 
     ...stem,
     ...(item.grid ? planGrid(item.grid, images) : []),
     ...(item.matching ? planMatching(item.matching, images) : []),
+    ...(item.workSpace && item.workSpace.height > 0
+      ? [workSpaceLine(item.workSpace.style, item.workSpace.lines)]
+      : []),
   ]
 }
 

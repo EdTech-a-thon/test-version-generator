@@ -9,6 +9,9 @@ function withoutQuestionReferences(
   const columns = Object.fromEntries(
     Object.entries(draft.columns ?? {}).filter(([id]) => !questionIds.has(id)),
   );
+  const workSpace = Object.fromEntries(
+    Object.entries(draft.workSpace ?? {}).filter(([id]) => !questionIds.has(id)),
+  );
   const choiceOrder = Object.fromEntries(
     Object.entries(draft.choiceOrder ?? {}).filter(
       ([id]) => !questionIds.has(id),
@@ -18,6 +21,7 @@ function withoutQuestionReferences(
     ...draft,
     questionIds: remaining,
     ...(draft.columns === undefined ? {} : { columns }),
+    ...(draft.workSpace === undefined ? {} : { workSpace }),
     ...(draft.choiceOrder === undefined ? {} : { choiceOrder }),
   };
 }

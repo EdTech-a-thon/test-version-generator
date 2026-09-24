@@ -16,8 +16,24 @@
 // Nothing downstream can tell the difference between this and an edited
 // Arrangement, and nothing here writes anything back.
 
-import { columnsOf, type Exam, type Arrangement } from './exam'
+import { columnsOf, isWorkSpace, type Exam, type Arrangement, type WorkSpace } from './exam'
 import { bankQuestionById, type ExamWorkingCopy, type QuestionBank } from './question-bank'
+
+function sameWorkSpace(
+  left: Record<string, WorkSpace> | undefined,
+  right: Record<string, WorkSpace> | undefined,
+): boolean {
+  const entries = Object.entries(left ?? {})
+  const other = right ?? {}
+  return entries.length === Object.keys(other).length
+    && entries.every(([questionId, space]) => {
+      const match = other[questionId]
+      return match !== undefined
+        && match.height === space.height
+        && match.style === space.style
+        && match.fill === space.fill
+    })
+}
 
 /** The `Exam` plus ordering that one Working Copy currently amounts to. */
 export type SelectedExam = {
@@ -55,13 +71,25 @@ export function selectedExam(
       ? question
       : { ...question, columns: columns[question.id]! },
   )
+  // Work space is this Exam's presentation too. Only referenced questions
+  // carry one, and only a readable record, so nothing downstream has to guard.
+  const workSpace: Record<string, WorkSpace> = {}
+  for (const [questionId, space] of Object.entries(draft.workSpace ?? {})) {
+    if (referenced.has(questionId) && isWorkSpace(space)) workSpace[questionId] = space
+  }
+  const hasAnyWorkSpace = Object.keys(workSpace).length > 0
   const exam: Exam =
     previous
     && previous.exam.title === draft.title
     && previous.exam.questions.length === questions.length
     && previous.exam.questions.every((question, index) => question === questions[index])
+    && sameWorkSpace(previous.exam.workSpace, hasAnyWorkSpace ? workSpace : undefined)
       ? previous.exam
-      : { title: draft.title, questions }
+      : {
+          title: draft.title,
+          questions,
+          ...(hasAnyWorkSpace ? { workSpace } : {}),
+        }
 
   // Only ids the bank can resolve: an ordering may tolerate a stranger, but an
   // Working Copy referencing content that is not there is not something export

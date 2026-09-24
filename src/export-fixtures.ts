@@ -852,6 +852,26 @@ export const FIXTURES: readonly Fixture[] = [
   ),
 
   fixture(
+    'Short Answer work space, lined, blank and filling its page',
+    {
+      title: 'Work space',
+      questions: [
+        open('o1', paragraph(text('Show how you balanced the equation.'))),
+        open('o2', paragraph(text('Sketch the apparatus.'))),
+        open('o3', paragraph(text('Explain your reasoning.'))),
+        open('o4', paragraph(text('Starts a new page after a filled one.'))),
+      ],
+      workSpace: {
+        o1: { height: 160, style: 'lines', fill: false },
+        o2: { height: 96, style: 'blank', fill: false },
+        o3: { height: 64, style: 'lines', fill: true },
+      },
+    },
+    arrangement(['o1', 'o2', 'o3', 'o4']),
+    { measure: stubHeights({ o1: 200, o2: 150, o3: 100, o4: 100 }) },
+  ),
+
+  fixture(
     'a realistic composite exam',
     COMPOSITE_EXAM,
     arrangement(['m2', 'm1'], { m1: ['c3', 'c1', 'c4', 'c2'] }),

@@ -28,6 +28,7 @@ import {
 } from './page-item-view'
 import {
   FOOTER_HEIGHT,
+  MAX_WORK_SPACE_HEIGHT,
   HEADER_HEIGHT,
   PAGE_HEIGHT,
   PAGE_MARGIN,
@@ -42,11 +43,35 @@ import {
   type QuestionItem,
   type PlannedQuestion,
 } from './export-plan'
-import { DEFAULT_COLUMNS, columnsOf, type ColumnSetting, type Exam, type Arrangement } from './exam'
+import {
+  DEFAULT_COLUMNS,
+  columnsOf,
+  hasWorkSpace,
+  snapWorkSpaceHeight,
+  takesWorkSpace,
+  WORK_SPACE_LINE_PITCH,
+  workSpaceOf,
+  type ColumnSetting,
+  type Exam,
+  type Arrangement,
+  type WorkSpace,
+} from './exam'
 import type { Selection } from './use-selection'
 import type { WorkspaceDrag } from './use-workspace-drag'
 import { dropStateOf, type QuestionDropState } from './workspace-drag'
-import { CircleMinus, Copy, EllipsisVertical, ListRestart, Pencil, Shuffle } from 'lucide-react'
+import {
+  AlignJustify,
+  ArrowDownToLine,
+  Ban,
+  CircleMinus,
+  Copy,
+  EllipsisVertical,
+  ListRestart,
+  Pencil,
+  PencilLine,
+  Shuffle,
+  SquareDashed,
+} from 'lucide-react'
 import {
   ContextMenu,
   type MenuItem,
@@ -121,6 +146,13 @@ function ColumnLayoutIcon({
   )
 }
 
+/** How much room a work space opens with when a teacher picks blank or lined
+ *  space for a question that has none yet: four ruled lines, enough to be seen
+ *  and grabbed, and dragged from there. */
+const DEFAULT_WORK_SPACE_HEIGHT = 4 * WORK_SPACE_LINE_PITCH
+
+export type SetWorkSpace = (questionIds: readonly string[], patch: Partial<WorkSpace>) => void
+
 // One list, however it was opened. The grip beside a question and a right-click
 // on the question itself raise exactly the same actions, which is what makes
 // the grip discoverable rather than a second, lesser control.
@@ -133,10 +165,14 @@ function questionMenuItems({
   onShuffleSelectedAnswers,
   onRemove,
   onSetColumns,
+  workSpace,
+  onSetWorkSpace,
   selectedQuestionIds,
 }: {
   question: PlannedQuestion
   columns: ColumnSetting
+  workSpace: WorkSpace
+  onSetWorkSpace: SetWorkSpace
   onEdit: (questionId: string) => void
   onDuplicate: (questionId: string) => void
   onShuffleSelected: (questionIds: readonly string[]) => void
@@ -183,6 +219,57 @@ function questionMenuItems({
           icon: <ColumnLayoutIcon columns={option.value} />,
           onSelect: () => onSetColumns(actedOnIds, option.value),
         })),
+      },
+    )
+  }
+  // Room for working is a Short Answer question's business, set here on the
+  // sheet rather than in the question editor: how much a student needs depends
+  // on the test, and on what else shares the page. The store leaves any other
+  // Question Type in the selection alone.
+  if (takesWorkSpace(question.type)) {
+    const present = hasWorkSpace(workSpace)
+    // Picking a style for a question with no room gives it some, so the
+    // choice is visible at once rather than waiting on a drag.
+    const withStyle = (style: WorkSpace['style']) =>
+      onSetWorkSpace(actedOnIds, present
+        ? { style }
+        : { style, height: DEFAULT_WORK_SPACE_HEIGHT })
+    items.push(
+      { kind: 'separator' },
+      {
+        kind: 'submenu',
+        label: 'Work space',
+        icon: <PencilLine />,
+        items: [
+          {
+            kind: 'radio',
+            label: 'None',
+            checked: !present,
+            icon: <Ban />,
+            onSelect: () => onSetWorkSpace(actedOnIds, { height: 0, fill: false }),
+          },
+          {
+            kind: 'radio',
+            label: 'Blank space',
+            checked: present && workSpace.style === 'blank',
+            icon: <SquareDashed />,
+            onSelect: () => withStyle('blank'),
+          },
+          {
+            kind: 'radio',
+            label: 'Lined space',
+            checked: present && workSpace.style === 'lines',
+            icon: <AlignJustify />,
+            onSelect: () => withStyle('lines'),
+          },
+        ],
+      },
+      {
+        kind: 'checkbox',
+        label: 'Fill rest of page',
+        checked: workSpace.fill,
+        icon: <ArrowDownToLine />,
+        onSelect: () => onSetWorkSpace(actedOnIds, { fill: !workSpace.fill }),
       },
     )
   }
@@ -267,6 +354,106 @@ function QuestionHandles({
   )
 }
 
+// The bar under a Short Answer question that drags its work space open, taller
+// or shut. It is editing chrome: absolutely placed in the gap below the
+// question, so it takes none of the height `dom-measure.ts` measured, and
+// hidden from print with the rest of the chrome.
+//
+// A drag previews locally and commits once, on release — one undo step per
+// gesture, and one repagination rather than one per pixel. Heights snap to
+// whole ruled lines, so blank and lined space always agree about size. Dragging
+// a space that fills its page takes over from the fill: the teacher is now
+// saying how much room they want, so what they drag to is what they get.
+//
+// A separator in ARIA terms, so it takes the keyboard too: arrows move by a
+// line, Home shuts it, End opens it as far as a drag could.
+function WorkSpaceHandle({
+  label,
+  height,
+  onPreview,
+  onCommit,
+}: {
+  label: string
+  height: number
+  onPreview: (height: number | null) => void
+  onCommit: (height: number) => void
+}) {
+  const gesture = useRef<{ id: number; startY: number; next: number } | null>(null)
+  const settle = (next: number) => {
+    const snapped = snapWorkSpaceHeight(next, MAX_WORK_SPACE_HEIGHT)
+    if (snapped !== height) onCommit(snapped)
+  }
+  const lines = Math.floor(height / WORK_SPACE_LINE_PITCH)
+  return (
+    <div
+      className="work-space-handle"
+      role="separator"
+      aria-orientation="horizontal"
+      aria-label={label}
+      aria-valuemin={0}
+      aria-valuemax={MAX_WORK_SPACE_HEIGHT / WORK_SPACE_LINE_PITCH}
+      aria-valuenow={lines}
+      aria-valuetext={`${lines} ${lines === 1 ? 'line' : 'lines'} of work space`}
+      title="Drag to change the work space"
+      tabIndex={0}
+      // Never a question drag, a selection click or an editor double-click:
+      // this gesture is the bar's alone.
+      onClick={(event) => event.stopPropagation()}
+      onDoubleClick={(event) => event.stopPropagation()}
+      onPointerDown={(event) => {
+        if (event.button !== 0) return
+        event.stopPropagation()
+        event.preventDefault()
+        gesture.current = { id: event.pointerId, startY: event.clientY, next: height }
+        event.currentTarget.setPointerCapture(event.pointerId)
+      }}
+      onPointerMove={(event) => {
+        const drag = gesture.current
+        if (!drag || drag.id !== event.pointerId) return
+        event.stopPropagation()
+        const next = snapWorkSpaceHeight(
+          height + event.clientY - drag.startY,
+          MAX_WORK_SPACE_HEIGHT,
+        )
+        if (next === drag.next) return
+        drag.next = next
+        onPreview(next)
+      }}
+      onPointerUp={(event) => {
+        const drag = gesture.current
+        if (!drag || drag.id !== event.pointerId) return
+        event.stopPropagation()
+        gesture.current = null
+        if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+          event.currentTarget.releasePointerCapture(event.pointerId)
+        }
+        settle(drag.next)
+        onPreview(null)
+      }}
+      onPointerCancel={(event) => {
+        if (gesture.current?.id !== event.pointerId) return
+        gesture.current = null
+        onPreview(null)
+      }}
+      onKeyDown={(event) => {
+        const step = WORK_SPACE_LINE_PITCH
+        const next =
+          event.key === 'ArrowDown' ? height + step
+            : event.key === 'ArrowUp' ? height - step
+              : event.key === 'Home' ? 0
+                : event.key === 'End' ? MAX_WORK_SPACE_HEIGHT
+                  : null
+        if (next === null) return
+        event.preventDefault()
+        event.stopPropagation()
+        settle(next)
+      }}
+    >
+      <span className="work-space-grip" aria-hidden="true" />
+    </div>
+  )
+}
+
 // A question on the page, or the piece of one this page carries: the same
 // content `dom-measure.ts` measured, wrapped in the chrome that makes it
 // selectable, editable and droppable. A continued piece is chrome-free — its
@@ -279,6 +466,7 @@ function QuestionView({
   selection,
   onEdit,
   onOpenMenu,
+  onSetWorkSpace,
   dragging,
   dropped,
   dropState,
@@ -288,6 +476,7 @@ function QuestionView({
   onDragEnd,
 }: {
   item: QuestionItem
+  onSetWorkSpace: SetWorkSpace
   selected: boolean
   orderedIds: readonly string[]
   selection: Selection
@@ -313,6 +502,21 @@ function QuestionView({
   } | null>(null)
   const suppressClick = useRef(false)
   const question = item.question
+  // The height a work-space drag is showing before it commits, or `null`.
+  const [previewHeight, setPreviewHeight] = useState<number | null>(null)
+  const shown: QuestionItem =
+    previewHeight === null || !item.workSpace
+      ? item
+      : {
+          ...item,
+          workSpace: {
+            ...item.workSpace,
+            height: previewHeight,
+            lines: item.workSpace.style === 'lines'
+              ? Math.floor(previewHeight / WORK_SPACE_LINE_PITCH)
+              : 0,
+          },
+        }
 
   const releasePointer = (event: ReactPointerEvent<HTMLElement>) => {
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
@@ -324,6 +528,7 @@ function QuestionView({
   if (selected) classes.push('exam-question--selected')
   if (dragging) classes.push('exam-question--dragging')
   if (dropped) classes.push('exam-question--dropped')
+  if (previewHeight !== null) classes.push('exam-question--sizing')
 
   return (
     <section
@@ -426,7 +631,15 @@ function QuestionView({
       {item.numbered && (
         <QuestionHandles question={question} onOpenMenu={onOpenMenu} />
       )}
-      <QuestionContent item={item} showCorrectness />
+      <QuestionContent item={shown} showCorrectness />
+      {item.workSpace && (
+        <WorkSpaceHandle
+          label={`Work space for question ${numberLabelOf(question)}`}
+          height={item.workSpace.height}
+          onPreview={setPreviewHeight}
+          onCommit={(height) => onSetWorkSpace([question.id], { height, fill: false })}
+        />
+      )}
     </section>
   )
 }
@@ -437,6 +650,7 @@ function PageItemView({
   selection,
   onEdit,
   onOpenMenu,
+  onSetWorkSpace,
   draggedQuestionIds,
   droppedQuestionIds,
   dropState,
@@ -450,6 +664,7 @@ function PageItemView({
   selection: Selection
   onEdit: (questionId: string) => void
   onOpenMenu: (questionId: string, point: MenuPoint, side?: MenuSide) => void
+  onSetWorkSpace: SetWorkSpace
   draggedQuestionIds: ReadonlySet<string>
   droppedQuestionIds: ReadonlySet<string>
   dropState: (questionId: string) => QuestionDropState
@@ -478,6 +693,7 @@ function PageItemView({
           selection={selection}
           onEdit={onEdit}
           onOpenMenu={onOpenMenu}
+          onSetWorkSpace={onSetWorkSpace}
           dragging={draggedQuestionIds.has(item.question.id)}
           dropped={droppedQuestionIds.has(item.question.id) && item.numbered}
           dropState={dropState(item.question.id)}
@@ -701,6 +917,7 @@ export function ExamPage({
   onShuffleSelectedAnswers,
   onRemove,
   onSetColumns,
+  onSetWorkSpace,
   onTitleChange,
   titleDisabled = false,
   unsavedDraft = false,
@@ -722,6 +939,8 @@ export function ExamPage({
   onShuffleSelectedAnswers: (questionIds: readonly string[]) => void
   onRemove: (questionIds: readonly string[]) => void
   onSetColumns: (questionIds: readonly string[], columns: ColumnSetting) => void
+  /** Changes the room left for work below Short Answer questions. */
+  onSetWorkSpace: SetWorkSpace
   /** Renames the Exam from its own title line. See `PageHeaderContent`. */
   onTitleChange?: (title: string) => void
   titleDisabled?: boolean
@@ -897,6 +1116,7 @@ export function ExamPage({
                 selection={selection}
                 onEdit={onEdit}
                 onOpenMenu={openMenu}
+                onSetWorkSpace={onSetWorkSpace}
                 draggedQuestionIds={draggedQuestionIds}
                 droppedQuestionIds={droppedQuestionIds}
                 dropState={questionDropState}
@@ -943,6 +1163,8 @@ export function ExamPage({
             onShuffleSelectedAnswers,
             onRemove,
             onSetColumns,
+            workSpace: workSpaceOf(exam, menuQuestion.id),
+            onSetWorkSpace,
             selectedQuestionIds: [...selection.selectedIds],
           })}
           onClose={closeMenu}

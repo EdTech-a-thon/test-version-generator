@@ -93,6 +93,23 @@ describe('the DOCX Export Adapter carries the planned document', () => {
     })
   }
 
+  test('carries a work space as ruled or blank room, and a filled page as a page', async () => {
+    const fixture = FIXTURES.find((item) => item.name.startsWith('Short Answer work space'))!
+    const planned = layoutFingerprint(planOf(fixture))
+    const test = planned.pages.filter((page) => page.content.some((line) => line.startsWith('para ')))
+    const spaces = planned.pages.flatMap((page) =>
+      page.content.filter((line) => line.startsWith('space:')),
+    )
+    // Five rules; a blank space; and the filled space ruled all the way down.
+    expect(spaces[0]).toBe('space:lines:5')
+    expect(spaces[1]).toBe('space:blank')
+    expect(spaces[2]).toMatch(/^space:lines:\d+$/)
+    expect(Number(spaces[2]!.split(':')[2])).toBeGreaterThan(5)
+    // The question after the filled space starts the next page.
+    expect(test[1]!.content.some((line) => line.includes('Starts a new page'))).toBe(true)
+    expectSameDocument(planned, await docxOf(fixture))
+  })
+
   test('packages the canonical student test before its answer key', async () => {
     const fixture = FIXTURES.find(
       (item) => item.name === 'a realistic composite exam',

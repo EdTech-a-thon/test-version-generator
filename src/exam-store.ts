@@ -17,7 +17,12 @@ import {
   choicesOf,
   columnsOf,
   duplicateQuestion,
+  hasWorkSpace,
+  isWorkSpace,
   moveQuestions,
+  NO_WORK_SPACE,
+  snapWorkSpaceHeight,
+  takesWorkSpace,
   orderedChoices,
   orderedQuestions,
   shuffleSelectedAnswers,
@@ -25,6 +30,7 @@ import {
   type ColumnSetting,
   type Question,
   type QuestionPlacement,
+  type WorkSpace,
 } from './exam'
 import {
   bankQuestionById,
@@ -138,6 +144,15 @@ function isColumnSettings(value: unknown): value is Record<string, ColumnSetting
   )
 }
 
+function isWorkSpaceSettings(value: unknown): value is Record<string, WorkSpace> {
+  return (
+    typeof value === 'object'
+    && value !== null
+    && !Array.isArray(value)
+    && Object.values(value).every(isWorkSpace)
+  )
+}
+
 function isWorkingCopy(value: unknown): value is ExamWorkingCopy {
   const draft = value as ExamWorkingCopy | null
   return (
@@ -147,6 +162,7 @@ function isWorkingCopy(value: unknown): value is ExamWorkingCopy {
     Array.isArray(draft.questionIds) &&
     draft.questionIds.every((id) => typeof id === 'string') &&
     (draft.columns === undefined || isColumnSettings(draft.columns)) &&
+    (draft.workSpace === undefined || isWorkSpaceSettings(draft.workSpace)) &&
     (draft.choiceOrder === undefined || isChoiceOrder(draft.choiceOrder))
   )
 }
@@ -204,6 +220,12 @@ export type ExamStore = {
    *  save is never lost. */
   updateInQuestionBank(question: Question): void
   setQuestionColumns(questionIds: readonly string[], columns: ColumnSetting): void
+  /** Changes the room left for work below Short Answer questions — its
+   *  height, whether it is blank or ruled, and whether it runs to the foot of
+   *  the page — as one authoring action. Only the fields given change; any
+   *  other Question Type in `questionIds` is left alone. Work space is Exam
+   *  presentation, so the Question Bank is never touched. */
+  setQuestionWorkSpace(questionIds: readonly string[], patch: Partial<WorkSpace>): void
   /** References a newly canonical copy immediately after the original while
    * preserving the original's visible Exam presentation. The caller may supply
    * a copy already committed to the owning Question Bank. */
@@ -304,7 +326,8 @@ function withResolvedColumns(state: AuthoringState): ExamWorkingCopy {
 
 /** Savedness is a composition comparison. Canonical Question Content is live,
  * so it intentionally does not participate: only the Exam name, membership,
- * question order, answer order and column layout are explicitly saved. */
+ * question order, answer order, column layout and work space are explicitly
+ * saved. */
 function sameExamWorkingCopy(left: ExamWorkingCopy, right: ExamWorkingCopy): boolean {
   const sameEntries = <T>(first: Record<string, T> | undefined, second: Record<string, T> | undefined, equal: (left: T, right: T) => boolean) => {
     const firstEntries = Object.entries(first ?? {})
@@ -316,6 +339,9 @@ function sameExamWorkingCopy(left: ExamWorkingCopy, right: ExamWorkingCopy): boo
     && left.questionIds.length === right.questionIds.length
     && left.questionIds.every((id, index) => id === right.questionIds[index])
     && sameEntries(left.columns, right.columns, (first, second) => first === second)
+    && sameEntries(left.workSpace, right.workSpace, (first, second) =>
+      first.height === second.height && first.style === second.style && first.fill === second.fill,
+    )
     && sameEntries(left.choiceOrder, right.choiceOrder, (first, second) =>
       first.length === second.length && first.every((id, index) => id === second[index]),
     )
@@ -618,6 +644,39 @@ export function createExamStore(options: {
       })
     },
 
+    setQuestionWorkSpace: (questionIds, patch) => {
+      const targeted = new Set(questionIds)
+      change((current) => {
+        const currentSpaces = current.workingCopy.workSpace ?? {}
+        let changed = false
+        const nextSpaces = { ...currentSpaces }
+        for (const questionId of targeted) {
+          if (!current.workingCopy.questionIds.includes(questionId)) continue
+          const question = bankQuestionById(current.questionBank, questionId)
+          if (!question || !takesWorkSpace(question.type)) continue
+          const prior = currentSpaces[questionId] ?? NO_WORK_SPACE
+          const next: WorkSpace = {
+            height: snapWorkSpaceHeight(patch.height ?? prior.height),
+            style: patch.style ?? prior.style,
+            fill: patch.fill ?? prior.fill,
+          }
+          if (
+            next.height === prior.height
+            && next.style === prior.style
+            && next.fill === prior.fill
+          ) continue
+          // No room at all is the absence of a setting, not a stored zero, so
+          // taking work space away leaves the Working Copy as it was before.
+          if (hasWorkSpace(next)) nextSpaces[questionId] = next
+          else delete nextSpaces[questionId]
+          changed = true
+        }
+        return changed
+          ? { ...current, workingCopy: { ...current.workingCopy, workSpace: nextSpaces } }
+          : current
+      })
+    },
+
     duplicateInWorkingCopy: (questionId, suppliedCopy) =>
       change((current) => {
         const original = bankQuestionById(current.questionBank, questionId)
@@ -645,6 +704,16 @@ export function createExamStore(options: {
               ...(workingCopy.choiceOrder ?? {}),
               [copy.id]: copiedChoiceOrder,
             },
+            // A duplicate looks like its original on the sheet, work space
+            // included.
+            ...(workingCopy.workSpace?.[questionId]
+              ? {
+                  workSpace: {
+                    ...workingCopy.workSpace,
+                    [copy.id]: workingCopy.workSpace[questionId]!,
+                  },
+                }
+              : {}),
           },
         }
       }),

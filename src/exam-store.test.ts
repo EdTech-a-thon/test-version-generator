@@ -1220,3 +1220,124 @@ describe('undo and redo', () => {
     expect(createAuthoringState().dirty).toBe(false)
   })
 })
+
+describe('work space', () => {
+  test('is Exam presentation: set on the Working Copy, snapped to whole lines, never on the Question', async () => {
+    const { store, questions } = await withExamWorkingCopy(1, 'open')
+    const [question] = questions
+
+    store.setQuestionWorkSpace([question!.id], { height: 150, style: 'lines' })
+
+    expect(store.getState().workingCopy.workSpace?.[question!.id]).toEqual({
+      height: 160,
+      style: 'lines',
+      fill: false,
+    })
+    expect(store.selectedExam().exam.workSpace?.[question!.id]?.height).toBe(160)
+    expect(store.getState().questionBank.questions[0]).not.toHaveProperty('workSpace')
+  })
+
+  test('changes only the fields given, and taking all the room away clears the setting', async () => {
+    const { store, questions } = await withExamWorkingCopy(1, 'open')
+    const id = questions[0]!.id
+
+    store.setQuestionWorkSpace([id], { height: 128, style: 'lines' })
+    store.setQuestionWorkSpace([id], { fill: true })
+    expect(store.getState().workingCopy.workSpace?.[id]).toEqual({
+      height: 128,
+      style: 'lines',
+      fill: true,
+    })
+
+    store.setQuestionWorkSpace([id], { height: 0, fill: false })
+    expect(store.getState().workingCopy.workSpace?.[id]).toBeUndefined()
+  })
+
+  test('leaves every other Question Type in a selection alone', async () => {
+    const { store, questions } = await withExamWorkingCopy(1, 'multiple-choice')
+    const shortAnswer = createQuestion('open')
+    store.createInQuestionBank(shortAnswer)
+    store.addToWorkingCopy(shortAnswer)
+
+    store.setQuestionWorkSpace([questions[0]!.id, shortAnswer.id], { height: 96 })
+
+    expect(Object.keys(store.getState().workingCopy.workSpace ?? {})).toEqual([shortAnswer.id])
+  })
+
+  test('is one undo step, marks the Exam unsaved, and is kept by Save', async () => {
+    const { store, questions } = await withExamWorkingCopy(1, 'open')
+    const id = questions[0]!.id
+    await store.save()
+
+    store.setQuestionWorkSpace([id], { height: 96 })
+    expect(store.getState().dirty).toBe(true)
+    store.undo()
+    expect(store.getState().workingCopy.workSpace?.[id]).toBeUndefined()
+    expect(store.getState().dirty).toBe(false)
+
+    store.redo()
+    await store.save()
+    expect(store.getState().dirty).toBe(false)
+    expect(store.getState().workingCopy.workSpace?.[id]?.height).toBe(96)
+  })
+
+  test('costs nothing when it changes nothing', async () => {
+    const { backend, store, questions } = await withExamWorkingCopy(1, 'open')
+    const id = questions[0]!.id
+    store.setQuestionWorkSpace([id], { height: 96 })
+    await store.whenSettled()
+    const before = store.getState()
+    const writes = backend.writes
+
+    store.setQuestionWorkSpace([id], { height: 96 })
+    await store.whenSettled()
+
+    expect(store.getState()).toBe(before)
+    expect(backend.writes).toBe(writes)
+  })
+
+  test('goes with a Removed question, follows a Replace, and is copied by Duplicate', async () => {
+    const { store, questions } = await withExamWorkingCopy(2, 'open')
+    const [first, second] = questions
+    const spare = createQuestion('open')
+    store.createInQuestionBank(spare)
+    store.setQuestionWorkSpace([first!.id], { height: 160, style: 'lines' })
+    store.setQuestionWorkSpace([second!.id], { height: 64 })
+
+    store.removeFromWorkingCopy([second!.id])
+    expect(store.getState().workingCopy.workSpace?.[second!.id]).toBeUndefined()
+
+    store.replaceInWorkingCopy(first!.id, spare.id)
+    expect(store.getState().workingCopy.workSpace?.[first!.id]).toBeUndefined()
+    expect(store.getState().workingCopy.workSpace?.[spare.id]).toEqual({
+      height: 160,
+      style: 'lines',
+      fill: false,
+    })
+
+    store.duplicateInWorkingCopy(spare.id)
+    const copyId = store.getState().workingCopy.questionIds.find(
+      (id) => id !== spare.id,
+    )!
+    expect(store.getState().workingCopy.workSpace?.[copyId]).toEqual({
+      height: 160,
+      style: 'lines',
+      fill: false,
+    })
+  })
+
+  test('survives a reload from the Working Copy backup', async () => {
+    const { backend, savedBackend, store, questions } = await withExamWorkingCopy(1, 'open')
+    const id = questions[0]!.id
+    store.setQuestionWorkSpace([id], { height: 96, style: 'lines', fill: true })
+    await store.whenSettled()
+
+    const reloaded = await loadExamStore(backend, savedBackend)
+
+    expect(reloaded.getState().workingCopy.workSpace?.[id]).toEqual({
+      height: 96,
+      style: 'lines',
+      fill: true,
+    })
+  })
+})

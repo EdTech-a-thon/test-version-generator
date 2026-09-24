@@ -31,12 +31,17 @@ import {
   orderedChoices,
   promptsOf,
   questionsInSection,
+  takesWorkSpace,
   topicsOf,
+  WORK_SPACE_LINE_PITCH,
+  workSpaceOf,
   type Difficulty,
   type Exam,
   type Question,
   type QuestionType,
   type Arrangement,
+  type WorkSpace,
+  type WorkSpaceStyle,
 } from './exam'
 import { stemNodesOf, type ProseMirrorJSON } from './question-doc'
 
@@ -145,6 +150,31 @@ export type MatchingSet = {
 export const MATCHING_BESIDE_LIMIT = 5
 export const MATCHING_BANK_COLUMNS = 2
 
+// The room a Short Answer piece leaves below itself, resolved onto a page.
+// `height` is final: for a space that fills the rest of its page, packing has
+// already grown it to reach the foot of that page, so an adapter draws exactly
+// this much and never measures. `lines` is how many ruled lines fit in it —
+// none for a blank space — counted here so every adapter rules the same number.
+export type PlannedWorkSpace = {
+  height: number
+  style: WorkSpaceStyle
+  lines: number
+  fill: boolean
+}
+
+/** Room a filled work space leaves at the foot of its page, so fractional
+ *  measurement can never round it onto another sheet. */
+const WORK_SPACE_FILL_SLACK = 1
+
+function plannedWorkSpace(space: WorkSpace, height = space.height): PlannedWorkSpace {
+  return {
+    height,
+    style: space.style,
+    lines: space.style === 'lines' ? Math.floor(height / WORK_SPACE_LINE_PITCH) : 0,
+    fill: space.fill,
+  }
+}
+
 export type PlannedQuestion = {
   id: string
   type: QuestionType
@@ -169,6 +199,11 @@ export type PlannedQuestion = {
   /** The prompts and Word Bank of a matching set; `null` for every other
    *  Question Type. */
   matching: MatchingSet | null
+  /** The room this Exam leaves below a Short Answer question for a student's
+   *  work, as the teacher set it; `null` for every other Question Type. A
+   *  Short Answer question with no room still carries one, zero-height, so
+   *  the sheet can offer a handle to drag some open. */
+  workSpace: WorkSpace | null
   /** Optional organizational metadata, retained so the Answer Key can help a
    *  teacher identify and review the Questions without exposing it to students. */
   difficulty?: Difficulty
@@ -223,6 +258,10 @@ export type QuestionItem = {
   grid: ChoiceGrid | null
   /** The matching set, on the single piece that prints it. Never split. */
   matching: MatchingSet | null
+  /** A Short Answer question's work space, on its last piece — so the room
+   *  for an answer always follows the whole question. `null` on every other
+   *  piece and for every other Question Type. */
+  workSpace: PlannedWorkSpace | null
 }
 
 /** Whether this piece prints the question's number line: the first piece of
@@ -383,6 +422,12 @@ export function pageContentHeight(header: PageHeader): number {
   return PAGE_BOX_HEIGHT - HEADER_HEIGHT[header] - FOOTER_HEIGHT
 }
 
+/** The most room a teacher can drag a work space to: a whole later page less
+ *  an inch for the question itself, so a question and its space still fit on
+ *  one sheet. Filling the rest of a page is the way to ask for more. */
+export const MAX_WORK_SPACE_HEIGHT =
+  Math.floor((pageContentHeight('later') - 96) / WORK_SPACE_LINE_PITCH) * WORK_SPACE_LINE_PITCH
+
 // The choice grid does not span the page's full content width: it renders
 // inside `.question-body`, the second column of `.exam-question`'s grid in
 // styles.css (`grid-template-columns: 92px 1fr; gap: 6px;`) — the number
@@ -475,6 +520,7 @@ function deriveMatching(
 }
 
 function deriveQuestion(
+  exam: Exam,
   question: Question,
   arrangement: Arrangement,
   number: number,
@@ -503,6 +549,7 @@ function deriveQuestion(
     // every statement would be furniture rather than content.
     grid: trueFalse || matching ? null : layOutGrid(choices, columnsOf(question)),
     matching: matching ? deriveMatching(question, arrangement, number) : null,
+    workSpace: takesWorkSpace(question.type) ? workSpaceOf(exam, question.id) : null,
     ...(question.difficulty ? { difficulty: question.difficulty } : {}),
     ...(topicsOf(question).length > 0 ? { topics: [...topicsOf(question)] } : {}),
   }
@@ -526,7 +573,7 @@ function deriveItems(exam: Exam, arrangement: Arrangement): PageItem[] {
       })
     }
     for (const question of questions) {
-      const planned = deriveQuestion(question, arrangement, number)
+      const planned = deriveQuestion(exam, question, arrangement, number)
       items.push(wholeQuestion(planned))
       number += numbersTakenBy(planned)
     }
@@ -543,6 +590,7 @@ function wholeQuestion(question: PlannedQuestion): QuestionItem {
     numbered: true,
     grid: question.grid,
     matching: question.matching,
+    workSpace: question.workSpace ? plannedWorkSpace(question.workSpace) : null,
   }
 }
 
@@ -558,9 +606,14 @@ type QuestionPart = {
   numbered: boolean
   grid: ChoiceGrid | null
   matching: MatchingSet | null
+  workSpace: PlannedWorkSpace | null
 }
 
+// A work space is glued to the last part rather than being one of its own: room
+// for an answer at the top of a page, with its question at the foot of the one
+// before, is room nobody would think to use.
 function partsOf(question: PlannedQuestion): QuestionPart[] {
+  const workSpace = question.workSpace ? plannedWorkSpace(question.workSpace) : null
   const [first, ...rest] = question.stem
   if (first === undefined || question.matching) {
     return [
@@ -569,21 +622,23 @@ function partsOf(question: PlannedQuestion): QuestionPart[] {
         numbered: true,
         grid: question.grid,
         matching: question.matching,
+        workSpace,
       },
     ]
   }
   const parts: QuestionPart[] = [
-    { stem: [first], numbered: true, grid: null, matching: null },
+    { stem: [first], numbered: true, grid: null, matching: null, workSpace: null },
   ]
   for (const block of rest) {
-    parts.push({ stem: [block], numbered: false, grid: null, matching: null })
+    parts.push({ stem: [block], numbered: false, grid: null, matching: null, workSpace: null })
   }
   if (question.grid) {
-    parts.push({ stem: [], numbered: false, grid: question.grid, matching: null })
+    parts.push({ stem: [], numbered: false, grid: question.grid, matching: null, workSpace: null })
   }
   if (question.matching) {
-    parts.push({ stem: [], numbered: false, grid: null, matching: question.matching })
+    parts.push({ stem: [], numbered: false, grid: null, matching: question.matching, workSpace: null })
   }
+  parts[parts.length - 1]!.workSpace = workSpace
   return parts
 }
 
@@ -599,6 +654,7 @@ function pieceOf(
     numbered: parts.some((part) => part.numbered),
     grid: parts.find((part) => part.grid !== null)?.grid ?? null,
     matching: parts.find((part) => part.matching !== null)?.matching ?? null,
+    workSpace: parts.find((part) => part.workSpace !== null)?.workSpace ?? null,
   }
 }
 
@@ -631,18 +687,44 @@ function paginate(
   let box = pageContentHeight(header)
   let current: PageItem[] = []
   let used = 0
+  // Set once a work space has taken the rest of this page: nothing else may
+  // follow it here, whatever height the next item happens to measure at.
+  let full = false
 
   const flush = () => {
     pages.push({ number: pages.length + 1, header, stream, items: current })
     current = []
     used = 0
+    full = false
     header = continuedHeader
     box = pageContentHeight(header)
   }
 
+  // A work space that fills its page is measured at its least height, which is
+  // what decided that it fits here; placing it is what grows it to the foot of
+  // the page. The growth is recorded on the item itself, so adapters draw the
+  // grown height rather than rediscovering it.
   const place = (item: PageItem, height: number) => {
-    current.push(item)
-    used += height
+    let placed = item
+    let placedHeight = height
+    if (item.kind === 'question' && item.workSpace?.fill) {
+      const extra = Math.max(0, Math.floor(box - used - height - WORK_SPACE_FILL_SLACK))
+      const space = item.workSpace
+      placed = {
+        ...item,
+        workSpace: {
+          ...space,
+          height: space.height + extra,
+          lines: space.style === 'lines'
+            ? Math.floor((space.height + extra) / WORK_SPACE_LINE_PITCH)
+            : 0,
+        },
+      }
+      placedHeight = height + extra
+      full = true
+    }
+    current.push(placed)
+    used += placedHeight
   }
 
   // Breaks one question across as many pages as it needs, each page taking as
@@ -691,6 +773,7 @@ function paginate(
   }
 
   for (const [index, item] of items.entries()) {
+    if (full) flush()
     const height = measure.itemHeight(item)
     // A section heading must share a page with at least the first indivisible
     // piece of its first question — the whole question, when it is one piece.

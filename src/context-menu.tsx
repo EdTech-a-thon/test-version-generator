@@ -21,6 +21,7 @@ import {
   type ReactNode,
 } from 'react'
 import { createPortal } from 'react-dom'
+import { Check } from 'lucide-react'
 
 /** Where the menu should appear, in viewport coordinates. */
 export type MenuPoint = { x: number; y: number }
@@ -50,6 +51,16 @@ export type MenuItem =
       onSelect: () => void
       icon?: ReactNode
     }
+  // An option that is on or off on its own, beside rather than among a set of
+  // radios. Its leading slot is its icon; the tick sits where a radio's dot does.
+  | {
+      kind: 'checkbox'
+      label: string
+      checked: boolean
+      onSelect: () => void
+      icon?: ReactNode
+      disabled?: boolean
+    }
   | {
       kind: 'submenu'
       label: string
@@ -63,7 +74,7 @@ type SubmenuItem = Extract<MenuItem, { kind: 'action' | 'radio' }>
 
 /** The rows a keyboard can land on. Labels and separators are skipped over. */
 function isFocusable(item: MenuItem): boolean {
-  return (item.kind === 'action' || item.kind === 'radio' || item.kind === 'submenu')
+  return (item.kind === 'action' || item.kind === 'radio' || item.kind === 'checkbox' || item.kind === 'submenu')
     && !('disabled' in item && item.disabled)
 }
 
@@ -360,8 +371,14 @@ export function ContextMenu({
               itemElements.current[index] = element
             }}
             type="button"
-            role={item.kind === 'radio' ? 'menuitemradio' : 'menuitem'}
-            aria-checked={item.kind === 'radio' ? item.checked : undefined}
+            role={
+              item.kind === 'radio'
+                ? 'menuitemradio'
+                : item.kind === 'checkbox'
+                  ? 'menuitemcheckbox'
+                  : 'menuitem'
+            }
+            aria-checked={item.kind === 'radio' || item.kind === 'checkbox' ? item.checked : undefined}
             className={
               destructive
                 ? 'context-menu-item context-menu-item--destructive'
@@ -393,6 +410,11 @@ export function ContextMenu({
             {item.kind === 'radio' && (
               <span className="context-menu-radio-indicator" aria-hidden="true">
                 {item.checked && <span className="context-menu-dot" />}
+              </span>
+            )}
+            {item.kind === 'checkbox' && (
+              <span className="context-menu-radio-indicator" aria-hidden="true">
+                {item.checked && <Check className="context-menu-check" />}
               </span>
             )}
           </button>

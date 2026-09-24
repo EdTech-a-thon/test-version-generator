@@ -17,6 +17,7 @@ import {
   type ExportFingerprint,
   type PageFingerprint,
   type Segment,
+  workSpaceLine,
 } from './export-fingerprint'
 import { child, descendants, parseXml, path, type XmlNode } from './xml'
 
@@ -263,9 +264,38 @@ function isSectionBreak(node: XmlNode): boolean {
   )
 }
 
+// The paragraph styles `docx-export.ts` gives a work space, and which kind each
+// one is. A run of them is one work space; its rules are the bordered ones.
+const WORK_SPACE_STYLES: Record<string, 'blank' | 'lines'> = {
+  WorkSpace: 'blank',
+  WorkSpaceLines: 'lines',
+}
+
+function paragraphStyleOf(paragraph: XmlNode): string | undefined {
+  const properties = child(paragraph, 'w:pPr')
+  return properties ? child(properties, 'w:pStyle')?.attrs['w:val'] : undefined
+}
+
 function blockLines(container: XmlNode, reader: Reader): ContentLine[] {
   const lines: ContentLine[] = []
+  const open: { space: { style: 'blank' | 'lines'; rules: number } | null } = { space: null }
+  const closeSpace = () => {
+    if (open.space) lines.push(workSpaceLine(open.space.style, open.space.rules))
+    open.space = null
+  }
   for (const node of container.children) {
+    const spaceStyle = node.name === 'w:p'
+      ? WORK_SPACE_STYLES[paragraphStyleOf(node) ?? '']
+      : undefined
+    if (spaceStyle) {
+      if (open.space?.style !== spaceStyle) {
+        closeSpace()
+        open.space = { style: spaceStyle, rules: 0 }
+      }
+      if (path(node, 'w:pPr', 'w:pBdr')) open.space!.rules += 1
+      continue
+    }
+    closeSpace()
     if (node.name === 'w:p') {
       if (isSectionBreak(node)) continue
       lines.push(paragraphLine(node, reader))
@@ -273,6 +303,7 @@ function blockLines(container: XmlNode, reader: Reader): ContentLine[] {
       lines.push(...tableLines(node, reader))
     }
   }
+  closeSpace()
   return lines
 }
 

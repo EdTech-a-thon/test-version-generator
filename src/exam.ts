@@ -97,6 +97,76 @@ export type Question = {
 export type Exam = {
   title: string
   questions: Question[]
+  /** Room left below Short Answer questions for a student's working, keyed by
+   *  question id. Exam presentation rather than Question Content: the same
+   *  Question may want a quarter page on one test and none on another. Absent
+   *  means no work space anywhere. */
+  workSpace?: Record<string, WorkSpace>
+}
+
+/** What a work space prints as: an empty area, or ruled writing lines. */
+export type WorkSpaceStyle = 'blank' | 'lines'
+
+/** The room a Short Answer question leaves below itself for a student's work.
+ *
+ *  `height` is in CSS pixels at 96dpi, the unit the Layout Plan packs in, and
+ *  is always a whole number of `WORK_SPACE_LINE_PITCH`s so that switching
+ *  between blank and lined never moves anything on the page. `fill` stretches
+ *  the space to the foot of whatever page the question lands on — `height` is
+ *  then the least room it takes, which is what decides whether the question
+ *  still fits on the page it is on. */
+export type WorkSpace = {
+  height: number
+  style: WorkSpaceStyle
+  fill: boolean
+}
+
+/** The distance between two ruled lines: a third of an inch, the wide-ruled
+ *  spacing a student's handwriting is comfortable in. Heights snap to it. */
+export const WORK_SPACE_LINE_PITCH = 32
+
+/** A question with no room for work: nothing prints below it. */
+export const NO_WORK_SPACE: WorkSpace = { height: 0, style: 'blank', fill: false }
+
+/** Whether a question of this type can leave room for work. Only Short Answer
+ *  asks the student to write anything longer than a letter. */
+export function takesWorkSpace(type: QuestionType): boolean {
+  return type === 'open'
+}
+
+/** A height snapped to whole ruled lines and kept within `[0, max]`. */
+export function snapWorkSpaceHeight(height: number, max = Infinity): number {
+  const lines = Math.round(Math.max(0, height) / WORK_SPACE_LINE_PITCH)
+  const limit = Math.floor(Math.max(0, max) / WORK_SPACE_LINE_PITCH)
+  return Math.min(lines, limit) * WORK_SPACE_LINE_PITCH
+}
+
+/** Whether a stored value is a work space this build can print. The single
+ *  guard, so storage and import agree on what a readable record is. */
+export function isWorkSpace(value: unknown): value is WorkSpace {
+  const space = value as WorkSpace | null
+  return (
+    typeof space === 'object'
+    && space !== null
+    && typeof space.height === 'number'
+    && Number.isFinite(space.height)
+    && space.height >= 0
+    && (space.style === 'blank' || space.style === 'lines')
+    && typeof space.fill === 'boolean'
+  )
+}
+
+/** A question's work space on this Exam. The one reader, so an Exam written
+ *  before work space existed, and a question no one has given any, both read
+ *  as none. */
+export function workSpaceOf(exam: Exam, questionId: string): WorkSpace {
+  const space = exam.workSpace?.[questionId]
+  return space && isWorkSpace(space) ? space : NO_WORK_SPACE
+}
+
+/** Whether a work space prints anything at all. */
+export function hasWorkSpace(space: WorkSpace): boolean {
+  return space.height > 0 || space.fill
 }
 
 export type Arrangement = {

@@ -34,9 +34,10 @@ import type {
   LayoutPlan,
   PageFurniture,
   PageItem,
+  PlannedWorkSpace,
   QuestionItem,
 } from './export-plan'
-import { DIFFICULTY_LABELS } from './exam'
+import { DIFFICULTY_LABELS, WORK_SPACE_LINE_PITCH } from './exam'
 import type { ProseMirrorJSON } from './question-doc'
 
 const PDF_MIME = 'application/pdf'
@@ -571,6 +572,33 @@ function drawChoiceGrid(context: DrawContext, grid: ChoiceGrid, x: number, width
   }
 }
 
+// A Short Answer question's work space: the plan's height, ruled at the plan's
+// pitch when it is lined. This adapter sets its text by its own metrics, which
+// can come out a little taller than the page it was planned against, so a work
+// space gives up whatever room that cost it rather than failing publication —
+// a space that fills its page reaches the foot of this one, not past it.
+function drawWorkSpace(
+  context: DrawContext,
+  space: PlannedWorkSpace,
+  x: number,
+  width: number,
+): void {
+  if (space.height <= 0) return
+  const height = Math.max(0, Math.min(pt(space.height), context.y - context.bottom))
+  const top = context.y
+  for (let rule = 1; rule <= space.lines; rule += 1) {
+    const y = top - pt(WORK_SPACE_LINE_PITCH) * rule
+    if (y < top - height - 0.01) break
+    context.page.drawLine({
+      start: { x, y },
+      end: { x: x + width, y },
+      thickness: 0.75,
+      color: RULE,
+    })
+  }
+  context.y = top - height
+}
+
 function drawQuestion(context: DrawContext, item: QuestionItem): void {
   const bodyX = context.x + QUESTION_INDENT
   const bodyWidth = context.width - QUESTION_INDENT
@@ -583,6 +611,11 @@ function drawQuestion(context: DrawContext, item: QuestionItem): void {
   }
   drawBlocks(context, item.stem, { x: bodyX, width: bodyWidth })
   if (item.grid) drawChoiceGrid(context, item.grid, bodyX, bodyWidth)
+  if (item.workSpace) {
+    drawWorkSpace(context, item.workSpace, bodyX, bodyWidth)
+    // Nothing follows a space that fills its page, so it keeps the foot.
+    if (item.workSpace.fill) return
+  }
   context.y -= 10
 }
 
