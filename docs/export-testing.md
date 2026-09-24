@@ -121,9 +121,18 @@ The implementations are:
 - `src/export-parity.test.ts` — each fixture through the plan, print-reference,
   and DOCX fingerprints, including deliberate degradation checks.
 - `src/docx-export.test.ts` — DOCX packaging, page sections, friendly names,
-  answer keys, links, media bytes, lists, and strict unresolved-media rejection.
+  answer keys, links, media bytes, lists, strict unresolved-media rejection,
+  and two drawing invariants over every fixture: no paragraph's hanging indent
+  starts it left of its container, and every table's grid columns are its
+  cells' widths.
 - `src/pdf-export.test.ts` — PDF pages, metadata, links, media, embedded fonts,
-  unsupported-character rejection, and overflow rejection.
+  unsupported-character rejection, overflow rejection, and every matching
+  prompt and Word Bank answer on its planned page.
+- `src/export-typography.test.ts` — one type scale (`src/export-typography.ts`)
+  held against print's stylesheet, the DOCX document defaults and heading
+  styles, the DOCX identity line's tab stops, and the PDF's drawn sizes.
+  Parity ignores size by design, so this is where a DOCX that falls back to
+  Word's own 10pt defaults fails.
 - `src/doc-view.test.ts` — authored whitespace in the read-only view.
 
 The Playwright suite covers the browser workflow and real IndexedDB behavior:
@@ -193,8 +202,10 @@ environment record. Successful comparisons remove disposable converter state.
 
 ## Adding a supported document node
 
-Add support in all four mappings — `doc-view.tsx`, `docx-export.ts`,
-`export-fingerprint.ts`, and `print-fingerprint.ts` — and add the smallest
-fixture to `src/export-fixtures.ts`. The parity suite asserts complete coverage
+Add support in all five mappings — `doc-view.tsx`, `docx-export.ts`,
+`pdf-export.ts`, `export-fingerprint.ts`, and `print-fingerprint.ts` — and add
+the smallest fixture to `src/export-fixtures.ts`. The PDF has no fingerprint of
+its own, so a node the PDF adapter skips passes parity; give it a text
+assertion in `src/pdf-export.test.ts`, as matching sets have. The parity suite asserts complete coverage
 of `SUPPORTED_NODES`, `SUPPORTED_MARKS`, Question Types, column settings, and
 page-header variants.

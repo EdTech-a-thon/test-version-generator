@@ -158,3 +158,76 @@ test('empty Exams cannot export and Cmd/Ctrl+P opens Export for non-empty Exams'
   await page.keyboard.press('ControlOrMeta+P')
   await expect(dialogOf(page)).toBeVisible()
 })
+
+test('a Short Answer question sits close to its number, and its Suggested Answer prints only in the key', async ({ page }) => {
+  const [mc, sa] = EXAM.questions
+  const withAnswer = {
+    ...sa!,
+    suggestedAnswer: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Because whales breathe air.' }] }] },
+  }
+  await open(page, { ...AUTHORING, questionBank: { questions: [mc!, withAnswer] } })
+
+  // On the sheet, a Short Answer question has no blank beside its number, so
+  // its text starts well short of where a Multiple Choice stem does.
+  const stemLeft = async (id: string) =>
+    (await page.locator(`.exam-workspace [data-question-id="${id}"] .question-stem`).boundingBox())!.x
+  expect(await stemLeft('o1')).toBeLessThan(await stemLeft('m1') - 40)
+
+  const dialog = await openDialog(page)
+  const [testPage, keyPage] = await dialog.getByLabel('Export Preview').locator('.exam-page').all()
+  await expect(testPage!).toContainText('Explain why.')
+  await expect(testPage!).not.toContainText('Because whales breathe air.')
+  await expect(keyPage!.locator('.answer-key-suggested')).toHaveText('Because whales breathe air.')
+})
+
+test('a matching set too long for one page continues on the next, its Word Bank on each, nothing clipped', async ({ page }) => {
+  const bank = ['noun', 'verb', 'adjective', 'adverb']
+  const long = {
+    id: 'x1',
+    type: 'matching' as const,
+    columns: 1 as const,
+    doc: {
+      type: 'doc',
+      content: [
+        { type: 'paragraph', content: [{ type: 'text', text: 'Match each word to its part of speech.' }] },
+        {
+          type: 'matching',
+          content: [
+            ...Array.from({ length: 40 }, (_unused, index) => ({
+              type: 'matchingPrompt',
+              attrs: { id: `x1-p${index + 1}`, answer: `x1-a${(index % 4) + 1}` },
+              content: [{ type: 'paragraph', content: [{ type: 'text', text: `vocabulary word ${index + 1}` }] }],
+            })),
+            ...bank.map((word, index) => ({
+              type: 'matchingAnswer',
+              attrs: { id: `x1-a${index + 1}` },
+              content: [{ type: 'paragraph', content: [{ type: 'text', text: word }] }],
+            })),
+          ],
+        },
+      ],
+    },
+  }
+  await open(page, {
+    questionBank: { questions: [long] },
+    workingCopy: { title: 'Vocabulary', questionIds: ['x1'] },
+    dirty: false,
+  })
+
+  const dialog = await openDialog(page)
+  const pages = dialog.getByLabel('Export Preview').locator('.exam-page:has(.matching-set)')
+  await expect(pages).toHaveCount(2)
+
+  // Every item prints once, in order, across the pages.
+  await expect(pages.locator('.matching-count')).toHaveText(
+    Array.from({ length: 40 }, (_unused, index) => `${index + 1}.`),
+  )
+  for (const sheet of await pages.all()) {
+    // Each page of items has the whole bank beside it.
+    await expect(sheet.locator('.matching-answer')).toHaveText(bank.map((word, index) => `${'ABCD'[index]}.${word}`))
+    // And every item ends above the footer: the sheet clips whatever runs past.
+    const footerTop = (await sheet.locator('.page-footer').boundingBox())!.y
+    const last = (await sheet.locator('.matching-prompt').last().boundingBox())!
+    expect(last.y + last.height).toBeLessThanOrEqual(footerTop)
+  }
+})

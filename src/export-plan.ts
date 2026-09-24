@@ -131,9 +131,9 @@ export type BankGrid = {
   cells: (PlannedBankAnswer | null)[][]
 }
 
-// A matching set as it prints. Drawn as one block and never split across
-// pages — a bank on a different page from its prompts is no use to a student.
-// A short bank prints beside the numbered prompts, in a column of its own to
+// A matching set as it prints. A bank on a different page from its prompts is
+// no use to a student, so a set too long for one page breaks only between its
+// prompts, and every piece prints the whole bank. A short bank prints beside the numbered prompts, in a column of its own to
 // their right; a long one prints above them in `bankGrid`, as the source tests
 // lay it out once it no longer fits down the side.
 export type MatchingSet = {
@@ -208,6 +208,9 @@ export type PlannedQuestion = {
    *  teacher identify and review the Questions without exposing it to students. */
   difficulty?: Difficulty
   topics?: string[]
+  /** A Short Answer question's Suggested Answer, as top-level blocks. Never
+   *  printed on the test; the Answer Key prints it under the question's line. */
+  suggestedAnswer?: ProseMirrorJSON[]
 }
 
 /** How many numbers a question takes on the test: one, or one per prompt for
@@ -256,7 +259,8 @@ export type QuestionItem = {
   numbered: boolean
   /** The choice grid, on the single piece that prints it. Never split. */
   grid: ChoiceGrid | null
-  /** The matching set, on the single piece that prints it. Never split. */
+  /** The matching set: this piece's run of prompts, with the whole Word Bank
+   *  on every piece of a set split across pages. */
   matching: MatchingSet | null
   /** A Short Answer question's work space, on its last piece — so the room
    *  for an answer always follows the whole question. `null` on every other
@@ -287,13 +291,15 @@ export type AnswerKeySectionItem = {
 // One line of the key: a question's number, its organizational metadata and,
 // for multiple choice, the correct letter under this arrangement's ordering.
 // `letter` is `null` for a free-response question — the key still gives it a
-// blank so the numbering lines up with the test.
+// blank so the numbering lines up with the test — and a Short Answer question
+// with a Suggested Answer prints that answer on the lines below its blank.
 export type AnswerKeyEntryItem = {
   kind: 'answer-key-entry'
   number: number
   letter: string | null
   difficulty?: Difficulty
   topics?: string[]
+  suggestedAnswer?: ProseMirrorJSON[]
 }
 
 // One thing that occupies vertical space on a page, in print order.
@@ -431,11 +437,25 @@ export const MAX_WORK_SPACE_HEIGHT =
 // The choice grid does not span the page's full content width: it renders
 // inside `.question-body`, the second column of `.exam-question`'s grid in
 // styles.css (`grid-template-columns: 92px 1fr; gap: 6px;`) — the number
-// column sits to its left. These two numbers are copied from that rule
-// because CSS can't be read from here at build time; if that rule's column
-// width or gap ever changes, this must change with it.
+// column sits to its left. These numbers are copied from that rule because
+// CSS can't be read from here at build time; if that rule's column width or
+// gap ever changes, this must change with it.
 const QUESTION_NUMBER_COLUMN_WIDTH = 92
 const QUESTION_NUMBER_COLUMN_GAP = 6
+// A Short Answer question has no answer blank to make room for, so its column
+// holds the number alone — `.question-number--compact` in styles.css, which
+// is wide enough for a three-digit number.
+const COMPACT_QUESTION_NUMBER_COLUMN_WIDTH = 34
+
+/** Where a question's body starts, in pixels from the content edge: past the
+ *  number column and its gap. Every adapter indents a question by this. */
+export function questionIndentOf(question: Pick<PlannedQuestion, 'type'>): number {
+  return (
+    (question.type === 'open'
+      ? COMPACT_QUESTION_NUMBER_COLUMN_WIDTH
+      : QUESTION_NUMBER_COLUMN_WIDTH) + QUESTION_NUMBER_COLUMN_GAP
+  )
+}
 
 /** The width a choice grid is actually laid out in — derived from
  *  `PAGE_CONTENT_WIDTH` so the two numbers cannot drift apart on their own. */
@@ -519,6 +539,17 @@ function deriveMatching(
   }
 }
 
+/** A question's Suggested Answer as top-level blocks, copied; none when it has
+ *  no answer or the answer holds only blank paragraphs. */
+function suggestedAnswerOf(question: Question): ProseMirrorJSON[] {
+  const content = question.suggestedAnswer?.content
+  if (!Array.isArray(content)) return []
+  const blocks = content as ProseMirrorJSON[]
+  const blank = (node: ProseMirrorJSON) =>
+    node.type === 'paragraph' && !(Array.isArray(node.content) && node.content.length > 0)
+  return blocks.every(blank) ? [] : structuredClone(blocks)
+}
+
 function deriveQuestion(
   exam: Exam,
   question: Question,
@@ -552,6 +583,9 @@ function deriveQuestion(
     workSpace: takesWorkSpace(question.type) ? workSpaceOf(exam, question.id) : null,
     ...(question.difficulty ? { difficulty: question.difficulty } : {}),
     ...(topicsOf(question).length > 0 ? { topics: [...topicsOf(question)] } : {}),
+    ...(question.type === 'open' && suggestedAnswerOf(question).length > 0
+      ? { suggestedAnswer: suggestedAnswerOf(question) }
+      : {}),
   }
 }
 
@@ -598,9 +632,8 @@ function wholeQuestion(question: PlannedQuestion): QuestionItem {
 // to the first stem block, so a split can never strand a bare number at the foot
 // of a page; then one part per remaining top-level block; then the choice grid
 // whole, since a grid is never split. A question with no stem at all is a
-// single part, so it moves rather than coming apart — and so is a matching
-// set, always: its stem is the set's directions, and directions on one page
-// with the items and Word Bank on the next is no matching set at all.
+// single part, so it moves rather than coming apart. A matching set has parts
+// of its own (see `matchingPartsOf`).
 type QuestionPart = {
   stem: ProseMirrorJSON[]
   numbered: boolean
@@ -614,14 +647,15 @@ type QuestionPart = {
 // before, is room nobody would think to use.
 function partsOf(question: PlannedQuestion): QuestionPart[] {
   const workSpace = question.workSpace ? plannedWorkSpace(question.workSpace) : null
+  if (question.matching) return matchingPartsOf(question, question.matching, workSpace)
   const [first, ...rest] = question.stem
-  if (first === undefined || question.matching) {
+  if (first === undefined) {
     return [
       {
         stem: question.stem,
         numbered: true,
         grid: question.grid,
-        matching: question.matching,
+        matching: null,
         workSpace,
       },
     ]
@@ -635,9 +669,31 @@ function partsOf(question: PlannedQuestion): QuestionPart[] {
   if (question.grid) {
     parts.push({ stem: [], numbered: false, grid: question.grid, matching: null, workSpace: null })
   }
-  if (question.matching) {
-    parts.push({ stem: [], numbered: false, grid: null, matching: question.matching, workSpace: null })
+  parts[parts.length - 1]!.workSpace = workSpace
+  return parts
+}
+
+// A matching set breaks only between its items: the directions glued to the
+// first, then one part per item after it. Each part carries the whole Word
+// Bank, so a set too long for one page continues on the next with its bank
+// printed again beside (or above) the items that page holds — items on a page
+// with no answers to match them against would be no matching set at all.
+function matchingPartsOf(
+  question: PlannedQuestion,
+  set: MatchingSet,
+  workSpace: PlannedWorkSpace | null,
+): QuestionPart[] {
+  const withPrompts = (prompts: PlannedPrompt[]): MatchingSet => ({ ...set, prompts })
+  if (set.prompts.length === 0) {
+    return [{ stem: question.stem, numbered: true, grid: question.grid, matching: set, workSpace }]
   }
+  const parts = set.prompts.map((prompt, index): QuestionPart => ({
+    stem: index === 0 ? question.stem : [],
+    numbered: index === 0,
+    grid: index === 0 ? question.grid : null,
+    matching: withPrompts([prompt]),
+    workSpace: null,
+  }))
   parts[parts.length - 1]!.workSpace = workSpace
   return parts
 }
@@ -647,13 +703,16 @@ function pieceOf(
   question: PlannedQuestion,
   parts: readonly QuestionPart[],
 ): QuestionItem {
+  const sets = parts.flatMap((part) => (part.matching ? [part.matching] : []))
   return {
     kind: 'question',
     question,
     stem: parts.flatMap((part) => part.stem),
     numbered: parts.some((part) => part.numbered),
     grid: parts.find((part) => part.grid !== null)?.grid ?? null,
-    matching: parts.find((part) => part.matching !== null)?.matching ?? null,
+    // A matching set's parts each hold some of its items and all of its bank.
+    matching:
+      sets.length === 0 ? null : { ...sets[0]!, prompts: sets.flatMap((set) => set.prompts) },
     workSpace: parts.find((part) => part.workSpace !== null)?.workSpace ?? null,
   }
 }
@@ -862,6 +921,9 @@ function deriveAnswerKey(testItems: readonly PageItem[]): PageItem[] {
       number: item.question.number,
       letter: item.question.choices.find((choice) => choice.correct)?.letter ?? null,
       ...metadata,
+      ...(item.question.suggestedAnswer
+        ? { suggestedAnswer: item.question.suggestedAnswer }
+        : {}),
     })
   }
   return items

@@ -339,6 +339,39 @@ export const FIXTURES: readonly Fixture[] = [
     arrangement(['x2']),
   ),
 
+  // Too many items for one page at any real size: the set breaks between its
+  // items and every piece prints the whole Word Bank again.
+  fixture(
+    'a matching set too long for one page, its word bank on every piece',
+    {
+      title: 'Vocabulary',
+      questions: [
+        matching(
+          'x3',
+          [paragraph(text('Match each word to its part of speech.'))],
+          Array.from({ length: 40 }, (_unused, index) =>
+            prompt(`x3-p${index + 1}`, `x3-a${(index % 4) + 1}`, paragraph(text(`vocabulary word ${index + 1}`))),
+          ),
+          [
+            bankAnswer('x3-a1', paragraph(text('noun'))),
+            bankAnswer('x3-a2', paragraph(text('verb'))),
+            bankAnswer('x3-a3', paragraph(text('adjective'))),
+            bankAnswer('x3-a4', paragraph(text('adverb'))),
+          ],
+        ),
+      ],
+    },
+    arrangement(['x3']),
+    {
+      measure: {
+        itemHeight: (item) =>
+          item.kind === 'question'
+            ? item.stem.length * 30 + (item.matching ? item.matching.prompts.length * 32 + 120 : 0)
+            : 40,
+      },
+    },
+  ),
+
   fixture(
     'all four sections on one paper',
     {
@@ -598,6 +631,32 @@ export const FIXTURES: readonly Fixture[] = [
       ],
     },
     arrangement(['o1']),
+    { images: true },
+  ),
+
+  // A picture belongs to the column its block sits in: past a Multiple Choice
+  // question's blank and number, and past a choice's letter.
+  fixture(
+    'pictures in a multiple-choice stem and choice',
+    {
+      title: 'Apparatus',
+      questions: [
+        multipleChoice(
+          'm1',
+          2,
+          [
+            paragraph(text('Which piece of glassware is shown?')),
+            { type: 'image-block', attrs: { src: `/local-images/${'d'.repeat(64)}`, caption: '', ratio: 1 } },
+            { type: 'image', attrs: { src: `/local-images/${'e'.repeat(64)}`, alt: 'flask' } },
+          ],
+          [
+            choice('m1-c1', true, { type: 'image', attrs: { src: `/local-images/${'f'.repeat(64)}`, alt: 'beaker' } }),
+            choice('m1-c2', false, paragraph(text('A burette'))),
+          ],
+        ),
+      ],
+    },
+    arrangement(['m1']),
     { images: true },
   ),
 
@@ -869,6 +928,28 @@ export const FIXTURES: readonly Fixture[] = [
     },
     arrangement(['o1', 'o2', 'o3', 'o4']),
     { measure: stubHeights({ o1: 200, o2: 150, o3: 100, o4: 100 }) },
+  ),
+
+  fixture(
+    'a Short Answer question with its Suggested Answer in the key',
+    {
+      title: 'Suggested answers',
+      questions: [
+        {
+          ...open('o1', paragraph(text('Why do leaves change colour?'))),
+          suggestedAnswer: {
+            type: 'doc',
+            content: [
+              paragraph(text('Chlorophyll breaks down, ')),
+              paragraph(text('revealing ', ), text('carotenoids', mark('strong')), text('.')),
+            ],
+          },
+        },
+        open('o2', paragraph(text('A question with no answer given.'))),
+      ],
+    },
+    arrangement(['o1', 'o2']),
+    { answerKey: true },
   ),
 
   fixture(

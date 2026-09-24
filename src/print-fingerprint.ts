@@ -179,7 +179,10 @@ function blockLines(
   if (has(node, 'answer-key-entry')) {
     const answer = find(node, 'answer-key-answer')
     const metadata = find(node, 'answer-key-metadata')
-    const number = node.children.find((child) => child !== answer && child !== metadata)
+    const suggested = find(node, 'answer-key-suggested')
+    const number = node.children.find(
+      (child) => child !== answer && child !== metadata && child !== suggested,
+    )
     const letter = answer ? normalizeSpace(textOf(answer)).trim() : ''
     const metadataText = metadata
       ? metadata.children
@@ -202,6 +205,8 @@ function blockLines(
             : []),
         ]),
       ),
+      // A Suggested Answer is ordinary content on the lines below.
+      ...(suggested ? childBlocks(suggested, reader) : []),
     ]
   }
   // A matching set's prompt opens with its blank and number, and a Word Bank

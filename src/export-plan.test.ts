@@ -15,6 +15,7 @@ import {
   numberLabelOf,
   planExport,
   printsNumberLine,
+  questionIndentOf,
   unmeasured,
   STUDENT_TEST,
   type ColumnCount,
@@ -27,6 +28,7 @@ import {
 } from './export-plan'
 import { DEFAULT_COLUMNS, type Exam, type Question, type Arrangement } from './exam'
 import type { ProseMirrorJSON } from './question-doc'
+import { exportDocumentFingerprint } from './export-fingerprint'
 
 function choice(id: string, correct = false): ProseMirrorJSON {
   return {
@@ -598,6 +600,12 @@ describe('answer columns', () => {
 // numbers below are chosen against the real content boxes so the assertions
 // stay honest if the page furniture is ever resized.
 describe('page geometry', () => {
+  test('a Short Answer question’s body starts nearer its number, having no blank beside it', () => {
+    expect(questionIndentOf({ type: 'open' })).toBe(40)
+    expect(questionIndentOf({ type: 'multiple-choice' })).toBe(98)
+    expect(questionIndentOf({ type: 'true-false' })).toBe(98)
+  })
+
   test('is US Letter at 96dpi with three-quarter-inch margins', () => {
     expect([PAGE_WIDTH, PAGE_HEIGHT]).toEqual([816, 1056])
     expect(PAGE_MARGIN).toBe(72)
@@ -694,6 +702,29 @@ describe('answer key', () => {
       { kind: 'answer-key-entry', number: 2, letter: 'A' },
       { kind: 'answer-key-entry', number: 3, letter: null },
     ])
+  })
+
+  test('prints a Short Answer question’s Suggested Answer under its blank, never on the test', () => {
+    const answer = [{ type: 'paragraph', content: [{ type: 'text', text: 'Chlorophyll breaks down.' }] }]
+    const exam = examOf([
+      { ...open('o1'), suggestedAnswer: { type: 'doc', content: answer } },
+      // A blank answer is no answer: the key gives the question its line alone.
+      { ...open('o2'), suggestedAnswer: { type: 'doc', content: [{ type: 'paragraph' }] } },
+    ])
+    const pages = planPages(exam, arrangementOf(['o1', 'o2']), unmeasured)
+    const entries = pages
+      .filter((page) => isAnswerKeyHeader(page.header))
+      .flatMap((page) => page.items)
+      .filter((item) => item.kind === 'answer-key-entry')
+    expect(entries).toEqual([
+      { kind: 'answer-key-entry', number: 1, letter: null, suggestedAnswer: answer },
+      { kind: 'answer-key-entry', number: 2, letter: null },
+    ])
+    const printed = exportDocumentFingerprint(
+      buildExportDocument(exam, arrangementOf(['o1', 'o2']), STUDENT_TEST),
+    )
+    expect(printed.test.join('\n')).not.toContain('Chlorophyll')
+    expect(printed.answerKey).toContain('para Chlorophyll breaks down.')
   })
 
   test('lists free-response questions with a blank answer', () => {
@@ -1014,27 +1045,54 @@ describe('page packing', () => {
     expect(set.matching).not.toBeNull()
   })
 
-  test('a matching set taller than a page is still not split', () => {
-    const pages = testPages(planPages(
-      examOf([tallChoice('m1', 1), tallSet('x1', 2)]),
-      arrangementOf(['m1', 'x1']),
-      {
-        itemHeight: (item) => {
-          if (item.kind !== 'question') return 40
-          if (item.question.id === 'm1') return 100
-          return item.stem.length * 100 + (item.matching ? FIRST_BOX + 100 : 0)
-        },
+  // A set too long for any page used to overflow its page whole, and print
+  // clipped whatever ran past the foot. It breaks between its items instead,
+  // and every piece carries the whole Word Bank, so no page of items is left
+  // without the answers it is matched against.
+  describe('a matching set taller than a page', () => {
+    const bank = ['a1', 'a2', 'a3', 'a4']
+    const long = matching('x1', Array.from({ length: 30 }, () => 'a1'), bank)
+    // 100px an item, 200px for the bank beside them, 60px a stem block.
+    const measure = {
+      itemHeight: (item: PageItem) => {
+        if (item.kind !== 'question') return 40
+        return item.stem.length * 60 + (item.matching ? item.matching.prompts.length * 100 + 200 : 0)
       },
-    ))
-    // The Matching heading goes with its set rather than staying under the
-    // multiple-choice question, and the set overflows its page whole.
-    expect(pageShape(pages)).toEqual([
-      ['section-heading', 'q:m1'],
-      ['section-heading', 'q:x1'],
-    ])
-    const set = questionItems(pages).find((item) => item.question.id === 'x1')!
-    expect(set.stem).toHaveLength(2)
-    expect(set.matching).not.toBeNull()
+    }
+    const pages = testPages(planPages(examOf([long]), arrangementOf(['x1']), measure))
+    const pieces = questionItems(pages)
+
+    test('breaks between its items onto as many pages as it needs', () => {
+      expect(pieces.length).toBeGreaterThan(1)
+      expect(pieces.map((piece) => piece.question.id).every((id) => id === 'x1')).toBe(true)
+      // Every item exactly once, in order.
+      expect(pieces.flatMap((piece) => piece.matching!.prompts.map((prompt) => prompt.number))).toEqual(
+        Array.from({ length: 30 }, (_unused, index) => index + 1),
+      )
+    })
+
+    test('fits every piece on its page', () => {
+      for (const page of pages) {
+        const used = page.items.reduce((sum, item) => sum + measure.itemHeight(item), 0)
+        expect(used).toBeLessThanOrEqual(pageContentHeight(page.header))
+      }
+    })
+
+    test('prints the whole Word Bank with every piece', () => {
+      for (const piece of pieces) {
+        expect(piece.matching!.bank.map((answer) => answer.id)).toEqual(pieces[0]!.matching!.bank.map((answer) => answer.id))
+        expect(piece.matching!.bank).toHaveLength(bank.length)
+      }
+    })
+
+    test('keeps its directions with its first items, and only there', () => {
+      expect(pieces[0]!.stem).toHaveLength(1)
+      expect(pieces[0]!.numbered).toBe(true)
+      for (const piece of pieces.slice(1)) {
+        expect(piece.stem).toEqual([])
+        expect(piece.numbered).toBe(false)
+      }
+    })
   })
 
   test('the header variant is first on page one and later on every page after', () => {

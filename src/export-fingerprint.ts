@@ -563,6 +563,7 @@ export function planItemLines(
               : []),
           ]),
         ),
+        ...(item.suggestedAnswer ? planBlocks(item.suggestedAnswer, {}, images) : []),
       ]
     }
     default: {
