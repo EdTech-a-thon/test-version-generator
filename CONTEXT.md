@@ -36,6 +36,10 @@ _Avoid_: Exam layout, test JSON
 A versioned bundle of one or more Question Bank Records and any number of Exam Records that reference Questions in them, versioned separately from both. It travels as a standalone JSON file or embedded in an exported Exam PDF whose Content Selection includes the answer key; importing it lets the teacher choose which banks and Exams to bring in.
 _Avoid_: Import package, bundle, transfer file
 
+**Account Backup**:
+One file holding everything Test Parrot keeps in a browser: every Exam, Question Bank, Working Copy, Export History, Media Asset and preference. Restoring one replaces the browser's whole account rather than merging into it; it is refused when it comes from a storage generation this version cannot read.
+_Avoid_: Export, Question Bank File, archive
+
 **Difficulty**:
 An optional classification of a question as easy, medium, or hard.
 

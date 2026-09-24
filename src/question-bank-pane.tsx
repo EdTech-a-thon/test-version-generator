@@ -31,6 +31,9 @@ import { createPortal } from 'react-dom'
 import { ArrowDownAZ, Check, CircleMinus, Pencil, Plus, Search, Upload } from 'lucide-react'
 import { DifficultyBadge, TopicBadge } from './badges'
 import type { MenuPoint } from './context-menu'
+import { QuestionBankOutline } from './question-bank-outline'
+import { QuestionReading } from './question-reading'
+import { readingOfQuestion } from './question-reading-content'
 import { stemPreview, type StemPreviewBadge } from './stem-preview'
 import {
   DIFFICULTIES,
@@ -230,6 +233,7 @@ const SORT_OPTIONS: readonly FilterOption<QuestionBankSort>[] = [
 
 export function QuestionBankPane({
   bank,
+  layout = 'rows',
   heading,
   extraActions,
   workingCopyIds,
@@ -248,6 +252,11 @@ export function QuestionBankPane({
   drag,
 }: {
   bank: QuestionBank
+  /** `rows` is the compact table beside the Working Copy. `page` is the
+   *  Question Bank page, where the bank is the whole screen: each Question is
+   *  read in full, as the import dialog previews a bank, and a click opens
+   *  it in the Question editor. */
+  layout?: 'rows' | 'page'
   /** What names the bank above the filters. The Exam editor's pane says which
    *  pane this is; the Question Bank page hands in its own editable name,
    *  which is already the page's title and leaves no room for a second one. */
@@ -415,140 +424,85 @@ export function QuestionBankPane({
     },
   })
 
-  return (
-    <section
-      className="question-bank"
-      aria-label="Question Bank"
-      // The rule under the toolbar is drawn only while there is something
-      // above it to have scrolled past.
-      data-scrolled={scrolled ? 'true' : undefined}
-      onClick={(event) => {
-        const target = event.target as HTMLElement
-        if (!target.closest('.question-bank-row, button, input, select, a')) {
-          onClearSelection()
-        }
-      }}
-      onKeyDown={(event) => {
-        if (event.key === 'Escape') onClearSelection()
-      }}
-    >
-      {/* What the bank is, what you can do to it, and what is currently hidden
-          are all answers to questions you ask while looking at the list, so
-          they stay outside the scroll area rather than sticking to the top of
-          it: the list of questions is the only thing that scrolls, and the
-          scrollbar is as tall as the list rather than as tall as the pane. */}
-      <div className="question-bank-toolbar">
-        <header className="question-bank-header">
-          {heading ?? <h2>Question Bank</h2>}
-          <div className="question-bank-header-actions">
-            {extraActions}
-            {onExport && <button
-              type="button"
-              className="toolbar-icon-button"
-              aria-label="Export Question Bank"
-              title="Export Question Bank"
-              aria-haspopup="dialog"
-              aria-describedby={bank.questions.length === 0 ? 'empty-bank-export-help' : exportBlocked ? 'editing-bank-export-help' : undefined}
-              disabled={bank.questions.length === 0 || exportBlocked}
-              onClick={onExport}
-            >
-              <Upload aria-hidden="true" />
-            </button>}
-            {onCreate && <button
-              type="button"
-              className="toolbar-icon-button"
-              aria-label="Add Question"
-              title="Add Question"
-              aria-haspopup="menu"
-              onClick={(event) => {
-                // Below the button and aligned with it, so the list of types
-                // reads as belonging to the control that asked for it.
-                const bounds = event.currentTarget.getBoundingClientRect()
-                onCreate({ x: bounds.left, y: bounds.bottom + 4 })
-              }}
-            >
-              <Plus aria-hidden="true" />
-            </button>}
-            {onExport && bank.questions.length === 0 && <span id="empty-bank-export-help" className="sr-only">At least one Question is required.</span>}
-            {onExport && exportBlocked && <span id="editing-bank-export-help" className="sr-only">Save or cancel the open Question edit before exporting.</span>}
-          </div>
-        </header>
-
-        <div className="question-bank-filters">
-          <div className="bank-search">
-            <Search aria-hidden="true" />
-            <input
-              type="search"
-              aria-label="Search question stems"
-              placeholder="Search questions"
-              value={filter.search}
-              onChange={(event) => onFilterChange({ ...filter, search: event.target.value })}
-            />
-          </div>
-          <FilterDropdown
-            label="Question Type"
-            options={TYPE_OPTIONS}
-            selected={filter.types}
-            emptyMessage="No Question Types"
-            onChange={(types) => onFilterChange({ ...filter, types })}
+  const filterBar = (
+      <div className="question-bank-filters">
+        <div className="bank-search">
+          <Search aria-hidden="true" />
+          <input
+            type="search"
+            aria-label="Search question stems"
+            placeholder="Search questions"
+            value={filter.search}
+            onChange={(event) => onFilterChange({ ...filter, search: event.target.value })}
           />
-          <FilterDropdown
-            label="Difficulty"
-            options={DIFFICULTY_OPTIONS}
-            selected={filter.difficulties}
-            emptyMessage="No Difficulties"
-            onChange={(difficulties) => onFilterChange({ ...filter, difficulties })}
-          />
-          {/* The Topics actually in the bank, exactly as they were typed. There is
-              no vocabulary to offer beyond what the teacher has already used. */}
-          <FilterDropdown
-            label="Topic"
-            options={topicOptions(bank).map((topic) => ({ value: topic, label: topic }))}
-            selected={filter.topics}
-            emptyMessage="No Topics yet"
-            onChange={(topics) => onFilterChange({ ...filter, topics })}
-          />
-          <label className="bank-sort">
-            <ArrowDownAZ aria-hidden="true" />
-            <span className="sr-only">Sort Questions</span>
-            <select
-              aria-label="Sort Questions"
-              value={filter.sort ?? 'newest'}
-              onChange={(event) => onFilterChange({
-                ...filter,
-                sort: event.target.value as QuestionBankSort,
-              })}
-            >
-              {SORT_OPTIONS.map((option) => (
-                <option value={option.value} key={option.value}>{option.label}</option>
-              ))}
-            </select>
-          </label>
-          {onAddManyToWorkingCopy && (
-            <button
-              type="button"
-              className="bank-add-all"
-              title={filtered ? 'Add all matching questions to the exam' : 'Add all questions to the exam'}
-              disabled={addableQuestions.length === 0}
-              onClick={() => onAddManyToWorkingCopy(addableQuestions.map(({ id }) => id))}
-            >
-              <Plus aria-hidden="true" />
-              Add all
-            </button>
-          )}
-          {filtered && (
-            <button
-              type="button"
-              className="bank-filter-clear"
-              onClick={() => onFilterChange({ ...NO_FILTER, sort: filter.sort ?? 'newest' })}
-            >
-              Clear filters
-            </button>
-          )}
         </div>
+        {/* The page's outline chooses a type and a topic; only the pane beside
+            the Working Copy, which has no outline, needs them as lists. */}
+        {layout === 'rows' && <FilterDropdown
+          label="Question Type"
+          options={TYPE_OPTIONS}
+          selected={filter.types}
+          emptyMessage="No Question Types"
+          onChange={(types) => onFilterChange({ ...filter, types })}
+        />}
+        <FilterDropdown
+          label="Difficulty"
+          options={DIFFICULTY_OPTIONS}
+          selected={filter.difficulties}
+          emptyMessage="No Difficulties"
+          onChange={(difficulties) => onFilterChange({ ...filter, difficulties })}
+        />
+        {/* The Topics actually in the bank, exactly as they were typed. There is
+            no vocabulary to offer beyond what the teacher has already used. */}
+        {layout === 'rows' && <FilterDropdown
+          label="Topic"
+          options={topicOptions(bank).map((topic) => ({ value: topic, label: topic }))}
+          selected={filter.topics}
+          emptyMessage="No Topics yet"
+          onChange={(topics) => onFilterChange({ ...filter, topics })}
+        />}
+        <label className="bank-sort">
+          <ArrowDownAZ aria-hidden="true" />
+          <span className="sr-only">Sort Questions</span>
+          <select
+            aria-label="Sort Questions"
+            value={filter.sort ?? 'newest'}
+            onChange={(event) => onFilterChange({
+              ...filter,
+              sort: event.target.value as QuestionBankSort,
+            })}
+          >
+            {SORT_OPTIONS.map((option) => (
+              <option value={option.value} key={option.value}>{option.label}</option>
+            ))}
+          </select>
+        </label>
+        {onAddManyToWorkingCopy && (
+          <button
+            type="button"
+            className="bank-add-all"
+            title={filtered ? 'Add all matching questions to the exam' : 'Add all questions to the exam'}
+            disabled={addableQuestions.length === 0}
+            onClick={() => onAddManyToWorkingCopy(addableQuestions.map(({ id }) => id))}
+          >
+            <Plus aria-hidden="true" />
+            Add all
+          </button>
+        )}
+        {filtered && (
+          <button
+            type="button"
+            className="bank-filter-clear"
+            onClick={() => onFilterChange({ ...NO_FILTER, sort: filter.sort ?? 'newest' })}
+          >
+            Clear filters
+          </button>
+        )}
       </div>
+  )
 
-      {questions.length === 0 ? (
+  const list = (
+      questions.length === 0 ? (
         // Two different nothings: a bank nobody has written into yet, and a
         // bank whose questions are all behind the current search.
         filtered ? (
@@ -558,10 +512,54 @@ export function QuestionBankPane({
           </p>
         ) : (
           <p className="question-bank-empty" data-empty="no-questions">
-            No questions yet. Add Question writes one into the bank without
-            putting it on the Exam.
+            {layout === 'page'
+              ? 'No questions yet. New question writes the first one into this bank.'
+              : 'No questions yet. Add Question writes one into the bank without putting it on the Exam.'}
           </p>
         )
+      ) : layout === 'page' ? (
+        <div
+          className="question-bank-reading-lane"
+          onScroll={(event) => setScrolled(event.currentTarget.scrollTop > 0)}
+        >
+          <ul className="question-bank-reading" aria-label="Questions">
+            {questions.map((question) => {
+              const name = stemPreview(question).text || UNTITLED
+              return (
+                <li
+                  className="question-reading question-bank-reading-item"
+                  key={question.id}
+                  data-question-id={question.id}
+                  tabIndex={0}
+                  // The whole Question is the target: reading it and opening
+                  // it to change it are the only two things done here.
+                  onClick={() => onEdit(question.id)}
+                  onKeyDown={(event) => {
+                    if (event.key !== 'Enter' || event.target !== event.currentTarget) return
+                    event.preventDefault()
+                    onEdit(question.id)
+                  }}
+                >
+                  <QuestionReading
+                    content={readingOfQuestion(question)}
+                    aside={<button
+                      type="button"
+                      className="toolbar-icon-button question-bank-reading-edit"
+                      aria-label={`Edit ${name}`}
+                      title="Edit"
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        onEdit(question.id)
+                      }}
+                    >
+                      <Pencil aria-hidden="true" />
+                    </button>}
+                  />
+                </li>
+              )
+            })}
+          </ul>
+        </div>
       ) : (
         <ul
           className="question-bank-list"
@@ -686,7 +684,85 @@ export function QuestionBankPane({
             )
           })}
         </ul>
-      )}
+      )
+  )
+
+  return (
+    <section
+      className="question-bank"
+      aria-label="Question Bank"
+      // The rule under the toolbar is drawn only while there is something
+      // above it to have scrolled past.
+      data-scrolled={scrolled ? 'true' : undefined}
+      onClick={(event) => {
+        const target = event.target as HTMLElement
+        if (!target.closest('.question-bank-row, button, input, select, a')) {
+          onClearSelection()
+        }
+      }}
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') onClearSelection()
+      }}
+    >
+      {/* What the bank is, what you can do to it, and what is currently hidden
+          are all answers to questions you ask while looking at the list, so
+          they stay outside the scroll area rather than sticking to the top of
+          it: the list of questions is the only thing that scrolls, and the
+          scrollbar is as tall as the list rather than as tall as the pane. */}
+      <div className="question-bank-toolbar">
+        <header className="question-bank-header">
+          {heading ?? <h2>Question Bank</h2>}
+          <div className="question-bank-header-actions">
+            {extraActions}
+            {onExport && <button
+              type="button"
+              className={layout === 'page' ? 'secondary-button' : 'toolbar-icon-button'}
+              aria-label="Export Question Bank"
+              title="Export Question Bank"
+              aria-haspopup="dialog"
+              aria-describedby={bank.questions.length === 0 ? 'empty-bank-export-help' : exportBlocked ? 'editing-bank-export-help' : undefined}
+              disabled={bank.questions.length === 0 || exportBlocked}
+              onClick={onExport}
+            >
+              <Upload aria-hidden="true" />
+              {layout === 'page' && 'Export'}
+            </button>}
+            {onCreate && <button
+              type="button"
+              className={layout === 'page' ? 'primary-button' : 'toolbar-icon-button'}
+              aria-label={layout === 'page' ? undefined : 'Add Question'}
+              title={layout === 'page' ? undefined : 'Add Question'}
+              aria-haspopup="menu"
+              onClick={(event) => {
+                // Below the button and aligned with it, so the list of types
+                // reads as belonging to the control that asked for it.
+                const bounds = event.currentTarget.getBoundingClientRect()
+                onCreate({ x: bounds.left, y: bounds.bottom + 4 })
+              }}
+            >
+              <Plus aria-hidden="true" />
+              {layout === 'page' && 'New question'}
+            </button>}
+            {onExport && bank.questions.length === 0 && <span id="empty-bank-export-help" className="sr-only">At least one Question is required.</span>}
+            {onExport && exportBlocked && <span id="editing-bank-export-help" className="sr-only">Save or cancel the open Question edit before exporting.</span>}
+          </div>
+        </header>
+        {layout === 'rows' && filterBar}
+      </div>
+
+      {layout === 'page' ? (
+        <div className="bank-page-body">
+          <QuestionBankOutline
+            questions={browseQuestionBank(bank, { ...NO_FILTER, sort: filter.sort })}
+            filter={filter}
+            onFilterChange={onFilterChange}
+          />
+          <div className="bank-page-column">
+            {filterBar}
+            {list}
+          </div>
+        </div>
+      ) : list}
     </section>
   )
 }
