@@ -789,7 +789,7 @@ export function QuestionBankImportDialog({
                 </dl>
 
                 <section className="bank-import-uses">
-                  <h4>{exam.banks.length === 1 ? 'Question Bank' : 'Question Banks'} it draws on</h4>
+                  <h4>Questions from</h4>
                   {exam.banks.map((id) => (
                     <TabLink
                       key={id}
