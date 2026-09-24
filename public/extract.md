@@ -1,24 +1,21 @@
-# Extract a Test Parrot Question Bank
+# Convert questions into a Test Parrot Package
 
 Use these instructions to convert questions from a PDF, image, scan, screenshot, document, or plain text into a JSON file that a user can import into Test Parrot.
 
 ## Required result
 
-First decide what the source is:
+Always create one complete UTF-8 JSON file using the **Test Parrot Package `0.1.0`** format. Name the downloaded file:
 
-- **A test** — an exam, quiz, worksheet or any paper a student sits, with its questions in a printed order. Create one complete UTF-8 JSON file using the **Test Parrot Package `0.1.0`** format, holding one Question Bank Record `0.3.0` with the test's Questions and one Exam Record `0.1.0` that lays them out as the test does (see [Tests](#tests)). Name the downloaded file:
+```text
+<short-name>.parrot.json
+```
 
-  ```text
-  <short-test-name>.parrot.json
-  ```
+A package always holds exactly one Question Bank Record `0.3.0` with every converted Question. What else goes in it depends on the source, so triage it first:
 
-- **A list of questions** that is not laid out as a test — a question pool, a study list, a bank exported from elsewhere. Create one complete UTF-8 JSON file using the **Test Parrot Question Bank Record `0.3.0`** format alone. Name the downloaded file:
+- **The source is a test** — an exam, quiz, worksheet or any paper a student sits, with its questions in a printed order: also add one Exam Record `0.1.0` that lays the Questions out as the test does (see [Tests](#tests)).
+- **The source is only questions** — a question pool, a study list, a bank exported from elsewhere, anything not laid out as one paper: add no Exam. `exams` is an empty array.
 
-  ```text
-  <short-bank-name>.question-bank.json
-  ```
-
-When unsure, ask the user. Everything below about Questions applies to both: a package's bank is an ordinary Question Bank Record.
+When it is unclear whether the source is a test, ask the user; if you cannot ask, add no Exam and say so in the report. Never invent an Exam the source does not show. Everything below about Questions applies either way: the package's bank is an ordinary Question Bank Record.
 
 When finished:
 
@@ -41,9 +38,10 @@ Use these resources as the source of truth:
 - [Provenance and links example](./formats/question-bank/0.3.0/examples/provenance-and-links.json)
 - [Media-rich example](./formats/question-bank/0.3.0/examples/media-rich.json)
 - [Test Parrot Package JSON Schema](./formats/package/0.1.0/schema.json) and [Exam Record JSON Schema](./formats/exam/0.1.0/schema.json)
-- [Package example: a test with its bank and Exam](./formats/package/0.1.0/examples/bank-and-exam.json)
+- [Package example: a test, with its bank and Exam](./formats/package/0.1.0/examples/bank-and-exam.json)
+- [Package example: questions only, with a bank and no Exam](./formats/package/0.1.0/examples/bank-only.json)
 
-The required top-level shape is:
+The Question Bank Record inside the package has this top-level shape:
 
 ```json
 {
@@ -64,9 +62,9 @@ The required top-level shape is:
 
 Do not add application database IDs, local paths, timestamps, page numbers, layout coordinates, OCR confidence, or conversational notes to the record. A test's layout belongs in its Exam Record, and only in the members that format defines.
 
-## Tests
+## The package
 
-When the source is a test, wrap its Question Bank Record in a package with one Exam:
+The file itself is the package, with the Question Bank Record under `questionBanks`. For questions only, `exams` is `[]`. For a test, it holds one Exam:
 
 ```json
 {
@@ -93,6 +91,10 @@ When the source is a test, wrap its Question Bank Record in a package with one E
   ]
 }
 ```
+
+## Tests
+
+When triage says the source is a test:
 
 - Name the bank after the subject or unit, and name the Exam after the test's own title as printed.
 - Give the Exam one position for every converted Question, in printed order, each naming `"bank": "bank"` and that Question's ID. Use each Question exactly once. An unconverted question gets no position.
@@ -149,6 +151,7 @@ Perform a second pass against the original source and verify all of the followin
 - every Media Asset is referenced;
 - for a test, the Exam has one position per converted Question, in printed order, each naming an existing Question ID in the package's bank, and no Question twice;
 - for a test, every `columns` value reflects a layout the source makes clear, sits only on a Multiple Choice position, and no position has `workSpace`;
+- the file is a Test Parrot Package with exactly one Question Bank Record, and it holds an Exam only if the source is a test;
 - the final JSON passes the public schema and semantic rules.
 
 If any check fails, fix the record or disclose the precise limitation. Never say the extraction is complete when it is not.
@@ -642,7 +645,7 @@ Include only information explicitly present in the source or supplied by the use
 
 ## Final validation and delivery
 
-Validate the final record against the [public JSON Schema](./formats/question-bank/0.3.0/schema.json). For a test, also validate the package against the [package schema](./formats/package/0.1.0/schema.json) and its Exam against the [Exam Record schema](./formats/exam/0.1.0/schema.json). Schema validation alone is not sufficient: also verify Question cardinality, unique IDs, that every matching `answer` names an ID in the same Question's `wordBank`, safe links, resolved media references, and decoded image properties.
+Validate the package against the [package schema](./formats/package/0.1.0/schema.json), its Question Bank Record against the [Question Bank Record schema](./formats/question-bank/0.3.0/schema.json), and any Exam against the [Exam Record schema](./formats/exam/0.1.0/schema.json). Schema validation alone is not sufficient: also verify Question cardinality, unique IDs, that every matching `answer` names an ID in the same Question's `wordBank`, safe links, resolved media references, and decoded image properties.
 
 Relevant import limits include:
 
@@ -655,14 +658,14 @@ Relevant import limits include:
 - rich-text depth of 50;
 - maximum image dimensions of 20,000 by 20,000 pixels.
 
-Deliver exactly one complete file: a `.parrot.json` package for a test, or a `.question-bank.json` record for a list of questions. Then tell the user:
+Deliver exactly one complete `.parrot.json` file. Then tell the user:
 
 > Download the JSON file, open [testparrot.com](https://testparrot.com), and drag the file into Test Parrot to import it.
 
 Also include a concise conversion report containing:
 
 - source pages/images inspected;
-- whether the source was treated as a test (a package with an Exam) or a list of questions, and for a test which Multiple Choice positions were given `columns`;
+- whether triage treated the source as a test (the package has an Exam) or as questions only (no Exam), and for a test which Multiple Choice positions were given `columns`;
 - total Questions converted;
 - counts by Question Type (a matching set is one Question; also give its item count);
 - whether answer correctness was supplied or left incomplete;
