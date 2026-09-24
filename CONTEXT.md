@@ -78,7 +78,7 @@ _Avoid_: Swap, substitute
 To permanently remove Question Content from its Question Bank, every Exam that references it, and their Working Copies. Deletion requires showing the affected Exams and explicit confirmation; existing Export Records remain unchanged.
 
 **Question Type**:
-What a Question asks for, settled when it is created and never changed afterwards: Multiple Choice, True/False, Matching, or Short Answer. It decides the Question Section the Question prints in, the directions printed above it, and what its Answer Key entry records.
+What a Question asks for, settled when it is created and never changed afterwards: Multiple Choice, True/False, Matching, Short Answer, or Stimulus. It decides the Question Section the Question prints in, the directions printed above it, and what its Answer Key entry records.
 _Avoid_: Question format, question kind
 
 **True/False**:
@@ -105,16 +105,24 @@ _Avoid_: Open, Open ended, Open Response, Short Response
 Optional rich-text material authored for a Short Answer question to represent its answer in the Answer Key.
 _Avoid_: Correct answer, sample response, rubric
 
+**Stimulus**:
+A Question Type that is one whole Stimulus with its Parts: shared rich-text material — a passage, quote, image, table or anything else — followed by the Parts a student answers from it. One Stimulus Question takes one test number, and its Parts are lettered beneath it. A Question Bank keeps it whole: a Part is never a Question of its own, and an Exam adds, Removes and Replaces the Stimulus as one Question. The shared material itself is also called the Stimulus.
+_Avoid_: Passage, document-based question, question group, source
+
+**Part**:
+One lettered question within a Stimulus, in authored order: a Multiple Choice Part with its own stem and answers, or a Short Answer Part with its own stem and optional Suggested Answer. A Part's type is settled when it is added and never changed. Parts are never shuffled, since they are lettered in place and often build on one another, but a Multiple Choice Part's answers Vary as a Multiple Choice question's do. A Stimulus with no Parts is incomplete rather than invalid. Question Metadata belongs to the Stimulus, not its Parts; its Answer Key entry records one line per Part.
+_Avoid_: Sub-question, item (Item is Matching's), sub-part
+
 **Work Space**:
-Room an Exam leaves below a Short Answer question for a student's working: blank or ruled, as tall as the teacher drags it, or filling the rest of its page. It is Exam presentation set on the exam sheet like answer columns, never Question Content, so the same Question may take different room on another Exam; Replace keeps a position's Work Space and Duplicate copies it.
+Room an Exam leaves below a Short Answer question or Short Answer Part for a student's working: blank or ruled, as tall as the teacher drags it, or filling the rest of its page. It is Exam presentation set on the exam sheet like answer columns, never Question Content, so the same Question may take different room on another Exam; Replace keeps a position's Work Space and Duplicate copies it.
 _Avoid_: White space, answer box, response area
 
 **Question Section**:
-A group of questions of the same Question Type whose boundary remains fixed within an Exam and its exported output, such as Multiple Choice, True/False, Matching, or Short Answer. A Section prints its own heading and its own directions, and is omitted entirely when it holds no Questions.
+A group of questions of the same Question Type whose boundary remains fixed within an Exam and its exported output, such as Multiple Choice, True/False, Matching, Short Answer, or Stimulus. A Section prints its own heading and its own directions, and is omitted entirely when it holds no Questions.
 _Avoid_: Question category
 
 **Vary**:
-A family of Exam actions that shuffle question order or answer order — a Multiple Choice question's answers, or a Matching set's Word Bank — before saving or exporting.
+A family of Exam actions that shuffle question order or answer order — a Multiple Choice question's or Part's answers, or a Matching set's Word Bank — before saving or exporting.
 _Avoid_: Randomization, version generation
 
 **Export Preview**:
