@@ -14,14 +14,7 @@ export const ACCOUNT_BACKUP_FORMAT = 'test-parrot-account'
 export const ACCOUNT_BACKUP_VERSION = 1
 const MANIFEST_PATH = 'account.json'
 
-/** Device-local state: where this browser was, not what the teacher made. */
-const DEVICE_LOCAL_STORES = new Set(['exam-workspace', 'editor-workspace', 'question-bank-workspace'])
-const DEVICE_LOCAL_FIELDS = new Set(['lastOpenedAt'])
-const LOCAL_STORAGE_KEYS = (key: string) =>
-  (key.startsWith('test-parrot:') || key.startsWith('test-parrot-'))
-  && !key.startsWith(DEVICE_ONLY_PREFIX)
-/** Keys under this prefix describe this browser's sync, never an account. */
-export const DEVICE_ONLY_PREFIX = 'test-parrot:device:'
+const LOCAL_STORAGE_KEYS = (key: string) => key.startsWith('test-parrot:') || key.startsWith('test-parrot-')
 
 type Encoded =
   | null | boolean | number | string
@@ -397,7 +390,7 @@ export async function replaceAccount(snapshot: AccountSnapshot): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// Staging. Restoring from a file or from Drive happens while the app holds
+// Staging. Restoring from a file happens while the app holds
 // open connections, so the snapshot is parked in its own database and applied
 // by `applyStagedRestore` on the next load.
 
@@ -417,17 +410,11 @@ function openStaging(): Promise<IDBDatabase> {
 export type StagedRestore = {
   /** The backup file itself, as bytes. */
   bytes: ArrayBuffer
-  source: 'file' | 'drive'
-  /** The staged account's own fingerprint, recorded as the new sync point. */
-  fingerprint?: string
-  /** When set, the restore applies only if this browser still holds exactly
-   *  this account; work written after staging is never overwritten. */
-  replacesFingerprint?: string
 }
 
 export type StagedRestoreOutcome =
   | { applied: true; staged: StagedRestore }
-  | { applied: false; staged: StagedRestore; reason: 'changed' | 'failed'; error?: unknown }
+  | { applied: false; staged: StagedRestore; error: unknown }
 
 export async function stageRestore(staged: StagedRestore): Promise<void> {
   const database = await openStaging()
@@ -473,59 +460,15 @@ export async function applyStagedRestore(): Promise<StagedRestoreOutcome | null>
   }
   if (!staged) return null
   try {
-    if (staged.replacesFingerprint
-      && await accountFingerprint(await captureAccount()) !== staged.replacesFingerprint) {
-      return { applied: false, staged, reason: 'changed' }
-    }
     await replaceAccount(await readAccountBackup(new Blob([staged.bytes])))
     return { applied: true, staged }
   } catch (error) {
-    return { applied: false, staged, reason: 'failed', error }
+    return { applied: false, staged, error }
   } finally {
-    // A restore that fails is not retried on every load; the file or the
-    // Drive copy it came from is still there to try again.
+    // A restore that fails is not retried on every load; the file it came
+    // from is still there to try again.
     await clearStaged()
   }
-}
-
-// ---------------------------------------------------------------------------
-// Change detection for sync.
-
-/** A digest of what the teacher made, ignoring where this browser was. Two
- *  devices holding the same work produce the same fingerprint. */
-export async function accountFingerprint(snapshot: AccountSnapshot): Promise<string> {
-  const binaryDigests = new Map<string, string>()
-  for (const [path, bytes] of snapshot.binaries) {
-    binaryDigests.set(path, hex(await crypto.subtle.digest('SHA-256', bytes.slice().buffer)))
-  }
-  const canonical = (value: Encoded): Encoded => {
-    if (value === null || typeof value !== 'object') return value
-    if (Array.isArray(value)) return value.map(canonical)
-    if ((value.$tp === 'bytes' || value.$tp === 'typed') && typeof value.file === 'string') {
-      return { ...value, file: binaryDigests.get(value.file) ?? value.file }
-    }
-    const out: Record<string, Encoded> = {}
-    for (const key of Object.keys(value).sort()) {
-      if (!DEVICE_LOCAL_FIELDS.has(key)) out[key] = canonical(value[key]!)
-    }
-    return out
-  }
-  const content = {
-    databases: snapshot.manifest.databases.map((database) => ({
-      name: database.name,
-      version: database.version,
-      stores: database.stores
-        .filter((store) => !DEVICE_LOCAL_STORES.has(store.name))
-        .map((store) => ({ ...store, entries: store.entries.map(canonical) })),
-    })),
-    localStorage: Object.fromEntries(Object.entries(snapshot.manifest.localStorage).sort(([a], [b]) => a.localeCompare(b))),
-  }
-  const bytes = new TextEncoder().encode(JSON.stringify(canonical(content as unknown as Encoded)))
-  return hex(await crypto.subtle.digest('SHA-256', bytes))
-}
-
-function hex(bytes: ArrayBuffer) {
-  return [...new Uint8Array(bytes)].map((byte) => byte.toString(16).padStart(2, '0')).join('')
 }
 
 export function accountBackupFileName(now = new Date()) {

@@ -75,7 +75,7 @@ test('Home empty state explains local storage without creating resources', async
   const storage = page.getByRole('button', { name: 'Where your work is stored' })
   await expect(storage).toBeVisible()
   await storage.click()
-  await expect(page.getByRole('region', { name: 'Backup and sync' })).toContainText(
+  await expect(page.getByRole('region', { name: 'Where your work is stored' })).toContainText(
     'Your work is saved in your browser.',
   )
   await storage.click()

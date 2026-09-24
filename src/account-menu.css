@@ -1,10 +1,7 @@
-/* Backup and sync: the storage icon in the top bar opens a small panel. Kept
-   apart from styles.css because it is one self-contained piece of chrome. */
+/* Backup: the storage icon in the top bar opens a small panel pointing to
+   Settings. Kept apart from styles.css because it is one self-contained piece
+   of chrome. */
 .account-badge { position: relative; display: flex; }
-.storage-badge-button[data-sync='synced'] { color: #3f6b46; }
-.storage-badge-button[data-sync='reconnect'],
-.storage-badge-button[data-sync='conflict'] { color: var(--paper-danger); }
-.storage-badge-button[data-sync='incoming'] { color: var(--paper-accent); }
 
 .account-panel {
   position: absolute; top: calc(100% + 8px); right: 0; z-index: 30; width: min(340px, calc(100vw - 32px));
@@ -13,28 +10,12 @@
 }
 .account-panel > strong { display: block; margin-bottom: 6px; }
 .account-panel p { margin: 0; color: #6e5b4d; }
-.account-panel p + p { margin-top: 4px; }
 .account-panel .account-warning, .account-dialog .account-warning { margin-top: 8px; color: var(--paper-danger); font-weight: 600; }
-.account-panel .account-ok { margin-top: 8px; color: #3f6b46; font-weight: 600; }
 
 .account-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .account-actions--end { justify-content: flex-end; }
 .account-action { display: inline-flex; align-items: center; gap: 6px; }
 .account-action svg { width: 15px; height: 15px; }
-
-.account-sync-status { color: #6e5b4d; font-weight: 600; }
-.account-sync-status[data-sync='synced'] { color: #3f6b46; }
-.account-sync-status[data-sync='reconnect'], .account-sync-status[data-sync='conflict'] { color: var(--paper-danger); }
-
-/* The quieter way in: a link, not a button that competes with the backup. */
-.account-link {
-  display: inline-flex; align-items: center; gap: 6px; padding: 0; border: 0; background: none;
-  color: var(--paper-accent); font: inherit; font-weight: 600; cursor: pointer;
-  text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px;
-}
-.account-link svg { width: 15px; height: 15px; }
-.account-link:hover { color: #87422e; }
-.account-link:disabled { color: #a8988c; cursor: not-allowed; }
 
 .account-dialog {
   width: min(480px, calc(100vw - 32px)); max-height: calc(100vh - 32px); overflow: auto;
@@ -42,51 +23,12 @@
 }
 .account-dialog-copy { margin: 0; color: #4e3b2f; font-size: 14px; line-height: 1.6; }
 
-/* The two steps, each earning its check mark. */
-.account-steps { display: grid; gap: 10px; margin: 16px 0 0; padding: 0; list-style: none; }
-.account-step {
-  display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; align-items: center; gap: 12px;
-  padding: 12px 14px; border: 1px solid #e2d6c5; border-radius: 10px; background: #fffaf3;
-}
-.account-step[data-done='true'] { border-color: #cadfc6; background: #f3f8f1; }
-.account-step-mark {
-  display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%;
-  border: 1.5px solid #bda995; color: #6e5b4d; font-size: 13px; font-weight: 700;
-}
-.account-step[data-done='true'] .account-step-mark { border-color: #3f6b46; color: #fffaf3; background: #3f6b46; }
-.account-step-mark svg { width: 16px; height: 16px; stroke-width: 3; }
-.account-step-text { display: grid; gap: 2px; min-width: 0; }
-.account-step-title { font-size: 14px; font-weight: 700; color: #332a24; }
-.account-step-detail { color: #6e5b4d; font-size: 13px; overflow-wrap: anywhere; }
-
-.account-wide { width: 100%; margin-top: 14px; }
-.account-callout {
-  margin-top: 14px; padding: 12px 14px; border: 1px solid #ecd9ab; border-radius: 10px; background: #f8ecd2;
-  font-size: 13px; line-height: 1.5;
-}
-.account-callout p { margin: 4px 0 0; color: #5b4839; }
-.account-details {
-  display: grid; grid-template-columns: 70px minmax(0, 1fr); gap: 6px 12px; margin: 14px 0 0;
-  font-size: 13px;
-}
-.account-details dt { color: #6e5b4d; font-weight: 700; }
-.account-details dd { margin: 0; }
-.account-details dd[data-sync='synced'] { color: #3f6b46; font-weight: 600; }
-.account-details a { display: inline-flex; align-items: center; gap: 4px; color: var(--paper-accent); font-weight: 600; }
-.account-details a svg { width: 13px; height: 13px; }
-.account-signed-in { margin: 16px 0 0; padding-top: 12px; border-top: 1px solid #e8dfd2; color: #6e5b4d; font-size: 13px; }
+/* On the Settings page the backup is its own card. */
+.account-settings .account-warning { color: var(--paper-danger); font-weight: 600; }
+.account-settings .account-ok { color: #3f6b46; font-weight: 600; }
+.account-settings .account-actions { margin-top: 0; }
+.account-settings > * + .account-warning { margin-top: 12px; }
 
 .account-spin { animation: account-spin 1s linear infinite; }
 @keyframes account-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .account-spin { animation: none; } }
-@media (max-width: 520px) {
-  .account-step { grid-template-columns: 28px minmax(0, 1fr); }
-  .account-step > button { grid-column: 2; justify-self: start; }
-}
-
-/* On the Settings page each way of keeping a copy is its own card. */
-.account-settings .account-warning { color: var(--paper-danger); font-weight: 600; }
-.account-settings .account-ok { color: #3f6b46; font-weight: 600; }
-.account-settings .account-actions { margin-top: 0; }
-.account-settings .account-steps { margin-top: 0; }
-.account-settings > * + .account-warning { margin-top: 12px; }

@@ -32,10 +32,6 @@ _Avoid_: PDF metadata, extracted questions
 One file holding everything Test Parrot keeps in a browser: every Exam, Question Bank, Working Copy, Export History, Media Asset and preference. Restoring one replaces the browser's whole account rather than merging into it; it is refused when it comes from a storage generation this version cannot read.
 _Avoid_: Export, Question Bank File, archive
 
-**Account Sync**:
-Keeping one Account Backup in the teacher's own Google Drive, in a Test Parrot folder, and bringing every browser that syncs to it up to date. It compares whole accounts: when only one side has changed that side wins, and when both have, the teacher chooses and the other side is kept as a dated copy in the folder. Test Parrot never stores the work itself.
-_Avoid_: Cloud save, account (for a login), merge
-
 **Difficulty**:
 An optional classification of a question as easy, medium, or hard.
 

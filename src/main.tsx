@@ -11,7 +11,6 @@ import {
 import { persistentStorageStatus } from './durable-storage'
 import { questionBankCollection } from './resource-collections'
 import { applyStagedRestore } from './account-backup'
-import { prepareAccountSync, pullBeforeStart, startAccountSync } from './account-sync'
 import './styles.css'
 
 async function start() {
@@ -20,10 +19,11 @@ async function start() {
     await navigator.serviceWorker.ready
     if (!navigator.serviceWorker.controller) { window.location.reload(); return }
   }
-  // A restore, or newer work from Google Drive, replaces the account before
-  // anything below opens it.
-  const { restoreError } = await prepareAccountSync(await applyStagedRestore())
-  await pullBeforeStart()
+  // A restore replaces the account before anything below opens it.
+  const restored = await applyStagedRestore()
+  const restoreError = restored && !restored.applied
+    ? 'The backup could not be restored, so nothing in this browser was changed.'
+    : ''
   const workspaces = createExamWorkspaceService()
   const bankWorkspaces = createQuestionBankWorkspaceService()
   const startingOnEditor = window.location.pathname === '/editor'
@@ -83,6 +83,5 @@ async function start() {
   ])
   const collection = await questionBankCollection(banks, bankWorkspaces, workspaces)
   createRoot(document.getElementById('root')!).render(<StrictMode><MilkdownProvider><App store={store} bank={bank} workspaces={workspaces} bankWorkspaces={bankWorkspaces} initialExams={exams} initialBankCollection={collection} persistentStorage={storageStatus} initialEditorId={editorId} initialError={error} /></MilkdownProvider></StrictMode>)
-  startAccountSync()
 }
 void start()

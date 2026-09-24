@@ -1,7 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import {
   accountBackupBlob,
-  accountFingerprint,
   decodeValue,
   encodeValue,
   readAccountBackup,
@@ -83,27 +82,6 @@ function snapshot(records: { exam: object; image: Uint8Array; lastOpenedAt: stri
   return { manifest, binaries }
 }
 
-describe('account fingerprint', () => {
-  const base = { exam: {}, image: new Uint8Array([1, 2]), lastOpenedAt: '2026-09-01', active: 'e1' }
-
-  test('ignores where this browser was, and nothing else', async () => {
-    const reference = await accountFingerprint(snapshot(base))
-    // Opening a different Exam on another device is not a change to the work.
-    expect(await accountFingerprint(snapshot({ ...base, lastOpenedAt: '2026-09-24', active: 'e2' }))).toBe(reference)
-    expect(await accountFingerprint(snapshot({ ...base, exam: { title: 'Renamed' } }))).not.toBe(reference)
-    expect(await accountFingerprint(snapshot({ ...base, image: new Uint8Array([1, 3]) }))).not.toBe(reference)
-  })
-
-  test('does not depend on the order binaries were read in', async () => {
-    const one = snapshot(base)
-    const renamed = snapshot(base)
-    renamed.binaries = new Map([['binary/00007.bin', base.image]])
-    const store = renamed.manifest.databases[0]!.stores[2]!
-    store.entries = [{ key: 'h', value: { hash: 'h', bytes: { $tp: 'bytes', file: 'binary/00007.bin' } } }]
-    expect(await accountFingerprint(renamed)).toBe(await accountFingerprint(one))
-  })
-})
-
 describe('account backup file', () => {
   test('reads back what it wrote, binaries included', async () => {
     const original = snapshot({ exam: { title: 'Unit 3' }, image: new Uint8Array([9, 8, 7]), lastOpenedAt: 'x', active: 'e1' })
@@ -111,7 +89,6 @@ describe('account backup file', () => {
     expect(read.manifest.databases).toEqual(original.manifest.databases)
     expect(read.manifest.localStorage).toEqual(original.manifest.localStorage)
     expect([...read.binaries.get('binary/00000.bin')!]).toEqual([9, 8, 7])
-    expect(await accountFingerprint(read)).toBe(await accountFingerprint(original))
   })
 
   test('refuses files that are not account backups', async () => {
