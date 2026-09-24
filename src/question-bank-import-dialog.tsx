@@ -138,8 +138,8 @@ async function examPreviewPlan(
   })
 }
 
-/** A bank read as a document: its questions on a sheet, like the Test pages
- *  beside it, so both previews are paper on the same ground. */
+/** A bank read as a list of its questions. It has no printable page, so it
+ *  is shown borderless rather than on a sheet that would suggest one. */
 function BankPreview({
   bank,
   previewDocument,
@@ -149,7 +149,7 @@ function BankPreview({
 }) {
   const { record } = bank
   const questions = record.bank.questions
-  return <div className="bank-import-paper">
+  return <div className="bank-import-reading">
     <header className="bank-import-preview-head">
       <h3>{record.bank.name || 'Untitled Question Bank'}</h3>
       <p>{plural(questions.length, 'Question')}</p>
@@ -683,6 +683,7 @@ export function QuestionBankImportDialog({
 
             <div
               className="bank-import-preview"
+              data-kind={focusedExam ? 'exam' : 'bank'}
               aria-label={focusedExam ? 'Test preview' : 'Question Bank preview'}
             >
               {focusedBank && <BankPreview bank={focusedBank} previewDocument={previewDocument} />}

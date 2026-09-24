@@ -2081,18 +2081,16 @@ button { cursor: pointer; }
   flex: 1; min-height: 0; display: grid; grid-template-columns: 260px minmax(0, 1fr) 320px;
   overflow: hidden; border-top: 1px solid var(--paper-outline);
 }
-/* Whatever is previewed is paper, so it sits on the ground the export preview
-   uses — darker than the sheet, never lighter. */
+/* A Test's pages are paper, so they sit on the ground the export preview uses
+   — darker than the sheet, never lighter. */
 .bank-import-preview {
   min-width: 0; min-height: 0; padding: 22px 26px; overflow-y: auto;
   overscroll-behavior: contain; background: var(--preview-ground);
 }
-/* A bank has no pages of its own; its questions are set on one long sheet in
-   the exam page's own colour and shadow. */
-.bank-import-paper {
-  max-width: 680px; margin: 0 auto; padding: 24px 28px 8px;
-  background: #fffdf8; box-shadow: 0 2px 8px rgb(91 68 47 / 18%);
-}
+/* A bank has no printable page, so it is not dressed as one: its questions
+   are read straight off the dialog's own surface, borderless. */
+.bank-import-preview[data-kind='bank'] { background: var(--paper-surface); }
+.bank-import-reading { max-width: 680px; margin: 0 auto; }
 .bank-import-preview-head h3 { margin: 0; font-size: 19px; }
 .bank-import-preview-head p { margin: 4px 0 0; color: var(--paper-ink-soft); font-size: 13px; }
 .bank-import-preview-description { max-width: 62ch; }
