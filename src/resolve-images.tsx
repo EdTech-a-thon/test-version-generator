@@ -46,9 +46,9 @@ async function uploadedPicture(file: File): Promise<MediaAssetDeclaration> {
 const pictureSource = (asset: MediaAssetDeclaration) => `data:${asset.mimeType};base64,${asset.bytes}`
 
 const placeName = (occurrence: PendingImageOccurrence) =>
-  occurrence.where === 'Question'
+  occurrence.label ?? (occurrence.where === 'Question'
     ? `Question ${occurrence.questionNumber}`
-    : `Question ${occurrence.questionNumber}, ${occurrence.where}`
+    : `Question ${occurrence.questionNumber}, ${occurrence.where}`)
 
 function statusOf(occurrence: PendingImageOccurrence, picture: ResolvedPicture | undefined, source: ResolvingSource | null) {
   if (picture) {

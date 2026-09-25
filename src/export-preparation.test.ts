@@ -8,6 +8,7 @@ import {
   readExportPreferences,
   writeExportPreferences,
   prepareHistoricalExport,
+  PicturesNeededError,
   type ExportHistory,
 } from './export-preparation'
 import { unmeasured } from './export-plan'
@@ -218,5 +219,39 @@ describe('global Export preferences', () => {
       format: 'docx', selection: { test: false, answerKey: false },
     }))
     expect(readExportPreferences()).toEqual(DEFAULT_EXPORT_CONFIGURATION)
+  })
+})
+
+describe('an Exam with Pending Images', () => {
+  const pictured = (id: string, image: Record<string, unknown>): Question => ({
+    id,
+    type: 'open',
+    columns: 1,
+    doc: { type: 'doc', content: [paragraph(`Describe picture ${id}.`), { type: 'image-block', attrs: image }] },
+  })
+  const exportOf = (questions: Question[]) => ({
+    ...request(),
+    exam: { title: 'Pictures', questions },
+    arrangement: { id: 'working-copy', letter: '', questionOrder: questions.map(({ id }) => id), choiceOrder: {} },
+  })
+
+  test('refuses while a Question still needs a picture, naming its printed number', () => {
+    const questions = [
+      pictured('a', { src: `/local-images/${'a'.repeat(64)}`, caption: '' }),
+      pictured('b', { src: '', caption: '', pending: { image: 3 } }),
+      pictured('c', { src: '', caption: '', pending: { page: 2 } }),
+    ]
+    expect(() => prepareExport(exportOf(questions))).toThrow(PicturesNeededError)
+    expect(() => prepareExport(exportOf(questions))).toThrow(
+      'Questions 2 and 3 still need pictures. Resolve them before exporting.',
+    )
+    expect(() => prepareExport(exportOf(questions.slice(0, 2)))).toThrow(
+      'Question 2 still needs a picture. Resolve it before exporting.',
+    )
+  })
+
+  test('exports once every picture is resolved', () => {
+    const prepared = prepareExport(exportOf([pictured('b', { src: `/local-images/${'b'.repeat(64)}`, caption: '' })]))
+    expect(prepared.record.mediaHashes).toEqual(['b'.repeat(64)])
   })
 })

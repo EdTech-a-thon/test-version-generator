@@ -73,6 +73,7 @@ import { useWorkspaceDrag } from './use-workspace-drag'
 import { WorkspaceSplit } from './workspace-split'
 import {
   DEFAULT_EXPORT_CONFIGURATION,
+  PicturesNeededError,
   prepareExport,
   prepareHistoricalExport,
   readExportPreferences,
@@ -85,6 +86,16 @@ import { ExportDialog } from './export-dialog'
 import { domMeasure } from './dom-measure'
 import { ownDocumentMedia, saveImage } from './local-images'
 import { configurePastedImages, settlePendingMedia } from './pasted-images'
+import {
+  RESOLVE_IMAGE_EVENT,
+  configurePendingImages,
+  pendingImageBlockView,
+  pendingInlineImageView,
+  type ResolveImageRequest,
+} from './pending-image-view'
+import { ResolveImagesDialog } from './resolve-images-dialog'
+import { storedPicture } from './resolved-pictures'
+import { pendingImagesOfQuestions, withStoredPictures, type MediaAssetDeclaration } from './pending-images'
 import {
   AlignLeft,
   Check,
@@ -500,6 +511,8 @@ function CrepeQuestion({
       .use(matchingKeymap)
       .use(syncMatchingPicks)
       .use(keepMatching)
+      .use(pendingImageBlockView)
+      .use(pendingInlineImageView)
     // Make the whole multiple-choice block — or matching set — the drag target
     // instead of a single answer row: never offer a handle for a choice, prompt
     // or Word Bank answer itself, so Crepe's handle climbs to the block.
@@ -507,6 +520,7 @@ function CrepeQuestion({
     // dragged within a cell or out of it.
     crepe.editor.config((ctx) => {
       configurePastedImages(ctx)
+      configurePendingImages(ctx)
       ctx.update(uploadConfig.key, (prev) => ({
         ...prev,
         enableHtmlFileUploader: true,
@@ -595,6 +609,14 @@ function QuestionDialog({
   const dialog = useRef<HTMLElement>(null)
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
+  /** A “picture needed” block's Resolve, waiting for a picture. */
+  const [resolving, setResolving] = useState<ResolveImageRequest | null>(null)
+  useEffect(() => {
+    const element = dialog.current
+    const onResolve = (event: Event) => setResolving((event as CustomEvent<ResolveImageRequest>).detail)
+    element?.addEventListener(RESOLVE_IMAGE_EVENT, onResolve)
+    return () => element?.removeEventListener(RESOLVE_IMAGE_EVENT, onResolve)
+  }, [])
 
   // Escape that lands on nothing: a click on a bare patch of the dialog, or a
   // popup closing under the focus it held, leaves focus on the document body,
@@ -683,6 +705,24 @@ function QuestionDialog({
         aria-modal="true"
         aria-label="Question editor"
       >
+        {resolving && <ResolveImagesDialog
+          occurrences={[{
+            key: 'picture',
+            bankId: '',
+            questionNumber: 0,
+            where: 'Question',
+            label: 'This picture',
+            pending: resolving.pending,
+            ...(resolving.alt ? { alt: resolving.alt } : {}),
+            ...(resolving.caption ? { caption: resolving.caption } : {}),
+          }]}
+          onClose={() => setResolving(null)}
+          onResolve={async (pictures) => {
+            const picture = pictures.get('picture')
+            if (picture) resolving.apply(await storedPicture(picture))
+            setResolving(null)
+          }}
+        />}
         <header className="dialog-header">
           <div>
             <h2>{isNew ? 'Add question' : 'Edit question'}</h2>
@@ -1429,9 +1469,23 @@ function QuestionBankTabsPane({
 
 /** The line under a bank's name: how many Questions it holds and whatever it
  *  declares about itself. A detail nobody entered is left out, not blanked. */
-function BankPageFacts({ bank }: { bank: QuestionBankResource }) {
+function BankPageFacts({
+  bank,
+  picturesNeeded = 0,
+  onResolvePictures,
+}: {
+  bank: QuestionBankResource
+  /** Pending Images still in the bank, offered to resolve in one sitting. */
+  picturesNeeded?: number
+  onResolvePictures?: () => void
+}) {
   const count = bank.questions.length
   const facts: ReactNode[] = [`${count} ${count === 1 ? 'question' : 'questions'}`]
+  if (picturesNeeded > 0) {
+    facts.push(<button type="button" className="link-button bank-page-pictures-needed" aria-haspopup="dialog" onClick={onResolvePictures}>
+      {picturesNeeded} {picturesNeeded === 1 ? 'picture' : 'pictures'} needed
+    </button>)
+  }
   if (bank.author?.trim()) facts.push(`By ${bank.author.trim()}`)
   if (bank.license?.name.trim()) {
     facts.push(bank.license.url
@@ -1484,6 +1538,20 @@ function QuestionBankPage({
     licenseUrl: initialBank.license?.url ?? '',
   })
   const [detailsBusy, setDetailsBusy] = useState(false)
+  const [resolvingPictures, setResolvingPictures] = useState(false)
+  const pendingPictures = useMemo(() => pendingImagesOfQuestions(bank.questions), [bank.questions])
+  const resolvePictures = async (pictures: ReadonlyMap<string, MediaAssetDeclaration>) => {
+    const sources = new Map<string, string>()
+    for (const [key, picture] of pictures) sources.set(key, await storedPicture(picture))
+    let updated = bank
+    for (const question of bank.questions) {
+      const resolved = withStoredPictures(question, sources)
+      if (resolved === question || JSON.stringify(resolved) === JSON.stringify(question)) continue
+      updated = await bankWorkspaces.commit(bank.id, { kind: 'update-question', question: resolved })
+    }
+    setBank(updated)
+    setResolvingPictures(false)
+  }
   const [importAnnouncement] = useState(() => {
     const message = window.sessionStorage.getItem('test-parrot-import-announcement')
     window.sessionStorage.removeItem('test-parrot-import-announcement')
@@ -1547,7 +1615,11 @@ function QuestionBankPage({
               <Pencil aria-hidden="true" />
             </button>
           </div>
-          <BankPageFacts bank={bank} />
+          <BankPageFacts
+            bank={bank}
+            picturesNeeded={pendingPictures.length}
+            onResolvePictures={() => setResolvingPictures(true)}
+          />
           {nameError && <p className="home-error bank-name-error" role="alert">{nameError}</p>}
         </div>}
         extraActions={<button type="button" className="secondary-button" aria-haspopup="dialog" onClick={() => onImportInto(bank.id)}>
@@ -1562,6 +1634,11 @@ function QuestionBankPage({
         examsService={workspaces}
       />
     </div>
+    {resolvingPictures && <ResolveImagesDialog
+      occurrences={pendingPictures}
+      onClose={() => setResolvingPictures(false)}
+      onResolve={resolvePictures}
+    />}
     {editingDetails && <div className="dialog-backdrop" role="presentation">
       <section className="question-bank-details-dialog" role="dialog" aria-modal="true" aria-labelledby="bank-details-title">
         <h2 id="bank-details-title">Question Bank details</h2>
@@ -2086,6 +2163,7 @@ function ExamEditor({
 
   let exportPreview: PreparedExport | null = null
   let previewError: string | null = null
+  let exportBlocked: string | null = null
   if (exportDialog) {
     try {
       const hasNoSelectedContent =
@@ -2101,7 +2179,8 @@ function ExamEditor({
         ? { ...prepared, documents: [] }
         : prepared
     } catch (error) {
-      previewError = error instanceof Error ? error.message : 'The export cannot be prepared.'
+      if (error instanceof PicturesNeededError) exportBlocked = error.message
+      else previewError = error instanceof Error ? error.message : 'The export cannot be prepared.'
     }
   }
 
@@ -2324,6 +2403,7 @@ function ExamEditor({
           }}
           previewPlans={exportPreview?.documents ?? []}
           empty={exam.questions.length === 0}
+          blocked={exportBlocked}
           initialError={exportDialog.error ?? previewError}
           onSubmit={async (configuration, onProgress) => {
             const { withExamPackage } = await import('./exam-package-export')

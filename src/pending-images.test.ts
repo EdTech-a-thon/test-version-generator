@@ -1,7 +1,9 @@
 import { describe, expect, test } from 'bun:test'
 import { join } from 'node:path'
 import { inspectImportRecord } from './package-import'
-import { checkAgainstSourceDocument } from './pending-images'
+import { checkAgainstSourceDocument, pendingImagesOfQuestions, withStoredPictures } from './pending-images'
+import { ownDocumentMedia } from './local-images'
+import { cleanDocument } from './question-doc'
 
 const example = join(import.meta.dir, '..', 'public', 'formats', 'question-bank', '0.4.0', 'examples', 'pending-images.json')
 const proposal = async () => inspectImportRecord(await Bun.file(example).bytes())
@@ -44,5 +46,56 @@ describe('checking a record against its Source Document', () => {
       stemsFound: 0,
       matches: true,
     })
+  })
+})
+
+const graph = { type: 'image-block', attrs: { src: '', caption: 'Graph of f', ratio: 1, pending: { image: 3 } } }
+const stored = {
+  id: 'question-1',
+  doc: {
+    type: 'doc',
+    content: [
+      { type: 'paragraph', content: [{ type: 'text', text: 'Which graph?' }] },
+      graph,
+      {
+        type: 'multipleChoice',
+        content: [
+          { type: 'multipleChoiceChoice', attrs: { id: 'a', correct: false }, content: [{ type: 'image-block', attrs: { src: '', caption: '', ratio: 1, pending: { page: 2 } } }] },
+          { type: 'multipleChoiceChoice', attrs: { id: 'b', correct: true }, content: [{ type: 'paragraph', content: [{ type: 'text', text: 'None' }] }] },
+        ],
+      },
+    ],
+  },
+}
+
+describe('saving a Question with Pending Images', () => {
+  test('keeps what each one names, and gives an ordinary image no pending at all', async () => {
+    const editorJson = {
+      type: 'doc',
+      content: [
+        graph,
+        { type: 'image-block', attrs: { src: `/local-images/${'a'.repeat(64)}`, caption: '', ratio: 1, pending: null } },
+        { type: 'image-block', attrs: { src: '', caption: '', ratio: 1, pending: { image: 0 } } },
+      ],
+    }
+    const cleaned = cleanDocument(editorJson) as { content: { attrs: Record<string, unknown> }[] }
+    expect(cleaned.content[0]!.attrs.pending).toEqual({ image: 3 })
+    expect('pending' in cleaned.content[1]!.attrs).toBe(false)
+    expect('pending' in cleaned.content[2]!.attrs).toBe(false)
+
+    // Owning media on save leaves a Pending Image as it is, rather than
+    // replacing it with an image that could not be captured.
+    expect(await ownDocumentMedia({ type: 'doc', content: [graph] })).toEqual({ type: 'doc', content: [graph] })
+  })
+
+  test('lists a stored Question’s Pending Images and resolves them in place', () => {
+    const occurrences = pendingImagesOfQuestions([stored])
+    expect(occurrences.map(({ key, where, pending }) => [key, where, pending])).toEqual([
+      ['question-1/doc/0', 'Question', { image: 3 }],
+      ['question-1/doc/1', 'Answer A', { page: 2 }],
+    ])
+    const resolved = withStoredPictures(stored, new Map([['question-1/doc/1', `/local-images/${'c'.repeat(64)}`]]))
+    expect(pendingImagesOfQuestions([resolved]).map(({ pending }) => pending)).toEqual([{ image: 3 }])
+    expect(JSON.stringify(resolved)).toContain(`/local-images/${'c'.repeat(64)}`)
   })
 })

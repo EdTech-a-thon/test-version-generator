@@ -145,6 +145,13 @@ export function cleanDocument(value: ProseMirrorJSON): ProseMirrorJSON {
     } else if (node.type === 'matchingAnswer') {
       const attrs = (node.attrs ?? {}) as Record<string, unknown>
       clean.attrs = { id: typeof attrs.id === 'string' ? attrs.id : '' }
+    } else if ((node.type === 'image' || node.type === 'image-block') && clean.attrs) {
+      // A Pending Image keeps exactly what it names; every other image has
+      // no `pending` at all, rather than the editor's empty default.
+      const pending = pendingImageOf(node)
+      const { pending: _pending, ...rest } = clean.attrs as Record<string, unknown>
+      void _pending
+      clean.attrs = pending ? { ...rest, pending: { ...pending } } : rest
     }
     return clean
   }

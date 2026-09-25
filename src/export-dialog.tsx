@@ -29,6 +29,7 @@ export function ExportDialog({
   onConfigurationChange,
   previewPlans,
   empty,
+  blocked = null,
   initialError,
   onSubmit,
   onCancel,
@@ -37,6 +38,9 @@ export function ExportDialog({
   onConfigurationChange: (configuration: ExportConfiguration) => void
   previewPlans: readonly LayoutPlan[]
   empty: boolean
+  /** Why this Exam cannot be exported as it is — a Question still needing a
+   *  picture — shown in place of the preview's paper. */
+  blocked?: string | null
   initialError?: string | null
   onSubmit: (
     configuration: ExportConfiguration,
@@ -57,7 +61,7 @@ export function ExportDialog({
   const emptyError = empty
     ? 'Add at least one question to the Working Copy before exporting.'
     : null
-  const invalid = selectionError !== null || emptyError !== null
+  const invalid = selectionError !== null || emptyError !== null || blocked !== null
 
   const changeSelection = (selection: ExportConfiguration['selection']) =>
     onConfigurationChange({ ...configuration, selection })
@@ -245,13 +249,13 @@ export function ExportDialog({
               Export History is stored only in this browser. It is useful for
               local re-export, but it is not an archival backup.
             </p>
-            {(selectionError || emptyError) && (
+            {(selectionError || emptyError || blocked) && (
               <p
                 className="export-error"
                 id={`${id}-content-error`}
                 role="alert"
               >
-                {selectionError ?? emptyError}
+                {selectionError ?? emptyError ?? blocked}
               </p>
             )}
           </div>

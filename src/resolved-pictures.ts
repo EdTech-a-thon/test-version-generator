@@ -84,3 +84,10 @@ export async function prefilledPictures(
 export const pendingName = (pending: PendingImageOccurrence['pending']) =>
   'image' in pending ? `IMG ${pending.image}` : `page ${pending.page}`
 
+
+/** Store a picture as a Media Asset here, returning its owned source. */
+export async function storedPicture(asset: MediaAssetDeclaration): Promise<string> {
+  const { saveImage } = await import('./local-images')
+  const bytes = Uint8Array.from(atob(asset.bytes), (character) => character.charCodeAt(0))
+  return saveImage(new Blob([bytes], { type: asset.mimeType }))
+}

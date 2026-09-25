@@ -7,6 +7,7 @@ import type {
 } from './question-bank-export'
 import type { ParsedQuestionBankRecord } from './question-bank-import'
 import type { ImportProposal } from './package-import'
+import { pendingImageOf, type ProseMirrorJSON } from './question-doc'
 
 /**
  * Pending Images in a proposal, read and resolved without touching storage.
@@ -32,6 +33,9 @@ export type PendingImageOccurrence = {
   pending: PendingImageReference
   alt?: string
   caption?: string
+  /** How to name it where the Question number says nothing, such as inside
+   *  the Question's own editor. */
+  label?: string
 }
 
 /** Key → the Media Asset that fills it. Absent keys stay Pending Images. */
@@ -254,5 +258,68 @@ export function checkAgainstSourceDocument(
     stemsChecked,
     stemsFound,
     matches: unknownTags.length === 0 && (stemsChecked === 0 || stemsFound * 2 > stemsChecked),
+  }
+}
+
+type EditorQuestion = { id: string; doc: ProseMirrorJSON; suggestedAnswer?: ProseMirrorJSON }
+
+const editorChildren = (node: ProseMirrorJSON): ProseMirrorJSON[] =>
+  Array.isArray(node.content) ? (node.content as ProseMirrorJSON[]) : []
+
+/** Every Pending Image of stored Questions, numbered as the bank lists them.
+ *  Keyed by Question and place in its document, the way Resolve Images keys
+ *  them in an import. */
+export function pendingImagesOfQuestions(questions: readonly EditorQuestion[]): PendingImageOccurrence[] {
+  return questions.flatMap((question, index) => {
+    const found: PendingImageOccurrence[] = []
+    const counts = { doc: 0, suggestedAnswer: 0 }
+    const visit = (part: 'doc' | 'suggestedAnswer', node: ProseMirrorJSON, where: string) => {
+      const pending = pendingImageOf(node)
+      if (pending) {
+        const attrs = node.attrs as Record<string, unknown>
+        found.push({
+          key: `${question.id}/${part}/${counts[part]++}`,
+          bankId: '',
+          questionNumber: index + 1,
+          where,
+          pending,
+          ...(typeof attrs.alt === 'string' && attrs.alt ? { alt: attrs.alt } : {}),
+          ...(typeof attrs.caption === 'string' && attrs.caption ? { caption: attrs.caption } : {}),
+        })
+      }
+      const answers = editorChildren(node).filter((child) => child.type === 'multipleChoiceChoice')
+      for (const child of editorChildren(node)) {
+        const letter = answers.indexOf(child)
+        visit(part, child, letter >= 0 ? `Answer ${bankLetter(letter)}` : where)
+      }
+    }
+    visit('doc', question.doc, 'Question')
+    if (question.suggestedAnswer) visit('suggestedAnswer', question.suggestedAnswer, 'Suggested Answer')
+    return found
+  })
+}
+
+/** A stored Question with each resolved Pending Image given its stored
+ *  picture's source, found by the same keys `pendingImagesOfQuestions` gave. */
+export function withStoredPictures<Q extends EditorQuestion>(question: Q, sources: ReadonlyMap<string, string>): Q {
+  const resolve = (part: 'doc' | 'suggestedAnswer', document: ProseMirrorJSON): ProseMirrorJSON => {
+    let index = 0
+    const visit = (node: ProseMirrorJSON): ProseMirrorJSON => {
+      if (pendingImageOf(node)) {
+        const src = sources.get(`${question.id}/${part}/${index}`)
+        index += 1
+        if (!src) return node
+        const { pending: _pending, ...attrs } = node.attrs as Record<string, unknown>
+        void _pending
+        return { ...node, attrs: { ...attrs, src } }
+      }
+      return Array.isArray(node.content) ? { ...node, content: editorChildren(node).map(visit) } : node
+    }
+    return visit(document)
+  }
+  return {
+    ...question,
+    doc: resolve('doc', question.doc),
+    ...(question.suggestedAnswer ? { suggestedAnswer: resolve('suggestedAnswer', question.suggestedAnswer) } : {}),
   }
 }

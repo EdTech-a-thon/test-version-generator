@@ -162,5 +162,46 @@ test('a converted test gets its pictures from the teacher’s own PDF', async ({
   // Four pictures arrived; the cell diagram is still needed.
   const sheet = page.locator('.exam-question')
   await expect(sheet).toHaveCount(5)
-  await expect(page.getByRole('img', { name: 'Picture needed: page 2' }).first()).toBeVisible()
+  const needed = page.locator('.exam-question').filter({ hasText: 'Label the parts of the cell' })
+  await expect(needed.getByRole('img', { name: 'Picture needed: page 2' })).toBeVisible()
+  await expect(page.getByRole('img', { name: /^Picture needed/ })).toHaveCount(1)
+
+  // The Exam cannot be exported with a hole in it, and says which Question.
+  await page.getByRole('button', { name: 'Export', exact: true }).click()
+  const exporting = page.getByRole('dialog', { name: 'Export' })
+  await expect(exporting.getByRole('alert')).toHaveText('Question 5 still needs a picture. Resolve it before exporting.')
+  await expect(exporting.getByRole('button', { name: /^Download / })).toBeDisabled()
+  await exporting.getByRole('button', { name: 'Cancel' }).click()
+
+  // In the question editor it is a “picture needed” block, and saving keeps it.
+  await needed.dblclick()
+  const editor = page.getByRole('dialog', { name: 'Question editor' })
+  await expect(editor.getByRole('group', { name: 'Picture needed: page 2' })).toBeVisible()
+  await editor.locator('.milkdown').getByText('Label the parts of the cell').click()
+  await page.keyboard.press('End')
+  await page.keyboard.type(' carefully')
+  await editor.getByRole('button', { name: 'Save question' }).click()
+  await expect(editor).toBeHidden()
+  await page.reload()
+  await expect(needed).toContainText('carefully')
+  await expect(needed.getByRole('img', { name: 'Picture needed: page 2' })).toBeVisible()
+
+  // Resolved later from that block with an uploaded file, the Exam exports.
+  await needed.dblclick()
+  await editor.getByRole('group', { name: 'Picture needed: page 2' }).getByRole('button', { name: 'Resolve' }).click()
+  const later = page.getByRole('dialog', { name: 'Resolve Images' })
+  await later.getByLabel('Upload a picture for This picture').setInputFiles({
+    name: 'cell.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from(picture(90, 60, 5)),
+  })
+  await expect(later.getByRole('listitem', { name: 'This picture' })).toContainText('Uploaded cell.png')
+  await later.getByRole('button', { name: 'Use these pictures' }).click()
+  await expect(later).toBeHidden()
+  await expect(editor.getByRole('group', { name: 'Picture needed: page 2' })).toHaveCount(0)
+  await editor.getByRole('button', { name: 'Save question' }).click()
+  await expect(editor).toBeHidden()
+  await expect(page.getByRole('img', { name: /^Picture needed/ })).toHaveCount(0)
+  await page.getByRole('button', { name: 'Export', exact: true }).click()
+  await expect(exporting.getByRole('button', { name: /^Download / })).toBeEnabled()
 })

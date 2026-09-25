@@ -243,7 +243,52 @@ function inlinePieces(nodes: readonly SemanticNode[]): Piece[] {
   return pieces
 }
 
+const PICTURE_NEEDED_HEIGHT = 54
+
+/** A Pending Image's place in the preview: a bordered box saying which
+ *  picture belongs there, so a teacher reading the file sees the hole. */
+function drawPictureNeeded(context: Context, node: SemanticNode, x: number, width: number): void {
+  const pending = node.pending!
+  const boxWidth = Math.min(width, width * (node.authoredSize ?? 1), 260)
+  ensure(context, PICTURE_NEEDED_HEIGHT + (node.caption ? BODY_LINE : 0) + 8)
+  const top = context.y
+  context.page.drawRectangle({
+    x,
+    y: top - PICTURE_NEEDED_HEIGHT,
+    width: boxWidth,
+    height: PICTURE_NEEDED_HEIGHT,
+    borderColor: MUTED,
+    borderWidth: 1,
+    borderDashArray: [4, 3],
+  })
+  const label = 'Picture needed'
+  const named = 'image' in pending ? `IMG ${pending.image}` : `page ${pending.page}`
+  const labelWidth = context.fonts.bold.widthOfTextAtSize(label, BODY_SIZE)
+  const namedWidth = context.fonts.regular.widthOfTextAtSize(named, 9)
+  context.page.drawText(label, {
+    x: x + (boxWidth - labelWidth) / 2,
+    y: top - PICTURE_NEEDED_HEIGHT / 2 + 2,
+    size: BODY_SIZE,
+    font: context.fonts.bold,
+    color: INK,
+  })
+  context.page.drawText(named, {
+    x: x + (boxWidth - namedWidth) / 2,
+    y: top - PICTURE_NEEDED_HEIGHT / 2 - 11,
+    size: 9,
+    font: context.fonts.regular,
+    color: MUTED,
+  })
+  context.y -= PICTURE_NEEDED_HEIGHT + 4
+  if (node.caption) drawText(context, node.caption, { x, width: boxWidth, font: 'italic', size: 9 })
+  context.y -= 4
+}
+
 function drawImage(context: Context, node: SemanticNode, x: number, width: number): void {
+  if (node.pending) {
+    drawPictureNeeded(context, node, x, width)
+    return
+  }
   const image = node.asset ? context.images.get(node.asset) : undefined
   if (!image) throw new Error(`Required Media Asset “${node.asset ?? 'missing'}” is unavailable for the PDF preview.`)
   const naturalRatio = image.height / image.width
