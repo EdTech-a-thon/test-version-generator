@@ -1,6 +1,6 @@
 # Convert questions into a Test Parrot Package
 
-> **Draft for testing Pending Images.** This copy replaces the image rules: every image becomes a Pending Image that marks where a picture belongs, and Test Parrot fills in the picture later from the original file. Follow this document's image rules wherever they differ from the public schemas or examples.
+> **Draft for testing Pending Images.** This copy replaces the image rules: every image becomes a Pending Image that names the tag Test Parrot printed beside the picture, and Test Parrot fills in the picture later from the original file. Follow this document's image rules wherever they differ from the public schemas or examples.
 
 Use these instructions to convert questions from a PDF, image, scan, screenshot, document, or plain text into a JSON file that a user can import into Test Parrot.
 
@@ -62,7 +62,7 @@ The Question Bank Record inside the package has this top-level shape:
 }
 ```
 
-Do not add application database IDs, local paths, timestamps, page numbers, layout coordinates, OCR confidence, or conversational notes to the record. The only exception is the source `page` of a Pending Image (see [Images and Pending Images](#images-and-pending-images)). A test's layout belongs in its Exam Record, and only in the members that format defines.
+Do not add application database IDs, local paths, timestamps, page numbers, layout coordinates, OCR confidence, or conversational notes to the record. The only exception is the `pending` member of a Pending Image (see [Images and Pending Images](#images-and-pending-images)). A test's layout belongs in its Exam Record, and only in the members that format defines.
 
 ## The package
 
@@ -152,7 +152,8 @@ Perform a second pass against the original source and verify all of the followin
 - every meaningful image, including an image used as an answer choice, matching item or word bank answer, is a Pending Image;
 - every picture has its own Pending Image, with side-by-side pictures split rather than merged;
 - every Question covered by shared directions (for example “Use the information above for problems 3 – 5”) repeats the shared pictures in its own stem;
-- every Pending Image names the source page it appears on;
+- every Pending Image names the tag printed on its picture, or its page when the picture has no tag;
+- every tag in the [image tag list](#image-tags-in-this-document) is accounted for in the conversion report;
 - the Question Bank Record's `media` is an empty array;
 - for a test, the Exam has one position per converted Question, in printed order, each naming an existing Question ID in the package's bank, and no Question twice;
 - for a test, every `columns` value reflects a layout the source makes clear, sits only on a Multiple Choice position, and no position has `workSpace`;
@@ -596,24 +597,28 @@ Reject or report `javascript:`, `data:`, `file:`, relative, and custom-scheme li
 
 If an image is meaningful Question Content—for example, a graph or diagram the Question asks about, or a picture used as an answer choice—preserve it. Do not replace it with an invented description.
 
-**Do not create Media Assets, and never write base64.** Instead, write a **Pending Image**: an image node that marks where a picture belongs in the Question. Test Parrot finds the picture in the original file when the teacher imports the JSON, using the question's own text and answer letters, so a Pending Image's place in the record matters more than anything it says.
+**Do not create Media Assets, and never write base64.** Instead, write a **Pending Image**: an image node that names the picture by its tag. Test Parrot takes the picture from the original file when the teacher imports the JSON.
+
+**The PDF you were given is a labeled copy.** Test Parrot has printed a small red tag, such as **IMG 3**, in the top-left corner of every image embedded in the document. The tags are not part of the source: never copy a tag into Question Content, `alt`, or `caption`, and describe each picture as if its tag were not there.
 
 ```json
 {
   "type": "block-image",
-  "pending": { "page": 2 },
-  "alt": "Diagram of a right triangle with legs labeled a and b",
-  "caption": "Figure 1"
+  "pending": { "image": 3 },
+  "alt": "Map of European trading stations in Africa and Asia around 1750",
+  "caption": "Major European Trading Stations and Possessions in Africa and Asia c. 1750"
 }
 ```
 
 Rules:
 
 - A Pending Image has a `pending` member and **no `asset` member**.
-- `pending` holds only `page`: the 1-based page of the source file where the picture appears, as a PDF viewer counts pages, not a page number printed on the page. For a single photo or screenshot, `page` is `1`. Do not add coordinates or any other location.
+- `pending` holds `image`: the number on the tag printed on that picture. Read the number from the tag; do not count images yourself.
+- A picture with no tag, such as a diagram drawn with lines or a picture on a scanned page, gets `"pending": { "page": <n> }` instead, where `n` is the 1-based page of the file as a PDF viewer counts it. Do not add coordinates or any other location.
+- **Not every tag is a picture.** Test Parrot tags every embedded image, and some documents store a reading passage, a table, an equation, or a caption as an image. Transcribe those as ordinary content—text, a table, or math—exactly as you would if they were typed, and do not write a Pending Image for their tag. Repeat a shared passage in every Question that uses it.
 - Put the Pending Image exactly where the picture belongs: in the `stem` when the picture belongs to the question, or in the choice's `content` when the picture is that answer choice.
 - **Write one Pending Image per picture.** Two graphs side by side, such as “Graph of f” and “Graph of g”, are two pictures and need two Pending Images, in reading order. When you cannot tell whether something is one picture or several, write several: an extra Pending Image is easy for the teacher to fill, and a missing one is not.
-- **Repeat shared pictures.** When one picture serves several Questions, every one of those Questions gets its own copy of the Pending Image. Directions such as “Use the information above for problems 3 – 5” mean that Questions 3, 4, and 5 each start their stem with the pictures that directions refer to, even though the source prints them once.
+- **Repeat shared pictures.** When one picture serves several Questions, every one of those Questions gets its own copy of the Pending Image, with the same tag number. Directions such as “Use the information above for problems 3 – 5” mean that Questions 3, 4, and 5 each start their stem with the pictures that directions refer to, even though the source prints them once.
 - Put caption text printed beside or below the picture in `caption`, even if the source shows the caption as an image.
 - Give every Pending Image useful `alt` text describing what the picture shows. `authoredSize` from `0.05` through `1` is optional.
 - Use `block-image` for a picture that stands on its own line, including a picture that is an answer choice's whole content. Use `inline-image` only for a small picture inside a line of text.
@@ -622,6 +627,12 @@ Rules:
 **Equations are not images.** Many documents store equations as small pictures. Write every equation as `inline-math` or `display-math` with its source, never as a Pending Image. Likewise, write text that the source shows as a picture, such as a caption or a heading, as text.
 
 If you cannot tell where an essential picture is, identify the affected question and tell the user the conversion is incomplete. Do not omit the image silently.
+
+### Image tags in this document
+
+{{IMAGE_TAGS}}
+
+In the conversion report, account for every tag listed here: which Questions and answers use it as a picture, or that it was transcribed as text, a table, or math, or that it is not Question Content (for example, a logo).
 
 ## Question Metadata and provenance
 
@@ -668,7 +679,7 @@ Also include a concise conversion report containing:
 - total Questions converted;
 - counts by Question Type (a matching set is one Question; also give its item count);
 - whether answer correctness was supplied or left incomplete;
-- number of Pending Images, and which Questions and answers use them;
+- every image tag, and which Questions and answers use it as a picture, or how it was transcribed instead;
 - every ambiguity, omission, normalization, or unsupported element—or “None” when there were none;
 - an **Unconverted Questions** section listing each source page and question identifier, opening words, and the reason it could not be converted—or “None” when every question was converted.
 
