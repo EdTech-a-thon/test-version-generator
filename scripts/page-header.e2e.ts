@@ -34,54 +34,68 @@ const field = (page: Page) => page.getByRole('textbox', { name: 'Header printed 
 test('the header line is reworded where it prints, and the ID stays beside it', async ({ page }) => {
   await openExam(page)
   const header = firstHeader(page)
-  await expect(header).toContainText('Name:')
-  await expect(header).toContainText('Class:')
-
-  await header.getByRole('button', { name: 'Edit the header' }).click()
-  await expect(field(page)).toBeFocused()
   await expect(field(page)).toHaveValue(/^Name: _+ {2}Class: _+ {2}Date: _+$/)
+
   await field(page).fill('Student: ________  Period: ____')
   await field(page).press('Enter')
-  await expect(field(page)).toHaveCount(0)
-
-  await expect(header).toContainText('Student: ________  Period: ____')
-  await expect(header).not.toContainText('Class:')
+  await expect(field(page)).not.toBeFocused()
+  await expect(field(page)).toHaveValue('Student: ________  Period: ____')
   await expect(header.locator('.page-id')).toHaveText(/^ID: /)
 
   await page.getByRole('button', { name: 'Export', exact: true }).click()
   const preview = page.getByRole('dialog', { name: 'Export' }).getByLabel('Export Preview')
   const printed = preview.locator('.exam-page').first().locator('.page-identity')
   await expect(printed).toContainText('Student: ________  Period: ____')
+  await expect(printed).not.toContainText('Class:')
   await expect(printed).toContainText('ID: ')
 })
 
-test('clicking the header line turns it into a field without moving it', async ({ page }) => {
+test('one click puts the caret where it lands, as the title does', async ({ page }) => {
+  await openExam(page)
+  const box = (await field(page).boundingBox())!
+  const length = (await field(page).inputValue()).length
+  const caret = () => field(page).evaluate((input) => (input as HTMLInputElement).selectionStart)
+
+  await field(page).click({ position: { x: box.width / 2, y: box.height / 2 } })
+  await expect(field(page)).toBeFocused()
+  const middle = await caret()
+  expect(middle).toBeGreaterThan(length * 0.3)
+  expect(middle).toBeLessThan(length * 0.7)
+
+  await field(page).click({ position: { x: 2, y: box.height / 2 } })
+  expect(await caret()).toBeLessThanOrEqual(1)
+})
+
+test('the field is as wide as its words, hides none of them, and clears the ID', async ({ page }) => {
   await openExam(page)
   const header = firstHeader(page)
-  const display = header.getByRole('button', { name: 'Edit the header' })
-  const before = (await display.boundingBox())!
+  const box = (await field(page).boundingBox())!
   const id = (await header.locator('.page-id').boundingBox())!
-  await display.click()
-  const after = (await field(page).boundingBox())!
-  expect(Math.abs(after.x - before.x)).toBeLessThanOrEqual(1)
-  expect(Math.abs(after.width - before.width)).toBeLessThanOrEqual(2)
-  expect(Math.abs(after.y - before.y)).toBeLessThanOrEqual(2)
-  // It fits beside the ID, which stays where it was.
-  expect(after.x + after.width).toBeLessThan(id.x)
-  expect((await header.locator('.page-id').boundingBox())!.x).toBeCloseTo(id.x, 0)
+  expect(box.x + box.width).toBeLessThan(id.x)
+  const fit = await field(page).evaluate((element) => {
+    const input = element as HTMLInputElement
+    const style = getComputedStyle(input)
+    const context = document.createElement('canvas').getContext('2d')!
+    context.font = `${style.fontSize} ${style.fontFamily}`
+    return {
+      text: context.measureText(input.value).width,
+      width: input.offsetWidth,
+      hidden: input.scrollWidth - input.clientWidth,
+    }
+  })
+  expect(Math.abs(fit.width - fit.text)).toBeLessThanOrEqual(4)
+  expect(fit.hidden).toBeLessThanOrEqual(1)
 })
 
 test('the margin restores the default header', async ({ page }) => {
   await openExam(page)
   const header = firstHeader(page)
-  await header.getByRole('button', { name: 'Edit the header' }).click()
   await field(page).fill('')
   await field(page).press('Escape')
-  await expect(header).not.toContainText('Name:')
+  await expect(field(page)).toHaveValue('')
   await expect(header.locator('.page-id')).toBeVisible()
 
   await header.hover()
   await page.getByRole('button', { name: 'Restore the default header' }).click()
-  await expect(header).toContainText('Name:')
-  await expect(header).toContainText('Date:')
+  await expect(field(page)).toHaveValue(/^Name: .*Date: _+$/)
 })

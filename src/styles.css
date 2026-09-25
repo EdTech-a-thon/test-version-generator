@@ -757,20 +757,12 @@ button { cursor: pointer; }
 /* An Exam's own header line: one line, cut short rather than wrapped, so the
    header keeps the height packing subtracted. */
 .identity-line { flex: 1 1 auto; min-width: 0; white-space: pre; overflow: hidden; }
-/* In the editor the line reads as it prints until clicked; the underline on
-   hover and focus is as wide as the words, like the title's. */
+/* In the editor the line is its own field, reading as it prints; the underline
+   on hover and focus is as wide as the words, like the title's. */
 .identity-edit {
   position: relative; flex: 1 1 auto; min-width: 0;
   display: flex; align-items: baseline;
 }
-.identity-display {
-  flex: 0 1 auto; min-width: 0; display: flex; align-items: baseline;
-  padding: 0; margin: 0; border: 0; border-radius: 0; background: transparent;
-  color: inherit; font: inherit; line-height: inherit; text-align: left; cursor: text;
-  box-shadow: 0 1px 0 transparent;
-}
-.identity-display:hover:not(:disabled) { box-shadow: 0 1px 0 #d8cbbb; }
-.identity-display:disabled { cursor: default; }
 .identity-input-field { display: inline-grid; max-width: 100%; min-width: 0; }
 .identity-input-field::after {
   grid-area: 1 / 1; content: attr(data-value); visibility: hidden;
@@ -780,8 +772,11 @@ button { cursor: pointer; }
   grid-area: 1 / 1; width: 100%; min-width: 2ch; padding: 0; margin: 0;
   border: 0; border-radius: 0; color: inherit; background: transparent;
   font: inherit; line-height: inherit; outline: none;
-  box-shadow: 0 1px 0 var(--paper-accent);
+  box-shadow: 0 1px 0 transparent;
 }
+.identity-input:hover:not(:disabled) { box-shadow: 0 1px 0 #d8cbbb; }
+.identity-input:focus { box-shadow: 0 1px 0 var(--paper-accent); }
+.identity-input:disabled { color: inherit; -webkit-text-fill-color: currentcolor; opacity: 1; }
 .identity-handles {
   position: absolute; top: -4px; left: -32px; z-index: 2;
   opacity: 0; transition: opacity 90ms ease-in;

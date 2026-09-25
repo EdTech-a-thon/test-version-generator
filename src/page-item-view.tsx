@@ -13,7 +13,6 @@
 
 import type { ReactNode } from 'react'
 import { TITLE_PX, sectionHeadingStyles } from './export-typography'
-import { useState } from 'react'
 import { Check, RotateCcw } from 'lucide-react'
 import { DifficultyBadge, TopicBadge } from './badges'
 import { DocView } from './doc-view'
@@ -384,18 +383,11 @@ export type IdentityLineEditor = {
   onChange: (text: string | null) => void
 }
 
-// The header line on the sheet, reworded where it prints. It reads exactly as
-// it prints until it is clicked, when the same text in the same place becomes
-// the field, and Enter, Escape or a click elsewhere puts it back. The ID beside
-// it is never part of it.
-function EditableIdentityText({
-  furniture,
-  editor,
-}: {
-  furniture: PageFurniture
-  editor: IdentityLineEditor
-}) {
-  const [editing, setEditing] = useState(false)
+// The header line on the sheet, reworded where it prints. Like the title, it
+// is always the field: the line is plain text, so the field reads exactly as
+// it prints, and a click puts the caret where it lands. Enter or Escape
+// finishes. The ID beside it is never part of it.
+function EditableIdentityText({ editor }: { editor: IdentityLineEditor }) {
   return (
     <span className="identity-edit">
       {editor.edited && (
@@ -412,15 +404,13 @@ function EditableIdentityText({
           </button>
         </span>
       )}
-      {editing ? (
-        // Sized by a mirrored copy of its value, like the title's field, so the
-        // underline is as wide as the words and not the page.
-        <span className="identity-input-field" data-value={editor.text || ' '}>
+      {/* Sized by a mirrored copy of its value, like the title's field, so the
+          underline is as wide as the words and not the page. */}
+      <span className="identity-input-field" data-value={editor.text || ' '}>
         <input
           aria-label="Header printed on the exam"
           className="identity-input"
           size={1}
-          autoFocus
           value={editor.text}
           disabled={editor.disabled}
           spellCheck
@@ -431,20 +421,8 @@ function EditableIdentityText({
               event.currentTarget.blur()
             }
           }}
-          onBlur={() => setEditing(false)}
         />
-        </span>
-      ) : (
-        <button
-          type="button"
-          className="identity-display"
-          aria-label="Edit the header"
-          disabled={editor.disabled}
-          onClick={() => setEditing(true)}
-        >
-          <IdentityText furniture={furniture} />
-        </button>
-      )}
+      </span>
     </span>
   )
 }
@@ -472,7 +450,7 @@ export function PageHeaderContent({
     <header className={`page-header page-header--${header}`}>
       <div className="page-identity">
         {identityEditor ? (
-          <EditableIdentityText furniture={furniture} editor={identityEditor} />
+          <EditableIdentityText editor={identityEditor} />
         ) : (
           <IdentityText furniture={furniture} />
         )}
