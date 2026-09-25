@@ -102,7 +102,7 @@ When triage says the source is a test:
 - Name the bank after the subject or unit, and name the Exam after the test's own title as printed.
 - Give the Exam one position for every converted Question, in printed order, each naming `"bank": "bank"` and that Question's ID. Use each Question exactly once. An unconverted question gets no position. A Multipart question is one Question, so it takes one position, however many source numbers its Parts carried.
 - Write every Question's choices and Word Bank answers into the bank in the order the test prints them. That records the test's answer order, so leave out `answerOrder`: answers print in the order the bank records them, and the answer key's letters stay right.
-- Record `columns` (`1`, `2` or `4`) on a Multiple Choice position only when the source layout makes it clear how many columns its answers are printed in — for example, four answers side by side on one line is `4`. When it is not clear, leave `columns` out. Never put `columns` on any other Question Type.
+- Record `columns` (`1`, `2` or `4`) on a Multiple Choice position whenever the source layout shows how many columns its answers are printed in: count the answers side by side on one line. Four answers across one line is `4`. Answers printed as a grid of two across — (A) beside (B), (C) beside (D), a 2 × 2 grid — are `2`. Answers printed one under another are `1`. Answers that are pictures, such as four graphs to choose from, are nearly always printed as a grid: look at the page and record it, since a picture answer with no `columns` prints as wide as the whole question. Leave `columns` out only when the layout truly cannot be read, such as answers split across a page break. Never put `columns` on any other Question Type.
 - Never add `workSpace`. Room left for writing is not something to guess from a scan; the teacher sets it in Test Parrot.
 - Do not add point values, section headings, instructions, or any other member: the Exam Record has none of these.
 
@@ -161,7 +161,7 @@ Perform a second pass against the original source and verify all of the followin
 - every tag in the [image tag list](#image-tags-in-this-document) is accounted for in the conversion report;
 - the Question Bank Record's `media` is an empty array;
 - for a test, the Exam has one position per converted Question, in printed order, each naming an existing Question ID in the package's bank, and no Question twice;
-- for a test, every `columns` value reflects a layout the source makes clear, sits only on a Multiple Choice position (never on a Multipart question), and no position has `workSpace`;
+- for a test, every Multiple Choice position whose answers the source prints side by side — a row of four, a 2 × 2 grid, a grid of pictures — has the `columns` that layout shows, every `columns` value sits only on a Multiple Choice position (never on a Multipart question), and no position has `workSpace`;
 - the file is a Test Parrot Package with exactly one Question Bank Record, and it holds an Exam only if the source is a test;
 - the final JSON passes the public schema and semantic rules.
 

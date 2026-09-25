@@ -1,4 +1,5 @@
-import { PAGE_CONTENT_WIDTH, PAGE_WIDTH } from './export-plan'
+import { DEFAULT_COLUMNS } from './exam'
+import { CHOICE_AREA_WIDTH, PAGE_CONTENT_WIDTH, PAGE_WIDTH, PART_CHOICE_AREA_WIDTH } from './export-plan'
 import type { MediaAssetDeclaration, PendingImageOccurrence, PendingImageResolution } from './pending-images'
 import type { ImageTag, PageBox } from './source-document'
 
@@ -40,30 +41,45 @@ export const hasPages = (source: ResolvingSource) => source.kind !== 'word'
 
 const shareOf = (box: PageBox) => Math.max(0, Math.min(1, (box.right - box.left) / 1000))
 
+// What an answer's cell gives its content besides the letter beside it: print's
+// `.choice-cell` right padding and `.choice-letter` with its margin, about.
+const CHOICE_CELL_INSET = 30
+
+/** How wide an answer's picture can print: its cell — the choice area shared
+ *  by its columns — less the letter. */
+function answerCellWidth(occurrence: Pick<PendingImageOccurrence, 'where' | 'answerColumns'>): number {
+  const area = occurrence.where.startsWith('Part ') ? PART_CHOICE_AREA_WIDTH : CHOICE_AREA_WIDTH
+  return area / (occurrence.answerColumns ?? DEFAULT_COLUMNS) - CHOICE_CELL_INSET
+}
+
 /**
  * The Authored Image Size that prints a picture about as wide as it was on
  * its own page, or nothing when that is as wide as it fits anyway.
  *
  * A Source Document page is taken to be as wide as the exam's Letter sheet, so
  * a picture a third of the way across its page prints a third of the way
- * across the sheet. The size is a share of what the picture fits its lane at
- * — its own width, or the lane's when it is wider — so that is what it is
- * measured against. Only a picture in a Question's own lane — its stem, a
- * Part's stem, a Suggested Answer — is sized: an answer's cell is narrower by
- * however many columns the Exam gives it, and a picture fitting its cell is
- * already the size the cell allows.
+ * across the sheet. The size is a share of what the picture fits its container
+ * at — its own width, or the container's when it is wider — so that is what it
+ * is measured against. A picture in a Question's own lane — its stem, a Part's
+ * stem, a Suggested Answer — is measured against the lane; one in a Multiple
+ * Choice answer against its answer's cell, as wide as the columns its answers
+ * print in make it. Left to fill its cell, a graph cropped from a page printed
+ * as wide as the question whenever its answers were in one column. A picture
+ * in a Panel fills its Panel, and one in a matching set is left at the size
+ * its cell allows.
  */
 export function estimatedSize(
   picture: ResolvedPicture,
-  occurrence: Pick<PendingImageOccurrence, 'where' | 'inPanel'>,
+  occurrence: Pick<PendingImageOccurrence, 'where' | 'inPanel' | 'answerColumns'>,
 ): number | undefined {
   if (picture.pageShare === undefined) return undefined
-  if (/Answer [A-Z]|^Item |^Word Bank /.test(occurrence.where)) return undefined
+  if (/^Item |^Word Bank /.test(occurrence.where)) return undefined
   // A Side-by-Side's pictures share their line, each filling its Panel as they
   // filled their share of the page they came from.
   if (occurrence.inPanel) return undefined
   const printed = picture.pageShare * PAGE_WIDTH
-  const fitted = Math.min(picture.asset.width, PAGE_CONTENT_WIDTH)
+  const lane = /Answer [A-Z]$/.test(occurrence.where) ? answerCellWidth(occurrence) : PAGE_CONTENT_WIDTH
+  const fitted = Math.min(picture.asset.width, lane)
   const size = Math.round((printed / fitted) * 100) / 100
   return size >= 0.95 ? undefined : Math.max(0.05, size)
 }

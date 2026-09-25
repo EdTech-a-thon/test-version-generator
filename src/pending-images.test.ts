@@ -148,10 +148,61 @@ describe('sizing a picture from its page', () => {
     expect(estimatedSize(crop(400, 0.25), { where: 'Question' })).toBe(0.51)
   })
 
-  test('leaves a picture that filled its page, an upload, and an answer at the size they fit', () => {
+  test('leaves a picture that filled its page, an upload, and a matching set’s pictures at the size they fit', () => {
     expect(estimatedSize(crop(2400, 0.9), { where: 'Question' })).toBeUndefined()
     expect(estimatedSize({ asset: asset(900), origin: { kind: 'upload', name: 'a.png' } }, { where: 'Question' })).toBeUndefined()
-    expect(estimatedSize(crop(850, 1 / 3), { where: 'Answer B' })).toBeUndefined()
+    expect(estimatedSize(crop(850, 1 / 3), { where: 'Item 2' })).toBeUndefined()
+  })
+
+  // A converted precalculus test's answers were four graphs, each a third of
+  // its page wide. Left to fill its cell, each printed as wide as the question
+  // whenever the answers were in one column.
+  test('knows the columns an imported Exam prints each Question’s answers in', () => {
+    const pictured = (image: number) => ({
+      id: `c${image}`,
+      correct: image === 1,
+      content: { type: 'document', content: [{ type: 'block-image', pending: { image }, alt: 'graph' }] },
+    })
+    const question = (id: string) => ({
+      id,
+      type: 'multiple-choice',
+      stem: { type: 'document', content: [] },
+      choices: [pictured(1), pictured(2)],
+    })
+    const banks = [{ id: 'bank', record: { bank: { questions: [question('q1'), question('q2'), question('q3')] } } }]
+    const exams = [{
+      positions: [
+        { question: { bank: 'bank', question: 'q1' } },
+        { question: { bank: 'bank', question: 'q2' }, columns: 4 },
+        { question: { bank: 'bank', question: 'q3' } },
+      ],
+    }]
+    const columnsOf = (occurrences: ReturnType<typeof pendingImagesOf>) =>
+      occurrences.filter((_, index) => index % 2 === 0).map((occurrence) => occurrence.answerColumns)
+    // As the import lays them out: the first takes one column, a Question with
+    // none of its own takes the one before it.
+    expect(columnsOf(pendingImagesOf({ banks, exams } as never))).toEqual([1, 4, 4])
+    // With no Exam, a Question's answers are sized for the columns it starts with.
+    expect(columnsOf(pendingImagesOf({ banks } as never))).toEqual([2, 2, 2])
+  })
+
+  test('sizes an answer’s picture against its cell, as wide as its answers’ columns make it', () => {
+    const graph = crop(850, 1 / 3)
+    // Two columns: a third of the page is about the whole cell.
+    expect(estimatedSize(graph, { where: 'Answer B', answerColumns: 2 })).toBeUndefined()
+    // One column: the cell is the question's width, and the graph a share of it.
+    const alone = estimatedSize(graph, { where: 'Answer B', answerColumns: 1 })!
+    expect(alone).toBeGreaterThan(0.4)
+    expect(alone).toBeLessThan(0.55)
+    // A narrower graph in a grid is a share of its cell.
+    const small = estimatedSize(crop(850, 0.2), { where: 'Answer C', answerColumns: 2 })!
+    expect(small).toBeGreaterThan(0.5)
+    expect(small).toBeLessThan(0.7)
+    // A Part's answers are sized against a Part's choice area, in the columns
+    // a Part starts with.
+    const part = estimatedSize(crop(850, 0.2), { where: 'Part a, Answer A' })!
+    expect(part).toBeGreaterThan(0.5)
+    expect(part).toBeLessThan(0.7)
   })
 
   test('an import writes the estimated size as the Authored Image Size', async () => {

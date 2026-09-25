@@ -60,6 +60,27 @@ export type ExamRecordPosition = {
   workSpace?: WorkSpace
 }
 
+/**
+ * The answer columns an imported Exam gives each Multiple Choice position, by
+ * `bank/question`: what the position says, or the rule a teacher adding a
+ * Question meets — a Multiple Choice Question takes the layout of the one
+ * before it, and the first takes one column. `isMultipleChoice` says which
+ * positions that is.
+ */
+export function positionColumns(
+  positions: readonly ExamRecordPosition[],
+  isMultipleChoice: (position: ExamRecordPosition) => boolean,
+): Map<string, ColumnSetting> {
+  const columns = new Map<string, ColumnSetting>()
+  let previous: ColumnSetting | undefined
+  for (const position of positions) {
+    if (!isMultipleChoice(position)) continue
+    previous = position.columns ?? previous ?? 1
+    columns.set(`${position.question.bank}/${position.question.question}`, previous)
+  }
+  return columns
+}
+
 /** One Question Section's wording, as an Exam Record 0.2.0 writes it. */
 export type ExamRecordSectionHeading = { title?: string; instructions?: string }
 
