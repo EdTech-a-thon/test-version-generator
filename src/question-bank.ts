@@ -38,6 +38,7 @@ export type ExamWorkingCopy = {
    *  at. Exam presentation like `workSpace`; absent means the defaults. */
   sectionHeadings?: import('./section-headings').SectionHeadings
   headingSize?: import('./section-headings').HeadingSize
+  textSize?: import('./section-headings').TextSize
   /** This Exam's own test-page header lines; absent means the default. */
   header?: import('./page-header').ExamHeader
 }

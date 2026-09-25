@@ -54,7 +54,13 @@ import {
   type TabStopDefinition,
 } from 'docx'
 import { arrangementRange } from './export-preparation'
-import { EXAM_FONT, halfPointsOf, sectionHeadingHalfPoints } from './export-typography'
+import {
+  bodyHalfPoints,
+  EXAM_FONT,
+  halfPointsOf,
+  sectionHeadingHalfPoints,
+  titleHalfPoints,
+} from './export-typography'
 import {
   authoredImageRatio,
   authoredImageWidth,
@@ -957,8 +963,9 @@ function itemContent(
 ): (Paragraph | Table)[] {
   switch (item.kind) {
     case 'section-heading': {
-      // Heading 1 and the body style already are `'normal'`; any other size is
-      // stated on the runs, from the same table print reads.
+      // Heading 1 already is `'normal'`; any other size is stated on the runs,
+      // from the same table print reads. The directions always state theirs:
+      // the body style follows the Exam's text size, and they do not.
       const sized = item.size && item.size !== 'normal'
         ? sectionHeadingHalfPoints(item.size)
         : null
@@ -980,7 +987,7 @@ function itemContent(
               children: [new TextRun({
                 text: item.instructions,
                 italics: true,
-                ...(sized ? { size: sized.instructions } : {}),
+                size: sized ? sized.instructions : halfPointsOf('body'),
               })],
               keepNext: item.keepWithNext,
               spacing: { after: 160 },
@@ -1031,12 +1038,16 @@ const IDENTITY_ID_RESERVE = 64
 function identityLine(furniture: PageFurniture): Paragraph {
   // Bold by style, as `.page-id` is bold by class: page furniture, not an
   // authored strong mark.
-  const id = new TextRun({ text: furniture.arrangementLabel, style: OUTPUT_ID_STYLE })
+  const id = new TextRun({
+    text: furniture.arrangementLabel,
+    style: OUTPUT_ID_STYLE,
+    size: halfPointsOf('body'),
+  })
   if (furniture.identityLine !== undefined) {
     // An Exam's own line: its text, then the ID against a right stop.
     return new Paragraph({
       children: [
-        new TextRun({ text: furniture.identityLine }),
+        new TextRun({ text: furniture.identityLine, size: halfPointsOf('body') }),
         new TextRun({ children: [new Tab()] }),
         id,
       ],
@@ -1077,7 +1088,13 @@ function headerParagraphs(furniture: PageFurniture): Paragraph[] {
       : [
           // Print sets the title flush left, as it does every heading.
           new Paragraph({
-            text: furniture.title,
+            ...(furniture.titleSize
+              ? {
+                  children: [
+                    new TextRun({ text: furniture.title, size: titleHalfPoints(furniture.titleSize) }),
+                  ],
+                }
+              : { text: furniture.title }),
             heading: HeadingLevel.TITLE,
             spacing: { after: 120 },
           }),
@@ -1163,7 +1180,9 @@ export function createExamDocxDocument(
     // than the sheet it was planned on.
     styles: {
       default: {
-        document: { run: { font: EXAM_FONT, size: halfPointsOf('body') } },
+        // The Exam's text size is its body type; the header line and the
+        // directions state the sheet's own.
+        document: { run: { font: EXAM_FONT, size: bodyHalfPoints(first?.textSize) } },
         title: { run: { font: EXAM_FONT, size: halfPointsOf('title'), bold: true } },
         heading1: { run: { font: EXAM_FONT, size: halfPointsOf('sectionTitle'), bold: true } },
         heading2: { run: { font: EXAM_FONT, size: halfPointsOf('sectionTitle'), bold: true } },

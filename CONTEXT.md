@@ -126,7 +126,7 @@ The line an Exam prints at the top of each test page, beside the paper's ID. By 
 _Avoid_: Letterhead, banner, identity line
 
 **Question Section**:
-A group of questions of the same Question Type whose boundary remains fixed within an Exam and its exported output, such as Multiple Choice, True/False, Matching, Short Answer, or Multipart. A Section prints its own heading and its own directions, and is omitted entirely when it holds no Questions. Each Section has default wording, which an Exam may reword, or clear so it prints nothing, for that Exam alone; every heading on an Exam prints at one of three sizes. The Answer Key's section titles follow the test's.
+A group of questions of the same Question Type whose boundary remains fixed within an Exam and its exported output, such as Multiple Choice, True/False, Matching, Short Answer, or Multipart. A Section prints its own heading and its own directions, and is omitted entirely when it holds no Questions. Each Section has default wording, which an Exam may reword, or clear so it prints nothing, for that Exam alone; every heading on an Exam, its title included, prints at one of three sizes, and its questions and answers at one of three text sizes chosen apart from the headings. The Answer Key's section titles follow the test's.
 _Avoid_: Question category
 
 **Vary**:

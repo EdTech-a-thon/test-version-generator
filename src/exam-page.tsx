@@ -29,6 +29,7 @@ import {
   type IdentityLineEditor,
 } from './page-item-view'
 import { headerLineOf, type HeaderLine } from './page-header'
+import { pageContentStyle } from './export-typography'
 import {
   FOOTER_HEIGHT,
   MAX_WORK_SPACE_HEIGHT,
@@ -1116,7 +1117,7 @@ export function ExportPreview({ plan }: { plan: LayoutPlan }) {
       {plan.pages.map((page) => (
         <article className="exam-page" key={`${page.stream}-${page.header}-${page.number}`}>
           <PageHeaderContent header={page.header} furniture={page.furniture} />
-          <div className="page-content">
+          <div className="page-content" style={pageContentStyle(plan.textSize)}>
             {page.items.map((item) => (
               <PageItemMeasureView key={keyOf(item)} item={item} />
             ))}
@@ -1337,7 +1338,11 @@ export function ExamPage({
             onTitleChange={index === titleLine ? onTitleChange : undefined}
             titleDisabled={titleDisabled}
           />
-          <div className="page-content" onClick={clearOnBackground}>
+          <div
+            className="page-content"
+            style={pageContentStyle(plan.textSize)}
+            onClick={clearOnBackground}
+          >
             {/* An exam with nothing in it yet offers the first question where
                 the first question will go, rather than leaving a blank sheet
                 and a button in the header as the only way in. It is editing

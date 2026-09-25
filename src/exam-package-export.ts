@@ -138,6 +138,7 @@ export async function examPackage({
     name: exam.title,
     ...(Object.keys(sectionHeadings).length > 0 ? { sectionHeadings } : {}),
     ...(exam.headingSize && exam.headingSize !== 'normal' ? { headingSize: exam.headingSize } : {}),
+    ...(exam.textSize && exam.textSize !== 'normal' ? { textSize: exam.textSize } : {}),
     ...(exam.header ? { header: { ...exam.header } } : {}),
     positions,
   }

@@ -595,6 +595,30 @@ export const FIXTURES: readonly Fixture[] = [
     { answerKey: true },
   ),
 
+  // Large text and small headings: the text size reaches the questions and the
+  // key, the heading size the title, and the header line keeps its own type.
+  fixture(
+    'large text under small headings',
+    {
+      title: 'Sized type',
+      questions: [
+        multipleChoice(
+          'm1',
+          2,
+          [paragraph(text('Which particle is neutral?'))],
+          [
+            choice('m1-a', false, paragraph(text('Proton'))),
+            choice('m1-b', true, paragraph(text('Neutron'))),
+          ],
+        ),
+      ],
+      headingSize: 'small',
+      textSize: 'large',
+    },
+    arrangement(['m1']),
+    { answerKey: true },
+  ),
+
   fixture(
     'a plain short-answer question',
     {

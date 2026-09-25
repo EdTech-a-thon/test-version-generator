@@ -25,7 +25,7 @@ import {
   type ProseMirrorJSON,
 } from './question-doc'
 import { newMultipleChoiceNode, newTrueFalseNode } from './multiple-choice'
-import type { HeadingSize, SectionHeadings } from './section-headings'
+import type { HeadingSize, SectionHeadings, TextSize } from './section-headings'
 import type { ExamHeader } from './page-header'
 import { newMatchingNode } from './matching'
 import { newMultipartPartsNode } from './multipart'
@@ -124,6 +124,8 @@ export type Exam = {
   sectionHeadings?: SectionHeadings
   /** How large every section heading prints. Absent means `'normal'`. */
   headingSize?: HeadingSize
+  /** How large its questions and answers print. Absent means `'normal'`. */
+  textSize?: TextSize
   /** This Exam's own test-page header lines, where they depart from the
    *  default blanks. See `page-header.ts`. */
   header?: ExamHeader

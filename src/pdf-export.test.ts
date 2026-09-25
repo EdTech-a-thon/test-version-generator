@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { bodyPoints, pointsOf, titlePoints } from './export-typography'
 import { PDFDocument } from 'pdf-lib'
 import { getDocument, OPS } from 'pdfjs-dist/legacy/build/pdf.mjs'
 import {
@@ -237,6 +238,22 @@ describe('PDF Export Adapter', () => {
     expect(drawn).toContain('Student: __________ Period: ____')
     expect(drawn).not.toContain('Class:')
     expect(drawn).toContain('ID: ')
+  })
+
+  // The text size scales the questions, the heading size the title, and the
+  // header line stays at the sheet's own type.
+  test('draws the Exam’s text and title at the sizes it chose', async () => {
+    const { plans } = plansOf('large text under small headings')
+    const bytes = await createPublicationPdf(plans, noImages, fonts)
+    const document = await getDocument({ data: bytes, disableWorker: true }).promise
+    const items = (await (await document.getPage(1)).getTextContent()).items as {
+      str: string
+      transform: number[]
+    }[]
+    const sizeOf = (text: string) => items.find((item) => item.str.includes(text))?.transform[0]
+    expect(sizeOf('Which particle is neutral?')).toBeCloseTo(bodyPoints('large'), 2)
+    expect(sizeOf('Sized type')).toBeCloseTo(titlePoints('small'), 2)
+    expect(sizeOf('ID:')).toBeCloseTo(pointsOf('body'), 2)
   })
 
   // A matching question once printed its stem and nothing else: no prompts, no

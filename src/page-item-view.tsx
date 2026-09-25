@@ -12,7 +12,7 @@
 // page, not to the items on it.
 
 import type { ReactNode } from 'react'
-import { sectionHeadingStyles } from './export-typography'
+import { TITLE_PX, sectionHeadingStyles } from './export-typography'
 import { useState } from 'react'
 import { Check, RotateCcw } from 'lucide-react'
 import { DifficultyBadge, TopicBadge } from './badges'
@@ -479,7 +479,10 @@ export function PageHeaderContent({
         <span className="page-id">{furniture.arrangementLabel}</span>
       </div>
       {furniture.title !== null && (
-        <h1 className="exam-title">
+        <h1
+          className="exam-title"
+          style={furniture.titleSize ? { fontSize: TITLE_PX[furniture.titleSize] } : undefined}
+        >
           {onTitleChange ? (
             // The underline belongs to the name, not to the width of the
             // page: the mirrored value behind the input is what sizes it, so

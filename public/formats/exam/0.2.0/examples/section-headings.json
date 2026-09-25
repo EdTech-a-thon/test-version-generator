@@ -12,6 +12,7 @@
     }
   },
   "headingSize": "large",
+  "textSize": "small",
   "header": {
     "first": "Student: ____________  Period: ____"
   },

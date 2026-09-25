@@ -54,9 +54,11 @@ import { headerLineOf, type ExamHeader, type HeaderLine } from './page-header'
 export { SECTION_INSTRUCTIONS, SECTION_TITLE } from './section-headings'
 import {
   DEFAULT_HEADING_SIZE,
+  DEFAULT_TEXT_SIZE,
   SECTION_TITLE,
   sectionHeadingOf,
   type HeadingSize,
+  type TextSize,
 } from './section-headings'
 
 // How many columns a choice grid is drawn in — the same set a question's
@@ -67,8 +69,9 @@ export type ColumnCount = 1 | 2 | 4
 // Everything the render needs to know about how big things come out. The app
 // supplies a DOM-backed implementation; tests supply stubs.
 export type Measure = {
-  /** Height in px of one page item, laid out at the content box's width. */
-  itemHeight(item: PageItem): number
+  /** Height in px of one page item, laid out at the content box's width and
+   *  at the Exam's text size. */
+  itemHeight(item: PageItem, textSize?: TextSize): number
 }
 
 // A stub that reports nothing: every item is zero-height, so an exam packs onto
@@ -393,6 +396,9 @@ export type PageFurniture = {
   identityLine?: string
   /** The exam title, on the pages that repeat it; `null` on the rest. */
   title: string | null
+  /** The heading size the title prints at, when the Exam chose one other than
+   *  normal. The heading size sets every heading, the title included. */
+  titleSize?: HeadingSize
   /** Which arrangement's paper this is — printed on every page, both streams. */
   arrangementLabel: string
   /** What the footer prints. The same number as the page, named separately
@@ -431,6 +437,7 @@ function furnitureOf(
   title: string,
   arrangementLetter: string,
   header: ExamHeader | undefined,
+  titleSize: HeadingSize | undefined,
 ): PageFurniture {
   const line = HEADER_LINE[page.header]
   const identityLine = line ? headerLineOf(header, line) : undefined
@@ -438,6 +445,7 @@ function furnitureOf(
     identityFields: IDENTITY_FIELDS[page.header],
     ...(identityLine !== undefined ? { identityLine } : {}),
     title: REPEATS_TITLE[page.header] ? title : null,
+    ...(REPEATS_TITLE[page.header] && titleSize ? { titleSize } : {}),
     arrangementLabel: `ID: ${arrangementLetter}`,
     pageNumber: page.number,
   }
@@ -1194,6 +1202,10 @@ export type ExportDocument = {
   answerKey: PageItem[]
   /** The Exam's own header lines, where it has reworded them. */
   header?: ExamHeader
+  /** The Exam's heading size, where not normal: the title's size. */
+  headingSize?: HeadingSize
+  /** The Exam's text size, where not normal. */
+  textSize?: TextSize
 }
 
 /** Semantic derivation, on its own. Exposed so tests and fingerprints can read
@@ -1211,6 +1223,10 @@ export function buildExportDocument(
     test,
     answerKey: deriveAnswerKey(test),
     ...(exam.header ? { header: exam.header } : {}),
+    ...(exam.headingSize && exam.headingSize !== DEFAULT_HEADING_SIZE
+      ? { headingSize: exam.headingSize }
+      : {}),
+    ...(exam.textSize && exam.textSize !== DEFAULT_TEXT_SIZE ? { textSize: exam.textSize } : {}),
   }
 }
 
@@ -1240,6 +1256,9 @@ export type LayoutPlan = {
   arrangement: { id: string; letter: string }
   selection: ExportContentSelection
   pageSize: PageSize
+  /** How large the pages' content prints, when not normal. Every adapter sets
+   *  its body type from this; it is what the items were measured at. */
+  textSize?: TextSize
   pages: PlannedPage[]
 }
 
@@ -1256,15 +1275,19 @@ function resolveLayout(
   document: ExportDocument,
   measure: Measure,
 ): LayoutPlan {
+  const { textSize } = document
+  const sized: Measure = textSize
+    ? { itemHeight: (item) => measure.itemHeight(item, textSize) }
+    : measure
   const pages: PackedPage[] = []
   if (document.selection.test) {
-    pages.push(...paginate(document.test, measure, 'test', 'first', 'later'))
+    pages.push(...paginate(document.test, sized, 'test', 'first', 'later'))
   }
   if (document.selection.answerKey) {
     pages.push(
       ...paginate(
         document.answerKey,
-        measure,
+        sized,
         'answer-key',
         'answer-key',
         'answer-key-later',
@@ -1276,12 +1299,19 @@ function resolveLayout(
     arrangement: document.arrangement,
     selection: document.selection,
     pageSize: US_LETTER,
+    ...(textSize ? { textSize } : {}),
     // Every page but the first of the serialized document is preceded by an
     // explicit break. A linear format must reproduce the plan's pagination
     // rather than rediscover one of its own.
     pages: pages.map((page, index) => ({
       ...page,
-      furniture: furnitureOf(page, document.title, document.arrangement.letter, document.header),
+      furniture: furnitureOf(
+        page,
+        document.title,
+        document.arrangement.letter,
+        document.header,
+        document.headingSize,
+      ),
       breakBefore: index > 0,
     })),
   }

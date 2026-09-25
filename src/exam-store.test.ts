@@ -840,6 +840,20 @@ describe('the dirty flag and persistence', () => {
     expect(store.selectedExam().exam.headingSize).toBe('small')
   })
 
+  test('text size is saved Exam presentation, and normal stores nothing', async () => {
+    const { store } = await withExamWorkingCopy(1)
+    await store.save()
+
+    store.setTextSize('large')
+    expect(store.getState().dirty).toBe(true)
+    expect(store.selectedExam().exam.textSize).toBe('large')
+
+    store.setTextSize('normal')
+    expect(store.getState().workingCopy.textSize).toBeUndefined()
+    expect(store.selectedExam().exam.textSize).toBeUndefined()
+    expect(store.getState().dirty).toBe(false)
+  })
+
   test('header lines are saved Exam presentation, and the default stores nothing', async () => {
     const { store } = await withExamWorkingCopy(1)
     await store.save()
@@ -868,6 +882,7 @@ describe('the dirty flag and persistence', () => {
       (store) => store.setSectionHeading('open', { title: 'Essays' }),
       (store) => store.setHeadingSize('large'),
       (store) => store.setHeaderLine('later', ''),
+      (store) => store.setTextSize('small'),
     ]
     for (const act of cases) {
       const { backend, store, questions } = await withExamWorkingCopy(1)

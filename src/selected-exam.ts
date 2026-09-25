@@ -20,6 +20,8 @@ import { isExamHeader, sameExamHeader } from './page-header'
 import {
   DEFAULT_HEADING_SIZE,
   isHeadingSize,
+  isTextSize,
+  DEFAULT_TEXT_SIZE,
   isSectionHeadings,
   sameSectionHeadings,
 } from './section-headings'
@@ -149,6 +151,8 @@ export function selectedExam(
     isHeadingSize(draft.headingSize) && draft.headingSize !== DEFAULT_HEADING_SIZE
       ? draft.headingSize
       : undefined
+  const textSize =
+    isTextSize(draft.textSize) && draft.textSize !== DEFAULT_TEXT_SIZE ? draft.textSize : undefined
   const header =
     isExamHeader(draft.header) && Object.keys(draft.header).length > 0 ? draft.header : undefined
   const exam: Exam =
@@ -160,6 +164,7 @@ export function selectedExam(
     && sameSectionHeadings(previous.exam.sectionHeadings, sectionHeadings)
     && previous.exam.headingSize === headingSize
     && sameExamHeader(previous.exam.header, header)
+    && previous.exam.textSize === textSize
       ? previous.exam
       : {
           title: draft.title,
@@ -167,6 +172,7 @@ export function selectedExam(
           ...(hasAnyWorkSpace ? { workSpace } : {}),
           ...(sectionHeadings ? { sectionHeadings } : {}),
           ...(headingSize ? { headingSize } : {}),
+          ...(textSize ? { textSize } : {}),
           ...(header ? { header } : {}),
         }
 

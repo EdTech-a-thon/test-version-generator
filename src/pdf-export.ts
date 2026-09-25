@@ -46,7 +46,7 @@ import {
   type QuestionItem,
 } from './export-plan'
 import { DIFFICULTY_LABELS, WORK_SPACE_LINE_PITCH } from './exam'
-import { pointsOf, sectionHeadingPoints } from './export-typography'
+import { bodyScale, pointsOf, sectionHeadingPoints, titlePoints } from './export-typography'
 import type { ProseMirrorJSON } from './question-doc'
 import {
   QUESTION_BANK_ATTACHMENT_DESCRIPTION,
@@ -55,11 +55,17 @@ import {
 
 const PDF_MIME = 'application/pdf'
 const POINTS_PER_PX = 0.75
-const BODY_SIZE = pointsOf('body')
-const BODY_LINE = 16.3
+// The sheet's own body type, which the header line and the section headings'
+// ratios keep whatever the Exam's text size.
+const SHEET_BODY_SIZE = pointsOf('body')
+const SHEET_BODY_LINE = 16.3
+// The body type the plan being drawn prints its content at: the sheet's own,
+// scaled by the Exam's text size. Set for each plan in `createPdf`, whose
+// drawing is synchronous, so no other export can see a plan's size.
+let BODY_SIZE = SHEET_BODY_SIZE
+let BODY_LINE = SHEET_BODY_LINE
 const SMALL_SIZE = pointsOf('small')
 const HEADING_SIZE = pointsOf('sectionTitle')
-const TITLE_SIZE = pointsOf('title')
 const ANSWER_KEY_HEADING_SIZE = pointsOf('answerKeyHeading')
 const INK = rgb(0.2, 0.165, 0.14)
 /** Where the key's answer column starts: past `.answer-key-entry`'s 42px
@@ -754,7 +760,7 @@ function drawItem(context: DrawContext, item: PageItem): void {
       if (item.instructions) {
         drawTextLine(context, item.instructions, {
           size: size.instructions,
-          line: 17 * (size.instructions / BODY_SIZE),
+          line: 17 * (size.instructions / SHEET_BODY_SIZE),
         })
       }
       context.y -= 8
@@ -878,22 +884,22 @@ function drawAnswerKeyEntry(context: DrawContext, item: AnswerKeyEntryItem): voi
 function drawIdentityLine(context: DrawContext, text: string, label: string): void {
   const bold = context.fonts.bold
   const regular = context.fonts.regular
-  const labelWidth = bold.widthOfTextAtSize(label, BODY_SIZE)
-  const y = context.y - BODY_SIZE
+  const labelWidth = bold.widthOfTextAtSize(label, SHEET_BODY_SIZE)
+  const y = context.y - SHEET_BODY_SIZE
   context.page.drawText(label, {
     x: context.x + context.width - labelWidth,
     y,
-    size: BODY_SIZE,
+    size: SHEET_BODY_SIZE,
     font: bold,
     color: INK,
   })
   const room = context.width - labelWidth - 12
   let shown = text.trimEnd()
-  while (shown && regular.widthOfTextAtSize(shown, BODY_SIZE) > room) {
+  while (shown && regular.widthOfTextAtSize(shown, SHEET_BODY_SIZE) > room) {
     shown = shown.slice(0, -1)
   }
   if (shown) {
-    context.page.drawText(shown, { x: context.x, y, size: BODY_SIZE, font: regular, color: INK })
+    context.page.drawText(shown, { x: context.x, y, size: SHEET_BODY_SIZE, font: regular, color: INK })
   }
 }
 
@@ -917,8 +923,8 @@ function drawFurniture(
     const titleContext = { ...context, y: pageTop - 36, bottom: headerBottom }
     drawInline(
       titleContext,
-      [{ text: furniture.title, font: 'bold', size: TITLE_SIZE }],
-      { x: context.x, width: context.width, line: TITLE_SIZE * 1.15 },
+      [{ text: furniture.title, font: 'bold', size: titlePoints(furniture.titleSize) }],
+      { x: context.x, width: context.width, line: titlePoints(furniture.titleSize) * 1.15 },
     )
   }
 }
@@ -972,42 +978,50 @@ async function createPdf(
   document.setTitle(plans[0]?.title ?? '')
   document.setCreator('Test Parrot')
 
-  for (const plan of plans) {
-    for (const planned of plan.pages) {
-      const width = pt(plan.pageSize.width)
-      const height = pt(plan.pageSize.height)
-      const margin = pt(plan.pageSize.margin)
-      const page = document.addPage([width, height])
-      const top = height - margin
-      const headerHeight = planned.header === 'first' || planned.header === 'answer-key'
-        ? pt(84)
-        : pt(42)
-      const footerHeight = pt(36)
-      const context: DrawContext = {
-        document,
-        page,
-        fonts,
-        images,
-        x: margin,
-        y: top,
-        width: pt(plan.pageSize.contentWidth),
-        bottom: margin + footerHeight,
-        pageNumber: planned.number,
+  try {
+    for (const plan of plans) {
+      const scale = bodyScale(plan.textSize)
+      BODY_SIZE = SHEET_BODY_SIZE * scale
+      BODY_LINE = SHEET_BODY_LINE * scale
+      for (const planned of plan.pages) {
+        const width = pt(plan.pageSize.width)
+        const height = pt(plan.pageSize.height)
+        const margin = pt(plan.pageSize.margin)
+        const page = document.addPage([width, height])
+        const top = height - margin
+        const headerHeight = planned.header === 'first' || planned.header === 'answer-key'
+          ? pt(84)
+          : pt(42)
+        const footerHeight = pt(36)
+        const context: DrawContext = {
+          document,
+          page,
+          fonts,
+          images,
+          x: margin,
+          y: top,
+          width: pt(plan.pageSize.contentWidth),
+          bottom: margin + footerHeight,
+          pageNumber: planned.number,
+        }
+        drawFurniture(context, planned.furniture, top, top - headerHeight)
+        context.y = top - headerHeight
+        for (const item of planned.items) drawItem(context, item)
+        const footer = String(planned.furniture.pageNumber)
+        assertSupported(footer, fonts.regular)
+        const footerWidth = fonts.regular.widthOfTextAtSize(footer, SMALL_SIZE)
+        page.drawText(footer, {
+          x: (width - footerWidth) / 2,
+          y: margin,
+          size: SMALL_SIZE,
+          font: fonts.regular,
+          color: INK,
+        })
       }
-      drawFurniture(context, planned.furniture, top, top - headerHeight)
-      context.y = top - headerHeight
-      for (const item of planned.items) drawItem(context, item)
-      const footer = String(planned.furniture.pageNumber)
-      assertSupported(footer, fonts.regular)
-      const footerWidth = fonts.regular.widthOfTextAtSize(footer, SMALL_SIZE)
-      page.drawText(footer, {
-        x: (width - footerWidth) / 2,
-        y: margin,
-        size: SMALL_SIZE,
-        font: fonts.regular,
-        color: INK,
-      })
     }
+  } finally {
+    BODY_SIZE = SHEET_BODY_SIZE
+    BODY_LINE = SHEET_BODY_LINE
   }
   if (attachment !== undefined) {
     // The same attachment identity a Question Bank File uses, so one importer

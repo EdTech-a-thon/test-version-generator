@@ -819,7 +819,9 @@ button { cursor: pointer; }
 
 .exam-section { margin: 16px 0 18px; }
 .section-title { margin: 0; font: 700 17px/1.3 Georgia, serif; }
-.section-instructions { margin: 4px 0 0; font-style: italic; }
+/* Directions print at the heading size's type, set here for normal so the
+   Exam's text size, which a page's content carries, does not reach them. */
+.section-instructions { margin: 4px 0 0; font-size: 15px; font-style: italic; }
 /* A section heading reworded where it prints: the Exam title's own field — an
    underline that is transparent until hover and the accent once focused —
    laid over a hidden copy of its value, so it wraps exactly as the printed

@@ -109,14 +109,17 @@ import {
   Tags,
   Trash2,
   TriangleAlert,
+  Type as TypeIcon,
   Undo2,
   X,
 } from 'lucide-react'
 import { ContextMenu, type MenuPoint } from './context-menu'
 import {
   DEFAULT_HEADING_SIZE,
+  DEFAULT_TEXT_SIZE,
   HEADING_SIZES,
   HEADING_SIZE_LABELS,
+  TEXT_SIZES,
 } from './section-headings'
 import { BEFORE_NAVIGATE_EVENT, useRoute } from './use-route'
 import { Footer } from './site-chrome'
@@ -2291,6 +2294,19 @@ function ExamEditor({
               checked: (state.workingCopy.headingSize ?? DEFAULT_HEADING_SIZE) === size,
               onSelect: () => {
                 if (!isHistoricalBrowsing) store.setHeadingSize(size)
+              },
+            })),
+          },
+          {
+            kind: 'submenu',
+            label: 'Text size',
+            icon: <TypeIcon />,
+            items: TEXT_SIZES.map((size) => ({
+              kind: 'radio' as const,
+              label: HEADING_SIZE_LABELS[size],
+              checked: (state.workingCopy.textSize ?? DEFAULT_TEXT_SIZE) === size,
+              onSelect: () => {
+                if (!isHistoricalBrowsing) store.setTextSize(size)
               },
             })),
           },

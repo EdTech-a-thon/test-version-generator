@@ -1,6 +1,6 @@
 # Exam Record 0.2.0
 
-The **Exam Record** is the portable composition of one Exam: its name, its test-page header lines, how its section headings read and how large they print, and, for each position, the Question it uses, with that position's answer columns, answer order and Work Space. It never carries Question Content. It references Questions in Question Bank Records that travel beside it in the same [Test Parrot Package](test-parrot-package-0.1.0.md), and it is importable only inside one. See ADR-0022.
+The **Exam Record** is the portable composition of one Exam: its name, its test-page header lines, how its section headings read, how large its headings and text print, and, for each position, the Question it uses, with that position's answer columns, answer order and Work Space. It never carries Question Content. It references Questions in Question Bank Records that travel beside it in the same [Test Parrot Package](test-parrot-package-0.1.0.md), and it is importable only inside one. See ADR-0022.
 
 ## Published contract
 
@@ -21,7 +21,8 @@ The schema is the structural contract; this document supplies the rules JSON Sch
 | `formatVersion` | Exactly `0.2.0`. Importers accept exact versions only.   |
 | `name`          | The Exam's name. An empty name imports as “Untitled Exam”. |
 | `sectionHeadings` | Optional. The Exam's own wording for its Question Section headings. See below. |
-| `headingSize`   | Optional. `small`, `normal` or `large`: how large every section heading and its directions print. Absent means `normal`. |
+| `headingSize`   | Optional. `small`, `normal` or `large`: how large every heading prints — the Exam's title, and each section heading and its directions. Absent means `normal`. |
+| `textSize`      | Optional. `small`, `normal` or `large`: how large the Exam's questions, answers and answer-key lines print. The page header line keeps its size. Absent means `normal`. |
 | `header`        | Optional. The Exam's own test-page header lines. See below. |
 | `positions`     | The Exam's positions, in order. May be empty.            |
 
@@ -75,7 +76,7 @@ Test Parrot always prints Question Sections in its own order: Multiple Choice, T
 
 ## Changes from 0.1.0
 
-`sectionHeadings`, `headingSize` and `header` are new, and all are optional. Test Parrot still imports Exam Record `0.1.0`, whose Exams print the default header and every heading in the default wording at the normal size, and writes `0.2.0`.
+`sectionHeadings`, `headingSize`, `textSize` and `header` are new, and all are optional. Test Parrot still imports Exam Record `0.1.0`, whose Exams print the default header, every heading in the default wording and all text at the normal size, and writes `0.2.0`.
 
 ## Producers
 

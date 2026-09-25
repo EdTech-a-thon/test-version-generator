@@ -139,6 +139,17 @@ export function isHeadingSize(value: unknown): value is HeadingSize {
   return HEADING_SIZES.includes(value as HeadingSize)
 }
 
+/** How large an Exam's questions and answers print — everything a page packs
+ *  but its headings. The same three steps as the headings, chosen apart from
+ *  them; `'normal'` is today's type. */
+export type TextSize = HeadingSize
+
+export const TEXT_SIZES: readonly TextSize[] = HEADING_SIZES
+
+export const DEFAULT_TEXT_SIZE: TextSize = 'normal'
+
+export const isTextSize: (value: unknown) => value is TextSize = isHeadingSize
+
 /** Whether two Exams word every section alike. Absent and empty agree. */
 export function sameSectionHeadings(
   left: SectionHeadings | undefined,

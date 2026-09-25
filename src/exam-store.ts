@@ -45,6 +45,9 @@ import {
   withSectionHeading,
   type HeadingSize,
   type SectionHeadingChange,
+  DEFAULT_TEXT_SIZE,
+  isTextSize,
+  type TextSize,
 } from './section-headings'
 import { isExamHeader, sameExamHeader, withHeaderLine, type HeaderLine } from './page-header'
 import {
@@ -181,7 +184,8 @@ function isWorkingCopy(value: unknown): value is ExamWorkingCopy {
     (draft.choiceOrder === undefined || isChoiceOrder(draft.choiceOrder)) &&
     (draft.sectionHeadings === undefined || isSectionHeadings(draft.sectionHeadings)) &&
     (draft.headingSize === undefined || isHeadingSize(draft.headingSize)) &&
-    (draft.header === undefined || isExamHeader(draft.header))
+    (draft.header === undefined || isExamHeader(draft.header)) &&
+    (draft.textSize === undefined || isTextSize(draft.textSize))
   )
 }
 
@@ -226,6 +230,7 @@ export type ExamStore = {
   setSectionHeading(section: QuestionType, change: SectionHeadingChange): void
   /** How large every section heading prints on this Exam. */
   setHeadingSize(size: HeadingSize): void
+  setTextSize(size: TextSize): void
   /** Rewords one test-page header line; `null` restores its default. */
   setHeaderLine(line: HeaderLine, text: string | null): void
   /** Refreshes the canonical Questions projected from open Question Banks.
@@ -373,6 +378,7 @@ function sameExamWorkingCopy(left: ExamWorkingCopy, right: ExamWorkingCopy): boo
     && sameSectionHeadings(left.sectionHeadings, right.sectionHeadings)
     && (left.headingSize ?? DEFAULT_HEADING_SIZE) === (right.headingSize ?? DEFAULT_HEADING_SIZE)
     && sameExamHeader(left.header, right.header)
+    && (left.textSize ?? DEFAULT_TEXT_SIZE) === (right.textSize ?? DEFAULT_TEXT_SIZE)
 }
 
 /** The Part with this id, when it belongs to a Multipart question this Exam references.
@@ -653,6 +659,14 @@ export function createExamStore(options: {
         // The default is stored as its absence, like every other default here.
         const workingCopy: ExamWorkingCopy = { ...current.workingCopy, headingSize: size }
         if (size === DEFAULT_HEADING_SIZE) delete workingCopy.headingSize
+        return { ...current, workingCopy }
+      }),
+
+    setTextSize: (size) =>
+      change((current) => {
+        if ((current.workingCopy.textSize ?? DEFAULT_TEXT_SIZE) === size) return current
+        const workingCopy: ExamWorkingCopy = { ...current.workingCopy, textSize: size }
+        if (size === DEFAULT_TEXT_SIZE) delete workingCopy.textSize
         return { ...current, workingCopy }
       }),
 

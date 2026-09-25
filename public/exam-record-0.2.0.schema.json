@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://testparrot.com/formats/exam/0.2.0/schema.json",
   "title": "Test Parrot Exam Record 0.2.0",
-  "description": "The composition of one Exam: its name, its test-page header lines, how its section headings read and how large they print, and its ordered positions, each referencing a Question in a Question Bank Record travelling in the same Test Parrot Package.",
+  "description": "The composition of one Exam: its name, its test-page header lines, how its section headings read, and how large its headings and text print, and its ordered positions, each referencing a Question in a Question Bank Record travelling in the same Test Parrot Package.",
   "type": "object",
   "required": [
     "format",
@@ -37,7 +37,15 @@
       }
     },
     "headingSize": {
-      "description": "How large every section heading and its directions print. Absent means normal.",
+      "description": "How large every heading on the Exam prints: its title, and each section heading and its directions. Absent means normal.",
+      "enum": [
+        "small",
+        "normal",
+        "large"
+      ]
+    },
+    "textSize": {
+      "description": "How large the Exam's questions, answers and answer-key lines print. Absent means normal.",
       "enum": [
         "small",
         "normal",
