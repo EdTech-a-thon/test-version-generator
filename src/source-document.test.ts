@@ -214,7 +214,7 @@ describe('the labeled copy', () => {
   })
 
   test('says it is labeled in its file name', () => {
-    expect(labeledFilename('Unit 3 Test.pdf')).toBe('Unit 3 Test (labeled).pdf')
+    expect(labeledFilename('Unit 3 Test.pdf')).toBe('Unit 3 Test (AI-ready).pdf')
   })
 })
 

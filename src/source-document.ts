@@ -323,7 +323,7 @@ export async function photoSourceDocument(
 /** The labeled copy's file name: the original's, saying it is labeled. */
 export function labeledFilename(name: string): string {
   const stem = name.replace(/\.pdf$/i, '') || 'source'
-  return `${stem} (labeled).pdf`
+  return `${stem} (AI-ready).pdf`
 }
 
 function toRgba(image: DecodedImage): RgbaImage {

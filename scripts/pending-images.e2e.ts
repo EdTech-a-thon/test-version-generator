@@ -19,23 +19,23 @@ test('a converted test gets its pictures from the teacher’s own PDF', async ({
     mimeType: 'application/pdf',
     buffer: await sourceDocument(),
   })
-  await expect(dialog.getByRole('status')).toHaveText('Pictures detected in your PDF')
-  await expect(dialog).toContainText('Test Parrot found 2 pictures in unit-test.pdf.')
+  await expect(dialog.getByRole('heading', { name: 'Converting unit-test.pdf' })).toBeVisible()
+  await expect(dialog.getByRole('status')).toHaveText('2 pictures detected in your PDF')
 
-  await dialog.getByRole('button', { name: 'Copy instructions' }).click()
+  await dialog.getByRole('button', { name: 'Copy the instructions' }).click()
   await expect(dialog.getByRole('button', { name: 'Copied' })).toBeVisible()
   const instructions = await page.evaluate(() => navigator.clipboard.readText())
   expect(instructions).toContain('- page 1: IMG 1\n- page 2: IMG 2')
   expect(instructions).not.toContain('{{IMAGE_TAGS}}')
 
   const download = page.waitForEvent('download')
-  await dialog.getByRole('button', { name: 'Download labeled PDF' }).click()
-  expect((await download).suggestedFilename()).toBe('unit-test (labeled).pdf')
+  await dialog.getByRole('button', { name: 'Download the AI-ready PDF' }).click()
+  expect((await download).suggestedFilename()).toBe('unit-test (AI-ready).pdf')
 
   // The import waits while the teacher is in their AI chat, reload and all.
   await page.reload()
   await page.getByRole('button', { name: 'Import', exact: true }).click()
-  await expect(dialog.getByRole('status')).toHaveText('Pictures detected in your PDF')
+  await expect(dialog.getByRole('status')).toHaveText('2 pictures detected in your PDF')
 
   await dialog.getByLabel('File from your AI').setInputFiles({
     name: 'trading-stations.parrot.json',

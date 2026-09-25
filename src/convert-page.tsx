@@ -108,7 +108,11 @@ export function ConvertPage({
 
       <main className="convert">
         <div className="convert-head">
-          <h1>Convert a test you already have</h1>
+          {waiting
+            ? <h1 className="convert-title" title={waiting.fileName}>
+                <span>Converting</span> <span className="convert-title-name">{waiting.fileName}</span>
+              </h1>
+            : <h1>Convert a test you already have</h1>}
           {!waiting && (
             <p className="landing-lede">
               An AI assistant turns your test into a file Test Parrot imports: your questions, the

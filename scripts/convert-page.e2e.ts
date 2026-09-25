@@ -18,31 +18,38 @@ test('the convert page asks only for the test, then shows the path it needs', as
   await context.grantPermissions(['clipboard-read', 'clipboard-write'])
   await page.goto('/get-started/convert')
   await expect(page.getByText('Drop your PDF here to get started')).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Copy instructions' })).toHaveCount(0)
   const steps = page.getByRole('region', { name: 'Convert your test' })
+  await expect(steps).toHaveCount(0)
 
   // A PDF with pictures goes to the AI as a labeled copy.
   await page.getByLabel('Your test').setInputFiles({ name: 'unit-test.pdf', mimeType: 'application/pdf', buffer: await sourceDocument() })
-  await expect(steps.getByRole('status')).toHaveText('Pictures detected in your PDF')
-  await expect(steps).toContainText('Test Parrot found 2 pictures in unit-test.pdf.')
-  await expect(steps.getByRole('button', { name: 'Download labeled PDF' })).toBeVisible()
-  await expect(steps).toContainText('attach the labeled PDF (not your original)')
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Converting unit-test.pdf')
+  await expect(steps.getByRole('status')).toHaveText('2 pictures detected in your PDF')
+  await expect(steps.getByRole('button', { name: 'Download the AI-ready PDF' })).toBeVisible()
+  await expect(steps).toContainText('attach the AI-ready PDF (not your original)')
+  await expect(steps).not.toContainText('seven days')
   await expect(page.getByRole('dialog')).toHaveCount(0)
 
   // Starting over with a PDF that has no pictures needs no labeled copy.
   await steps.getByRole('button', { name: 'Start over with another file' }).click()
   await page.getByLabel('Your test').setInputFiles({ name: 'planets.pdf', mimeType: 'application/pdf', buffer: await textOnlyPdf() })
   await expect(steps.getByRole('status')).toHaveText('No pictures in your PDF')
-  await expect(steps.getByRole('button', { name: 'Download labeled PDF' })).toHaveCount(0)
-  await steps.getByRole('button', { name: 'Copy instructions' }).click()
+  await expect(steps.getByRole('button', { name: 'Download the AI-ready PDF' })).toHaveCount(0)
+  await steps.getByRole('button', { name: 'Copy the instructions' }).click()
+  await expect(steps.getByRole('button', { name: 'Copied' })).toBeVisible()
   expect(await page.evaluate(() => navigator.clipboard.readText())).toContain('found no embedded pictures in this document')
 
   // A photo is converted as it is, and its pictures are cropped after.
   await steps.getByRole('button', { name: 'Start over with another file' }).click()
   await page.getByLabel('Your test').setInputFiles({ name: 'quiz-photo.png', mimeType: 'image/png', buffer: Buffer.from(picture(600, 800, 3)) })
-  await expect(steps.getByRole('status')).toHaveText('A photo of your test')
+  await expect(steps.getByRole('status')).toHaveText('A photo of your test: you crop its pictures after importing')
   await expect(steps).toContainText('attach your photo')
-  await steps.getByRole('button', { name: 'Copy instructions' }).click()
+  // The whole step opens the list of assistants.
+  await steps.getByRole('button', { name: 'Open your AI' }).click()
+  await expect(steps.getByRole('menu', { name: 'Open an AI assistant' }).getByRole('menuitem')).toHaveText(['ChatGPT', 'Claude', 'Gemini'])
+  await page.keyboard.press('Escape')
+  await expect(steps.getByRole('menu')).toHaveCount(0)
+  await steps.getByRole('button', { name: 'Copy the instructions' }).click()
   expect(await page.evaluate(() => navigator.clipboard.readText())).toContain('There is no labeled copy of this source')
 
   const photoPackage = JSON.parse(assistantPackage().toString())
@@ -73,14 +80,13 @@ test('a Word document goes to the AI as a labeled copy, and its pictures come fr
     mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     buffer: await wordSourceDocument(),
   })
-  await expect(steps.getByRole('status')).toHaveText('Pictures detected in your document')
-  await expect(steps).toContainText('Test Parrot found 2 pictures in unit-test.docx.')
-  await expect(steps).toContainText('attach the labeled document (not your original)')
+  await expect(steps.getByRole('status')).toHaveText('2 pictures detected in your document')
+  await expect(steps).toContainText('attach the AI-ready document (not your original)')
 
   const download = page.waitForEvent('download')
-  await steps.getByRole('button', { name: 'Download labeled document' }).click()
-  expect((await download).suggestedFilename()).toBe('unit-test (labeled).docx')
-  await steps.getByRole('button', { name: 'Copy instructions' }).click()
+  await steps.getByRole('button', { name: 'Download the AI-ready document' }).click()
+  expect((await download).suggestedFilename()).toBe('unit-test (AI-ready).docx')
+  await steps.getByRole('button', { name: 'Copy the instructions' }).click()
   const instructions = await page.evaluate(() => navigator.clipboard.readText())
   expect(instructions).toContain('This is a labeled Word document. Test Parrot put 2 tags in it, each just before its picture:\n\n- IMG 1, IMG 2')
 

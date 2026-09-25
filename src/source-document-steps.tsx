@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { Check, Copy, Download, ImageIcon, UploadCloud } from 'lucide-react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { Check, ChevronDown, Copy, Download, ImageIcon, UploadCloud } from 'lucide-react'
 import extractInstructions from '../public/extract.md?raw'
 import { fillImageTags } from './image-tag-list'
 import type { WaitingImport } from './waiting-import'
@@ -8,13 +8,13 @@ import type { WaitingImport } from './waiting-import'
  * What to do with the test a teacher just dropped, while its import waits for
  * the AI. Only one of three paths is ever shown, the one the file needs:
  *
- * - a PDF or Word document with pictures goes to the AI as a labeled copy,
- *   so it can say which picture goes where by the number printed on it;
+ * - a PDF or Word document with pictures goes to the AI as an AI-ready copy,
+ *   with a number on each picture, so it can say which picture goes where;
  * - one without pictures goes as it is, with the plain instructions;
  * - a photo goes as it is, and each picture in it is cropped after importing.
  *
  * In every path the AI never estimates where a picture is; Test Parrot takes
- * the pictures from the file itself.
+ * the pictures from the file itself. Each step is one button, the whole row.
  */
 
 const ASSISTANTS = [
@@ -25,26 +25,91 @@ const ASSISTANTS = [
 
 const plural = (count: number, singular: string) => `${count} ${count === 1 ? singular : `${singular}s`}`
 
+/** One step: its number, what it is, and — on the right — what clicking it does. */
+function StepButton({
+  number,
+  title,
+  text,
+  icon,
+  disabled,
+  onClick,
+  expanded,
+}: {
+  number: number
+  title: string
+  text: string
+  icon: ReactNode
+  disabled: boolean
+  onClick: () => void
+  /** Set for a step that opens a menu: whether it is open. */
+  expanded?: boolean
+}) {
+  return <button
+    type="button"
+    className="source-step"
+    aria-label={title}
+    aria-expanded={expanded}
+    aria-haspopup={expanded === undefined ? undefined : 'menu'}
+    disabled={disabled}
+    onClick={onClick}
+  >
+    <span className="source-step-number" aria-hidden="true">{number}</span>
+    <span className="source-step-text">
+      <strong>{title}</strong>
+      <span>{text}</span>
+    </span>
+    <span className="source-step-icon" aria-hidden="true">{icon}</span>
+  </button>
+}
+
 export function SourceDocumentSteps({
   waiting,
   onReturnedFile,
   onStartOver,
   busy = false,
+  named = false,
 }: {
   waiting: WaitingImport
   /** The file the AI gave back, dropped or chosen here. */
   onReturnedFile: (file: File) => void
   onStartOver: () => void
   busy?: boolean
+  /** Whether to say which file is being converted, where nothing around the
+   *  steps does. */
+  named?: boolean
 }) {
   const [copied, setCopied] = useState(false)
-  const [assistant, setAssistant] = useState('')
+  const [choosing, setChoosing] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const menu = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (!copied) return
     const timer = window.setTimeout(() => setCopied(false), 2000)
     return () => window.clearTimeout(timer)
   }, [copied])
+  // The assistant menu closes on Escape — before anything around it does — or
+  // on a press anywhere outside its step.
+  useEffect(() => {
+    if (!choosing) return
+    menu.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus()
+    const anchor = menu.current?.parentElement
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      event.stopPropagation()
+      event.preventDefault()
+      setChoosing(false)
+      anchor?.querySelector<HTMLElement>('.source-step')?.focus()
+    }
+    const onPress = (event: PointerEvent) => {
+      if (!anchor?.contains(event.target as Node)) setChoosing(false)
+    }
+    document.addEventListener('keydown', onKey, true)
+    document.addEventListener('pointerdown', onPress)
+    return () => {
+      document.removeEventListener('keydown', onKey, true)
+      document.removeEventListener('pointerdown', onPress)
+    }
+  }, [choosing])
 
   const photo = waiting.kind === 'photo'
   const word = waiting.kind === 'word'
@@ -55,7 +120,7 @@ export function SourceDocumentSteps({
   const copy = () => void navigator.clipboard.writeText(instructions).then(() => setCopied(true))
   /** What the teacher calls the file they dropped. */
   const file = photo ? 'photo' : word ? 'document' : 'PDF'
-  const attach = pictures ? `the labeled ${file} (not your original)` : `your ${file}`
+  const attach = pictures ? `the AI-ready ${file} (not your original)` : `your ${file}`
 
   const download = async () => {
     setError(null)
@@ -82,87 +147,73 @@ export function SourceDocumentSteps({
       link.click()
       window.setTimeout(() => URL.revokeObjectURL(url), 1000)
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : `The labeled ${file} could not be made.`)
+      setError(reason instanceof Error ? reason.message : `The AI-ready ${file} could not be made.`)
     }
   }
 
-  const steps = [
-    ...(pictures
-      ? [{
-          key: 'download',
-          title: `Download the labeled ${file}`,
-          text: word
-            ? 'A copy of your document with a small number just before each picture.'
-            : 'A copy of your test with a small number on each picture.',
-          action: <button type="button" className="secondary-button" disabled={busy} onClick={() => void download()}>
-            <Download aria-hidden="true" />Download labeled {file}
-          </button>,
-        }]
-      : []),
-    {
-      key: 'copy',
-      title: 'Copy the instructions',
-      text: pictures ? 'They list those picture numbers, so the AI can say which picture goes where.' : 'They tell the AI exactly what file to make.',
-      action: <button type="button" className="secondary-button" disabled={busy} onClick={copy}>
-        {copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
-        {copied ? 'Copied' : 'Copy instructions'}
-      </button>,
-    },
-    {
-      key: 'assistant',
-      title: 'Open your AI',
-      text: `Paste the instructions, attach ${attach}, and send.`,
-      action: <select
-        className="convert-select"
-        aria-label="Open an AI assistant"
-        value={assistant}
-        disabled={busy}
-        onChange={(event) => {
-          const chosen = ASSISTANTS.find(({ id }) => id === event.target.value)
-          if (!chosen) return
-          setAssistant(chosen.id)
-          // The chat that opens is a place to paste: these instructions are
-          // what should be there to paste.
-          void navigator.clipboard.writeText(instructions).catch(() => undefined)
-          window.open(chosen.url, '_blank', 'noopener')
-        }}
-      >
-        <option value="" disabled>Open…</option>
-        {ASSISTANTS.map(({ id, name }) => <option key={id} value={id}>{name}</option>)}
-      </select>,
-    },
-  ]
+  const open = (assistant: (typeof ASSISTANTS)[number]) => {
+    setChoosing(false)
+    // The chat that opens is a place to paste: these instructions are what
+    // should be there to paste.
+    void navigator.clipboard.writeText(instructions).catch(() => undefined)
+    window.open(assistant.url, '_blank', 'noopener')
+  }
 
+  let number = 0
   return <section className="source-steps" aria-label="Convert your test">
-    <header className="source-steps-head" data-pictures={pictures ? 'true' : undefined}>
+    {named && <h2 className="source-steps-title" title={waiting.fileName}>
+      <span>Converting</span> <span className="source-steps-name">{waiting.fileName}</span>
+    </h2>}
+    <p className="source-steps-note" role="status">
       {pictures && <ImageIcon aria-hidden="true" />}
-      <div>
-        <h2 role="status">
-          {pictures
-            ? `Pictures detected in your ${file}`
-            : photo
-              ? 'A photo of your test'
-              : `No pictures in your ${file}`}
-        </h2>
-        <p>
-          {pictures
-            ? `Test Parrot found ${plural(waiting.tags.length, 'picture')} in ${waiting.fileName}. Give your AI the labeled copy below, and Test Parrot fills in the real pictures when you import.`
-            : photo
-              ? `Your AI writes the questions from ${waiting.fileName}. After importing, you crop each picture from the photo.`
-              : `${waiting.fileName} has no pictures to keep track of, so your AI only needs the ${file} itself.`}
-        </p>
-      </div>
-    </header>
+      {pictures
+        ? `${plural(waiting.tags.length, 'picture')} detected in your ${file}`
+        : photo
+          ? 'A photo of your test: you crop its pictures after importing'
+          : `No pictures in your ${file}`}
+    </p>
 
     <ol className="source-steps-list">
-      {steps.map((step) => <li key={step.key}>
-        <div>
-          <strong>{step.title}</strong>
-          <span>{step.text}</span>
-        </div>
-        {step.action}
-      </li>)}
+      {pictures && <li>
+        <StepButton
+          number={++number}
+          title={`Download the AI-ready ${file}`}
+          text={`We’ve tweaked your ${file} so your AI can tell its pictures apart.`}
+          icon={<Download />}
+          disabled={busy}
+          onClick={() => void download()}
+        />
+      </li>}
+      <li>
+        <StepButton
+          number={++number}
+          title={copied ? 'Copied' : 'Copy the instructions'}
+          text="They tell your AI exactly what file to make."
+          icon={copied ? <Check /> : <Copy />}
+          disabled={busy}
+          onClick={copy}
+        />
+      </li>
+      <li className="source-step-menu-anchor">
+        <StepButton
+          number={++number}
+          title="Open your AI"
+          text={`Paste the instructions, attach ${attach}, and send.`}
+          icon={<ChevronDown />}
+          disabled={busy}
+          expanded={choosing}
+          onClick={() => setChoosing(!choosing)}
+        />
+        {choosing && <div ref={menu} className="source-step-menu" role="menu" aria-label="Open an AI assistant">
+          {ASSISTANTS.map((assistant) => (
+            <button key={assistant.id} type="button" role="menuitem" onClick={() => open(assistant)}>
+              {assistant.name}
+            </button>
+          ))}
+        </div>}
+      </li>
       <li className="source-steps-return">
+        <span className="source-step-number" aria-hidden="true">{++number}</span>
         <div>
           <strong>Drop the file it gives back</strong>
           <span>A <code>.parrot.json</code> file. You check every question{pictures || photo ? ' and picture' : ''} before anything is imported.</span>
@@ -174,9 +225,9 @@ export function SourceDocumentSteps({
             accept="application/json,.json"
             disabled={busy}
             onChange={(event) => {
-              const file = event.target.files?.[0]
+              const chosen = event.target.files?.[0]
               event.target.value = ''
-              if (file) onReturnedFile(file)
+              if (chosen) onReturnedFile(chosen)
             }}
           />
           <UploadCloud aria-hidden="true" />
@@ -188,7 +239,6 @@ export function SourceDocumentSteps({
 
     {error && <p className="home-error" role="alert">{error}</p>}
     <p className="source-steps-foot">
-      <span>Your {file} stays in this browser only until this import finishes, for at most seven days.</span>
       <button type="button" className="link-button" disabled={busy} onClick={onStartOver}>Start over with another file</button>
     </p>
   </section>

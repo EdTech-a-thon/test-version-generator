@@ -112,6 +112,6 @@ describe('labeling a Word document', () => {
   })
 
   test('names the labeled copy after the original', () => {
-    expect(labeledWordFilename('Unit 4 test.docx')).toBe('Unit 4 test (labeled).docx')
+    expect(labeledWordFilename('Unit 4 test.docx')).toBe('Unit 4 test (AI-ready).docx')
   })
 })

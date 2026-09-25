@@ -916,6 +916,7 @@ export function QuestionBankImportDialog({
           <div className="bank-import-choose">
             <SourceDocumentSteps
               waiting={waiting}
+              named
               busy={busy}
               onReturnedFile={inspect}
               onStartOver={() => void discard()}
