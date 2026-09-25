@@ -1011,11 +1011,17 @@ button { cursor: pointer; }
   font: 600 13px/1.4 Arial, Helvetica, sans-serif;
   animation: new-section-open 180ms ease-out;
 }
-.new-section-target::before {
-  content: ''; position: absolute; top: -13px;
+/* The Section a drop would make is ruled off above and below, like any
+   Section the pointer is in: one rule between the drop line and the target,
+   one in the gap beneath it. */
+.new-section-target::before,
+.new-section-target::after {
+  content: ''; position: absolute;
   left: calc(-1 * var(--page-margin)); right: calc(-1 * var(--page-margin));
   border-top: 1px dashed #ddd0c2; pointer-events: none;
 }
+.new-section-target::before { top: -13px; }
+.new-section-target::after { bottom: -14px; }
 .new-section-target[data-active] { border-style: solid; background: #f7e2d5; }
 @keyframes new-section-open {
   from { height: 0; margin-top: 0; margin-bottom: 0; opacity: 0; }
