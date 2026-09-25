@@ -135,6 +135,11 @@ function fieldAt(point: { x: number; y: number }): DropField | null {
   }
 }
 
+/** How long a gesture's line rests at the foot of a Section before the target
+ *  that makes a new Section opens there: long enough that passing by does not
+ *  open it, short enough that aiming at it does not feel like waiting. */
+const NEW_SECTION_DELAY_MS = 200
+
 /** How close to the Exam's top or bottom edge the pointer has to be before a
  *  gesture scrolls it, and how fast it goes at the very edge. */
 const AUTOSCROLL_EDGE = 72
@@ -251,7 +256,16 @@ export function useWorkspaceDrag(
     new Set(),
   )
 
+  // The Section whose new-Section target is open, and the one about to open
+  // once the line has rested at its foot for `NEW_SECTION_DELAY_MS`.
+  const openedBelow = useRef<string | null>(null)
+  const opening = useRef<{ sectionId: string; timer: ReturnType<typeof setTimeout> } | null>(null)
+  const relocate = useRef<() => void>(() => {})
+
   const clearArtifacts = useCallback(() => {
+    if (opening.current) clearTimeout(opening.current.timer)
+    opening.current = null
+    openedBelow.current = null
     if (autoscrollFrame.current !== null) cancelAnimationFrame(autoscrollFrame.current)
     autoscrollFrame.current = null
     pointer.current = null
@@ -268,7 +282,33 @@ export function useWorkspaceDrag(
   // closed hand over a page that is no longer dragging anything.
   useEffect(() => clearArtifacts, [clearArtifacts])
 
-  const paint = useCallback((next: DropIntent | null) => {
+  const paint = useCallback((wanted: DropIntent | null) => {
+    // A target the geometry would open beneath a Section waits until the line
+    // has rested there; one the line has left closes at once.
+    const below = wanted?.opensBelow ?? null
+    if (below !== openedBelow.current) {
+      if (below === null) {
+        openedBelow.current = null
+      } else if (opening.current?.sectionId !== below) {
+        if (opening.current) clearTimeout(opening.current.timer)
+        opening.current = {
+          sectionId: below,
+          timer: setTimeout(() => {
+            opening.current = null
+            openedBelow.current = below
+            relocate.current()
+          }, NEW_SECTION_DELAY_MS),
+        }
+      }
+    }
+    if (below === null || below === openedBelow.current) {
+      if (opening.current) clearTimeout(opening.current.timer)
+      opening.current = null
+    }
+    const next: DropIntent | null =
+      wanted && wanted.opensBelow !== openedBelow.current
+        ? { ...wanted, opensBelow: openedBelow.current }
+        : wanted
     intentRef.current = next
     document.documentElement.dataset.dragIntent = intentName(next)
     if (preview.current) {
@@ -332,6 +372,11 @@ export function useWorkspaceDrag(
     },
     [paint],
   )
+  useEffect(() => {
+    relocate.current = () => {
+      if (pointer.current) locate(pointer.current)
+    }
+  }, [locate])
 
   // Hovering near the Exam's top or bottom edge scrolls it, wherever the drag
   // started — a bank question bound for page six should not have to be

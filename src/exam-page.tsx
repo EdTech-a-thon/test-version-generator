@@ -531,7 +531,6 @@ function WorkSpaceHandle({
 function QuestionView({
   item,
   sectionId,
-  newSectionTarget,
   selected,
   orderedIds,
   selection,
@@ -549,9 +548,6 @@ function QuestionView({
   item: QuestionItem
   /** The Question Section this question is in, which a gesture reads. */
   sectionId: string
-  /** The new-Section target a gesture has opened beneath this piece, when it
-   *  is the foot of its Section. */
-  newSectionTarget: NewSectionTargetState | null
   onSetWorkSpace: SetWorkSpace
   selected: boolean
   orderedIds: readonly string[]
@@ -744,7 +740,6 @@ function QuestionView({
           onCommit={(height) => onSetWorkSpace([question.id], { height, fill: false })}
         />
       )}
-      {newSectionTarget && <NewSectionTarget {...newSectionTarget} />}
     </section>
   )
 }
@@ -753,15 +748,36 @@ function QuestionView({
  *  its dotted rule above, and halfway into the gap below. */
 const SECTION_BAND_BLEED = 12
 
+/** One sheet's stretch of a Section, as drawn: from its sheet's top edge, for
+ *  the highlight, and from the workspace's, for the controls in the gutter. */
+type SectionBand = {
+  sectionId: string
+  pageIndex: number
+  topInPage: number
+  height: number
+  top: number
+  bottom: number
+  pageLeft: number
+}
+
+function sameBand(left: SectionBand, right: SectionBand): boolean {
+  return (
+    left.sectionId === right.sectionId
+    && left.pageIndex === right.pageIndex
+    && left.top === right.top
+    && left.bottom === right.bottom
+    && left.pageLeft === right.pageLeft
+  )
+}
+
 /** A new-Section target a gesture has opened: the Section it opened beneath,
  *  and whether the pointer is over it, which is when a release makes one. */
 type NewSectionTargetState = { afterSectionId: string; armed: boolean }
 
 // The target that makes a new Question Section, opened beneath the foot of a
-// Section while a gesture's nearest line is there. It slides open rather than
-// appearing at once, and is drawn over the sheet rather than in its flow, so
-// nothing on the paper moves under the pointer; it says what a release over it
-// does before it does it.
+// Section once a gesture's line has rested there. It opens in the sheet's flow,
+// between this Section and the next, pushing the next Section's dotted rule
+// down to make room, and says what a release over it does before it does it.
 function NewSectionTarget({ afterSectionId, armed }: NewSectionTargetState) {
   return (
     <div
@@ -770,7 +786,7 @@ function NewSectionTarget({ afterSectionId, armed }: NewSectionTargetState) {
       data-active={armed ? 'true' : undefined}
       aria-hidden="true"
     >
-      Drop here to create a new section with this
+      Drop here to create a new section
     </div>
   )
 }
@@ -837,39 +853,119 @@ function SectionHeadingField({
 
 // A section heading on the sheet, reworded where it prints. A part the teacher
 // clears stays open to type into while it has focus, and prints nothing once
-// they leave it; a heading cleared of both is kept at no height, with a way to
-// give it a heading again beside the Section's own controls in the left page
-// margin, where the question handles sit.
+// they leave it; a heading cleared of both is kept at no height, and the
+// Section's controls in the gutter beside the sheet can give it one again.
 function EditableSectionHeading({
   item,
   disabled,
   onChange,
-  controls,
   emptyActive,
   newSectionTarget,
+  revealTitle,
+  onRevealed,
   onHover,
 }: {
   item: SectionHeadingItem
   disabled: boolean
   onChange: SetSectionHeading
-  controls: SectionControls | null
   /** Whether a gesture would land in this Section's empty box. */
   emptyActive: boolean
   newSectionTarget: NewSectionTargetState | null
+  /** Asked, from the Section's controls, to open its cleared heading. */
+  revealTitle: boolean
+  onRevealed: () => void
   onHover: (sectionId: string | null) => void
 }) {
   const [focused, setFocused] = useState<'title' | 'instructions' | null>(null)
-  const focus = (part: 'title' | 'instructions') => (on: boolean) =>
+  const focus = (part: 'title' | 'instructions') => (on: boolean) => {
+    if (on && part === 'title') onRevealed()
     setFocused((current) => (on ? part : current === part ? null : current))
-  const showTitle = item.title !== '' || focused === 'title'
-  const showInstructions = item.instructions !== '' || focused === 'instructions'
-  const hidden = !showTitle && !showInstructions
-  const hover = {
-    onPointerEnter: () => onHover(item.sectionId),
-    onPointerLeave: () => onHover(null),
   }
-  const sectionControls = controls && (
-    <div className="section-controls" {...hover}>
+  const showTitle = item.title !== '' || focused === 'title' || revealTitle
+  const showInstructions = item.instructions !== '' || focused === 'instructions'
+  // An empty Section keeps a box to drop into, and the new-Section target a
+  // gesture opens beneath it.
+  const empty = item.empty && (
+    <div className="exam-section-empty-wrap">
+      <EmptySectionBox item={item} active={emptyActive} />
+      {newSectionTarget && <NewSectionTarget {...newSectionTarget} />}
+    </div>
+  )
+  if (!showTitle && !showInstructions) {
+    return (
+      <>
+        <div className="exam-section-hidden" data-section-id={item.sectionId} />
+        {empty}
+      </>
+    )
+  }
+  const styles = sectionHeadingStyles(item.size)
+  return (
+    <>
+    <header
+      className="exam-section exam-section--editable"
+      data-section-id={item.sectionId}
+      onPointerEnter={() => onHover(item.sectionId)}
+      onPointerLeave={() => onHover(null)}
+    >
+      {showTitle && (
+        <h2 className="section-title" style={styles.title}>
+          <SectionHeadingField
+            label="Section heading"
+            value={item.title}
+            placeholder="Section heading"
+            disabled={disabled}
+            autoFocus={revealTitle}
+            onChange={(title) => onChange(item.sectionId, { title })}
+            onFocusChange={focus('title')}
+          />
+        </h2>
+      )}
+      {showInstructions && (
+        <p className="section-instructions" style={styles.instructions}>
+          <SectionHeadingField
+            label="Section directions"
+            value={item.instructions}
+            placeholder="Directions"
+            disabled={disabled}
+            onChange={(instructions) => onChange(item.sectionId, { instructions })}
+            onFocusChange={focus('instructions')}
+          />
+        </p>
+      )}
+    </header>
+    {empty}
+    </>
+  )
+}
+
+// The controls of the Section the pointer is in — anywhere across its rows, on
+// the paper or beside it — drawn in the gutter to the left of the sheet, at the
+// top of that Section's stretch of the sheet. Pointing at them highlights the
+// Section they act on.
+function SectionRail({
+  controls,
+  hidden,
+  disabled,
+  style,
+  onRevealTitle,
+  onHover,
+}: {
+  controls: SectionControls
+  /** Whether the Section's heading is cleared, which offers one again. */
+  hidden: boolean
+  disabled: boolean
+  style: CSSProperties
+  onRevealTitle: () => void
+  onHover: (on: boolean) => void
+}) {
+  return (
+    <div
+      className="section-rail"
+      style={style}
+      onPointerEnter={() => onHover(true)}
+      onPointerLeave={() => onHover(false)}
+    >
       {hidden && (
         <button
           type="button"
@@ -877,7 +973,7 @@ function EditableSectionHeading({
           aria-label="Add a section heading"
           title="Add a heading"
           disabled={disabled}
-          onClick={() => setFocused('title')}
+          onClick={onRevealTitle}
         >
           <Heading aria-hidden="true" />
         </button>
@@ -914,62 +1010,6 @@ function EditableSectionHeading({
       </button>
     </div>
   )
-  // An empty Section keeps a box to drop into, and the new-Section target a
-  // gesture opens beneath it.
-  const empty = item.empty && (
-    <div className="exam-section-empty-wrap">
-      <EmptySectionBox item={item} active={emptyActive} />
-      {newSectionTarget && <NewSectionTarget {...newSectionTarget} />}
-    </div>
-  )
-  if (hidden) {
-    return (
-      <>
-        <div className="exam-section-hidden" data-section-id={item.sectionId}>
-          {sectionControls}
-        </div>
-        {empty}
-      </>
-    )
-  }
-  const styles = sectionHeadingStyles(item.size)
-  return (
-    <>
-    <header
-      className="exam-section exam-section--editable"
-      data-section-id={item.sectionId}
-      {...hover}
-    >
-      {sectionControls}
-      {showTitle && (
-        <h2 className="section-title" style={styles.title}>
-          <SectionHeadingField
-            label="Section heading"
-            value={item.title}
-            placeholder="Section heading"
-            disabled={disabled}
-            autoFocus={focused === 'title' && item.title === ''}
-            onChange={(title) => onChange(item.sectionId, { title })}
-            onFocusChange={focus('title')}
-          />
-        </h2>
-      )}
-      {showInstructions && (
-        <p className="section-instructions" style={styles.instructions}>
-          <SectionHeadingField
-            label="Section directions"
-            value={item.instructions}
-            placeholder="Directions"
-            disabled={disabled}
-            onChange={(instructions) => onChange(item.sectionId, { instructions })}
-            onFocusChange={focus('instructions')}
-          />
-        </p>
-      )}
-    </header>
-    {empty}
-    </>
-  )
 }
 
 function PageItemView({
@@ -987,19 +1027,21 @@ function PageItemView({
   onDrop,
   onDragEnd,
   onSectionHeadingChange,
-  sectionControls,
   sectionHeadingDisabled = false,
   sectionIdOf,
   newSectionTarget,
   emptySectionActive,
+  revealTitleOf,
+  onTitleRevealed,
   onHoverSection,
 }: {
   item: PageItem
   /** Present in the editor: rewords a section heading where it prints. */
   onSectionHeadingChange?: SetSectionHeading
-  /** Present in the editor: a Section's own move and delete controls. */
-  sectionControls?: (sectionId: string) => SectionControls
   sectionHeadingDisabled?: boolean
+  /** The Section whose cleared heading its controls asked to open, if any. */
+  revealTitleOf: string | null
+  onTitleRevealed: () => void
   /** The Section each question on the sheet is in. */
   sectionIdOf: (questionId: string) => string
   /** The new-Section target a gesture has opened beneath this item, if any. */
@@ -1032,20 +1074,22 @@ function PageItemView({
           item={item}
           disabled={sectionHeadingDisabled}
           onChange={onSectionHeadingChange}
-          controls={sectionControls?.(item.sectionId) ?? null}
           emptyActive={emptySectionActive(item.sectionId)}
           newSectionTarget={newSectionTarget(item)}
+          revealTitle={revealTitleOf === item.sectionId}
+          onRevealed={onTitleRevealed}
           onHover={onHoverSection}
         />
       ) : (
         <SectionHeadingContent item={item} />
       )
-    case 'question':
+    case 'question': {
+      const target = newSectionTarget(item)
       return (
+        <>
         <QuestionView
           item={item}
           sectionId={sectionIdOf(item.question.id)}
-          newSectionTarget={newSectionTarget(item)}
           selected={selection.isSelected(item.question.id)}
           orderedIds={orderedIds}
           selection={selection}
@@ -1060,7 +1104,10 @@ function PageItemView({
           onDrop={onDrop}
           onDragEnd={onDragEnd}
         />
+        {target && <NewSectionTarget {...target} />}
+        </>
       )
+    }
     case 'answer-key-heading':
       return <AnswerKeyHeading />
     case 'answer-key-section':
@@ -1436,36 +1483,79 @@ export function ExamPage({
     ),
   )
   const sectionIdOf = (questionId: string) => sectionOfQuestion.get(questionId) ?? ''
-  // The Section pointed at through its heading — never while a gesture is in
-  // flight, which has its own feedback to give.
+  // Where each Section is drawn: one band per sheet it appears on, across the
+  // paper's whole width, from just above its heading — its dotted rule — to
+  // where the next Section begins, or just below its last piece. Read off the
+  // rendered pieces, since a Section may run across several sheets and the
+  // plan knows nothing of where they are drawn. Each band is kept both from
+  // its sheet's top edge, for the highlight drawn on the sheet, and from the
+  // workspace's, for the controls drawn in the gutter beside it.
+  const [sectionBands, setSectionBands] = useState<SectionBand[]>([])
+  const measureSectionBands = useCallback(() => {
+    const root = workspace.current
+    if (!root) return
+    const origin = root.getBoundingClientRect()
+    const bands: SectionBand[] = []
+    root.querySelectorAll<HTMLElement>('.exam-page').forEach((page, pageIndex) => {
+      const sheet = page.getBoundingClientRect()
+      const spans = new Map<string, { top: number; bottom: number }>()
+      for (const piece of page.querySelectorAll<HTMLElement>(
+        '.page-content [data-section-id]',
+      )) {
+        const id = piece.dataset.sectionId!
+        const box = piece.getBoundingClientRect()
+        const span = spans.get(id)
+        if (span) {
+          span.top = Math.min(span.top, box.top)
+          span.bottom = Math.max(span.bottom, box.bottom)
+        } else {
+          spans.set(id, { top: box.top, bottom: box.bottom })
+        }
+      }
+      const onSheet = [...spans].sort(([, a], [, b]) => a.top - b.top)
+      onSheet.forEach(([sectionId, span], index) => {
+        const top = span.top - SECTION_BAND_BLEED
+        const next = onSheet[index + 1]
+        const bottom = next ? next[1].top - SECTION_BAND_BLEED : span.bottom + SECTION_BAND_BLEED
+        bands.push({
+          sectionId,
+          pageIndex,
+          topInPage: top - sheet.top,
+          height: bottom - top,
+          top: top - origin.top,
+          bottom: bottom - origin.top,
+          pageLeft: sheet.left - origin.left,
+        })
+      })
+    })
+    setSectionBands((current) =>
+      current.length === bands.length
+      && current.every((band, index) => sameBand(band, bands[index]!))
+        ? current
+        : bands,
+    )
+  }, [])
+  useLayoutEffect(measureSectionBands, [measureSectionBands, plan, drag.intent])
+  useEffect(() => {
+    window.addEventListener('resize', measureSectionBands)
+    return () => window.removeEventListener('resize', measureSectionBands)
+  }, [measureSectionBands])
+  // The Section band the pointer is in, anywhere across its rows — never while
+  // a gesture is in flight, which has its own feedback to give.
+  const [pointedBand, setPointedBand] = useState<SectionBand | null>(null)
+  const pointAt = (clientY: number) => {
+    const origin = workspace.current?.getBoundingClientRect()
+    if (!origin || drag.source) return setPointedBand(null)
+    const y = clientY - origin.top
+    const band = sectionBands.find(({ top, bottom }) => y >= top && y < bottom) ?? null
+    setPointedBand((current) => (current && band && sameBand(current, band) ? current : band))
+  }
+  // The Section pointed at through its heading or its controls, whose every
+  // band is highlighted so the teacher sees what it holds.
   const [hoveredSectionId, setHoveredSectionId] = useState<string | null>(null)
   const highlightedSectionId = drag.source ? null : hoveredSectionId
-  // The highlight is one band per sheet, across the paper's whole width, from
-  // just above the Section's heading to just below its last piece on that
-  // sheet — read off the rendered pieces, since a Section may run across
-  // several sheets and the plan knows nothing of where they are drawn.
-  const [highlightBands, setHighlightBands] = useState<
-    Record<number, { top: number; height: number }>
-  >({})
-  useLayoutEffect(() => {
-    if (!highlightedSectionId) {
-      setHighlightBands((current) => (Object.keys(current).length === 0 ? current : {}))
-      return
-    }
-    const bands: Record<number, { top: number; height: number }> = {}
-    const selector = `[data-section-id="${CSS.escape(highlightedSectionId)}"]`
-    workspace.current?.querySelectorAll<HTMLElement>('.exam-page').forEach((page, index) => {
-      const pieces = [...page.querySelectorAll<HTMLElement>(selector)].map((piece) =>
-        piece.getBoundingClientRect(),
-      )
-      if (pieces.length === 0) return
-      const origin = page.getBoundingClientRect().top
-      const top = Math.min(...pieces.map(({ top }) => top)) - origin - SECTION_BAND_BLEED
-      const bottom = Math.max(...pieces.map(({ bottom }) => bottom)) - origin + SECTION_BAND_BLEED
-      bands[index] = { top, height: bottom - top }
-    })
-    setHighlightBands(bands)
-  }, [highlightedSectionId, plan])
+  // A cleared heading its controls asked to open, until its field has focus.
+  const [revealTitleOf, setRevealTitleOf] = useState<string | null>(null)
   const sectionControls =
     onMoveSection && onDeleteSection
       ? (sectionId: string): SectionControls => {
@@ -1552,9 +1642,11 @@ export function ExamPage({
       data-drop-zone=""
       data-active={startsFirstSection ? 'true' : undefined}
       onClick={clearOnBackground}
-      onPointerMove={() => {
+      onPointerMove={(event) => {
         if (!drag.source && droppedQuestionIds.size > 0) drag.clearDropFeedback()
+        pointAt(event.clientY)
       }}
+      onPointerLeave={() => setPointedBand(null)}
     >
       {pages.map((page, index) => (
         <article
@@ -1562,9 +1654,16 @@ export function ExamPage({
           key={`${page.header}-${page.number}`}
           onClick={clearOnBackground}
         >
-          {highlightBands[index] && (
-            <div className="section-highlight" style={highlightBands[index]} aria-hidden="true" />
-          )}
+          {sectionBands
+            .filter((band) => band.pageIndex === index && band.sectionId === highlightedSectionId)
+            .map((band) => (
+              <div
+                key={band.sectionId}
+                className="section-highlight"
+                style={{ top: band.topInPage, height: band.height }}
+                aria-hidden="true"
+              />
+            ))}
           <PageHeaderContent
             header={page.header}
             furniture={page.furniture}
@@ -1596,7 +1695,8 @@ export function ExamPage({
                 key={keyOf(item)}
                 item={item}
                 onSectionHeadingChange={onSectionHeadingChange}
-                sectionControls={sectionControls}
+                revealTitleOf={revealTitleOf}
+                onTitleRevealed={() => setRevealTitleOf(null)}
                 sectionHeadingDisabled={titleDisabled}
                 sectionIdOf={sectionIdOf}
                 newSectionTarget={newSectionTarget}
@@ -1620,6 +1720,20 @@ export function ExamPage({
           <footer className="page-footer">{page.furniture.pageNumber}</footer>
         </article>
       ))}
+
+      {pointedBand && sectionControls && (
+        <SectionRail
+          controls={sectionControls(pointedBand.sectionId)}
+          hidden={(() => {
+            const section = sections.find(({ id }) => id === pointedBand.sectionId)
+            return !!section && section.title === '' && section.instructions === ''
+          })()}
+          disabled={titleDisabled}
+          style={{ top: pointedBand.top + SECTION_BAND_BLEED, left: pointedBand.pageLeft }}
+          onRevealTitle={() => setRevealTitleOf(pointedBand.sectionId)}
+          onHover={(on) => setHoveredSectionId(on ? pointedBand.sectionId : null)}
+        />
+      )}
 
       {menu && menuQuestion && (
         <ContextMenu
