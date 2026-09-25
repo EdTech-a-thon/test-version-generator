@@ -235,8 +235,69 @@ export function ImportsPage({
   </AppShell>
 }
 
-/** One import still waiting, continued where it was left: its steps, and
- *  the drop for the file the AI gives back. */
+/** How wide the preview is drawn: its column at twice the pixels, sharp on
+ *  a dense screen. */
+const PREVIEW_WIDTH = 720
+
+/**
+ * A waiting import's first page as its AI will see it: the labeled copy
+ * when the test has pictures — the version with a number on each, which is
+ * the one to attach — or the page itself when it has none. A Word document
+ * cannot be drawn in the browser, so says what it is.
+ */
+function WaitingPreview({ waiting }: { waiting: WaitingImport }) {
+  const [source, setSource] = useState<string | null>(null)
+  const [failed, setFailed] = useState(false)
+  const labeled = waiting.kind !== 'photo' && waiting.tags.length > 0
+  useEffect(() => {
+    if (waiting.kind === 'word') return
+    let current = true
+    let url: string | null = null
+    void (async () => {
+      const [{ labelSourceDocument, renderSourcePage, browserRaster }, { browserPdfFonts }] = await Promise.all([
+        import('./source-document'),
+        import('./pdf-export'),
+      ])
+      const bytes = labeled ? await labelSourceDocument(waiting.bytes, waiting.tags, browserPdfFonts) : waiting.bytes
+      const png = await renderSourcePage(bytes, 1, browserRaster, PREVIEW_WIDTH)
+      if (!current) return
+      url = URL.createObjectURL(new Blob([png.slice().buffer as ArrayBuffer], { type: 'image/png' }))
+      setSource(url)
+    })().catch(() => { if (current) setFailed(true) })
+    return () => {
+      current = false
+      if (url) URL.revokeObjectURL(url)
+    }
+  }, [waiting, labeled])
+  const name = labeled ? 'Page 1 of the labeled copy' : 'Page 1'
+  return <figure className="import-preview">
+    <div className="import-preview-sheet">
+      {source
+        ? <img src={source} alt={name} />
+        : waiting.kind === 'word' || failed
+          ? <span className="import-sheet-placeholder"><FileText aria-hidden="true" />{waiting.kind === 'word' ? 'Word document' : 'No preview'}</span>
+          : <span className="import-sheet-placeholder" role="status">Drawing page 1…</span>}
+    </div>
+    {source && <figcaption>{labeled ? 'Page 1, labeled: each picture carries the number your AI will name it by.' : 'Page 1'}</figcaption>}
+  </figure>
+}
+
+/** What is known about a waiting import, under its preview. */
+function WaitingFacts({ waiting }: { waiting: WaitingImport }) {
+  const kind = waiting.kind ?? 'pdf'
+  return <dl className="import-facts" aria-label="About this import">
+    <div><dt>File</dt><dd>{waiting.fileName}</dd></div>
+    <div><dt>Type</dt><dd>{KIND_LABELS[kind]}</dd></div>
+    {kind !== 'word' && <div><dt>Pages</dt><dd>{waiting.pageCount}</dd></div>}
+    <div><dt>Pictures detected</dt><dd>{kind === 'photo' ? 'Cropped after importing' : waiting.tags.length}</dd></div>
+    <div><dt>Started</dt><dd>{when(waiting.createdAt)}</dd></div>
+    <div><dt>Kept until</dt><dd>{when(new Date(new Date(waiting.createdAt).getTime() + WAITING_IMPORT_LIFETIME_MS).toISOString())}</dd></div>
+  </dl>
+}
+
+/** One import still waiting, continued where it was left: its first page and
+ *  what is known about it beside the steps and the drop for the file the AI
+ *  gives back. */
 export function WaitingImportPage({
   id,
   persistentStorage,
@@ -259,20 +320,19 @@ export function WaitingImportPage({
     crumbs={[{ label: 'Home', href: '/' }, { label: 'Imports', href: '/imports' }, { label: name }]}
     persistentStorage={persistentStorage}
   >
-    <div className="import-page">
-      {waiting === 'loading'
-        ? <p className="import-list-status" role="status">Loading…</p>
-        : waiting
-          ? <SourceDocumentSteps
-              waiting={waiting}
-              named
-              onReturnedFile={onReturnedFile}
-              onStartOver={() => void discardWaitingImport(id).then(() => window.location.assign('/imports'))}
-            />
-          : <div className="home-empty">
-              <h2>This import is no longer waiting</h2>
-              <p>It was imported, discarded, or expired. <Link href="/imports">See every import</Link>.</p>
-            </div>}
-    </div>
+    {waiting === 'loading'
+      ? <p className="import-list-status" role="status">Loading…</p>
+      : waiting
+        ? <div className="import-page">
+            <aside className="import-page-side">
+              <WaitingPreview waiting={waiting} />
+              <WaitingFacts waiting={waiting} />
+            </aside>
+            <SourceDocumentSteps waiting={waiting} named onReturnedFile={onReturnedFile} />
+          </div>
+        : <div className="home-empty">
+            <h2>This import is no longer waiting</h2>
+            <p>It was imported, discarded, or expired. <Link href="/imports">See every import</Link>.</p>
+          </div>}
   </AppShell>
 }

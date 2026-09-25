@@ -50,6 +50,11 @@ test('a converted test gets its pictures from the teacher’s own PDF', async ({
   await waitingRow.getByRole('link', { name: 'Continue unit-test.pdf' }).click()
   await expect(page.getByRole('heading', { name: 'Converting unit-test.pdf' })).toBeVisible()
   await expect(page.getByRole('status').filter({ hasText: 'pictures detected' })).toHaveText('2 pictures detected in your PDF')
+  // Beside the steps: page 1 as the AI sees it, labeled, and what is known.
+  await expect(page.getByRole('img', { name: 'Page 1 of the labeled copy' })).toBeVisible()
+  await expect(page.getByLabel('About this import')).toContainText('Pages2')
+  await expect(page.getByLabel('About this import')).toContainText('Pictures detected2')
+  await expect(page.getByRole('button', { name: 'Start over with another file' })).toHaveCount(0)
 
   await page.getByLabel('File from your AI').setInputFiles({
     name: 'trading-stations.parrot.json',

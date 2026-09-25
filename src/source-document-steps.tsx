@@ -72,7 +72,8 @@ export function SourceDocumentSteps({
   waiting: WaitingImport
   /** The file the AI gave back, dropped or chosen here. */
   onReturnedFile: (file: File) => void
-  onStartOver: () => void
+  /** Offered where the teacher is choosing a file, not continuing one. */
+  onStartOver?: () => void
   busy?: boolean
   /** Whether to say which file is being converted, where nothing around the
    *  steps does. */
@@ -238,8 +239,8 @@ export function SourceDocumentSteps({
     </ol>
 
     {error && <p className="home-error" role="alert">{error}</p>}
-    <p className="source-steps-foot">
+    {onStartOver && <p className="source-steps-foot">
       <button type="button" className="link-button" disabled={busy} onClick={onStartOver}>Start over with another file</button>
-    </p>
+    </p>}
   </section>
 }
