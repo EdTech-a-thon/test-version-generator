@@ -37,15 +37,19 @@ A versioned bundle of one or more Question Bank Records and any number of Exam R
 _Avoid_: Import package, bundle, transfer file
 
 **Source Document**:
-The teacher's original PDF or image that an assistant converted into a Question Bank Record. It is never authoritative for Question Content; Test Parrot uses it only to resolve Pending Images.
+The teacher's original PDF or image that an assistant converts into a Test Parrot Package. It is never authoritative for Question Content; Test Parrot uses it only to supply pictures for Pending Images, and keeps it only while its import is in progress.
 _Avoid_: Original PDF, Question Bank File
 
+**Image Tag**:
+The numbered label, such as “IMG 3”, that Test Parrot prints on each picture in a labeled copy of a Source Document, so an assistant can name a picture exactly. A tag names an embedded image, not necessarily a picture: a passage stored as an image is tagged too.
+_Avoid_: Image number, image ID, label
+
 **Pending Image**:
-An image in imported Question Content that names a location in its Source Document instead of carrying Media Asset bytes. It stays in the Question Bank until the teacher resolves it with a Media Asset.
+An image in imported Question Content that names an Image Tag, or only a page, of its Source Document instead of carrying Media Asset bytes. It stays in the Question Bank until the teacher resolves it with a Media Asset, and an Exam that uses it cannot be exported until then.
 _Avoid_: Placeholder image, dummy image
 
 **Resolve Images**:
-The step where a teacher confirms or replaces the Media Asset for each Pending Image, choosing from the Source Document's images, a crop of one of its pages, or an uploaded file. It follows an import that leaves Pending Images and can be reopened while any remain.
+The step where a teacher confirms or replaces the Media Asset for each Pending Image, choosing from the Source Document's images, a crop of one of its pages, or an uploaded file. It ends an import that leaves Pending Images, and can be reopened later while any remain by supplying the Source Document again.
 _Avoid_: Image doctor, image review
 
 **Account Backup**:
