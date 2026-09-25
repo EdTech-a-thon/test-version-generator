@@ -68,8 +68,20 @@ An optional, free-form label describing subject matter assessed by a question. A
 _Avoid_: Concept
 
 **Authored Image Size**:
-The width a teacher assigns to a block image relative to its printable container, such as the Question Content lane or an answer-choice cell. It preserves the image's intrinsic aspect ratio. A picture taken from a Source Document for a Question's own content arrives at about the width it had on its page.
+The width a teacher assigns to a block image relative to its printable container, such as the Question Content lane, a Panel or an answer-choice cell. It preserves the image's intrinsic aspect ratio. A picture taken from a Source Document for a Question's own content arrives at about the width it had on its page.
 _Avoid_: Image ratio, image height
+
+**Blockquote**:
+Rich text set apart from the stem around it, printed inside a black border — the home of a quoted source passage, even one the source document stored as a picture. Its source attribution is an ordinary paragraph after it, not part of it.
+_Avoid_: Box, callout, frame, stimulus
+
+**Side-by-Side**:
+Rich text in a stem that lays two or three equal Panels across one line, left to right, without borders, and is never split across a page. It holds no Side-by-Side and sits in no Blockquote or table.
+_Avoid_: Columns (those are answer columns), row, grid, layout table
+
+**Panel**:
+One area of a Side-by-Side, holding any rich text a stem can except another Side-by-Side; its pictures and tables are centred across it and all Panels are centred against the tallest.
+_Avoid_: Cell, column
 
 **Exam**:
 A mutable composition with a stable identity and a name, made from live references to Question Bank records. A new Exam is named “Untitled Exam” by default; Save updates it, while Save As moves the current Working Copy into a separate Exam and restores the source Exam to its last saved state. An untouched, empty Untitled Exam is disposable rather than durable.
