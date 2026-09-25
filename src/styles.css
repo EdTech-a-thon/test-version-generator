@@ -602,12 +602,19 @@ button { cursor: pointer; }
   border-color: #cdb9a6; box-shadow: 0 2px 8px rgb(91 68 47 / 12%);
 }
 .question-bank-reading-item:focus-visible { outline: 2px solid #8a6a4c; outline-offset: 2px; }
-/* The pencil says what a click does; it waits at the end of the head row
-   until the Question is pointed at or focused. */
-.question-bank-reading-edit { width: 28px; height: 28px; margin: -4px 0 -4px auto; opacity: 0; }
-.question-bank-reading-edit svg { width: 15px; height: 15px; }
-.question-bank-reading-item:hover .question-bank-reading-edit,
-.question-bank-reading-item:focus-within .question-bank-reading-edit { opacity: 1; }
+/* The pencil says what a click does, and Copy sits beside it; both wait at
+   the end of the head row until the Question is pointed at or focused. A
+   Copy that has just run stays up long enough to be read. */
+.question-bank-reading-actions { display: flex; gap: 2px; margin: -4px 0 -4px auto; }
+.question-bank-reading-edit,
+.question-bank-reading-copy { width: 28px; height: 28px; opacity: 0; }
+.question-bank-reading-edit svg,
+.question-bank-reading-copy svg { width: 15px; height: 15px; }
+.question-bank-reading-item:hover :is(.question-bank-reading-edit, .question-bank-reading-copy),
+.question-bank-reading-item:focus-within :is(.question-bank-reading-edit, .question-bank-reading-copy),
+.question-bank-reading-copy[data-copy-state] { opacity: 1; }
+[data-copy-state='copied'] { color: #2f6b3a; }
+[data-copy-state='failed'] { color: #a33a2b; }
 
 /* The page's body: the outline down the left, the cards beside it. Each
    scrolls on its own, so the outline stays in reach however far down the
@@ -849,18 +856,7 @@ button { cursor: pointer; }
 .section-heading-input:hover:not(:disabled) { box-shadow: 0 1px 0 #d8cbbb; }
 .section-heading-input:focus { box-shadow: 0 1px 0 var(--paper-accent); }
 .section-heading-input:disabled { color: inherit; -webkit-text-fill-color: currentcolor; opacity: 1; }
-/* Restoring the default wording lives in the page margin, beside the heading,
-   like a question's handles; a heading cleared of both keeps only this, at no
-   height, and shows it faintly so it can still be found. */
-.section-heading-handles {
-  position: absolute; top: -1px; left: -32px; z-index: 2;
-  opacity: 0; transition: opacity 90ms ease-in;
-}
-.exam-section--editable:hover .section-heading-handles,
-.section-heading-handles:focus-within { opacity: 1; }
 .exam-section-hidden { position: relative; height: 0; }
-.exam-section-hidden .section-heading-handles { top: -12px; opacity: 0.55; }
-.exam-section-hidden .section-heading-handles:hover { opacity: 1; }
 .answer-key-heading { margin: 0 0 18px; font: 700 20px/1.3 Georgia, serif; }
 .answer-key-section { margin: 0 0 10px; font: 700 17px/1.3 Georgia, serif; }
 .answer-key-entry {
@@ -885,14 +881,18 @@ button { cursor: pointer; }
 .answer-key-metadata .badge { padding: 0 7px; font: 11px/1.55 Arial, Helvetica, sans-serif; }
 .answer-key-metadata .badge svg { width: 11px; height: 11px; }
 .exam-question {
-  position: relative; display: grid; grid-template-columns: 92px 1fr; gap: 6px;
+  position: relative; display: grid; grid-template-columns: 34px 1fr; gap: 6px;
   margin-bottom: 26px; border-radius: 4px; cursor: grab;
   transition: background-color 90ms ease, box-shadow 90ms ease;
 }
-/* A Short Answer question has no answer blank, so its number column is only
-   as wide as a three-digit number. `questionIndentOf` in export-plan.ts holds
-   the same width for the adapters. */
-.exam-question:has(> .question-number--compact) { grid-template-columns: 34px 1fr; }
+/* No question prints an answer blank, so the number column is only as wide as
+   a three-digit number; a True/False question's T and F, which a student
+   circles, sit before its number in a wider one. `questionIndentOf` in
+   export-plan.ts holds the same widths for the adapters. */
+.exam-question:has(> .question-number--marks) { grid-template-columns: 64px 1fr; }
+/* An Export Record made before Sections were stored reprints the answer blank
+   its questions had, in the column it had (`questionIndentOf`). */
+.exam-question:has(> .question-number--legacy-blank) { grid-template-columns: 92px 1fr; }
 .exam-question, .exam-question * { -webkit-user-drag: none; }
 .exam-question:active { cursor: grabbing; }
 
@@ -917,16 +917,8 @@ button { cursor: pointer; }
 /* While a Question Bank question is in flight, every position it could reach
    says so — before the pointer is over any one of them, which is what makes a
    compatible target findable rather than discovered by trial. */
-.question-drag-active[data-drag-pane='question-bank'][data-drag-section='multiple-choice']
-  .exam-question[data-drop-target='multiple-choice']:not([data-drop]),
-.question-drag-active[data-drag-pane='question-bank'][data-drag-section='true-false']
-  .exam-question[data-drop-target='true-false']:not([data-drop]),
-.question-drag-active[data-drag-pane='question-bank'][data-drag-section='matching']
-  .exam-question[data-drop-target='matching']:not([data-drop]),
-.question-drag-active[data-drag-pane='question-bank'][data-drag-section='open']
-  .exam-question[data-drop-target='open']:not([data-drop]),
-.question-drag-active[data-drag-pane='question-bank'][data-drag-section='multipart']
-  .exam-question[data-drop-target='multipart']:not([data-drop]) {
+.question-drag-active[data-drag-pane='question-bank']
+  .exam-question[data-drop-target]:not([data-drop]) {
   outline: 1px dashed #c9b49b; outline-offset: 5px;
 }
 
@@ -995,36 +987,93 @@ button { cursor: pointer; }
    pointer — so the row you lifted stays findable underneath. */
 .exam-question--dragging { opacity: 0.4; }
 
-/* The first question of a Question Section that has none.
-
-   An empty section is not drawn on the sheet — a section is derived from the
-   questions in it — so a composition gesture would have nothing to aim at.
-   The whole Working Copy pane is the target instead, and it says so: a dashed
-   frame while a compatible gesture is in flight, filled in once the pointer is
-   over it. The frame is painted on an inset pseudo-element pinned to the
-   scrolling lane, so it stays in view however far the exam has been scrolled
-   and never takes a pixel from the paper's own geometry. */
-.exam-workspace[data-empty-section]::before {
-  content: ''; position: fixed; z-index: 890; pointer-events: none;
-  top: 58px; left: 0; right: calc(var(--bank-column) + var(--bank-divider)); bottom: 0;
-  margin: 12px;
-  border: 2px dashed #c9b49b; border-radius: 10px;
-  background: rgb(255 250 243 / 35%);
-}
-.exam-workspace[data-empty-section][data-active]::before {
-  border-color: #9f5037; border-style: solid; background: rgb(247 226 213 / 45%);
-}
-
-/* The caption to that frame: a label sitting inside its bottom edge, not a
-   second box, centred on the pane's lane the same way the frame is. */
-.exam-draft-empty-section {
-  position: fixed; z-index: 900; pointer-events: none;
-  left: 0; right: calc(var(--bank-column) + var(--bank-divider)); bottom: 28px;
-  width: max-content; margin: 0 auto; padding: 7px 14px; border-radius: 999px;
-  color: #6d5a45; background: #fffaf3; box-shadow: 0 2px 8px rgb(55 42 33 / 14%);
+/* An empty Question Section, on the sheet, while a gesture is aimed at it: a
+   box opens in the flow below its heading, pushing what follows down, to show
+   where the questions will go. At rest the Section is just its heading, as it
+   prints. */
+.exam-section-empty-drop {
+  display: flex; align-items: center; justify-content: center;
+  height: 56px; margin: 0 0 26px; overflow: hidden;
+  border: 1px solid #9f5037; border-radius: 6px;
+  color: #9f5037; background: #f7e2d5;
   font: 600 13px/1.4 Arial, Helvetica, sans-serif;
+  animation: empty-section-open 180ms ease-out;
 }
-.exam-draft-empty-section[data-active] { color: #9f5037; background: #f7e2d5; }
+@keyframes empty-section-open {
+  from { height: 0; margin-bottom: 0; opacity: 0; }
+  to { height: 56px; margin-bottom: 26px; opacity: 1; }
+}
+
+/* The target that makes a new Question Section, opened beneath the foot of a
+   Section once a gesture's line has rested there. It opens in the sheet's flow,
+   pushing the next Section — dashed rule and all — down to make room, with a
+   dashed rule of its own above it where the new Section would begin. While a
+   gesture is in flight a sheet does not clip what the opened target pushes
+   past its foot, so the target is never hidden under the page's edge. */
+.new-section-target {
+  position: relative;
+  display: flex; align-items: center; justify-content: center;
+  /* 40px above: its top margin meets the foot question's 26px, and the drop
+     line, 14px below that question, needs clear room above the new rule —
+     which is 9px above the target, `SECTION_RULE_OFFSET` in exam-page.tsx, so
+     the Section above it ends exactly on it. */
+  height: 56px; margin: 40px 0 26px; overflow: visible;
+  border: 1px dashed #9f5037; border-radius: 6px;
+  color: #9f5037; background: #fffaf3;
+  font: 600 13px/1.4 Arial, Helvetica, sans-serif;
+  animation: new-section-open 180ms ease-out;
+}
+/* The Section a drop would make is ruled off above and below, like any
+   Section the pointer is in: one rule between the drop line and the target,
+   one in the gap beneath it. */
+.new-section-target::before,
+.new-section-target::after {
+  content: ''; position: absolute;
+  left: calc(-1 * var(--page-margin)); right: calc(-1 * var(--page-margin));
+  border-top: 1px dashed #ddd0c2; pointer-events: none;
+}
+.new-section-target::before { top: -9px; }
+.new-section-target::after { bottom: -14px; }
+.new-section-target[data-active] { border-style: solid; background: #f7e2d5; }
+@keyframes new-section-open {
+  from { height: 0; margin-top: 0; margin-bottom: 0; opacity: 0; }
+  to { height: 56px; margin-top: 40px; margin-bottom: 26px; opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .new-section-target, .exam-section-empty-drop { animation: none; }
+}
+.question-drag-active .exam-page { overflow: visible; }
+
+/* The controls of the Section the pointer is in — move it up, move it down,
+   delete it — in the gutter to the left of the sheet, level with the top of
+   that Section's stretch of the sheet. They are editing chrome beside the
+   paper, never on it. */
+.exam-workspace { position: relative; }
+.section-rail {
+  position: absolute; z-index: 5; transform: translateX(calc(-100% - 10px));
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  padding: 3px; border-radius: 7px; background: rgb(255 253 248 / 85%);
+}
+.section-rail .question-handle { width: 24px; height: 24px; }
+.section-rail .question-handle:disabled { opacity: 0.35; cursor: default; background: transparent; }
+
+/* The Section the pointer is in, on the sheet only: a dashed rule at the top
+   and the bottom of its stretch of the sheet, across the paper's whole width,
+   margins included, shown while its controls are. Drawn over the sheet, never
+   in its flow, so the page is laid out exactly as it prints. */
+.section-rule {
+  position: absolute; z-index: 1; left: 0; right: 0; height: 0;
+  border-top: 1px dashed #ddd0c2; pointer-events: none;
+}
+
+/* A Section pointed at through its heading: one band across the paper's whole
+   width, margins included, behind everything in the Section, so the teacher
+   sees what it holds and what deleting it would take. It is drawn behind the
+   content and moves nothing. */
+.section-highlight {
+  position: absolute; z-index: 0; left: 0; right: 0;
+  background: rgb(247 226 213 / 32%); pointer-events: none;
+}
 
 /* The drop line: where the question would land if it were let go now. It sits
    in the 26px gap between questions, so it never covers what it is pointing
@@ -1036,8 +1085,8 @@ button { cursor: pointer; }
 .exam-question[data-drop="before"]::after { top: -14px; }
 .exam-question[data-drop="after"]::after { bottom: -14px; }
 .question-number { display: flex; align-items: baseline; gap: 8px; font-weight: 700; }
-/* The line a student writes their letter on. */
-.answer-blank { flex: 1; border-bottom: 1px solid #332a24; transform: translateY(-3px); }
+/* The T and F a student circles before a True/False question's number. */
+.question-marks { display: flex; gap: 10px; font-weight: 400; }
 .question-count { white-space: nowrap; }
 .doc-content { white-space: pre-wrap; }
 
@@ -1277,6 +1326,10 @@ button { cursor: pointer; }
 .doc-figure figcaption { font-size: 13px; font-style: italic; }
 .doc-table { border-collapse: collapse; }
 .doc-table td, .doc-table th { padding: 3px 8px; border: 1px solid #b9a893; }
+/* Read in full on the Question Bank page and in the Pop-over, a table spans
+   its lane with equal columns, as the Question editor and the DOCX export lay
+   it out; left to size itself it shrinks to its shortest content. */
+:is(.question-reading, .pop-over-card) .doc-table { width: 100%; table-layout: fixed; }
 .doc-math--block { display: block; margin: 6px 0; text-align: center; }
 
 .dialog-backdrop {
@@ -1754,8 +1807,6 @@ button { cursor: pointer; }
     border-width: 1px 0 0; border-radius: 0;
   }
   .workspace-resizer { display: none; }
-  .exam-draft-empty-section,
-  .exam-workspace[data-empty-section]::before { right: 0; }
   .exam-workspace { padding: 16px 0; }
   .dialog-backdrop { padding: 0; }
   /* Keep the output-faithful paper available: the dialog stacks rather than
@@ -3075,3 +3126,197 @@ a.import-card-main:hover .exam-sheet, a.import-card-main:focus-visible .exam-she
 /* A new import: one drop, for the test or the file its AI made. */
 .new-import { max-width: 720px; }
 .new-import-lede { margin: 0 0 18px; color: #5f4d40; font-size: 15px; line-height: 1.5; }
+
+/* ---- The Question Bank Pop-over -------------------------------------------
+   A narrow window kept on top of another document (ADR-0030). Everything is a
+   size smaller than the bank page: the cards are for recognising a Question,
+   not reading it, so each is cut off at a few lines and fades out. */
+.pop-over-body { margin: 0; background: var(--app-ground); }
+.pop-over { display: flex; flex-direction: column; height: 100vh; font-size: 13px; }
+.pop-over-loading, .pop-over-empty { margin: 16px 12px; color: #7a6a5c; font-size: 13px; }
+/* The strip overlaps the rule under it by a pixel and the open tab paints
+   over that pixel, so the open tab and its bank are one surface, with no line
+   between them — as the Exam editor's bank tabs are. */
+.pop-over-tabs {
+  position: relative; z-index: 1; flex: none; display: flex; align-items: flex-end; gap: 2px;
+  margin-bottom: -1px; padding: 6px 6px 0; background: var(--bank-chrome);
+  box-shadow: inset 0 -1px var(--bank-frame-line);
+}
+.pop-over-tabs [role='tablist'] { display: flex; gap: 2px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.pop-over-tab {
+  display: flex; align-items: center; min-width: 0; max-width: 150px;
+  border: 1px solid transparent; border-bottom: 0; border-radius: 6px 6px 0 0;
+}
+.pop-over-tab[data-active] { border-color: var(--bank-frame-line); background: var(--app-ground); }
+.pop-over-tab button {
+  border: 0; background: transparent; color: #5b4839; font-size: 12px; cursor: pointer;
+}
+.pop-over-tab [role='tab'] { overflow: hidden; padding: 6px 4px 6px 9px; text-overflow: ellipsis; white-space: nowrap; }
+.pop-over-tab[data-active] [role='tab'] { color: #332a24; font-weight: 600; }
+.pop-over-tab button:last-child { display: flex; padding: 3px; border-radius: 4px; }
+.pop-over-tab button:last-child:hover { background: #dccbb4; }
+.pop-over-tab svg { width: 12px; height: 12px; }
+.pop-over-add {
+  flex: none; display: flex; margin: 0 0 4px 2px; padding: 4px; border: 0; border-radius: 5px;
+  color: #5b4839; background: transparent; cursor: pointer;
+}
+.pop-over-add:hover, .pop-over-add[aria-pressed='true'] { background: #dccbb4; }
+.pop-over-add svg { width: 15px; height: 15px; }
+
+.pop-over-bank, .pop-over-picker {
+  flex: 1; min-height: 0; display: flex; flex-direction: column;
+  border-top: 1px solid var(--bank-frame-line);
+}
+.pop-over-controls { flex: none; display: flex; gap: 6px; padding: 8px 8px 0; }
+.pop-over-filters-button {
+  display: inline-flex; align-items: center; gap: 5px; padding: 5px 8px;
+  border: 1px solid #ddcdb9; border-radius: 6px; color: #5b4839; background: #fffdf8; font-size: 12px;
+}
+.pop-over-filters-button[data-active], .pop-over-filters-button[aria-expanded='true'] { border-color: #b99a78; background: #f3e4d1; }
+.pop-over-filters-button svg { width: 13px; height: 13px; }
+/* The filter row: one chip per filter, Notion-style, each opening its own
+   short list. A chip that is filtering says so in its label. */
+.pop-over-filters { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin: 6px 8px 0; }
+.pop-over-chip { position: relative; }
+.pop-over-chip > button {
+  display: inline-flex; align-items: center; gap: 3px; max-width: 220px; padding: 3px 6px 3px 8px;
+  border: 1px solid #ddcdb9; border-radius: 999px; color: #5b4839; background: #fffdf8;
+  font-size: 12px; white-space: nowrap; cursor: pointer;
+}
+.pop-over-chip > button:hover { border-color: #cdb9a6; background: #f7ede0; }
+.pop-over-chip > button[data-active] { border-color: #b99a78; color: #3d3027; background: #f3e4d1; }
+.pop-over-chip > button strong { overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
+.pop-over-chip > button svg { flex: none; width: 12px; height: 12px; }
+.pop-over-chip-menu {
+  position: absolute; top: calc(100% + 4px); left: 0; z-index: 10;
+  display: grid; min-width: 170px; max-height: 260px; padding: 4px; overflow-y: auto;
+  border: 1px solid var(--paper-outline); border-radius: 8px; background: #fffdf8;
+  box-shadow: 0 8px 24px rgb(91 68 47 / 18%);
+}
+.pop-over-chip-menu[data-align='end'] { right: 0; left: auto; }
+.pop-over-chip-option {
+  display: flex; align-items: center; gap: 7px; padding: 5px 7px; border: 0; border-radius: 5px;
+  color: #332a24; background: transparent; font-size: 12px; text-align: left; cursor: pointer;
+}
+.pop-over-chip-option:hover { background: #f5eade; }
+button.pop-over-chip-option svg { width: 12px; height: 12px; visibility: hidden; }
+button.pop-over-chip-option[aria-pressed='true'] svg { visibility: visible; }
+.pop-over-filters .bank-filter-clear { padding: 3px 6px; font-size: 12px; }
+.pop-over-cards {
+  flex: 1; min-height: 0; overflow-y: auto; display: grid; align-content: start; gap: 6px;
+  margin: 0; padding: 8px 8px 12px; list-style: none;
+}
+/* Selected as the Exam editor's bank rows are: a click, Shift for a range,
+   Cmd for one more. A selected card is what a drag or Copy takes. */
+.pop-over-card {
+  position: relative; padding: 7px 10px 8px; border: 1px solid var(--paper-outline); border-radius: 8px;
+  background: #fffdf8; cursor: pointer; font-size: 12px; user-select: none;
+  transition: border-color .12s ease, box-shadow .12s ease, background-color .12s ease;
+}
+.pop-over-card:hover { border-color: #cdb9a6; box-shadow: 0 2px 6px rgb(91 68 47 / 12%); }
+.pop-over-card:focus-visible { outline: 2px solid #8a6a4c; outline-offset: 1px; }
+.pop-over-card[aria-selected='true'] { border-color: #8a6a4c; background: #f6ebdc; box-shadow: 0 0 0 1px #8a6a4c; }
+.pop-over-card-head { display: flex; align-items: center; gap: 5px; min-height: 22px; margin-bottom: 3px; }
+.pop-over-card-head .question-reading-type { font-size: 10px; }
+.pop-over-card-head .badge { font-size: 10px; }
+.pop-over-card-controls { display: flex; gap: 4px; margin-left: auto; }
+.pop-over-format {
+  max-width: 130px; padding: 1px 2px; border: 1px solid #ddcdb9; border-radius: 5px;
+  color: #5b4839; background: #fffdf8; font-size: 11px; cursor: pointer;
+}
+.pop-over-format:hover { border-color: #cdb9a6; background: #f7ede0; }
+/* A few lines of the Question, fading out rather than stopping at a hard
+   edge. A Multipart question shows every Part, since each has its own layout. */
+/* A card in two halves: the stem, then — past a dashed rule — the answers as
+   they will land. Each is cut off at a few lines and faded only when it is. */
+.pop-over-stem-half { max-height: 84px; overflow: hidden; }
+.pop-over-answer-half {
+  max-height: 96px; overflow: hidden; margin-top: 6px; padding-top: 6px;
+  border-top: 1px dashed #d8c7b1;
+}
+.pop-over-card[data-type='multipart'] > :is(.pop-over-stem-half, .pop-over-answer-half) { max-height: none; }
+:is(.pop-over-stem-half, .pop-over-answer-half)[data-cut] { mask-image: linear-gradient(to bottom, #000 70%, transparent); }
+.pop-over-part .pop-over-answer-half { margin-top: 4px; padding-top: 4px; }
+/* One, two or four columns, as three icons. */
+.pop-over-columns {
+  display: inline-flex; padding: 1px; border: 1px solid #ddcdb9; border-radius: 6px; background: #fffdf8;
+}
+.pop-over-columns button {
+  display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 18px;
+  padding: 0; border: 0; border-radius: 4px; color: #8a7868; background: transparent; cursor: pointer;
+}
+.pop-over-columns button:hover { color: #3d3027; background: #f3e9dc; }
+.pop-over-columns button[aria-checked='true'] { color: #fffdf8; background: #8a6a4c; }
+.pop-over-columns svg { width: 16px; height: 12px; }
+.pop-over-stem { line-height: 1.35; }
+.pop-over-stem p { margin: 0 0 3px; }
+.pop-over-card img { max-height: 70px; width: auto; }
+.pop-over-answers {
+  display: grid; grid-auto-flow: column; gap: 1px 10px; margin: 0; padding: 0; list-style: none;
+}
+.pop-over-answers li { display: flex; gap: 4px; min-width: 0; color: var(--paper-ink-soft); }
+.pop-over-answers li > span { flex: none; font-weight: 600; }
+.pop-over-answers .doc-content p { margin: 0; }
+.pop-over-led { display: flex; gap: 5px; align-items: baseline; }
+.pop-over-blank { flex: none; color: #9c8977; letter-spacing: -1px; }
+.pop-over-marks { flex: none; font-weight: 700; white-space: pre; }
+.pop-over-items { display: grid; gap: 1px; margin: 3px 0 0; padding: 0; list-style: none; }
+.pop-over-items li { display: flex; gap: 5px; align-items: baseline; }
+.pop-over-items .doc-content p { margin: 0; }
+.pop-over-beside { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+.pop-over-rules { display: grid; gap: 9px; margin: 8px 0 2px; }
+.pop-over-rules span { height: 1px; background: #cdb9a6; }
+.pop-over-parts { display: grid; gap: 5px; margin: 5px 0 0; padding: 0; list-style: none; }
+.pop-over-part { padding: 5px 7px; border: 1px solid var(--paper-outline); border-radius: 6px; background: #fffaf3; }
+.pop-over-part-head { display: flex; align-items: center; gap: 5px; margin-bottom: 2px; }
+.pop-over-part-letter { font-weight: 700; }
+.pop-over-part-type { color: #8a7868; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
+.pop-over-part-head .pop-over-card-controls { margin-left: auto; }
+
+.pop-over-footer {
+  position: relative; flex: none; display: flex; align-items: center; gap: 8px; min-height: 36px;
+  padding: 5px 10px; border-top: 1px solid var(--bank-frame-line); background: var(--bank-chrome); font-size: 12px;
+}
+.pop-over-footer-hint { color: #7a6a5c; }
+.pop-over-footer[data-selected] > span:first-child { font-weight: 600; }
+.pop-over-footer-copy {
+  display: inline-flex; align-items: center; gap: 4px; margin-left: auto; padding: 4px 9px;
+  border: 1px solid #b99a78; border-radius: 6px; color: #fffdf8; background: #8a6a4c; font-size: 12px; font-weight: 600; cursor: pointer;
+}
+.pop-over-footer-copy:hover { background: #74563e; }
+.pop-over-footer-copy svg { width: 13px; height: 13px; }
+.pop-over-toast {
+  position: absolute; left: 50%; bottom: calc(100% + 8px); transform: translateX(-50%);
+  display: inline-flex; align-items: center; gap: 5px; padding: 5px 10px; border-radius: 999px;
+  color: #fffdf8; background: #3d3027; font-size: 12px; white-space: nowrap; box-shadow: 0 4px 12px rgb(0 0 0 / 20%);
+}
+.pop-over-toast svg { width: 13px; height: 13px; }
+/* What a drag of several Questions shows under the pointer. */
+.pop-over-drag-badge {
+  position: fixed; top: -100px; left: 0; padding: 4px 10px; border-radius: 999px;
+  color: #fffdf8; background: #8a6a4c; font: 600 12px Arial, sans-serif;
+}
+
+.pop-over-settings { position: relative; margin-left: auto; align-self: center; }
+.pop-over-settings .pop-over-add { margin: 0 2px 4px 0; }
+.pop-over-settings-menu {
+  position: absolute; top: calc(100% + 2px); right: 0; z-index: 20; width: 240px; padding: 10px 12px;
+  border: 1px solid var(--paper-outline); border-radius: 8px; background: #fffdf8; box-shadow: 0 8px 24px rgb(91 68 47 / 18%);
+}
+.pop-over-settings-menu h2 { margin: 0 0 8px; font-size: 13px; }
+.pop-over-settings-menu fieldset { display: grid; gap: 6px; margin: 0; padding: 0; border: 0; }
+.pop-over-settings-menu legend { padding: 0 0 4px; color: var(--paper-ink-soft); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
+.pop-over-settings-menu label { display: flex; align-items: flex-start; gap: 7px; font-size: 12px; cursor: pointer; }
+.pop-over-settings-menu label span { display: grid; gap: 1px; }
+.pop-over-settings-menu small { color: #7a6a5c; }
+
+.pop-over-picker { padding: 10px 8px; overflow-y: auto; }
+.pop-over-picker h2 { margin: 0 4px 8px; font-size: 13px; }
+.pop-over-picker ul { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.pop-over-picker button {
+  display: grid; width: 100%; padding: 7px 10px; border: 1px solid var(--paper-outline); border-radius: 7px;
+  background: #fffdf8; text-align: left; cursor: pointer;
+}
+.pop-over-picker button:hover { border-color: #cdb9a6; background: #f7ede0; }
+.pop-over-picker button span { font-weight: 600; }
+.pop-over-picker button small { color: #7a6a5c; }

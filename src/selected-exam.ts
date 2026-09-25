@@ -27,7 +27,10 @@ import {
 } from './section-headings'
 import {
   columnsOf,
+  readExamSection,
   isWorkSpace,
+  sameSectionOf,
+  sameSections,
   partsOf,
   presentationIdsOf,
   type ColumnSetting,
@@ -147,6 +150,19 @@ export function selectedExam(
       && Object.keys(draft.sectionHeadings).length > 0
       ? draft.sectionHeadings
       : undefined
+  // Sections are this Exam's structure: every readable stored Section, empty
+  // ones included, and the placement of each question it still references.
+  const sections = Array.isArray(draft.sections)
+    ? draft.sections.flatMap((value) => {
+        const section = readExamSection(value)
+        return section ? [section] : []
+      })
+    : undefined
+  const sectionOf: Record<string, string> = {}
+  for (const [id, section] of Object.entries(draft.sectionOf ?? {})) {
+    if (referenced.has(id) && typeof section === 'string') sectionOf[id] = section
+  }
+  const hasAnySectionOf = Object.keys(sectionOf).length > 0
   const headingSize =
     isHeadingSize(draft.headingSize) && draft.headingSize !== DEFAULT_HEADING_SIZE
       ? draft.headingSize
@@ -161,6 +177,9 @@ export function selectedExam(
     && previous.exam.questions.length === questions.length
     && previous.exam.questions.every((question, index) => question === questions[index])
     && sameWorkSpace(previous.exam.workSpace, hasAnyWorkSpace ? workSpace : undefined)
+    && sameSections(previous.exam.sections, sections)
+    && (previous.exam.sections === undefined) === (sections === undefined)
+    && sameSectionOf(previous.exam.sectionOf, hasAnySectionOf ? sectionOf : undefined)
     && sameSectionHeadings(previous.exam.sectionHeadings, sectionHeadings)
     && previous.exam.headingSize === headingSize
     && sameExamHeader(previous.exam.header, header)
@@ -170,6 +189,8 @@ export function selectedExam(
           title: draft.title,
           questions,
           ...(hasAnyWorkSpace ? { workSpace } : {}),
+          ...(sections ? { sections } : {}),
+          ...(hasAnySectionOf ? { sectionOf } : {}),
           ...(sectionHeadings ? { sectionHeadings } : {}),
           ...(headingSize ? { headingSize } : {}),
           ...(textSize ? { textSize } : {}),

@@ -76,7 +76,7 @@ const SUBSTITUTIONS: [RegExp, string][] = [
 // run of underscores in Word. Both are empty space, neither is content, and
 // only one of them leaves any text behind for an extractor to find. That the
 // blank exists at all is asserted structurally in the fast suite, where the
-// planned `_______ 1.` line is compared directly.
+// planned `_______ 1.` line of a matching Item is compared directly.
 const BLANK = /^_+$/
 
 export function normalizeWords(text: string): string[] {

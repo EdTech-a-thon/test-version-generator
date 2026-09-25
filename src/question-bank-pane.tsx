@@ -36,22 +36,21 @@ import { QuestionReading } from './question-reading'
 import { readingOfQuestion } from './question-reading-content'
 import { stemPreview, type StemPreviewBadge } from './stem-preview'
 import {
-  DIFFICULTIES,
-  DIFFICULTY_LABELS,
   SECTION_LABELS,
-  SECTION_ORDER,
   topicsOf,
   type Question,
   type QuestionType,
 } from './exam'
 import type { QuestionBank } from './question-bank'
 import type { WorkspaceDrag } from './use-workspace-drag'
+import { DIFFICULTY_OPTIONS, SORT_OPTIONS, TYPE_OPTIONS, type FilterOption } from './question-bank-filter-options'
+import { CopyQuestionButton } from './question-copy-feedback'
+import { useQuestionCopy } from './use-question-copy'
 import {
   NO_FILTER,
   browseQuestionBank,
   isFilterActive,
   topicOptions,
-  type DifficultyFilter,
   type QuestionBankFilter,
   type QuestionBankSort,
 } from './question-bank-view'
@@ -71,7 +70,6 @@ const BADGE_LABELS: Record<StemPreviewBadge, string> = {
  *  or not it says anything, so this is a real state rather than a placeholder. */
 const UNTITLED = 'Untitled question'
 
-type FilterOption<T extends string> = { value: T; label: string }
 
 /**
  * One filter category: a button that opens a list of the values in it.
@@ -212,26 +210,6 @@ function FilterDropdown<T extends string>({
   )
 }
 
-// The fixed Question Sections, in the order the exam prints them.
-const TYPE_OPTIONS: FilterOption<QuestionType>[] = SECTION_ORDER.map((type) => ({
-  value: type,
-  label: SECTION_LABELS[type],
-}))
-
-const DIFFICULTY_OPTIONS: FilterOption<DifficultyFilter>[] = [
-  ...DIFFICULTIES.map((value) => ({ value, label: DIFFICULTY_LABELS[value] })),
-  // Optional classification must never put a question out of reach.
-  { value: 'unspecified', label: 'Unspecified' },
-]
-
-const SORT_OPTIONS: readonly FilterOption<QuestionBankSort>[] = [
-  { value: 'newest', label: 'Newest' },
-  { value: 'oldest', label: 'Oldest' },
-  { value: 'type', label: 'Question Type' },
-  { value: 'difficulty', label: 'Difficulty' },
-  { value: 'topic', label: 'Topic' },
-]
-
 export function QuestionBankPane({
   bank,
   layout = 'rows',
@@ -296,6 +274,7 @@ export function QuestionBankPane({
   drag: WorkspaceDrag
 }) {
   const [scrolled, setScrolled] = useState(false)
+  const copying = useQuestionCopy()
   const questions = browseQuestionBank(bank, filter)
   const orderedIds = questions.map(({ id }) => id)
   const addableQuestions = questions.filter(({ id }) => !workingCopyIds.has(id))
@@ -361,8 +340,7 @@ export function QuestionBankPane({
         const questionIds = selectedQuestionIds.has(held.questionId)
           ? questions
               .filter((candidate) =>
-                candidate.type === held.type
-                && selectedQuestionIds.has(candidate.id)
+                selectedQuestionIds.has(candidate.id)
                 && !workingCopyIds.has(candidate.id),
               )
               .map(({ id }) => id)
@@ -543,18 +521,27 @@ export function QuestionBankPane({
                 >
                   <QuestionReading
                     content={readingOfQuestion(question)}
-                    aside={<button
-                      type="button"
-                      className="toolbar-icon-button question-bank-reading-edit"
-                      aria-label={`Edit ${name}`}
-                      title="Edit"
-                      onClick={(event) => {
-                        event.stopPropagation()
-                        onEdit(question.id)
-                      }}
-                    >
-                      <Pencil aria-hidden="true" />
-                    </button>}
+                    aside={<span className="question-bank-reading-actions">
+                      <CopyQuestionButton
+                        question={question}
+                        name={name}
+                        state={copying.state(question.id)}
+                        onCopy={copying.copy}
+                        className="toolbar-icon-button question-bank-reading-copy"
+                      />
+                      <button
+                        type="button"
+                        className="toolbar-icon-button question-bank-reading-edit"
+                        aria-label={`Edit ${name}`}
+                        title="Edit"
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          onEdit(question.id)
+                        }}
+                      >
+                        <Pencil aria-hidden="true" />
+                      </button>
+                    </span>}
                   />
                 </li>
               )
@@ -651,6 +638,13 @@ export function QuestionBankPane({
                   >
                     <Pencil />
                   </button>
+                  <CopyQuestionButton
+                    question={question}
+                    name={name}
+                    state={copying.state(question.id)}
+                    onCopy={copying.copy}
+                    className="question-bank-action"
+                  />
                   {/* A question already on the Working Copy offers no way onto it
                       a second time — a reference occurs at most once — so the
                       plus becomes a tick: the same slot answers "can I add

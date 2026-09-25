@@ -61,7 +61,7 @@ import {
   topicsOf,
   withTopicAdded,
 } from './exam'
-import type { Difficulty, Question, QuestionPlacement, QuestionType } from './exam'
+import type { Difficulty, Question, QuestionType, SectionTarget } from './exam'
 import { DifficultyBadge, TopicBadge } from './badges'
 import { bankQuestionById } from './question-bank'
 import { createExamStore, loadExamStore, type ExamStore } from './exam-store'
@@ -115,6 +115,7 @@ import {
   ToggleLeft,
   Link2,
   Pencil,
+  PictureInPicture2,
   Plus,
   Redo2,
   RefreshCw,
@@ -128,6 +129,7 @@ import {
   X,
 } from 'lucide-react'
 import { ContextMenu, type MenuPoint } from './context-menu'
+import { usePopOver } from './pop-over-context'
 import {
   DEFAULT_HEADING_SIZE,
   DEFAULT_TEXT_SIZE,
@@ -135,7 +137,7 @@ import {
   HEADING_SIZE_LABELS,
   TEXT_SIZES,
 } from './section-headings'
-import { BEFORE_NAVIGATE_EVENT, navigate, useRoute } from './use-route'
+import { BEFORE_NAVIGATE_EVENT, navigate, replaceRoute, useLocationSearch, useRoute } from './use-route'
 import { Footer } from './site-chrome'
 import { HomePage } from './home-page'
 import { LandingPage, OnboardingPage } from './landing-page'
@@ -1579,6 +1581,7 @@ function QuestionBankPage({
   onImportInto: (bankId: string) => void
 }) {
   const [bank, setBank] = useState(initialBank)
+  const popOver = usePopOver()
   const [name, setName] = useState(initialBank.name)
   const [filter, setFilter] = useState<QuestionBankFilter>(NO_FILTER)
   const [nameError, setNameError] = useState<string | null>(null)
@@ -1676,15 +1679,26 @@ function QuestionBankPage({
           />
           {nameError && <p className="home-error bank-name-error" role="alert">{nameError}</p>}
         </div>}
-        extraActions={<button type="button" className="secondary-button" aria-haspopup="dialog" onClick={() => onImportInto(bank.id)}>
-          <Import aria-hidden="true" />
-          Import
-        </button>}
+        extraActions={<>
+          {popOver.supported && <button
+            type="button"
+            className="secondary-button"
+            title="Keep this Question Bank on top of other windows, to copy Questions from"
+            onClick={() => popOver.open(bank.id)}
+          >
+            <PictureInPicture2 aria-hidden="true" />
+            Pop-over
+          </button>}
+          <button type="button" className="secondary-button" aria-haspopup="dialog" onClick={() => onImportInto(bank.id)}>
+            <Import aria-hidden="true" />
+            Import
+          </button>
+        </>}
         service={bankWorkspaces}
         filter={filter}
         onFilterChange={setFilter}
         onBankChange={setBank}
-        onBankGone={() => window.location.assign('/question-banks')}
+        onBankGone={() => navigate('/question-banks')}
         examsService={workspaces}
       />
     </div>
@@ -1913,11 +1927,10 @@ function ExamEditor({
   }
   const addManyToWorkingCopy = (
     questions: readonly Question[],
-    targetQuestionId: string | null = null,
-    placement: QuestionPlacement = 'after',
+    target: SectionTarget | null = null,
   ) => {
     if (questions.length === 0) return
-    store.addManyToWorkingCopy(questions, targetQuestionId, placement)
+    store.addManyToWorkingCopy(questions, target)
     selectAndReveal(questions.at(-1)!.id)
   }
   const shuffleSelectedQuestions = (questionIds: readonly string[]) => {
@@ -1935,22 +1948,23 @@ function ExamEditor({
   // itself refuses a cross-section or duplicating drop, so the geometry above
   // only ever has to decide *where*, never *whether*.
   const drag = useWorkspaceDrag((source, intent) => {
+    const target: SectionTarget =
+      intent.kind === 'insert'
+        ? { kind: 'question', questionId: intent.targetQuestionId, placement: intent.placement }
+        : intent.kind === 'section-end'
+          ? { kind: 'section-end', sectionId: intent.sectionId }
+          : { kind: 'new-section', afterSectionId: intent.afterSectionId }
     if (source.pane === 'exam-draft') {
-      // Dragging inside the Working Copy reorders and nothing else: the pane a
+      // Dragging inside the Working Copy moves and nothing else: the pane a
       // gesture starts in is what gives it its meaning.
-      if (intent.kind !== 'insert') return
-      store.moveInWorkingCopy(source.questionIds, intent.targetQuestionId, intent.placement)
+      store.moveInWorkingCopy(source.questionIds, target)
       return
     }
     const questions = source.questionIds.flatMap((questionId) => {
       const question = bankQuestionById(store.getState().questionBank, questionId)
       return question ? [question] : []
     })
-    if (intent.kind === 'insert') {
-      addManyToWorkingCopy(questions, intent.targetQuestionId, intent.placement)
-    } else {
-      addManyToWorkingCopy(questions)
-    }
+    addManyToWorkingCopy(questions, target)
   })
 
   const openExport = useCallback(() => {
@@ -2566,7 +2580,9 @@ function ExamEditor({
             revealQuestionId={revealQuestionId}
             onRevealed={clearReveal}
             onTitleChange={(title) => store.setTitle(title)}
-            onSectionHeadingChange={(section, change) => store.setSectionHeading(section, change)}
+            onSectionHeadingChange={(sectionId, change) => store.setSectionHeading(sectionId, change)}
+            onMoveSection={(sectionId, direction) => store.moveSection(sectionId, direction)}
+            onDeleteSection={(sectionId) => store.deleteSection(sectionId)}
             onHeaderLineChange={(line, text) => store.setHeaderLine(line, text)}
             titleDisabled={isHistoricalBrowsing}
             onEdit={(questionId) => {
@@ -2730,7 +2746,12 @@ export default function App({
   initialError: string | null
 }) {
   const route = useRoute()
+  const search = useLocationSearch()
   const [exams, setExams] = useState(initialExams)
+  /** The bank the Question Bank page is showing and the address it was read
+   *  for — at start by `main.tsx`, and after that on every arrival, so a bank
+   *  edited elsewhere since is never shown as it was. */
+  const [pageBank, setPageBank] = useState(() => bank ? { bank, search: window.location.search } : null)
   const [bankCollection, setBankCollection] = useState(initialBankCollection)
   const [storageStatus, setStorageStatus] = useState(persistentStorage)
   const [editorStore, setEditorStore] = useState(store)
@@ -2739,7 +2760,7 @@ export default function App({
   const [inspectingBankFile, setInspectingBankFile] = useState(false)
   const [droppedBankFile, setDroppedBankFile] = useState<File | null>(null)
   const [convertDrop, setConvertDrop] = useState<{ file: File; id: number } | null>(null)
-  const homeError = initialError
+  const [homeError, setHomeError] = useState(initialError)
   const [bankLibraryRevision, setBankLibraryRevision] = useState(0)
   const [importTargetBankId, setImportTargetBankId] = useState<string | null>(null)
   /** The waiting import the dialog finishes, when it was opened on one. */
@@ -2859,12 +2880,19 @@ export default function App({
     }))
     setEditorId(targetId)
   }, [editorStore, workspaces])
+  // Home and both collections read the account afresh each time they are
+  // shown: moving between them and a Question Bank page loads no document, so
+  // what they were handed at start is out of date once a bank is edited. Only
+  // Home sweeps away untouched placeholders, as it always has; reading is all
+  // the collections do.
   useEffect(() => {
-    if (route !== '/') return
+    if (route !== '/' && route !== '/exams' && route !== '/question-banks') return
     let current = true
     void (async () => {
-      await workspaces.cleanupPristine({ includeActive: true })
-      await bankWorkspaces.cleanupPristine({ includeActive: true })
+      if (route === '/') {
+        await workspaces.cleanupPristine({ includeActive: true })
+        await bankWorkspaces.cleanupPristine({ includeActive: true })
+      }
       const [recent, recentBanks] = await Promise.all([
         workspaces.recent(),
         bankWorkspaces.recent(),
@@ -2881,10 +2909,35 @@ export default function App({
     })()
     return () => { current = false }
   }, [route, workspaces, bankWorkspaces])
-  const newExam = () => { void workspaces.create().then((exam) => window.location.assign(`/editor?exam=${exam.id}`)) }
-  const newBank = () => { void bankWorkspaces.create().then((bank) => window.location.assign(`/question-bank?id=${bank.id}`)) }
+  // The editor is entered and left by loading a document, as `main.tsx`
+  // expects: it reads the Exam from storage afresh, and the browser's own
+  // leave-page guard stands between the teacher and an unsaved Working Copy.
+  // The Question Bank Pop-over closes with that load (ADR-0030).
   const openExam = (id: string) => window.location.assign(`/editor?exam=${id}`)
-  const openBank = (id: string) => window.location.assign(`/question-bank?id=${id}`)
+  const openBank = useCallback((id: string) => navigate(`/question-bank?id=${id}`), [])
+  const newExam = () => { void workspaces.create().then((exam) => openExam(exam.id)) }
+  const newBank = () => { void bankWorkspaces.create().then((bank) => openBank(bank.id)) }
+  const onBankPage = route === '/question-bank'
+  const pageBankReady = onBankPage && pageBank?.search === search
+  useEffect(() => {
+    if (!onBankPage) {
+      setPageBank(null)
+      return
+    }
+    if (pageBankReady) return
+    const id = new URLSearchParams(search).get('id')
+    let current = true
+    void (id ? bankWorkspaces.open(id) : Promise.resolve(null)).then((opened) => {
+      if (!current) return
+      if (opened) {
+        setPageBank({ bank: opened, search })
+        return
+      }
+      setHomeError('That Question Bank is unavailable on this device.')
+      replaceRoute('/question-banks')
+    })
+    return () => { current = false }
+  }, [bankWorkspaces, onBankPage, pageBankReady, search])
   const importDialog = inspectingBankFile && <QuestionBankImportDialog
     key={`${droppedBankFile ? `${droppedBankFile.name}:${droppedBankFile.lastModified}` : 'chosen'}:${importTargetBankId ?? ''}:${importWaitingId ?? ''}`}
     initialFile={droppedBankFile ?? undefined}
@@ -2978,12 +3031,14 @@ export default function App({
     onOpenBank={openBank}
     onDeleteBank={requestBankDeletion}
   />{bankDeletionConfirmation}</>
-  if (route === '/question-bank') return bank ? <>{globalChrome}<QuestionBankPage
-    bank={bank}
+  if (route === '/question-bank') return pageBank && pageBankReady ? <>{globalChrome}<QuestionBankPage
+    key={pageBank.bank.id}
+    bank={pageBank.bank}
     bankWorkspaces={bankWorkspaces}
     workspaces={workspaces}
     persistentStorage={storageStatus}
-    launchError={initialError}
+    // What went wrong at start belongs to the bank the app started on.
+    launchError={pageBank.bank === bank ? initialError : null}
     onImportInto={(bankId) => openImport(null, bankId)}
   /></> : globalChrome
   return editorStore && editorId ? <>{globalChrome}<ExamEditor

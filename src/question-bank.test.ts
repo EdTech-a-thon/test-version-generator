@@ -15,8 +15,8 @@ import {
   withChoiceOrder,
   withReferenceAdded,
   withReferenceOrder,
-  withReferenceReplaced,
   withReferencesRemoved,
+  withSectionLayout,
 } from './question-bank'
 
 const ids = ['q1', 'q2', 'q3']
@@ -154,38 +154,32 @@ describe('reordering the Working Copy', () => {
   })
 })
 
-describe('replacing a reference', () => {
-  test('carries the outgoing Exam-owned column layout and clears it on Remove', () => {
+describe('writing back Sections', () => {
+  test('Remove clears a question’s Exam-owned column layout and its Section placement', () => {
     const draft = {
       ...draftOf(),
       columns: { q1: 4 as const, q2: 1 as const },
+      sectionOf: { q1: 'A', q2: 'A', q3: 'B' },
     }
-    expect(withReferencesRemoved(draft, ['q1']).columns).toEqual({ q2: 1 })
-    expect(withReferenceReplaced(draft, 'q1', 'q9')).toMatchObject({
-      questionIds: ['q9', 'q2', 'q3'],
-      columns: { q9: 4, q2: 1 },
+    const removed = withReferencesRemoved(draft, ['q1'])
+    expect(removed.columns).toEqual({ q2: 1 })
+    expect(removed.sectionOf).toEqual({ q2: 'A', q3: 'B' })
+  })
+
+  test('stores every Section, every placement and the order, and keeps the legacy per-type wording', () => {
+    const draft = { ...draftOf(), sectionHeadings: { open: { title: 'Essays' } } }
+    const laidOut = withSectionLayout(draft, {
+      sections: [{ id: 'open', title: 'Essays', instructions: '' }, { id: 'B', title: 'Short Answer', instructions: '' }],
+      sectionOf: { q1: 'open', q2: 'B', q3: 'open' },
+      questionOrder: ['q1', 'q3', 'q2'],
     })
-  })
-
-  test('puts the incoming question in the outgoing one’s place with its authored answer order', () => {
-    const draft = withChoiceOrder(draftOf(), {
-      q1: ['a', 'b'], q2: ['c', 'd'], q9: ['e', 'f'],
+    expect(laidOut).toEqual({
+      ...createWorkingCopy(),
+      questionIds: ['q1', 'q3', 'q2'],
+      sections: [{ id: 'open', title: 'Essays', instructions: '' }, { id: 'B', title: 'Short Answer', instructions: '' }],
+      sectionOf: { q1: 'open', q2: 'B', q3: 'open' },
+      // Kept, for a Section begun later for a type the Exam has none of.
+      sectionHeadings: { open: { title: 'Essays' } },
     })
-    const replaced = withReferenceReplaced(draft, 'q2', 'q9')
-    expect(replaced.questionIds).toEqual(['q1', 'q9', 'q3'])
-    expect(replaced.choiceOrder).toEqual({ q1: ['a', 'b'] })
-  })
-
-  test('refuses when the outgoing question is not on the Working Copy', () => {
-    const draft = draftOf()
-    expect(withReferenceReplaced(draft, 'elsewhere', 'q9')).toBe(draft)
-  })
-
-  test('refuses when the incoming question is already on the Working Copy', () => {
-    // A reference occurs at most once, so this would be a Remove wearing a
-    // replacement's clothes.
-    const draft = draftOf()
-    expect(withReferenceReplaced(draft, 'q2', 'q1')).toBe(draft)
-    expect(withReferenceReplaced(draft, 'q2', 'q2')).toBe(draft)
   })
 })

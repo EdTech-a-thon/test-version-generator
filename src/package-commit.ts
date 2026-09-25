@@ -2,6 +2,7 @@ import {
   DEFAULT_EXAM_TITLE,
   snapWorkSpaceHeight,
   type ColumnSetting,
+  type ExamSection,
   type Question,
   type WorkSpace,
 } from './exam'
@@ -129,12 +130,28 @@ export function planImport(
         }
       }
     }
+    // A 0.3.0 Exam's Sections are stored, each under a fresh id with its
+    // wording in full, and every Question is placed in the one its position
+    // names, whatever its type. An older Exam stores none and keeps its
+    // per-type wording, so its Sections are derived one per type.
+    const sections: ExamSection[] | undefined = exam.sections?.map(({ title, instructions }) => ({
+      id: createId(),
+      title,
+      instructions,
+    }))
+    const sectionOf: Record<string, string> = {}
+    if (sections) {
+      exam.positions.forEach((position, index) => {
+        sectionOf[questions[index]!.id] = sections[position.section!]!.id
+      })
+    }
     const workingCopy = {
       ...createWorkingCopy(exam.name.trim() || DEFAULT_EXAM_TITLE),
       questionIds: questions.map(({ id }) => id),
       choiceOrder,
       ...(Object.keys(columns).length > 0 ? { columns } : {}),
       ...(Object.keys(workSpace).length > 0 ? { workSpace } : {}),
+      ...(sections ? { sections, sectionOf } : {}),
       ...(exam.sectionHeadings ? { sectionHeadings: exam.sectionHeadings } : {}),
       ...(exam.headingSize ? { headingSize: exam.headingSize } : {}),
       ...(exam.textSize ? { textSize: exam.textSize } : {}),

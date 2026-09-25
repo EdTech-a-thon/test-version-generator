@@ -248,28 +248,30 @@ test('a Question Bank question already on the exam offers no gesture', async ({ 
   await expect(page.getByRole('button', { name: 'Undo' })).toBeDisabled()
 })
 
-const emptySectionOffer = (page: Page) => page.locator('.exam-draft-empty-section')
+const newSectionTarget = (page: Page) => page.locator('[data-new-section-after]')
 
-test('an empty Question Section offers a first-question drop target', async ({ page }) => {
-  // Multiple Choice questions only: the Short Answer section is not drawn on
-  // the sheet at all, because a section is derived from the questions in it.
+test('a question of a type the Exam has no Section for starts one from the target beneath a Section', async ({ page }) => {
+  // Multiple Choice questions only: there is no Short Answer Section for a
+  // Short Answer question to join, so it can only start one.
   await openWorkspace(page, ['mc1', 'mc2'])
-  await expect(emptySectionOffer(page)).toHaveCount(0)
+  await expect(newSectionTarget(page)).toHaveCount(0)
 
   const box = (await bankRow(page, 'Spare short answer').boundingBox())!
   await page.mouse.move(box.x + 30, box.y + box.height / 2)
   await page.mouse.down()
-  await page.mouse.move(box.x + 200, box.y + 60, { steps: 6 })
-
-  await expect(emptySectionOffer(page)).toContainText('Drop to add the first question')
-  const offer = (await emptySectionOffer(page).boundingBox())!
-  await page.mouse.move(offer.x + offer.width / 2, offer.y + offer.height / 2, { steps: 6 })
-  await expect(emptySectionOffer(page)).toHaveAttribute('data-active', 'true')
+  // Near the foot of the Multiple Choice Section, the target slides open…
+  const foot = (await rendered(page, 'mc2').boundingBox())!
+  await page.mouse.move(foot.x + foot.width / 2, foot.y + foot.height + 2, { steps: 8 })
+  await expect(newSectionTarget(page)).toContainText('Drop here to create a new section with this')
+  // …and makes a Section only when the release is over it.
+  const target = (await newSectionTarget(page).boundingBox())!
+  await page.mouse.move(target.x + target.width / 2, target.y + target.height / 2, { steps: 6 })
+  await expect(newSectionTarget(page)).toHaveAttribute('data-active', 'true')
   await page.mouse.up()
 
   expect(await renderedIds(page)).toEqual(['mc1', 'mc2', 'saSpare'])
-  // The offer is gone with the gesture, and the section it opened is now drawn.
-  await expect(emptySectionOffer(page)).toHaveCount(0)
+  await expect(newSectionTarget(page)).toHaveCount(0)
+  await expect(page.getByRole('textbox', { name: 'Short Answer heading' })).toHaveValue('Short Answer')
 })
 
 test('an empty Working Copy offers its placeholder as the first-question drop target', async ({ page }) => {
@@ -279,7 +281,6 @@ test('an empty Working Copy offers its placeholder as the first-question drop ta
   // a gesture aims at — not a second offer pinned somewhere else.
   const placeholder = page.getByText('Drag or add a Question from an open Question Bank')
   await expect(placeholder).toBeVisible()
-  await expect(emptySectionOffer(page)).toHaveCount(0)
 
   const box = (await bankRow(page, 'Spare choice question').boundingBox())!
   await page.mouse.move(box.x + 30, box.y + box.height / 2)

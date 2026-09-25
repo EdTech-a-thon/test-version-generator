@@ -1,22 +1,22 @@
 // What a drag gesture across the authoring workspace means.
 //
 // One gesture spans two panes. A Question Bank question is *composed* onto the
-// Working Copy; a Working Copy question is *reordered* within it. Either way a
-// drop only ever Inserts: before or after a rendered question, or — for the
-// first question of a Question Section the exam has none of — into that
-// section. Replacing is a row-menu command, not something a gesture can do by
-// landing in the wrong band of a question.
+// Working Copy; a Working Copy question is *moved* within it. Either way a drop
+// only ever Inserts: before or after a rendered question, at the end of an
+// empty Question Section, or into a new Section of its own.
 //
-// Both are constrained the same way. A Question Section boundary is fixed, so a
-// Multiple Choice question only ever reaches a Multiple Choice position and a
-// Short Answer question only ever reaches a Short Answer one.
+// A Question Section holds Questions of any type, so every line between two
+// questions, in any Section, is somewhere a question can go.
 //
 // And a drop is never aimed. Released anywhere over the Working Copy, a gesture
-// lands at the legal insertion line nearest the pointer — so a Short Answer
-// question flicked onto the Multiple Choice section goes to the top of the
-// Short Answer section, because that is the closest place it can go. The only
-// release that changes nothing is one outside the Working Copy, which is how a
-// gesture is abandoned.
+// lands at the legal insertion line nearest the pointer. The one exception is
+// a new Section, which is only ever made on purpose: when the nearest line is
+// the foot of a Section — below its last question — a "new Section" target
+// opens beneath it, and only a release over that open target
+// makes one. The target opens rather than appearing at once, so the sheet does
+// not jump under the pointer, and it says what it will do before it does it.
+// The only release that changes nothing is one outside the Working Copy,
+// which is how a gesture is abandoned.
 //
 // This is the whole of the geometry, kept pure and away from the DOM so the
 // rule can be read and tested on its own. `use-workspace-drag.ts` is what
@@ -45,21 +45,51 @@ export type DragSource =
 /** A horizontal insertion line, in viewport coordinates. */
 export type DropEdge = { y: number; left: number; right: number }
 
-/** A rendered question as a gesture sees it: the line above it and the line
- *  below it. A question split across sheets has its `before` edge on its first
- *  piece and its `after` edge on its last. */
+/** A box on the page, in viewport coordinates. */
+export type DropBox = { top: number; bottom: number; left: number; right: number }
+
+/** A rendered question as a gesture sees it: the Section it is in, and the
+ *  line above it and the line below it. A question split across sheets has
+ *  its `before` edge on its first piece and its `after` edge on its last. */
 export type DropCandidate = {
   questionId: string
-  type: QuestionType
+  sectionId: string
   before: DropEdge
   after: DropEdge
 }
 
+/** An empty Question Section as a gesture sees it: the box it offers to drop
+ *  into. No new Section is ever opened beneath one. */
+export type EmptySection = {
+  sectionId: string
+  box: DropBox
+}
+
+/** Everything on the Working Copy a gesture can land on, in page order. */
+export type DropField = {
+  candidates: readonly DropCandidate[]
+  emptySections: readonly EmptySection[]
+  /** The new-Section target currently open, and the box it takes up — so that
+   *  moving onto it keeps it open, and a release over it makes a Section. */
+  openNewSection: { afterSectionId: string; box: DropBox } | null
+}
+
 /** What releasing now would do — and, equally, what the workspace draws.
- *  `null` is a release that changes nothing. */
+ *  `null` is a release that changes nothing.
+ *
+ *  `opensBelow` names the Section whose new-Section target is open beneath
+ *  it. An `insert` at the foot of a Section carries it; so does a
+ *  `new-section` intent, which is not `armed` until the pointer is over the
+ *  open target itself. Only an armed one makes a Section when released. */
 export type DropIntent =
-  | { kind: 'insert'; targetQuestionId: string; placement: QuestionPlacement }
-  | { kind: 'insert-first' }
+  | {
+      kind: 'insert'
+      targetQuestionId: string
+      placement: QuestionPlacement
+      opensBelow: string | null
+    }
+  | { kind: 'section-end'; sectionId: string; opensBelow: string | null }
+  | { kind: 'new-section'; afterSectionId: string | null; armed: boolean; opensBelow: string | null }
 
 /** What one rendered question draws while a gesture is in flight: an insertion
  *  line on one of its edges, or nothing. */
@@ -76,6 +106,12 @@ export function dropStateOf(
     : null
 }
 
+/** Whether releasing now would do anything at all. An open new-Section target
+ *  the pointer is not over promises nothing yet. */
+export function landsOnRelease(intent: DropIntent | null): boolean {
+  return intent !== null && (intent.kind !== 'new-section' || intent.armed)
+}
+
 /** How far the pointer is from an insertion line: straight up or down when it
  *  is over the line's span, and to the line's nearer end when it is beside it. */
 function distanceTo(edge: DropEdge, point: { x: number; y: number }): number {
@@ -83,43 +119,98 @@ function distanceTo(edge: DropEdge, point: { x: number; y: number }): number {
   return Math.hypot(dx, point.y - edge.y)
 }
 
+function isInside(box: DropBox, point: { x: number; y: number }): boolean {
+  return point.x >= box.left && point.x <= box.right && point.y >= box.top && point.y <= box.bottom
+}
+
 /**
  * Where releasing at `point` would land.
  *
- * `candidates` is every rendered question on the Working Copy, in page order.
  * `point` is `null` when the pointer is not over the Working Copy at all.
  */
 export function dropIntent(
   source: DragSource,
-  candidates: readonly DropCandidate[],
+  field: DropField,
   point: { x: number; y: number } | null,
 ): DropIntent | null {
   if (!point) return null
+  const { candidates, emptySections, openNewSection } = field
+
+  // Over the open new-Section target, a release makes a Section.
+  if (openNewSection && isInside(openNewSection.box, point)) {
+    return {
+      kind: 'new-section',
+      afterSectionId: openNewSection.afterSectionId,
+      armed: true,
+      opensBelow: openNewSection.afterSectionId,
+    }
+  }
+
+  // An Exam with nothing on it yet has no line to aim at: the whole Working
+  // Copy is the target, and the question starts its first Section.
+  if (candidates.length === 0 && emptySections.length === 0) {
+    return source.pane === 'question-bank'
+      ? { kind: 'new-section', afterSectionId: null, armed: true, opensBelow: null }
+      : null
+  }
 
   // A question cannot be placed relative to itself, and a gesture carrying
   // several cannot be placed relative to any of its own members.
-  const reachable = candidates.filter(
-    (candidate) =>
-      candidate.type === source.type && !source.questionIds.includes(candidate.questionId),
-  )
+  const carried = new Set(source.questionIds)
+  const others = candidates.filter((candidate) => !carried.has(candidate.questionId))
 
-  if (reachable.length === 0) {
-    // A Question Section the exam has none of is not drawn on the sheet, so
-    // there is no line to aim at: the whole Working Copy is the target. A
-    // reorder never gets here usefully — a question already on the Working
-    // Copy is already in its own section.
-    const sectionIsEmpty = !candidates.some((candidate) => candidate.type === source.type)
-    return source.pane === 'question-bank' && sectionIsEmpty ? { kind: 'insert-first' } : null
-  }
+  // The foot of each Section: the line below its last question that is not
+  // being carried. A new Section can be opened there, whatever its type.
+  const feet = new Map<string, DropCandidate>()
+  for (const candidate of others) feet.set(candidate.sectionId, candidate)
+  const footOf = new Set([...feet.values()].map(({ questionId }) => questionId))
 
   let nearest: DropIntent | null = null
   let nearestDistance = Infinity
-  for (const candidate of reachable) {
-    for (const placement of ['before', 'after'] as const) {
-      const distance = distanceTo(candidate[placement], point)
-      if (distance < nearestDistance) {
-        nearestDistance = distance
-        nearest = { kind: 'insert', targetQuestionId: candidate.questionId, placement }
+  const consider = (distance: number, intent: DropIntent) => {
+    if (distance < nearestDistance) {
+      nearestDistance = distance
+      nearest = intent
+    }
+  }
+
+  for (const candidate of others) {
+    consider(distanceTo(candidate.before, point), {
+      kind: 'insert',
+      targetQuestionId: candidate.questionId,
+      placement: 'before',
+      opensBelow: null,
+    })
+    consider(distanceTo(candidate.after, point), {
+      kind: 'insert',
+      targetQuestionId: candidate.questionId,
+      placement: 'after',
+      opensBelow: footOf.has(candidate.questionId) ? candidate.sectionId : null,
+    })
+  }
+  for (const empty of emptySections) {
+    const middle: DropEdge = {
+      y: (empty.box.top + empty.box.bottom) / 2,
+      left: empty.box.left,
+      right: empty.box.right,
+    }
+    const distance = isInside(empty.box, point) ? 0 : distanceTo(middle, point)
+    // An empty Section takes what is dropped on it, and offers no new Section
+    // beneath it: it is the new Section a drop there would otherwise make.
+    consider(distance, { kind: 'section-end', sectionId: empty.sectionId, opensBelow: null })
+  }
+
+  // Still close to an open target, it stays open: moving down onto it must not
+  // close it on the way.
+  if (openNewSection && nearest && (nearest as DropIntent).opensBelow === null) {
+    const target = openNewSection.box
+    const reach = distanceTo({ y: target.top, left: target.left, right: target.right }, point)
+    if (reach <= nearestDistance) {
+      return {
+        kind: 'new-section',
+        afterSectionId: openNewSection.afterSectionId,
+        armed: false,
+        opensBelow: openNewSection.afterSectionId,
       }
     }
   }
