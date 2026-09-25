@@ -115,6 +115,7 @@ import {
   ToggleLeft,
   Link2,
   Pencil,
+  PictureInPicture2,
   Plus,
   Redo2,
   RefreshCw,
@@ -128,6 +129,7 @@ import {
   X,
 } from 'lucide-react'
 import { ContextMenu, type MenuPoint } from './context-menu'
+import { usePopOver } from './pop-over-context'
 import {
   DEFAULT_HEADING_SIZE,
   DEFAULT_TEXT_SIZE,
@@ -135,7 +137,7 @@ import {
   HEADING_SIZE_LABELS,
   TEXT_SIZES,
 } from './section-headings'
-import { BEFORE_NAVIGATE_EVENT, navigate, useRoute } from './use-route'
+import { BEFORE_NAVIGATE_EVENT, navigate, replaceRoute, useLocationSearch, useRoute } from './use-route'
 import { Footer } from './site-chrome'
 import { HomePage } from './home-page'
 import { LandingPage, OnboardingPage } from './landing-page'
@@ -1579,6 +1581,7 @@ function QuestionBankPage({
   onImportInto: (bankId: string) => void
 }) {
   const [bank, setBank] = useState(initialBank)
+  const popOver = usePopOver()
   const [name, setName] = useState(initialBank.name)
   const [filter, setFilter] = useState<QuestionBankFilter>(NO_FILTER)
   const [nameError, setNameError] = useState<string | null>(null)
@@ -1676,15 +1679,26 @@ function QuestionBankPage({
           />
           {nameError && <p className="home-error bank-name-error" role="alert">{nameError}</p>}
         </div>}
-        extraActions={<button type="button" className="secondary-button" aria-haspopup="dialog" onClick={() => onImportInto(bank.id)}>
-          <Import aria-hidden="true" />
-          Import
-        </button>}
+        extraActions={<>
+          {popOver.supported && <button
+            type="button"
+            className="secondary-button"
+            title="Keep this Question Bank on top of other windows, to copy Questions from"
+            onClick={() => popOver.open(bank.id)}
+          >
+            <PictureInPicture2 aria-hidden="true" />
+            Pop-over
+          </button>}
+          <button type="button" className="secondary-button" aria-haspopup="dialog" onClick={() => onImportInto(bank.id)}>
+            <Import aria-hidden="true" />
+            Import
+          </button>
+        </>}
         service={bankWorkspaces}
         filter={filter}
         onFilterChange={setFilter}
         onBankChange={setBank}
-        onBankGone={() => window.location.assign('/question-banks')}
+        onBankGone={() => navigate('/question-banks')}
         examsService={workspaces}
       />
     </div>
@@ -2730,7 +2744,12 @@ export default function App({
   initialError: string | null
 }) {
   const route = useRoute()
+  const search = useLocationSearch()
   const [exams, setExams] = useState(initialExams)
+  /** The bank the Question Bank page is showing and the address it was read
+   *  for — at start by `main.tsx`, and after that on every arrival, so a bank
+   *  edited elsewhere since is never shown as it was. */
+  const [pageBank, setPageBank] = useState(() => bank ? { bank, search: window.location.search } : null)
   const [bankCollection, setBankCollection] = useState(initialBankCollection)
   const [storageStatus, setStorageStatus] = useState(persistentStorage)
   const [editorStore, setEditorStore] = useState(store)
@@ -2739,7 +2758,7 @@ export default function App({
   const [inspectingBankFile, setInspectingBankFile] = useState(false)
   const [droppedBankFile, setDroppedBankFile] = useState<File | null>(null)
   const [convertDrop, setConvertDrop] = useState<{ file: File; id: number } | null>(null)
-  const homeError = initialError
+  const [homeError, setHomeError] = useState(initialError)
   const [bankLibraryRevision, setBankLibraryRevision] = useState(0)
   const [importTargetBankId, setImportTargetBankId] = useState<string | null>(null)
   /** The waiting import the dialog finishes, when it was opened on one. */
@@ -2859,8 +2878,11 @@ export default function App({
     }))
     setEditorId(targetId)
   }, [editorStore, workspaces])
+  // Home and both collections read the account afresh each time they are
+  // shown: every screen is reached without a document load, so what they were
+  // handed at start is out of date as soon as anything has been edited.
   useEffect(() => {
-    if (route !== '/') return
+    if (route !== '/' && route !== '/exams' && route !== '/question-banks') return
     let current = true
     void (async () => {
       await workspaces.cleanupPristine({ includeActive: true })
@@ -2881,10 +2903,63 @@ export default function App({
     })()
     return () => { current = false }
   }, [route, workspaces, bankWorkspaces])
-  const newExam = () => { void workspaces.create().then((exam) => window.location.assign(`/editor?exam=${exam.id}`)) }
-  const newBank = () => { void bankWorkspaces.create().then((bank) => window.location.assign(`/question-bank?id=${bank.id}`)) }
-  const openExam = (id: string) => window.location.assign(`/editor?exam=${id}`)
-  const openBank = (id: string) => window.location.assign(`/question-bank?id=${id}`)
+  // Opening an Exam loads its store here and then moves to the editor, which
+  // is what `main.tsx` does for an `/editor?exam=` launch.
+  const openExam = useCallback((id: string) => {
+    void (async () => {
+      if (!await workspaces.open(id)) {
+        setHomeError('That Exam is unavailable on this device.')
+        return
+      }
+      const opened = await loadExamStore(workspaces.backendFor(id))
+      setEditorStore(opened)
+      setEditorId(id)
+      navigate('/editor')
+    })()
+  }, [workspaces])
+  const openBank = useCallback((id: string) => navigate(`/question-bank?id=${id}`), [])
+  const newExam = () => { void workspaces.create().then((exam) => openExam(exam.id)) }
+  const newBank = () => { void bankWorkspaces.create().then((bank) => openBank(bank.id)) }
+  const onBankPage = route === '/question-bank'
+  const pageBankReady = onBankPage && pageBank?.search === search
+  useEffect(() => {
+    if (!onBankPage) {
+      setPageBank(null)
+      return
+    }
+    if (pageBankReady) return
+    const id = new URLSearchParams(search).get('id')
+    let current = true
+    void (id ? bankWorkspaces.open(id) : Promise.resolve(null)).then((opened) => {
+      if (!current) return
+      if (opened) {
+        setPageBank({ bank: opened, search })
+        return
+      }
+      setHomeError('That Question Bank is unavailable on this device.')
+      replaceRoute('/question-banks')
+    })
+    return () => { current = false }
+  }, [bankWorkspaces, onBankPage, pageBankReady, search])
+  // Back to a bare `/editor` after it has been left, with nothing loaded:
+  // restore the Exam it was last on, as a reload of it does.
+  useEffect(() => {
+    if (route !== '/editor' || editorStore) return
+    let current = true
+    void (async () => {
+      const active = await bankWorkspaces.activeEditor()
+      if (!current) return
+      if (!active || !await workspaces.exists(active.resourceId) || !await workspaces.open(active.resourceId)) {
+        replaceRoute('/')
+        return
+      }
+      const restored = await loadExamStore(workspaces.backendFor(active.resourceId))
+      if (!current) return
+      setEditorStore(restored)
+      setEditorId(active.resourceId)
+    })()
+    return () => { current = false }
+  }, [bankWorkspaces, editorStore, route, workspaces])
   const importDialog = inspectingBankFile && <QuestionBankImportDialog
     key={`${droppedBankFile ? `${droppedBankFile.name}:${droppedBankFile.lastModified}` : 'chosen'}:${importTargetBankId ?? ''}:${importWaitingId ?? ''}`}
     initialFile={droppedBankFile ?? undefined}
@@ -2978,12 +3053,14 @@ export default function App({
     onOpenBank={openBank}
     onDeleteBank={requestBankDeletion}
   />{bankDeletionConfirmation}</>
-  if (route === '/question-bank') return bank ? <>{globalChrome}<QuestionBankPage
-    bank={bank}
+  if (route === '/question-bank') return pageBank && pageBankReady ? <>{globalChrome}<QuestionBankPage
+    key={pageBank.bank.id}
+    bank={pageBank.bank}
     bankWorkspaces={bankWorkspaces}
     workspaces={workspaces}
     persistentStorage={storageStatus}
-    launchError={initialError}
+    // What went wrong at start belongs to the bank the app started on.
+    launchError={pageBank.bank === bank ? initialError : null}
     onImportInto={(bankId) => openImport(null, bankId)}
   /></> : globalChrome
   return editorStore && editorId ? <>{globalChrome}<ExamEditor
@@ -3006,8 +3083,13 @@ export default function App({
     }}
     onHome={() => {
     void workspaces.activeId().then(async (id) => {
-      if (id) await workspaces.removePristine(id)
-      window.location.assign('/')
+      // An Exam nobody touched is disposable; the editor forgets it rather
+      // than restoring it on the way back.
+      if (id && await workspaces.removePristine(id)) {
+        setEditorStore(null)
+        setEditorId(null)
+      }
+      navigate('/')
     })
   }} /></> : globalChrome
 }

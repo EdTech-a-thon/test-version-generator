@@ -602,12 +602,19 @@ button { cursor: pointer; }
   border-color: #cdb9a6; box-shadow: 0 2px 8px rgb(91 68 47 / 12%);
 }
 .question-bank-reading-item:focus-visible { outline: 2px solid #8a6a4c; outline-offset: 2px; }
-/* The pencil says what a click does; it waits at the end of the head row
-   until the Question is pointed at or focused. */
-.question-bank-reading-edit { width: 28px; height: 28px; margin: -4px 0 -4px auto; opacity: 0; }
-.question-bank-reading-edit svg { width: 15px; height: 15px; }
-.question-bank-reading-item:hover .question-bank-reading-edit,
-.question-bank-reading-item:focus-within .question-bank-reading-edit { opacity: 1; }
+/* The pencil says what a click does, and Copy sits beside it; both wait at
+   the end of the head row until the Question is pointed at or focused. A
+   Copy that has just run stays up long enough to be read. */
+.question-bank-reading-actions { display: flex; gap: 2px; margin: -4px 0 -4px auto; }
+.question-bank-reading-edit,
+.question-bank-reading-copy { width: 28px; height: 28px; opacity: 0; }
+.question-bank-reading-edit svg,
+.question-bank-reading-copy svg { width: 15px; height: 15px; }
+.question-bank-reading-item:hover :is(.question-bank-reading-edit, .question-bank-reading-copy),
+.question-bank-reading-item:focus-within :is(.question-bank-reading-edit, .question-bank-reading-copy),
+.question-bank-reading-copy[data-copy-state] { opacity: 1; }
+[data-copy-state='copied'] { color: #2f6b3a; }
+[data-copy-state='failed'] { color: #a33a2b; }
 
 /* The page's body: the outline down the left, the cards beside it. Each
    scrolls on its own, so the outline stays in reach however far down the
@@ -3075,3 +3082,101 @@ a.import-card-main:hover .exam-sheet, a.import-card-main:focus-visible .exam-she
 /* A new import: one drop, for the test or the file its AI made. */
 .new-import { max-width: 720px; }
 .new-import-lede { margin: 0 0 18px; color: #5f4d40; font-size: 15px; line-height: 1.5; }
+
+/* ---- The Question Bank Pop-over -------------------------------------------
+   A narrow window kept on top of another document (ADR-0029). Everything is a
+   size smaller than the bank page: the cards are for recognising a Question,
+   not reading it, so each is cut off at a few lines and fades out. */
+.pop-over-body { margin: 0; background: var(--app-ground); }
+.pop-over { display: flex; flex-direction: column; height: 100vh; font-size: 13px; }
+.pop-over-loading, .pop-over-empty { margin: 16px 12px; color: #7a6a5c; font-size: 13px; }
+.pop-over-tabs {
+  flex: none; display: flex; align-items: flex-end; gap: 2px; padding: 6px 6px 0;
+  border-bottom: 1px solid var(--bank-frame-line); background: var(--bank-chrome);
+}
+.pop-over-tabs [role='tablist'] { display: flex; gap: 2px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.pop-over-tab {
+  display: flex; align-items: center; min-width: 0; max-width: 150px;
+  border: 1px solid transparent; border-bottom: 0; border-radius: 6px 6px 0 0;
+}
+.pop-over-tab[data-active] { border-color: var(--bank-frame-line); background: var(--app-ground); margin-bottom: -1px; }
+.pop-over-tab button {
+  border: 0; background: transparent; color: #5b4839; font-size: 12px; cursor: pointer;
+}
+.pop-over-tab [role='tab'] { overflow: hidden; padding: 6px 4px 6px 9px; text-overflow: ellipsis; white-space: nowrap; }
+.pop-over-tab[data-active] [role='tab'] { color: #332a24; font-weight: 600; }
+.pop-over-tab button:last-child { display: flex; padding: 3px; border-radius: 4px; }
+.pop-over-tab button:last-child:hover { background: #dccbb4; }
+.pop-over-tab svg { width: 12px; height: 12px; }
+.pop-over-add {
+  flex: none; display: flex; margin: 0 0 4px 2px; padding: 4px; border: 0; border-radius: 5px;
+  color: #5b4839; background: transparent; cursor: pointer;
+}
+.pop-over-add:hover, .pop-over-add[aria-pressed='true'] { background: #dccbb4; }
+.pop-over-add svg { width: 15px; height: 15px; }
+
+.pop-over-bank, .pop-over-picker { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.pop-over-controls { flex: none; display: flex; gap: 6px; padding: 8px 8px 0; }
+.pop-over-filters-button {
+  display: inline-flex; align-items: center; gap: 5px; padding: 5px 8px;
+  border: 1px solid #ddcdb9; border-radius: 6px; color: #5b4839; background: #fffdf8; font-size: 12px;
+}
+.pop-over-filters-button[data-active] { border-color: #b99a78; background: #f3e4d1; }
+.pop-over-filters-button svg { width: 13px; height: 13px; }
+.pop-over-filters {
+  flex: none; display: flex; flex-wrap: wrap; align-items: flex-start; gap: 6px 14px;
+  margin: 6px 8px 0; padding: 8px 10px; border: 1px solid var(--paper-outline); border-radius: 8px;
+  background: #fffdf8;
+}
+.pop-over-filter-group { display: grid; gap: 2px; margin: 0; padding: 0; border: 0; }
+.pop-over-filter-group legend { padding: 0 0 2px; color: var(--paper-ink-soft); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
+.pop-over-filter-group label { display: flex; align-items: center; gap: 5px; font-size: 12px; }
+.pop-over-sort { display: grid; gap: 3px; color: var(--paper-ink-soft); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
+.pop-over-sort select { font-size: 12px; font-weight: 400; text-transform: none; letter-spacing: 0; }
+.pop-over-hint { flex: none; margin: 6px 10px 4px; color: #8a7868; font-size: 11px; }
+
+.pop-over-cards {
+  flex: 1; min-height: 0; overflow-y: auto; display: grid; align-content: start; gap: 6px;
+  margin: 0; padding: 2px 8px 12px; list-style: none;
+}
+.question-reading.pop-over-card {
+  position: relative; padding: 8px 10px; border: 1px solid var(--paper-outline); border-radius: 8px;
+  background: #fffdf8; cursor: copy; font-size: 12px;
+  transition: border-color .12s ease, box-shadow .12s ease;
+}
+.pop-over-card:hover, .pop-over-card:focus-visible { border-color: #cdb9a6; box-shadow: 0 2px 6px rgb(91 68 47 / 12%); }
+.pop-over-card:focus-visible { outline: 2px solid #8a6a4c; outline-offset: 1px; }
+.pop-over-card[data-copy-state='copied'] { border-color: #7fae88; background: #f3faf2; }
+.pop-over-card[data-copy-state='failed'] { border-color: var(--paper-danger-line); background: var(--paper-danger-wash); }
+/* A few lines of the Question, fading out rather than stopping at a hard edge. */
+.pop-over-card-content {
+  max-height: 124px; overflow: hidden;
+  mask-image: linear-gradient(to bottom, #000 72%, transparent);
+}
+.pop-over-card .question-reading-head { gap: 5px; margin-bottom: 4px; }
+.pop-over-card .question-reading-type { font-size: 10px; }
+.pop-over-card .badge { font-size: 10px; }
+.pop-over-card .question-reading-stem { line-height: 1.35; }
+.pop-over-card .question-reading-stem p { margin: 0 0 3px; }
+.pop-over-card .question-reading-choices { gap: 1px; margin-top: 3px; padding-left: 18px; }
+.pop-over-card img { max-height: 70px; width: auto; }
+.pop-over-card-state {
+  display: inline-flex; align-items: center; gap: 3px; margin-left: auto;
+  color: #9c8977; font-size: 11px; font-weight: 600;
+}
+.pop-over-card-state svg { width: 13px; height: 13px; }
+.pop-over-card:not([data-copy-state]) .pop-over-card-state { opacity: 0; }
+.pop-over-card:hover .pop-over-card-state, .pop-over-card:focus-visible .pop-over-card-state { opacity: 1; }
+.pop-over-card[data-copy-state='copied'] .pop-over-card-state { color: #2f6b3a; }
+.pop-over-card[data-copy-state='failed'] .pop-over-card-state { color: var(--paper-danger); }
+
+.pop-over-picker { padding: 10px 8px; overflow-y: auto; }
+.pop-over-picker h2 { margin: 0 4px 8px; font-size: 13px; }
+.pop-over-picker ul { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.pop-over-picker button {
+  display: grid; width: 100%; padding: 7px 10px; border: 1px solid var(--paper-outline); border-radius: 7px;
+  background: #fffdf8; text-align: left; cursor: pointer;
+}
+.pop-over-picker button:hover { border-color: #cdb9a6; background: #f7ede0; }
+.pop-over-picker button span { font-weight: 600; }
+.pop-over-picker button small { color: #7a6a5c; }

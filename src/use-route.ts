@@ -28,8 +28,36 @@ export function useRoute(): string {
   return route
 }
 
+/** The query string, for the routes that keep state in it — the Question Bank
+ *  page's `id`. Changes with every navigation, the path's or not. */
+export function useLocationSearch(): string {
+  const [search, setSearch] = useState(() => window.location.search)
+  useEffect(() => {
+    const onChange = () => setSearch(window.location.search)
+    window.addEventListener('popstate', onChange)
+    window.addEventListener(NAVIGATE_EVENT, onChange)
+    return () => {
+      window.removeEventListener('popstate', onChange)
+      window.removeEventListener(NAVIGATE_EVENT, onChange)
+    }
+  }, [])
+  return search
+}
+
+/** Correct the address without adding to history, as a route that finds its
+ *  resource gone does. */
+export function replaceRoute(to: string): void {
+  window.history.replaceState(null, '', to)
+  window.dispatchEvent(new Event(NAVIGATE_EVENT))
+}
+
+/**
+ * Move to another screen without loading a document. Every screen is reached
+ * this way, the editor included, because the Question Bank Pop-over is a view
+ * of this document and closes with it (ADR-0029).
+ */
 export function navigate(to: string): void {
-  if (window.location.pathname === to) return
+  if (`${window.location.pathname}${window.location.search}` === to) return
   // Unlike a full document navigation, pushState never raises beforeunload.
   // Give editor-owned durability guards the same cancellable boundary first.
   if (!window.dispatchEvent(new Event(BEFORE_NAVIGATE_EVENT, { cancelable: true }))) return

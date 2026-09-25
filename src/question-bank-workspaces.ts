@@ -79,6 +79,11 @@ type StoredTabsWorkspace = QuestionBankTabsWorkspace & {
   examId: string
 }
 
+/** The Question Bank Pop-over's tabs belong to no Exam: there is one set,
+ *  kept under a key of its own beside every Exam's (ADR-0029). */
+const POP_OVER_KEY = 'pop-over'
+type StoredPopOverWorkspace = QuestionBankTabsWorkspace & { key: typeof POP_OVER_KEY }
+
 const copyFilter = (filter: QuestionBankFilter = NO_FILTER): QuestionBankFilter => ({
   search: filter.search,
   types: [...filter.types],
@@ -396,6 +401,25 @@ export function createQuestionBankWorkspaceService(
     },
     async carryWorkspace(from: BankWorkspaceContext, to: BankWorkspaceContext) {
       return service.saveWorkspace(to, await service.workspace(from))
+    },
+    /** The Question Bank Pop-over's tabs and their filters. Deleting a bank
+     *  closes its tab here as it does in every Exam's. */
+    async popOverWorkspace(): Promise<QuestionBankTabsWorkspace> {
+      await workspaceWrites
+      return transact(QUESTION_BANK_WORKSPACE_STORE, 'readonly', async (transaction) => {
+        const stored = await requestOf(
+          transaction.objectStore(QUESTION_BANK_WORKSPACE_STORE).get(POP_OVER_KEY),
+        ) as StoredPopOverWorkspace | undefined
+        return copyTabsWorkspace(stored ?? DEFAULT_BANK_TABS_WORKSPACE)
+      })
+    },
+    async savePopOverWorkspace(workspace: QuestionBankTabsWorkspace): Promise<void> {
+      const saved = copyTabsWorkspace(workspace)
+      await queueWorkspaceWrite(() => transact(QUESTION_BANK_WORKSPACE_STORE, 'readwrite', (transaction) => {
+        transaction.objectStore(QUESTION_BANK_WORKSPACE_STORE).put({
+          key: POP_OVER_KEY, ...saved,
+        } satisfies StoredPopOverWorkspace)
+      }))
     },
     /**
      * Apply one import: create or append to banks, store Media Assets, and
