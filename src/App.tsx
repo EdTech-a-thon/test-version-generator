@@ -132,7 +132,7 @@ import {
   HEADING_SIZE_LABELS,
   TEXT_SIZES,
 } from './section-headings'
-import { BEFORE_NAVIGATE_EVENT, useRoute } from './use-route'
+import { BEFORE_NAVIGATE_EVENT, navigate, useRoute } from './use-route'
 import { Footer } from './site-chrome'
 import { HomePage } from './home-page'
 import { LandingPage, OnboardingPage } from './landing-page'
@@ -158,7 +158,7 @@ import { SettingsPage } from './settings-page'
 import { persistentStorageStatus, requestPersistentStorage, type PersistentStorageStatus } from './durable-storage'
 import { ResourceCollectionPage } from './resource-collection-page'
 import { BankFileDropTarget } from './bank-file-drop'
-import { ImportsPage, WaitingImportPage } from './imports-page'
+import { ImportsPage, NewImportPage, WaitingImportPage } from './imports-page'
 import { questionBankCollection, type QuestionBankCollectionItem } from './resource-collections'
 import { QuestionBankExportDialog } from './question-bank-export-dialog'
 import { QuestionBankImportDialog } from './question-bank-import-dialog'
@@ -2916,9 +2916,19 @@ export default function App({
   if (route === '/imports') return <>{globalChrome}<ImportsPage
     persistentStorage={storageStatus}
     revision={importRevision}
-    onImport={() => openImport()}
     picturesNeededIn={picturesNeededIn}
   /></>
+  // A new import takes a test as readily as a Test Parrot file, so a drop is
+  // the page's to read, as on the convert page.
+  if (route === '/imports/new') return <>
+    <BankFileDropTarget tests onFile={(file) => setConvertDrop({ file, id: Date.now() })} />
+    {importDialog}
+    <NewImportPage
+      persistentStorage={storageStatus}
+      dropped={convertDrop}
+      onOpenImport={(file, waitingImportId) => openImport(file, null, waitingImportId)}
+    />
+  </>
   if (route === '/import') {
     const waitingId = new URLSearchParams(window.location.search).get('id') ?? ''
     // A file dropped on a waiting import's page is the AI's answer to it.
@@ -2954,7 +2964,7 @@ export default function App({
     onOpenBank={openBank}
     onNewBank={newBank}
     onDeleteBank={requestBankDeletion}
-    onImportBank={() => openImport()}
+    onImportBank={() => navigate('/imports/new')}
   />{bankDeletionConfirmation}</>
   // A device that has never been here gets the front door instead of empty
   // shelves; the same page stays reachable at /welcome afterwards.
@@ -2968,7 +2978,7 @@ export default function App({
   if (route === '/get-started/convert') return <>
     <BankFileDropTarget tests onFile={(file) => setConvertDrop({ file, id: Date.now() })} />
     {importDialog}
-    <ConvertPage dropped={convertDrop} onOpenImport={(file) => openImport(file)} />
+    <ConvertPage dropped={convertDrop} onOpenImport={(file, waitingImportId) => openImport(file, null, waitingImportId)} />
   </>
   if (route === '/') return <>{globalChrome}<HomePage
     exams={exams}
@@ -2978,7 +2988,6 @@ export default function App({
     onNewExam={newExam}
     onOpen={openExam}
     onNewBank={newBank}
-    onImportBank={() => openImport()}
     onOpenBank={openBank}
     onDeleteBank={requestBankDeletion}
   />{bankDeletionConfirmation}</>

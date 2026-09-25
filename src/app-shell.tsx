@@ -135,7 +135,7 @@ export function AppShell({
                 <Link
                   href={href}
                   className="app-nav-link"
-                  {...(route === href || (href === '/imports' && route === '/import') ? { 'aria-current': 'page' } : {})}
+                  {...(route === href || (href === '/imports' && (route === '/import' || route === '/imports/new')) ? { 'aria-current': 'page' } : {})}
                 >
                   <Icon aria-hidden="true" />
                   {label}

@@ -1890,6 +1890,8 @@ button { cursor: pointer; }
    than titles — Home is where you resume work, not a page about itself. */
 .home-shelf + .home-shelf { margin-top: 34px; }
 .shelf-bar { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
+.shelf-actions { display: flex; align-items: center; gap: 12px; margin-left: auto; }
+.shelf-actions a { text-decoration: none; }
 .shelf-label {
   margin: 0; color: #6e5b4d; font-size: 13px; font-weight: 700;
   letter-spacing: .04em; text-transform: uppercase;
@@ -3057,3 +3059,6 @@ a.import-card-main:hover .exam-sheet, a.import-card-main:focus-visible .exam-she
   .import-page-side { position: static; grid-template-columns: minmax(0, 180px) minmax(0, 1fr); align-items: start; }
 }
 .collection-actions a { text-decoration: none; }
+/* A new import: one drop, for the test or the file its AI made. */
+.new-import { max-width: 720px; }
+.new-import-lede { margin: 0 0 18px; color: #5f4d40; font-size: 15px; line-height: 1.5; }

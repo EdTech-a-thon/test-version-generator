@@ -57,7 +57,8 @@ import {
   type ResolvingSource,
 } from './resolved-pictures'
 import { PictureSlotContext, type PictureSlot } from './picture-slot'
-import { discardWaitingImport, readWaitingImport, waitingImports, type ImportFileKind, type WaitingImport } from './import-history'
+import { discardWaitingImport, readWaitingImport, type ImportFileKind, type WaitingImport } from './import-history'
+import { bestWaitingImport } from './import-file-route'
 import { SourceDocumentSteps } from './source-document-steps'
 import { TEST_FILE_TYPES, kindOfFile, readSourceDocument, startWaitingImport } from './source-file'
 import { useModalScrollLock } from './use-modal-scroll-lock'
@@ -651,11 +652,7 @@ export function QuestionBankImportDialog({
   const pairingFor = async (next: ImportProposal) => {
     const own = waiting ?? (waitingImportId ? await readWaitingImport(waitingImportId).catch(() => null) : null)
     if (own) return { source: own, check: checkAgainstSourceDocument(next, own) }
-    const candidates = (await waitingImports().catch(() => []))
-      .map((source) => ({ source, check: checkAgainstSourceDocument(next, source) }))
-      .filter(({ check }) => check.matches && check.stemsFound > 0)
-      .sort((a, b) => b.check.stemsFound - a.check.stemsFound)
-    return candidates[0] ?? null
+    return bestWaitingImport(next)
   }
   const inspect = (file: File) => {
     setPhase('inspecting')

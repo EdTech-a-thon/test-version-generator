@@ -14,6 +14,7 @@ import {
 import { Link } from './site-chrome'
 import { ContextMenu, type MenuItem, type MenuPoint } from './context-menu'
 import { SourceDocumentSteps } from './source-document-steps'
+import { ImportFileDrop } from './import-file-drop'
 
 /**
  * The Imports section: every import this browser has started. Those still
@@ -163,13 +164,11 @@ function ImportCard({
 export function ImportsPage({
   persistentStorage,
   revision,
-  onImport,
   picturesNeededIn,
 }: {
   persistentStorage: PersistentStorageStatus
   /** Changes whenever an import may have finished, so the list is read again. */
   revision: number
-  onImport: () => void
   /** How many Pending Images the given banks hold now: an import's count
    *  falls as its pictures are added, long after it finished. */
   picturesNeededIn: (bankIds: readonly string[]) => Promise<number>
@@ -198,8 +197,7 @@ export function ImportsPage({
     <header className="collection-heading">
       <h1>Imports</h1>
       <div className="collection-actions">
-        <Link href="/get-started/convert" className="secondary-button">Convert a test</Link>
-        <button type="button" className="primary-button" onClick={onImport}>Import</button>
+        <Link href="/imports/new" className="primary-button">Import</Link>
       </div>
     </header>
     {entries === null
@@ -370,5 +368,32 @@ export function WaitingImportPage({
             <h2>This import is no longer waiting</h2>
             <p>It was imported, discarded, or expired. <Link href="/imports">See every import</Link>.</p>
           </div>}
+  </AppShell>
+}
+
+/** A new import: the test to convert, or the file an AI made from one. */
+export function NewImportPage({
+  persistentStorage,
+  dropped,
+  onOpenImport,
+}: {
+  persistentStorage: PersistentStorageStatus
+  dropped: { file: File; id: number } | null
+  onOpenImport: (file: File, waitingImportId?: string) => void
+}) {
+  return <AppShell
+    crumbs={[{ label: 'Home', href: '/' }, { label: 'Imports', href: '/imports' }, { label: 'New import' }]}
+    persistentStorage={persistentStorage}
+  >
+    <div className="new-import">
+      <header className="collection-heading">
+        <h1>Import</h1>
+      </header>
+      <p className="new-import-lede">
+        Drop the test you want to convert. An AI assistant turns it into a file Test Parrot imports:
+        your questions, the test laid out as you gave it, and its pictures.
+      </p>
+      <ImportFileDrop dropped={dropped} onOpenImport={onOpenImport} />
+    </div>
   </AppShell>
 }
