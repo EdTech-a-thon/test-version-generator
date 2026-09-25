@@ -1546,7 +1546,7 @@ function QuestionBankPage({
     let updated = bank
     for (const question of bank.questions) {
       const resolved = withStoredPictures(question, sources)
-      if (resolved === question || JSON.stringify(resolved) === JSON.stringify(question)) continue
+      if (JSON.stringify(resolved) === JSON.stringify(question)) continue
       updated = await bankWorkspaces.commit(bank.id, { kind: 'update-question', question: resolved })
     }
     setBank(updated)

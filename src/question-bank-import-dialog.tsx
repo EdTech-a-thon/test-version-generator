@@ -396,6 +396,9 @@ export function QuestionBankImportDialog({
   const [resolving, setResolving] = useState(false)
   const [filling, setFilling] = useState(false)
   const [resolutions, setResolutions] = useState<Resolutions>(new Map())
+  /** A Source Document dropped into Resolve Images for a file that was not
+   *  paired with a waiting import. Used for this import only, never kept. */
+  const [suppliedSource, setSuppliedSource] = useState<ResolvingSource | null>(null)
   const [copied, setCopied] = useState(false)
   useEffect(() => {
     if (!copied) return
@@ -507,6 +510,7 @@ export function QuestionBankImportDialog({
     setPaired(null)
     setResolving(false)
     setResolutions(new Map())
+    setSuppliedSource(null)
     setError(null)
     setNeedsConversion(false)
     void (async () => {
@@ -614,8 +618,26 @@ export function QuestionBankImportDialog({
     () => (proposal && selection ? pendingImagesOf(proposal, (id) => selection.banks[id]?.allowed ?? false) : []),
     [proposal, selection],
   )
-  const resolvingSource: ResolvingSource | null = paired && waiting ? waiting : null
+  const resolvingSource: ResolvingSource | null = paired && waiting ? waiting : suppliedSource
   const mismatch = paired !== null && !paired.matches
+
+  const supplySource = async (file: File) => {
+    setError(null)
+    setFilling(true)
+    try {
+      const bytes = new Uint8Array(await file.arrayBuffer())
+      const { analyzeSourceDocument } = await import('./source-document')
+      const analysis = await analyzeSourceDocument(bytes)
+      const source = { fileName: file.name, bytes, pageCount: analysis.pageCount, tags: analysis.tags }
+      setSuppliedSource(source)
+      const filled = await prefilledPictures(occurrences.filter(({ key }) => !resolutions.has(key)), source, true)
+      setResolutions((current) => new Map([...filled, ...current]))
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'That PDF could not be read.')
+    } finally {
+      setFilling(false)
+    }
+  }
 
   const startResolving = () => {
     setResolving(true)
@@ -774,7 +796,7 @@ export function QuestionBankImportDialog({
                 ref={input}
                 type="file"
                 aria-label="JSON file from your AI assistant"
-                accept="application/json,.json"
+                accept="application/json,.json,application/pdf,.pdf"
                 disabled={busy}
                 onChange={(event) => {
                   const file = event.target.files?.[0]
@@ -891,6 +913,7 @@ export function QuestionBankImportDialog({
               source={resolvingSource}
               resolutions={resolutions}
               onChange={setResolutions}
+              onSourceFile={(file) => void supplySource(file)}
               filling={filling}
             />
           </div>
