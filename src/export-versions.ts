@@ -1,0 +1,229 @@
+// Shuffled Versions: the arrangements an export prints when it shuffles, and
+// the names they print under.
+//
+// A Version exists only inside its Export Record. Nothing here changes the
+// Exam or its Working Copy: every arrangement is derived from the Working
+// Copy's own, and it is the plans made from them that the record keeps.
+
+import {
+  SECTION_ORDER,
+  orderedChoices,
+  orderedPartChoices,
+  partsOf,
+  questionsInSection,
+  variesAnswers,
+  type Arrangement,
+  type Exam,
+  type RandomSource,
+} from './exam'
+
+/** What an export may shuffle. Question order moves only within each Question
+ *  Section; answer order covers Multiple Choice answers, a Multipart
+ *  question's Multiple Choice Parts, and Matching Word Banks. True/False,
+ *  Matching Items and Short Answer never move. */
+export type ShuffleOptions = { questions: boolean; answers: boolean }
+
+export const NO_SHUFFLE: ShuffleOptions = { questions: false, answers: false }
+
+/** The most Versions one export prints, however many arrangements an Exam
+ *  allows: each is a whole test and key to lay out and download at once. */
+export const MAX_VERSIONS = 50
+
+export function shufflesAnything(shuffle: ShuffleOptions | undefined): boolean {
+  return shuffle !== undefined && (shuffle.questions || shuffle.answers)
+}
+
+// One list an export may reorder, in the Working Copy's order: a Section's
+// questions, or one question's or Part's answers.
+type ShuffleGroup = {
+  kind: 'section' | 'answers'
+  /** The Section's type, or the question or Part id the answers are keyed by. */
+  key: string
+  order: string[]
+}
+
+function shuffleGroups(
+  exam: Exam,
+  arrangement: Arrangement,
+  shuffle: ShuffleOptions,
+): ShuffleGroup[] {
+  const groups: ShuffleGroup[] = []
+  for (const section of SECTION_ORDER) {
+    const questions = questionsInSection(exam, arrangement, section)
+    if (shuffle.questions && questions.length > 1) {
+      groups.push({ kind: 'section', key: section, order: questions.map(({ id }) => id) })
+    }
+    if (!shuffle.answers) continue
+    for (const question of questions) {
+      if (question.type === 'multipart') {
+        for (const part of partsOf(question)) {
+          if (part.type !== 'multiple-choice') continue
+          const order = orderedPartChoices(part, arrangement).map(({ id }) => id)
+          if (order.length > 1) groups.push({ kind: 'answers', key: part.id, order })
+        }
+      } else if (variesAnswers(question.type)) {
+        const order = orderedChoices(question, arrangement).map(({ id }) => id)
+        if (order.length > 1) groups.push({ kind: 'answers', key: question.id, order })
+      }
+    }
+  }
+  return groups
+}
+
+/** A random source that always draws the same sequence from one seed, so an
+ *  Export Preview and the export it previews shuffle alike. */
+export function seededRandom(seed: number): RandomSource {
+  let state = seed >>> 0
+  return () => {
+    state = (state + 0x6d2b79f5) >>> 0
+    let t = state
+    t = Math.imul(t ^ (t >>> 15), t | 1)
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+}
+
+function factorial(n: number): number {
+  let result = 1
+  for (let k = 2; k <= n; k += 1) result = Math.min(result * k, Number.MAX_SAFE_INTEGER)
+  return result
+}
+
+/** How many shuffled Versions these options allow on this Exam: every
+ *  distinct arrangement but the Working Copy's own, up to `MAX_VERSIONS`. */
+export function maxVersionCount(
+  exam: Exam,
+  arrangement: Arrangement,
+  shuffle: ShuffleOptions,
+): number {
+  let arrangements = 1
+  for (const group of shuffleGroups(exam, arrangement, shuffle)) {
+    arrangements = Math.min(arrangements * factorial(group.order.length), Number.MAX_SAFE_INTEGER)
+  }
+  return Math.min(arrangements - 1, MAX_VERSIONS)
+}
+
+function shuffled(order: readonly string[], random: RandomSource): string[] {
+  const result = [...order]
+  for (let index = result.length - 1; index > 0; index -= 1) {
+    const swap = Math.floor(random() * (index + 1))
+    ;[result[index], result[swap]] = [result[swap]!, result[index]!]
+  }
+  return result
+}
+
+/**
+ * `count` arrangements, each different from every other and from the Working
+ * Copy's own. Each draws every enabled list independently and uniformly, and a
+ * draw that repeats one already taken is drawn again, so any arrangement the
+ * options allow may come up. The caller keeps `count` within
+ * `maxVersionCount`.
+ */
+export function shuffledArrangements({
+  exam,
+  arrangement,
+  shuffle,
+  count,
+  random,
+  createId,
+}: {
+  exam: Exam
+  arrangement: Arrangement
+  shuffle: ShuffleOptions
+  count: number
+  random: RandomSource
+  createId: () => string
+}): Arrangement[] {
+  const groups = shuffleGroups(exam, arrangement, shuffle)
+  const seen = new Set([JSON.stringify(groups.map((group) => group.order))])
+  const result: Arrangement[] = []
+  // Far more draws than a distinct set could ever need, so a broken random
+  // source fails loudly rather than spinning.
+  for (let attempt = 0; result.length < count; attempt += 1) {
+    if (attempt > 1000 + count * 1000) {
+      throw new Error('The Versions could not be shuffled. Please try again.')
+    }
+    const orders = groups.map((group) => shuffled(group.order, random))
+    const key = JSON.stringify(orders)
+    if (seen.has(key)) continue
+    seen.add(key)
+
+    const sections = new Map<string, string[]>()
+    const choiceOrder = { ...arrangement.choiceOrder }
+    groups.forEach((group, index) => {
+      if (group.kind === 'section') sections.set(group.key, orders[index]!)
+      else choiceOrder[group.key] = orders[index]!
+    })
+    result.push({
+      id: createId(),
+      letter: arrangement.letter,
+      questionOrder: SECTION_ORDER.flatMap((section) =>
+        sections.get(section)
+          ?? questionsInSection(exam, arrangement, section).map(({ id }) => id),
+      ),
+      choiceOrder,
+    })
+  }
+  return result
+}
+
+// Classroom-safe words, so any pair reads as a friendly, orderless name.
+const ADJECTIVES = [
+  'Amber', 'Bold', 'Brave', 'Breezy', 'Bright', 'Brisk', 'Calm', 'Cheery',
+  'Clever', 'Cosmic', 'Curly', 'Dapper', 'Daring', 'Dazzling', 'Eager', 'Fancy',
+  'Fluffy', 'Friendly', 'Frosty', 'Gentle', 'Giddy', 'Golden', 'Grand', 'Happy',
+  'Hasty', 'Humble', 'Jolly', 'Jumpy', 'Keen', 'Kind', 'Lively', 'Lucky',
+  'Mellow', 'Merry', 'Mighty', 'Misty', 'Nimble', 'Noble', 'Peppy', 'Plucky',
+  'Polite', 'Proud', 'Quick', 'Quiet', 'Rapid', 'Rosy', 'Rusty', 'Shiny',
+  'Silly', 'Silver', 'Sleepy', 'Snappy', 'Snowy', 'Sparkly', 'Speedy', 'Spry',
+  'Sunny', 'Swift', 'Tidy', 'Tiny', 'Velvet', 'Witty', 'Zany', 'Zesty',
+]
+
+const NOUNS = [
+  'Badger', 'Beaver', 'Bison', 'Bobcat', 'Camel', 'Cheetah', 'Chipmunk', 'Condor',
+  'Cougar', 'Coyote', 'Crane', 'Dolphin', 'Eagle', 'Falcon', 'Ferret', 'Finch',
+  'Fox', 'Gazelle', 'Gecko', 'Giraffe', 'Heron', 'Hippo', 'Ibis', 'Jaguar',
+  'Koala', 'Lemur', 'Leopard', 'Llama', 'Lynx', 'Magpie', 'Marmot', 'Meerkat',
+  'Moose', 'Narwhal', 'Newt', 'Ocelot', 'Octopus', 'Orca', 'Osprey', 'Otter',
+  'Owl', 'Panda', 'Parrot', 'Pelican', 'Penguin', 'Puffin', 'Quail', 'Rabbit',
+  'Raccoon', 'Raven', 'Robin', 'Salmon', 'Seal', 'Sparrow', 'Squirrel', 'Stork',
+  'Swan', 'Tapir', 'Tiger', 'Toucan', 'Turtle', 'Walrus', 'Wombat', 'Zebra',
+]
+
+/**
+ * `count` Version names, none of them in `taken` nor repeated among
+ * themselves. A name is a random adjective and animal; once random picks
+ * start colliding, every remaining pair is tried in turn from a random start,
+ * so a name is always found while any is left.
+ */
+export function versionNames(
+  count: number,
+  taken: ReadonlySet<string>,
+  random: RandomSource,
+): string[] {
+  const used = new Set(taken)
+  const total = ADJECTIVES.length * NOUNS.length
+  const nameAt = (index: number) =>
+    `${ADJECTIVES[Math.floor(index / NOUNS.length)]} ${NOUNS[index % NOUNS.length]}`
+  const names: string[] = []
+  while (names.length < count) {
+    let name: string | undefined
+    for (let attempt = 0; attempt < 100 && name === undefined; attempt += 1) {
+      const candidate = nameAt(Math.floor(random() * total))
+      if (!used.has(candidate)) name = candidate
+    }
+    if (name === undefined) {
+      const start = Math.floor(random() * total)
+      for (let step = 0; step < total && name === undefined; step += 1) {
+        const candidate = nameAt((start + step) % total)
+        if (!used.has(candidate)) name = candidate
+      }
+    }
+    if (name === undefined) {
+      throw new Error('This Exam has used every Version name. Export it as a new Exam to keep going.')
+    }
+    used.add(name)
+    names.push(name)
+  }
+  return names
+}

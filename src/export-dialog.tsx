@@ -6,6 +6,7 @@ import type {
   ExportConfiguration,
   PreparationProgress,
 } from './export-preparation'
+import { NO_SHUFFLE, shufflesAnything } from './export-versions'
 
 function progressMessage(progress: PreparationProgress): string {
   return progress.stage === 'planning'
@@ -28,6 +29,7 @@ export function ExportDialog({
   configuration,
   onConfigurationChange,
   previewPlans,
+  maxVersions,
   empty,
   initialError,
   onSubmit,
@@ -36,6 +38,8 @@ export function ExportDialog({
   configuration: ExportConfiguration
   onConfigurationChange: (configuration: ExportConfiguration) => void
   previewPlans: readonly LayoutPlan[]
+  /** How many shuffled Versions the current shuffle options allow. */
+  maxVersions: number
   empty: boolean
   initialError?: string | null
   onSubmit: (
@@ -57,7 +61,24 @@ export function ExportDialog({
   const emptyError = empty
     ? 'Add at least one question to the Working Copy before exporting.'
     : null
-  const invalid = selectionError !== null || emptyError !== null
+  const shuffle = configuration.shuffle ?? NO_SHUFFLE
+  const shuffling = shufflesAnything(shuffle)
+  const versionCount = configuration.versionCount ?? 1
+  const versionError = !shuffling || empty
+    ? null
+    : maxVersions < 1
+      ? 'Nothing on this Exam can be shuffled with these options.'
+      : !Number.isInteger(versionCount) || versionCount < 1 || versionCount > maxVersions
+        ? `Choose from 1 to ${maxVersions} ${maxVersions === 1 ? 'Version' : 'Versions'} for this Exam.`
+        : null
+  const invalid = selectionError !== null || emptyError !== null || versionError !== null
+
+  const changeShuffle = (next: Partial<typeof shuffle>) =>
+    onConfigurationChange({
+      ...configuration,
+      shuffle: { ...shuffle, ...next },
+      versionCount,
+    })
 
   const changeSelection = (selection: ExportConfiguration['selection']) =>
     onConfigurationChange({ ...configuration, selection })
@@ -241,6 +262,54 @@ export function ExportDialog({
               </label>
             </fieldset>
 
+            <fieldset
+              className="export-field"
+              aria-describedby={versionError ? `${id}-version-error` : `${id}-version-hint`}
+              disabled={preparing}
+            >
+              <legend>Shuffled Versions</legend>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={shuffle.questions}
+                  onChange={(event) => changeShuffle({ questions: event.target.checked })}
+                />
+                Shuffle question order
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={shuffle.answers}
+                  onChange={(event) => changeShuffle({ answers: event.target.checked })}
+                />
+                Shuffle answer order
+              </label>
+              <label className="export-count">
+                Versions
+                <input
+                  type="number"
+                  min={1}
+                  max={Math.max(1, maxVersions)}
+                  step={1}
+                  inputMode="numeric"
+                  value={Number.isNaN(versionCount) ? '' : versionCount}
+                  disabled={!shuffling}
+                  onChange={(event) =>
+                    onConfigurationChange({
+                      ...configuration,
+                      shuffle,
+                      versionCount: event.target.valueAsNumber,
+                    })
+                  }
+                />
+              </label>
+              <p className="export-hint" id={`${id}-version-hint`}>
+                {shuffling
+                  ? `Each Version gets its own name, printed at the top right. Up to ${Math.max(0, maxVersions)} for this Exam.`
+                  : 'Turn on a shuffle to print named Versions. Otherwise the Exam prints as you see it.'}
+              </p>
+            </fieldset>
+
             <p className="export-durability-note">
               Export History is stored only in this browser. It is useful for
               local re-export, but it is not an archival backup.
@@ -252,6 +321,11 @@ export function ExportDialog({
                 role="alert"
               >
                 {selectionError ?? emptyError}
+              </p>
+            )}
+            {versionError && (
+              <p className="export-error" id={`${id}-version-error`} role="alert">
+                {versionError}
               </p>
             )}
           </div>

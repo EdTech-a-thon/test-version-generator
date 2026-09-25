@@ -76,12 +76,15 @@ import {
   prepareExport,
   prepareHistoricalExport,
   readExportPreferences,
+  readShufflePreferences,
   writeExportPreferences,
+  writeShufflePreferences,
   type ExportConfiguration,
   type PreparationProgress,
   type PreparedExport,
 } from './export-preparation'
 import { ExportDialog } from './export-dialog'
+import { maxVersionCount, NO_SHUFFLE, seededRandom } from './export-versions'
 import { domMeasure } from './dom-measure'
 import { ownDocumentMedia, saveImage } from './local-images'
 import { configurePastedImages, settlePendingMedia } from './pasted-images'
@@ -1734,6 +1737,9 @@ function ExamEditor({
   const [exportDialog, setExportDialog] = useState<{
     configuration: ExportConfiguration
     error: string | null
+    /** Drawn once per opening, so the Export Preview and the export shuffle
+     *  alike: what the teacher sees is what downloads. */
+    seed: number
   } | null>(null)
   const exportButton = useRef<HTMLButtonElement>(null)
   // Export can be opened by its visible button or Cmd/Ctrl+P. Remember the
@@ -1896,10 +1902,11 @@ function ExamEditor({
         ? active
         : exportButton.current
     setExportDialog({
-      configuration: readExportPreferences(),
+      configuration: { ...readExportPreferences(), ...readShufflePreferences(examId) },
       error: null,
+      seed: Math.floor(Math.random() * 2 ** 32),
     })
-  }, [])
+  }, [examId])
 
   useEffect(() => {
     const onSaveShortcut = (event: KeyboardEvent) => {
@@ -2038,6 +2045,7 @@ function ExamEditor({
     history: exportHistory,
     measure: domMeasure,
     createdAt: new Date().toISOString(),
+    random: seededRandom(exportDialog?.seed ?? 0),
     onProgress,
   })
 
@@ -2389,9 +2397,14 @@ function ExamEditor({
         <ExportDialog
           configuration={exportDialog.configuration}
           onConfigurationChange={(configuration) => {
-            writeExportPreferences(configuration)
+            writeExportPreferences({ format: configuration.format, selection: configuration.selection })
+            writeShufflePreferences(examId, {
+              shuffle: configuration.shuffle ?? NO_SHUFFLE,
+              versionCount: configuration.versionCount ?? 1,
+            })
             setExportDialog((current) => (current ? { ...current, configuration } : current))
           }}
+          maxVersions={maxVersionCount(exam, arrangement, exportDialog.configuration.shuffle ?? NO_SHUFFLE)}
           previewPlans={exportPreview?.documents ?? []}
           empty={exam.questions.length === 0}
           initialError={exportDialog.error ?? previewError}
@@ -2536,9 +2549,10 @@ function ExamEditor({
                 focusKey={historicalFocusKey}
                 reExportButton={reExportButton}
                 onBack={returnToExam}
-                onReExport={() => {
+                onReExport={(choice) => {
                   void runPreparedExport(prepareHistoricalExport({
                     record: viewingRecord,
+                    ...choice,
                     createdAt: new Date().toISOString(),
                   }))
                 }}
