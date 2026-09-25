@@ -944,14 +944,13 @@ button { cursor: pointer; }
   display: none;
 }
 /* What releasing would do, said on the thing the pointer is carrying: Insert,
-   Replace, or — over an incompatible position — nothing, because the no-drop
-   cursor has already said it. */
+   or — outside the Working Copy — nothing, because the no-drop cursor has
+   already said it. */
 .question-drag-preview[data-intent-label]:not([data-intent-label=''])::before {
   content: attr(data-intent-label); position: absolute; top: -11px; left: 8px;
   padding: 2px 8px; border-radius: 999px; color: #fffaf3; background: #6d5a45;
   font: 600 11px/1.5 Arial, Helvetica, sans-serif; letter-spacing: 0.03em;
 }
-.question-drag-preview[data-intent='replace']::before { background: #9f5037; }
 
 /* Hover and selection are painted with a background plus a matching spread
    `box-shadow`, never padding: the shadow bleeds the colour past the box
@@ -1023,14 +1022,6 @@ button { cursor: pointer; }
 }
 .exam-question[data-drop="before"]::after { top: -14px; }
 .exam-question[data-drop="after"]::after { bottom: -14px; }
-/* Replacement is a different claim from insertion, so it is drawn differently:
-   the whole target is marked, because the whole of it is what would be taken
-   out of the exam. Painted with a spread shadow rather than a border, so the
-   question's measured height is untouched. */
-.exam-question[data-drop="replace"] {
-  background: #f7e2d5; box-shadow: 0 0 0 6px #f7e2d5, 0 0 0 8px #9f5037;
-}
-.exam-question[data-drop="replace"]::after { content: none; }
 .question-number { display: flex; align-items: baseline; gap: 8px; font-weight: 700; }
 /* The line a student writes their letter on. */
 .answer-blank { flex: 1; border-bottom: 1px solid #332a24; transform: translateY(-3px); }

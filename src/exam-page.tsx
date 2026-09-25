@@ -887,7 +887,7 @@ function PageItemView({
   onSetWorkSpace: SetWorkSpace
   draggedQuestionIds: ReadonlySet<string>
   droppedQuestionIds: ReadonlySet<string>
-  dropState: (questionId: string) => QuestionDropState
+  dropState: (item: QuestionItem) => QuestionDropState
   onDragStart: (
     question: PlannedQuestion,
     element: HTMLElement,
@@ -921,7 +921,7 @@ function PageItemView({
           onSetWorkSpace={onSetWorkSpace}
           dragging={draggedQuestionIds.has(item.question.id)}
           dropped={droppedQuestionIds.has(item.question.id) && item.numbered}
-          dropState={dropState(item.question.id)}
+          dropState={dropState(item)}
           onDragStart={onDragStart}
           onDragMove={onDragMove}
           onDrop={onDrop}
@@ -1191,6 +1191,8 @@ export function ExamPage({
   // questions a gesture picks up, and what their markup is — and the pointer
   // capture and page-owned preview that gesture has always used.
   const { draggedQuestionIds, droppedQuestionIds } = drag
+  // The page order when a reorder was lifted. See the landing effect below.
+  const orderAtLift = useRef<string | null>(null)
   const beginDrag = useCallback((
     question: PlannedQuestion,
     element: HTMLElement,
@@ -1212,19 +1214,53 @@ export function ExamPage({
     const elements = Array.from(
       workspace.current?.querySelectorAll<HTMLElement>('.exam-question[data-question-id]') ?? [],
     ).filter((candidate) => ids.includes(candidate.dataset.questionId ?? ''))
+    orderAtLift.current = orderedIds.join('\n')
     drag.begin(
       { pane: 'exam-draft', questionIds: ids, type: question.type },
       { elements, bounds: element.getBoundingClientRect(), point },
     )
   }, [drag, exam.questions, orderedIds, selection])
 
-  const questionDropState = useCallback(
-    (questionId: string) => dropStateOf(drag.intent, questionId),
-    [drag.intent],
-  )
+  // A question split across sheets draws its line above on its first piece and
+  // its line below on its last, which is where the drop would actually land.
+  const piecesOf = new Map<string, { first: QuestionItem; last: QuestionItem }>()
+  for (const item of pages.flatMap((page) => page.items)) {
+    if (item.kind !== 'question') continue
+    const pieces = piecesOf.get(item.question.id)
+    if (pieces) pieces.last = item
+    else piecesOf.set(item.question.id, { first: item, last: item })
+  }
+  const questionDropState = (item: QuestionItem): QuestionDropState => {
+    const state = dropStateOf(drag.intent, item.question.id)
+    const pieces = piecesOf.get(item.question.id)
+    if (state === 'before') return pieces?.first === item ? state : null
+    if (state === 'after') return pieces?.last === item ? state : null
+    return null
+  }
+
+  // Following a reordered question to where it landed.
+  //
+  // A drop lands at the nearest legal line, which need not be anywhere near
+  // the pointer — a question flicked into another section goes to the edge of
+  // its own, perhaps sheets away. A reorder repaginates in the same frame, but
+  // the commit that records the drop is still drawing the old order, so this
+  // waits until the page order has actually changed from the one the gesture
+  // lifted, then scrolls the moved question into view. A drop that moved
+  // nothing never changes the order, and scrolls nowhere.
+  useLayoutEffect(() => {
+    if (droppedQuestionIds.size === 0 || orderAtLift.current === null) return
+    if (orderedIds.join('\n') === orderAtLift.current) return
+    orderAtLift.current = null
+    const moved = orderedIds.find((id) => droppedQuestionIds.has(id))
+    if (!moved) return
+    workspace.current
+      ?.querySelector<HTMLElement>(`.exam-question[data-question-id="${CSS.escape(moved)}"]`)
+      ?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+  }, [plan, droppedQuestionIds, orderedIds])
+
   // Revealing a question an authoring action has just put on the Working Copy.
   //
-  // Insertion and Replace change the exam's *content*, and content changes wait
+  // Insertion changes the exam's *content*, and content changes wait
   // for a pause before the page is measured and packed again. So the question
   // is not on the page in the frame the action was taken — it arrives one
   // repagination later, possibly on a different sheet from the one that was in
@@ -1318,6 +1354,7 @@ export function ExamPage({
       className={workspaceClasses.join(' ')}
       ref={workspace}
       style={PAGE_GEOMETRY}
+      data-drop-zone=""
       data-empty-section={emptySectionOffer ?? undefined}
       data-active={drag.intent?.kind === 'insert-first' ? 'true' : undefined}
       onClick={clearOnBackground}

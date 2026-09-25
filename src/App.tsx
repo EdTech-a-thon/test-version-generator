@@ -1829,9 +1829,9 @@ function ExamEditor({
   }, [storageNotice])
   // One composition, however it was asked for.
   //
-  // A pointer gesture, the row's Add button and the row menu's Insert and
-  // Replace are four ways of saying the same three things, so they say them
-  // here: exactly one call to the authoring boundary, then the incoming
+  // A pointer gesture and the row's Add button are two ways of saying the same
+  // thing, so they say it here: exactly one call to the authoring boundary,
+  // then the incoming
   // question becomes the selected one and is queued to be revealed. That is
   // what makes the paths yield the same Question Bank and Working Copy state
   // rather than merely similar ones — and what stops a question composed one
@@ -1852,12 +1852,6 @@ function ExamEditor({
     if (questions.length === 0) return
     store.addManyToWorkingCopy(questions, targetQuestionId, placement)
     selectAndReveal(questions.at(-1)!.id)
-  }
-  const replaceInWorkingCopy = (outgoingQuestionId: string, incoming: Question) => {
-    store.replaceInWorkingCopy(outgoingQuestionId, incoming)
-    // Necessary rather than merely tidy: the outgoing question is off the exam
-    // now, and a selection pointing at it names no position on the Working Copy.
-    selectAndReveal(incoming.id)
   }
   const shuffleSelectedQuestions = (questionIds: readonly string[]) => {
     store.shuffleSelectedQuestions(questionIds)
@@ -1887,9 +1881,7 @@ function ExamEditor({
     })
     if (intent.kind === 'insert') {
       addManyToWorkingCopy(questions, intent.targetQuestionId, intent.placement)
-    } else if (intent.kind === 'replace' && questions.length === 1) {
-      replaceInWorkingCopy(intent.outgoingQuestionId, questions[0]!)
-    } else if (intent.kind === 'insert-first') {
+    } else {
       addManyToWorkingCopy(questions)
     }
   })
