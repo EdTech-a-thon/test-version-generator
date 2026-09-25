@@ -30,7 +30,7 @@ import {
 } from './import-selection'
 import { selectedExam } from './selected-exam'
 import { planExport, type LayoutPlan } from './export-plan'
-import { domMeasure } from './dom-measure'
+import { domMeasure, imageSourcesOfDocuments } from './dom-measure'
 import { ExportPreview } from './exam-page'
 import { inspectUploadedFile, isRecordFile, needsConversion as fileNeedsConversion } from './question-bank-upload'
 import {
@@ -182,6 +182,9 @@ async function examPreviewPlan(
     { questions: planned.saved.questionBank.questions.map(resolve) },
     planned.saved.workingCopy,
   )
+  // Pictures measure as nothing until their bytes arrive, so the page is not
+  // planned until every one has.
+  await domMeasure.loadImages(imageSourcesOfDocuments(exam.questions.map((question) => question.doc)))
   return planExport({
     exam,
     arrangement,
