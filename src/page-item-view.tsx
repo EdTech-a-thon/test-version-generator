@@ -17,7 +17,8 @@ import { Check, RotateCcw } from 'lucide-react'
 import { DifficultyBadge, TopicBadge } from './badges'
 import { DocView } from './doc-view'
 import {
-  hasCompactNumber,
+  hasLegacyAnswerBlank,
+  hasMarks,
   printsNumberLine,
   type AnswerKeyEntryItem,
   type AnswerKeySectionItem,
@@ -242,19 +243,24 @@ export function QuestionContent({
   const numbered = printsNumberLine(item)
   return (
     <>
-      {/* A Short Answer question has no blank to make room for, nor does a
-          Multipart question, which prints none, so its column holds the
-          number alone — `questionIndentOf` in export-plan.ts is the same width
+      {/* The column holds the number alone, and a True/False question's marks
+          before it — `questionIndentOf` in export-plan.ts is the same width
           for the adapters. */}
       <div
         className={
-          hasCompactNumber(item.question.type)
-            ? 'question-number question-number--compact'
-            : 'question-number'
+          hasLegacyAnswerBlank(item.question)
+            ? 'question-number question-number--legacy-blank'
+            : hasMarks(item.question.type)
+              ? 'question-number question-number--marks'
+              : 'question-number'
         }
       >
-        {numbered && item.question.answerBlank && (
-          <span className="answer-blank" aria-label="Answer blank" />
+        {numbered && item.question.marks.length > 0 && (
+          <span className="question-marks" aria-label={hasLegacyAnswerBlank(item.question) ? undefined : 'Circle one'}>
+            {item.question.marks.map((mark) => (
+              <span key={mark} className="question-mark">{mark}</span>
+            ))}
+          </span>
         )}
         {numbered && <span className="question-count">{item.question.number}.</span>}
       </div>
@@ -290,12 +296,14 @@ export function SectionHeadingContent({ item }: { item: SectionHeadingItem }) {
   if (!item.title && !item.instructions) return null
   const styles = sectionHeadingStyles(item.size)
   return (
-    <header className="exam-section">
-      {item.title && <h2 className="section-title" style={styles.title}>{item.title}</h2>}
-      {item.instructions && (
-        <p className="section-instructions" style={styles.instructions}>{item.instructions}</p>
-      )}
-    </header>
+    <>
+      <header className="exam-section">
+        {item.title && <h2 className="section-title" style={styles.title}>{item.title}</h2>}
+        {item.instructions && (
+          <p className="section-instructions" style={styles.instructions}>{item.instructions}</p>
+        )}
+      </header>
+    </>
   )
 }
 

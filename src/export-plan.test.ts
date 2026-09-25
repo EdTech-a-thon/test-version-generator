@@ -202,20 +202,20 @@ describe('pages', () => {
 })
 
 describe('sections', () => {
-  test('are derived from question type in fixed order, whatever the ordering says', () => {
+  test('on an Exam that stores none, are derived from question type in fixed order, whatever the ordering says', () => {
     const exam = examOf([open('q1'), multipleChoice('q2', ['a', 'b'])])
     const pages = render(exam, arrangementOf(['q1', 'q2']))
     expect(headings(pages)).toEqual([
       {
         kind: 'section-heading',
-        section: 'multiple-choice',
+        sectionId: 'multiple-choice',
         title: 'Multiple Choice',
         instructions: SECTION_INSTRUCTIONS['multiple-choice'],
         keepWithNext: true,
       },
       {
         kind: 'section-heading',
-        section: 'open',
+        sectionId: 'open',
         title: 'Short Answer',
         instructions: SECTION_INSTRUCTIONS.open,
         keepWithNext: true,
@@ -244,7 +244,6 @@ describe('sections', () => {
     expect(headings(pages).map((heading) => heading.kind === 'section-heading' && heading.title))
       .toEqual(['Multiple Choice', 'True/False', 'Short Answer'])
     expect(headings(pages)[1]).toMatchObject({
-      section: 'true-false',
       instructions: SECTION_INSTRUCTIONS['true-false'],
     })
     // The complaint that started this: each section says what to do with its
@@ -265,7 +264,6 @@ describe('sections', () => {
     expect(headings(pages).map((heading) => heading.kind === 'section-heading' && heading.title))
       .toEqual(['Multiple Choice', 'True/False', 'Matching', 'Short Answer'])
     expect(headings(pages)[2]).toMatchObject({
-      section: 'matching',
       instructions: SECTION_INSTRUCTIONS.matching,
     })
   })
@@ -273,7 +271,7 @@ describe('sections', () => {
   test('a section with no questions is omitted, heading and all', () => {
     const pages = render(examOf([multipleChoice('q1', ['a', 'b'])]))
     expect(headings(pages)).toHaveLength(1)
-    expect(headings(pages)[0]).toMatchObject({ section: 'multiple-choice' })
+    expect(headings(pages)[0]).toMatchObject({ sectionId: 'multiple-choice' })
   })
 
   test('the printable item stream contains no editing-only insertion controls', () => {
@@ -341,7 +339,7 @@ describe('questions', () => {
     )
     expect(item!.numbered).toBe(true)
     expect(printsNumberLine(item!)).toBe(false)
-    expect(item!.question.answerBlank).toBe(false)
+    expect(item!.question.marks).toEqual([])
     expect(item!.question.grid).toBeNull()
     expect(item!.question.choices).toEqual([])
     expect(item!.question.stem).toEqual([
@@ -381,15 +379,15 @@ describe('questions', () => {
     ])
   })
 
-  test('multiple choice is prefixed with an answer blank; short answer is not', () => {
+  test('neither multiple choice nor short answer prints anything before its number', () => {
     const exam = examOf([multipleChoice('m1', ['a', 'b']), open('o1')])
     const rendered = plannedQuestions(render(exam))
-    expect(rendered.map((question) => question.answerBlank)).toEqual([true, false])
+    expect(rendered.map((question) => question.marks)).toEqual([[], []])
   })
 
-  test('true/false is prefixed with an answer blank and prints no choice grid', () => {
+  test('true/false prints a T and an F to circle before its number, and no choice grid', () => {
     const [rendered] = plannedQuestions(render(examOf([trueFalse('t1', 'true')])))
-    expect(rendered!.answerBlank).toBe(true)
+    expect(rendered!.marks).toEqual(['T', 'F'])
     // The pair is stated by the section's directions, so the statement stands
     // alone on the page.
     expect(rendered!.grid).toBeNull()
@@ -601,17 +599,18 @@ describe('answer columns', () => {
 // numbers below are chosen against the real content boxes so the assertions
 // stay honest if the page furniture is ever resized.
 describe('page geometry', () => {
-  test('a Short Answer question’s body starts nearer its number, having no blank beside it', () => {
+  test('no question leaves room for an answer blank; a True/False question leaves room for its marks', () => {
     expect(questionIndentOf({ type: 'open' })).toBe(40)
-    expect(questionIndentOf({ type: 'multiple-choice' })).toBe(98)
-    expect(questionIndentOf({ type: 'true-false' })).toBe(98)
+    expect(questionIndentOf({ type: 'multiple-choice' })).toBe(40)
+    expect(questionIndentOf({ type: 'multipart' })).toBe(40)
+    expect(questionIndentOf({ type: 'true-false' })).toBe(70)
   })
 
   test('is US Letter at 96dpi with three-quarter-inch margins', () => {
     expect([PAGE_WIDTH, PAGE_HEIGHT]).toEqual([816, 1056])
     expect(PAGE_MARGIN).toBe(72)
     expect(PAGE_CONTENT_WIDTH).toBe(672)
-    expect(CHOICE_AREA_WIDTH).toBe(574)
+    expect(CHOICE_AREA_WIDTH).toBe(632)
   })
 
   test('subtracts the header and footer from the content box', () => {
@@ -675,7 +674,7 @@ describe('answer key', () => {
     )
     expect(items).toEqual([
       { kind: 'answer-key-heading' },
-      { kind: 'answer-key-section', section: 'true-false', title: 'True/False' },
+      { kind: 'answer-key-section', sectionId: 'true-false', title: 'True/False' },
       { kind: 'answer-key-entry', number: 1, letter: 'T' },
       { kind: 'answer-key-entry', number: 2, letter: 'F' },
     ])
@@ -697,9 +696,9 @@ describe('answer key', () => {
     const items = keyItems(exam, arrangementOf(['m1', 'x1'], { x1: ['b', 'a'] }))
     expect(items).toEqual([
       { kind: 'answer-key-heading' },
-      { kind: 'answer-key-section', section: 'multiple-choice', title: 'Multiple Choice' },
+      { kind: 'answer-key-section', sectionId: 'multiple-choice', title: 'Multiple Choice' },
       { kind: 'answer-key-entry', number: 1, letter: 'B' },
-      { kind: 'answer-key-section', section: 'matching', title: 'Matching' },
+      { kind: 'answer-key-section', sectionId: 'matching', title: 'Matching' },
       { kind: 'answer-key-entry', number: 2, letter: 'A' },
       { kind: 'answer-key-entry', number: 3, letter: null },
     ])
@@ -745,9 +744,9 @@ describe('answer key', () => {
     expect(keyPages.every((page) => isAnswerKeyHeader(page.header))).toBe(true)
     expect(keyPages[0]!.items).toEqual([
       { kind: 'answer-key-heading' },
-      { kind: 'answer-key-section', section: 'multiple-choice', title: 'Multiple Choice' },
+      { kind: 'answer-key-section', sectionId: 'multiple-choice', title: 'Multiple Choice' },
       { kind: 'answer-key-entry', number: 1, letter: 'A' },
-      { kind: 'answer-key-section', section: 'open', title: 'Short Answer' },
+      { kind: 'answer-key-section', sectionId: 'open', title: 'Short Answer' },
       { kind: 'answer-key-entry', number: 2, letter: null },
     ])
   })
@@ -1303,11 +1302,11 @@ describe('the Export Document', () => {
       { kind: 'answer-key-heading' },
       {
         kind: 'answer-key-section',
-        section: 'multiple-choice',
+        sectionId: 'multiple-choice',
         title: SECTION_TITLE['multiple-choice'],
       },
       { kind: 'answer-key-entry', number: 1, letter: 'B' },
-      { kind: 'answer-key-section', section: 'open', title: SECTION_TITLE.open },
+      { kind: 'answer-key-section', sectionId: 'open', title: SECTION_TITLE.open },
       { kind: 'answer-key-entry', number: 2, letter: null },
     ])
   })
@@ -1470,7 +1469,7 @@ describe('section headings as the Exam words them', () => {
   test('print the defaults, at no stated size, on an Exam that changed nothing', () => {
     expect(headingsOf(examOf([open('o1')]))).toEqual([{
       kind: 'section-heading',
-      section: 'open',
+      sectionId: 'open',
       title: 'Short Answer',
       instructions: 'Answer the following questions in the space provided. Show all work.',
       keepWithNext: true,
@@ -1485,7 +1484,7 @@ describe('section headings as the Exam words them', () => {
     }
     expect(headingsOf(exam)).toEqual([{
       kind: 'section-heading',
-      section: 'open',
+      sectionId: 'open',
       title: 'Essays',
       instructions: '',
       keepWithNext: true,
@@ -1501,7 +1500,7 @@ describe('section headings as the Exam words them', () => {
     expect(headingsOf(exam)).toHaveLength(1)
   })
 
-  test('name the answer key’s groups as the test does, or by default when cleared', () => {
+  test('name the answer key’s groups as the test does, or by place when cleared', () => {
     const exam: Exam = {
       ...examOf([open('o1'), multipleChoice('m1', ['a', 'b'], 'a')]),
       sectionHeadings: {
@@ -1513,6 +1512,151 @@ describe('section headings as the Exam words them', () => {
       .filter((page) => isAnswerKeyHeader(page.header))
       .flatMap((page) => page.items)
       .flatMap((item) => (item.kind === 'answer-key-section' ? [item.title] : []))
-    expect(titles).toEqual(['Choose One', 'Short Answer'])
+    expect(titles).toEqual(['Choose One', 'Section 1'])
+  })
+})
+
+describe('stored Question Sections', () => {
+  // Two Sections worded for Multiple Choice around one worded for Short
+  // Answer, and an emptied True/False one after them all.
+  const exam: Exam = {
+    ...examOf([
+      multipleChoice('m1', ['a', 'b'], 'a'),
+      open('o1'),
+      multipleChoice('m2', ['a', 'b'], 'b'),
+    ]),
+    sections: [
+      { id: 'A', title: 'Warm Up', instructions: SECTION_INSTRUCTIONS['multiple-choice'] },
+      { id: 'B', title: SECTION_TITLE.open, instructions: SECTION_INSTRUCTIONS.open },
+      { id: 'C', title: '', instructions: SECTION_INSTRUCTIONS['multiple-choice'] },
+      { id: 'D', title: SECTION_TITLE['true-false'], instructions: SECTION_INSTRUCTIONS['true-false'] },
+    ],
+    sectionOf: { m1: 'A', o1: 'B', m2: 'C' },
+  }
+  const arrangement = arrangementOf(['m1', 'o1', 'm2'])
+
+  test('print in the Exam’s own order, numbered straight through, each under its own wording', () => {
+    const pages = render(exam, arrangement)
+    expect(
+      headings(pages).map((item) =>
+        item.kind === 'section-heading' ? [item.sectionId, item.title] : [],
+      ),
+    ).toEqual([
+      ['A', 'Warm Up'],
+      ['B', 'Short Answer'],
+      ['C', ''],
+      ['D', 'True/False'],
+    ])
+    expect(plannedQuestions(pages).map(({ id, number }) => [id, number])).toEqual([
+      ['m1', 1],
+      ['o1', 2],
+      ['m2', 3],
+    ])
+  })
+
+  test('a Section of mixed types prints under one heading, in the arrangement’s order', () => {
+    const mixed: Exam = {
+      ...exam,
+      questions: [...exam.questions, trueFalse('t1', 'false')],
+      sections: exam.sections!.slice(0, 1),
+      sectionOf: { m1: 'A', o1: 'A', m2: 'A', t1: 'A' },
+    }
+    const pages = render(mixed, arrangementOf(['o1', 't1', 'm2', 'm1']))
+    expect(
+      headings(pages).map((item) => (item.kind === 'section-heading' ? item.sectionId : null)),
+    ).toEqual(['A'])
+    expect(plannedQuestions(pages).map(({ id, number }) => [id, number])).toEqual([
+      ['o1', 1],
+      ['t1', 2],
+      ['m2', 3],
+      ['m1', 4],
+    ])
+    expect(buildExportDocument(mixed, arrangementOf(['o1', 't1', 'm2', 'm1']), WHOLE_DOCUMENT).answerKey)
+      .toEqual([
+        { kind: 'answer-key-heading' },
+        { kind: 'answer-key-section', sectionId: 'A', title: 'Warm Up' },
+        { kind: 'answer-key-entry', number: 1, letter: null },
+        { kind: 'answer-key-entry', number: 2, letter: 'F' },
+        { kind: 'answer-key-entry', number: 3, letter: 'B' },
+        { kind: 'answer-key-entry', number: 4, letter: 'A' },
+      ])
+  })
+
+  test('an empty Section prints its heading and directions, but has no group in the answer key', () => {
+    const document = buildExportDocument(exam, arrangement, WHOLE_DOCUMENT)
+    expect(
+      document.test.some((item) => item.kind === 'section-heading' && item.sectionId === 'D'),
+    ).toBe(true)
+    expect(
+      document.answerKey.some((item) => item.kind === 'answer-key-section' && item.sectionId === 'D'),
+    ).toBe(false)
+  })
+
+  test('the sheet and the export plan an empty Section alike, marked as empty', () => {
+    const sheet = planExport({
+      exam,
+      arrangement,
+      selection: STUDENT_TEST,
+      measure: unmeasured,
+    })
+    const planned = sheet.pages
+      .flatMap((page) => page.items)
+      .flatMap((item) => (item.kind === 'section-heading' ? [item] : []))
+    expect(planned.map(({ sectionId }) => sectionId)).toEqual(['A', 'B', 'C', 'D'])
+    expect(planned.filter(({ empty }) => empty).map(({ sectionId }) => sectionId)).toEqual(['D'])
+    expect(planned.at(-1)).toMatchObject({
+      sectionId: 'D',
+      title: 'True/False',
+      instructions: 'Circle T if the statement is true and F if it is false.',
+    })
+  })
+
+  test('the answer key groups by Section, under the test’s titles or, when cleared, by place', () => {
+    const document = buildExportDocument(exam, arrangement, WHOLE_DOCUMENT)
+    expect(document.answerKey).toEqual([
+      { kind: 'answer-key-heading' },
+      { kind: 'answer-key-section', sectionId: 'A', title: 'Warm Up' },
+      { kind: 'answer-key-entry', number: 1, letter: 'A' },
+      { kind: 'answer-key-section', sectionId: 'B', title: 'Short Answer' },
+      { kind: 'answer-key-entry', number: 2, letter: null },
+      { kind: 'answer-key-section', sectionId: 'C', title: 'Section 1' },
+      { kind: 'answer-key-entry', number: 3, letter: 'B' },
+    ])
+  })
+
+  test('each cleared heading is named by its place among the cleared ones', () => {
+    const cleared: Exam = {
+      ...exam,
+      sections: [
+        { id: 'A', title: '', instructions: '' },
+        { id: 'B', title: 'Essays', instructions: '' },
+        { id: 'C', title: '', instructions: SECTION_INSTRUCTIONS['multiple-choice'] },
+      ],
+    }
+    const groups = buildExportDocument(cleared, arrangement, WHOLE_DOCUMENT).answerKey
+      .flatMap((item) => (item.kind === 'answer-key-section' ? [[item.sectionId, item.title]] : []))
+    expect(groups).toEqual([
+      ['A', 'Section 1'],
+      ['B', 'Essays'],
+      ['C', 'Section 2'],
+    ])
+  })
+
+  test('two adjacent Sections worded alike are still two groups in the key', () => {
+    const adjacent: Exam = {
+      ...exam,
+      sections: [
+        { id: 'A', title: SECTION_TITLE['multiple-choice'], instructions: '' },
+        { id: 'C', title: 'Bonus', instructions: '' },
+        { id: 'B', title: SECTION_TITLE.open, instructions: '' },
+      ],
+    }
+    const groups = buildExportDocument(adjacent, arrangement, WHOLE_DOCUMENT).answerKey
+      .flatMap((item) => (item.kind === 'answer-key-section' ? [[item.sectionId, item.title]] : []))
+    expect(groups).toEqual([
+      ['A', 'Multiple Choice'],
+      ['C', 'Bonus'],
+      ['B', 'Short Answer'],
+    ])
   })
 })

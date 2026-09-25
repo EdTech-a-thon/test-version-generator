@@ -12,6 +12,7 @@ import { persistentStorageStatus } from './durable-storage'
 import { questionBankCollection } from './resource-collections'
 import { applyStagedRestore } from './account-backup'
 import { expireWaitingImports } from './import-history'
+import { PopOverProvider } from './question-bank-pop-over'
 import './styles.css'
 
 async function start() {
@@ -85,6 +86,6 @@ async function start() {
     persistentStorageStatus(),
   ])
   const collection = await questionBankCollection(banks, bankWorkspaces, workspaces)
-  createRoot(document.getElementById('root')!).render(<StrictMode><MilkdownProvider><App store={store} bank={bank} workspaces={workspaces} bankWorkspaces={bankWorkspaces} initialExams={exams} initialBankCollection={collection} persistentStorage={storageStatus} initialEditorId={editorId} initialError={error} /></MilkdownProvider></StrictMode>)
+  createRoot(document.getElementById('root')!).render(<StrictMode><MilkdownProvider><PopOverProvider service={bankWorkspaces}><App store={store} bank={bank} workspaces={workspaces} bankWorkspaces={bankWorkspaces} initialExams={exams} initialBankCollection={collection} persistentStorage={storageStatus} initialEditorId={editorId} initialError={error} /></PopOverProvider></MilkdownProvider></StrictMode>)
 }
 void start()

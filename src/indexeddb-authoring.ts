@@ -5,6 +5,7 @@
 // transaction, so a reload sees either the previous authoring state or the
 // complete next one, never a bank and draft from different actions.
 
+import { readStoredLayoutPlan } from './export-plan'
 import type {
   AuthoringState,
   DurableAuthoringBackend,
@@ -160,7 +161,8 @@ async function readExportHistory(database: IDBDatabase): Promise<ExportHistory> 
     completionOf(transaction),
   ])
   records.sort((left, right) => left.createdAt.localeCompare(right.createdAt))
-  return { records }
+  // Read as this version reads plans; what is stored is never rewritten.
+  return { records: records.map((record) => ({ ...record, plans: record.plans.map(readStoredLayoutPlan) })) }
 }
 
 async function transactionally(

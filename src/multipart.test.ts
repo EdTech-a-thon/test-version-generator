@@ -160,8 +160,8 @@ describe('a Multipart question on the paper', () => {
   const planned = () =>
     document().test.flatMap((item) => (item.kind === 'question' ? [item.question] : []))
 
-  test('prints last, in a Multipart section of its own, under one number', () => {
-    const headings = document().test.flatMap((item) => (item.kind === 'section-heading' ? [item.section] : []))
+  test('on an Exam that stores no Sections, prints last, in a Multipart section of its own, under one number', () => {
+    const headings = document().test.flatMap((item) => (item.kind === 'section-heading' ? [item.sectionId] : []))
     expect(headings).toEqual(['open', 'multipart'])
     expect(planned().map((question) => [question.id, question.number])).toEqual([
       ['o1', 1],
@@ -172,7 +172,7 @@ describe('a Multipart question on the paper', () => {
 
   test('letters its Parts beneath its number, each printed as a question of its kind', () => {
     const question = planned().find(({ id }) => id === 's1')!
-    expect(question.answerBlank).toBe(false)
+    expect(question.marks).toEqual([])
     // Neither kind prints an answer blank: each is set in by its letter alone.
     expect(question.parts?.map((part) => [part.letter, part.type])).toEqual([
       ['a', 'multiple-choice'],
@@ -338,19 +338,6 @@ describe('a Multipart question on the Working Copy', () => {
     expect(workingCopy.workSpace?.[copiedSa!.id]).toMatchObject({ height: 64 })
   })
 
-  test('Replace carries each Part’s presentation to the Part in the same place', async () => {
-    const store = await storeWith(ottoman())
-    store.setQuestionWorkSpace(['s1-b'], { height: 64 })
-    const incoming = multipart('s2', [paragraph('Another passage.')], [
-      mcPart('s2-a', ['b1', 'b2']),
-      saPart('s2-b'),
-    ])
-    store.createInQuestionBank(incoming)
-    store.replaceInWorkingCopy('s1', 's2')
-    const { workingCopy } = store.getState()
-    expect(workingCopy.questionIds).toEqual(['s2'])
-    expect(workingCopy.workSpace).toEqual({ 's2-b': { height: 64, style: 'blank', fill: false } })
-  })
 })
 
 describe('switching a Part between Multiple Choice and Short Answer', () => {

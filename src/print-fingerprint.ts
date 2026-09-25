@@ -494,9 +494,12 @@ function questionLines(node: XmlNode, reader: Reader): ContentLine[] {
   const set = find(node, 'matching-set')
   const opener: Segment[] = []
   if (number) {
-    const blank = find(number, 'answer-blank')
+    const marks = find(number, 'question-marks')
     const count = find(number, 'question-count')
-    const text = [blank ? '_______' : '', count ? normalizeSpace(textOf(count)).trim() : '']
+    const text = [
+      ...(marks?.children ?? []).map((mark) => normalizeSpace(textOf(mark)).trim()),
+      count ? normalizeSpace(textOf(count)).trim() : '',
+    ]
       .filter(Boolean)
       .join(' ')
     if (text) opener.push({ kind: 'text', text: `${text} `, marks: [] })

@@ -6,11 +6,11 @@
 // Copy's own, and it is the plans made from them that the record keeps.
 
 import {
-  SECTION_ORDER,
   orderedChoices,
   orderedPartChoices,
   partsOf,
   questionsInSection,
+  sectionsOf,
   variesAnswers,
   type Arrangement,
   type Exam,
@@ -67,10 +67,10 @@ function shuffleGroups(
   shuffle: ShuffleOptions,
 ): ShuffleGroup[] {
   const groups: ShuffleGroup[] = []
-  for (const section of SECTION_ORDER) {
-    const questions = questionsInSection(exam, arrangement, section)
+  for (const section of sectionsOf(exam)) {
+    const questions = questionsInSection(exam, arrangement, section.id)
     if (shuffle.questions && questions.length > 1) {
-      groups.push({ kind: 'section', key: section, order: questions.map(({ id }) => id) })
+      groups.push({ kind: 'section', key: section.id, order: questions.map(({ id }) => id) })
     }
     if (!shuffle.answers) continue
     for (const question of questions) {
@@ -176,9 +176,9 @@ export function shuffledArrangements({
     result.push({
       id: createId(),
       letter: arrangement.letter,
-      questionOrder: SECTION_ORDER.flatMap((section) =>
-        sections.get(section)
-          ?? questionsInSection(exam, arrangement, section).map(({ id }) => id),
+      questionOrder: sectionsOf(exam).flatMap((section) =>
+        sections.get(section.id)
+          ?? questionsInSection(exam, arrangement, section.id).map(({ id }) => id),
       ),
       choiceOrder,
     })

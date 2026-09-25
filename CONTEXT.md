@@ -20,6 +20,14 @@ _Avoid_: Question identity, export identity
 An independently reusable, named collection of canonical Questions whose confirmed changes save immediately. It may carry an optional description, author, and license; a new bank is named “Untitled Question Bank” by default. An Exam may reference Questions from any number of banks, and a bank may contribute Questions to any number of Exams.
 _Avoid_: Question library
 
+**Question Bank Pop-over**:
+A compact, read-only, always-on-top window of Question Banks, kept beside another document so a teacher can select Questions and drag or Copy them across. It opens from a bank, holds that bank as one of its own tabs with their own filters, and belongs to no Exam; nothing in it edits, adds to an Exam, or deletes. How each Question is laid out for copying — its answer columns, Word Bank placement, answer lines — is set there for that window only and forgotten when it closes.
+_Avoid_: Popup, mini mode, floating bank
+
+**Copy**:
+To put Questions' student-facing Question Content on the clipboard, or drag it, ready for another document: stems, answer choices, the T and F to circle, Items and Word Bank or Parts, lettered and laid out as a test prints them and unnumbered, with pictures embedded and mathematics as pictures or, for Microsoft Word, as MathML. It never carries correctness, a Suggested Answer, Question Metadata or Work Space, and it changes nothing; Duplicate is what creates a new Question.
+_Avoid_: Duplicate (for putting a Question on the clipboard), export
+
 **Question Bank File**:
 A self-contained PDF for sharing one complete Question Bank. Its complete teacher-readable preview is derived from its embedded Question Bank Record, which is the authoritative source for importing that bank.
 _Avoid_: Exam export, printable question bank, backup
@@ -110,19 +118,15 @@ _Avoid_: Version History, audit log
 **Remove**:
 To exclude Question Content from an Exam while leaving it in its Question Bank.
 
-**Replace**:
-To put one Question Bank record in another's fixed position in an Exam, using the incoming Question's authored answer order and the outgoing reference's answer-column layout. Neither Question is copied or deleted, and the replaced Question remains in its Question Bank.
-_Avoid_: Swap, substitute
-
 **Delete**:
 To permanently remove Question Content from its Question Bank, every Exam that references it, and their Working Copies. Deletion requires showing the affected Exams and explicit confirmation; existing Export Records remain unchanged.
 
 **Question Type**:
-What a Question asks for, settled when it is created and never changed afterwards: Multiple Choice, True/False, Matching, Short Answer, or Multipart. It decides the Question Section the Question prints in, the directions printed above it, and what its Answer Key entry records.
+What a Question asks for, settled when it is created and never changed afterwards: Multiple Choice, True/False, Matching, Short Answer, or Multipart. It decides how the Question is answered and laid out, the wording a Question Section begins with when this Question is the first put in it, and what its Answer Key entry records.
 _Avoid_: Question format, question kind
 
 **True/False**:
-A Question Type whose answer is one of exactly two fixed choices, True and False, which the teacher picks between rather than writes. The pair is never printed on the student test — the section's directions ask for a T or an F in the answer blank — and the Answer Key records T or F rather than a choice letter. It does not Vary: True before False is a convention a student reads, not an authored order.
+A Question Type whose answer is one of exactly two fixed choices, True and False, which the teacher picks between rather than writes. The pair is not printed as lettered answers: a T and an F print beside its number for a student to circle, and the Answer Key records T or F rather than a choice letter. It does not Vary: True before False is a convention a student reads, not an authored order.
 _Avoid_: Binary question, T/F question, two-choice multiple choice
 
 **Matching**:
@@ -146,7 +150,7 @@ Optional rich-text material authored for a Short Answer question to represent it
 _Avoid_: Correct answer, sample response, rubric
 
 **Multipart**:
-A Question Type whose Question is a stem followed by its Parts. The stem is ordinary rich text, usually the shared material the Parts are asked about — a passage, quote, image, table or anything else. One Multipart question takes one test number, and its Parts are lettered beneath it. A Question Bank keeps it whole: a Part is never a Question of its own, and an Exam adds, Removes and Replaces a Multipart question as one Question.
+A Question Type whose Question is a stem followed by its Parts. The stem is ordinary rich text, usually the shared material the Parts are asked about — a passage, quote, image, table or anything else. One Multipart question takes one test number, and its Parts are lettered beneath it. A Question Bank keeps it whole: a Part is never a Question of its own, and an Exam adds, moves and Removes a Multipart question as one Question.
 _Avoid_: Stimulus, passage, document-based question, question group, source
 
 **Part**:
@@ -154,7 +158,7 @@ One lettered question within a Multipart question, in authored order: a Multiple
 _Avoid_: Sub-question, item (Item is Matching's), sub-part
 
 **Work Space**:
-Room an Exam leaves below a Short Answer question or Short Answer Part for a student's working: blank or ruled, as tall as the teacher drags it, or filling the rest of its page. It is Exam presentation set on the exam sheet like answer columns, never Question Content, so the same Question may take different room on another Exam; Replace keeps a position's Work Space and Duplicate copies it.
+Room an Exam leaves below a Short Answer question or Short Answer Part for a student's working: blank or ruled, as tall as the teacher drags it, or filling the rest of its page. It is Exam presentation set on the exam sheet like answer columns, never Question Content, so the same Question may take different room on another Exam; Duplicate copies it.
 _Avoid_: White space, answer box, response area
 
 **Page Header**:
@@ -162,8 +166,16 @@ The line an Exam prints at the top of each test page, beside the paper's ID. By 
 _Avoid_: Letterhead, banner, identity line
 
 **Question Section**:
-A group of questions of the same Question Type whose boundary remains fixed within an Exam and its exported output, such as Multiple Choice, True/False, Matching, Short Answer, or Multipart. A Section prints its own heading and its own directions, and is omitted entirely when it holds no Questions. Each Section has default wording, which an Exam may reword, or clear so it prints nothing, for that Exam alone; every heading on an Exam, its title included, prints at one of three sizes, and its questions and answers at one of three text sizes chosen apart from the headings. The Answer Key's section titles follow the test's.
-_Avoid_: Question category
+An ordered group of Questions within an Exam, of any Question Type, fixed in the Exam and its exported output. An Exam's Sections print in whatever order the teacher arranges them, and every Question in an Exam belongs to exactly one Section. A Section has its own Section Heading and Section Directions, and an emptied Section stays, and prints its heading and directions, until the teacher deletes it — so the sheet and the paper always put every Question on the same page; deleting a Section Removes its Questions. Every heading on an Exam, its title included, prints at one of three sizes, and its questions and answers at one of three text sizes chosen apart from the headings. The Answer Key groups its entries by Section and uses the test's headings.
+_Avoid_: Question category, type section
+
+**Section Heading**:
+The title a Question Section prints above its Questions. A new Section begins with the heading of the type of the first Question put in it; after that it is the teacher's own text for that Section alone, which they may reword, or clear so it prints nothing.
+_Avoid_: Section title, header
+
+**Section Directions**:
+The line of instructions a Question Section prints under its Section Heading, telling a student how to answer. Like the heading, it begins as that of the type of the first Question put in the Section and is then the teacher's to reword or clear.
+_Avoid_: Subheading, instructions, section subtitle
 
 **Vary**:
 A family of Exam actions that shuffle question order or answer order — a Multiple Choice question's or Part's answers, or a Matching set's Word Bank — in the Working Copy, before saving or exporting. Shuffling that happens during export produces Versions instead and leaves the Exam untouched; it is not Vary.

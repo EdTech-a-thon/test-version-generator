@@ -4,10 +4,12 @@ import {
   ChevronRight,
   EllipsisVertical,
   FolderOpen,
+  PictureInPicture2,
   Plus,
   Trash2,
   TriangleAlert,
 } from 'lucide-react'
+import { usePopOver } from './pop-over-context'
 import type { RecentExam } from './exam-workspaces'
 import type { QuestionBankCollectionItem } from './resource-collections'
 import type { PageFurniture } from './export-plan'
@@ -253,8 +255,12 @@ export function QuestionBankCard({
   // tile — the card's own job is to be the way in, and a full-width red bar on
   // every tile in a grid says "delete" far louder than a grid should.
   const [menu, setMenu] = useState<MenuPoint | null>(null)
+  const popOver = usePopOver()
   const items: MenuItem[] = [
     { kind: 'action', label: 'Open', icon: <FolderOpen />, onSelect: () => onOpen(bank.id) },
+    ...(popOver.supported
+      ? [{ kind: 'action' as const, label: 'Pop-over', icon: <PictureInPicture2 />, onSelect: () => popOver.open(bank.id) }]
+      : []),
     ...(onDelete
       ? [
           { kind: 'separator' } as const,

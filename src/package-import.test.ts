@@ -363,3 +363,129 @@ describe('rejecting a Test Parrot Package whole', () => {
     ).rejects.toMatchObject({ code: 'exam-count-limit' })
   })
 })
+
+describe('Exam Record 0.3.0 Sections', () => {
+  const mixed = () => bankRecord('Mixed', [
+    multipleChoice('q1'), multipleChoice('q2'), trueFalse('q3'), shortAnswer('q4'),
+  ])
+  const sectioned = (sections: unknown[], positions: unknown[]) => ({
+    format: 'test-parrot/exam', formatVersion: '0.3.0', name: 'Sectioned', sections, positions,
+  })
+
+  const worded = (title: string, instructions = '') => ({ title, instructions })
+
+  test('are proposed in record order with their wording in full, mixed types and empty ones included', async () => {
+    const proposal = await inspectImportRecord(bytesOf(packageOf(
+      [{ id: 'b', record: mixed() }],
+      [sectioned(
+        [
+          { title: 'Essays', instructions: '' },
+          { title: 'Warm-up', instructions: 'Answer each question.' },
+          { title: 'Nothing here', instructions: 'Kept, but prints nothing.' },
+          { title: '', instructions: 'Circle one.' },
+        ],
+        // Interleaved positions regroup stably by Section, keeping order
+        // within each; Section 2 takes a Multiple Choice and a True/False.
+        [
+          at('b', 'q2', { section: 3 }),
+          at('b', 'q3', { section: 1 }),
+          at('b', 'q4', { section: 0 }),
+          at('b', 'q1', { section: 1 }),
+        ],
+      )],
+    )))
+    expect(proposal.exams[0]).toEqual({
+      key: 'exam-1',
+      name: 'Sectioned',
+      formatVersion: '0.3.0',
+      sections: [
+        { title: 'Essays', instructions: '' },
+        { title: 'Warm-up', instructions: 'Answer each question.' },
+        { title: 'Nothing here', instructions: 'Kept, but prints nothing.' },
+        { title: '', instructions: 'Circle one.' },
+      ],
+      positions: [
+        at('b', 'q4', { section: 0 }),
+        at('b', 'q3', { section: 1 }),
+        at('b', 'q1', { section: 1 }),
+        at('b', 'q2', { section: 3 }),
+      ],
+      banks: ['b'],
+    })
+  })
+
+  test('a position must name one of the record’s Sections, and any Section takes any type', async () => {
+    await rejected(
+      packageOf([{ id: 'b', record: mixed() }], [sectioned([worded('Only')], [at('b', 'q1', { section: 1 })])]),
+      'dangling-reference',
+      'Section 2',
+    )
+    const proposal = await inspectImportRecord(bytesOf(packageOf(
+      [{ id: 'b', record: mixed() }],
+      [sectioned([worded('Multiple Choice'), worded('Short Answer')], [at('b', 'q1', { section: 1 })])],
+    )))
+    expect(proposal.exams[0]!.positions).toEqual([at('b', 'q1', { section: 1 })])
+  })
+
+  test('sections, and each position’s section, are required, and a Section is its full wording and nothing else', async () => {
+    await rejected(
+      packageOf([{ id: 'b', record: mixed() }], [{ format: 'test-parrot/exam', formatVersion: '0.3.0', name: 'No sections', positions: [] }]),
+      'invalid-structure',
+    )
+    await rejected(
+      packageOf([{ id: 'b', record: mixed() }], [sectioned([worded('A')], [at('b', 'q1')])]),
+      'invalid-structure',
+    )
+    await rejected(
+      packageOf([{ id: 'b', record: mixed() }], [sectioned([{ title: 'No directions' }], [])]),
+      'invalid-structure',
+    )
+    await rejected(
+      packageOf([{ id: 'b', record: mixed() }], [sectioned([{ instructions: 'No heading' }], [])]),
+      'invalid-structure',
+    )
+    await rejected(
+      packageOf([{ id: 'b', record: mixed() }], [sectioned([{ ...worded('Typed'), type: 'multiple-choice' }], [])]),
+      'invalid-structure',
+    )
+    await rejected(
+      packageOf([{ id: 'b', record: mixed() }], [sectioned([{ title: 3, instructions: '' }], [])]),
+      'invalid-structure',
+    )
+  })
+
+  test('leave per-type section wording behind: in 0.3.0 it is an unknown member, and ignored', async () => {
+    const proposal = await inspectImportRecord(bytesOf(packageOf([{ id: 'b', record: mixed() }], [{
+      ...sectioned([worded('Short Answer')], []),
+      sectionHeadings: { 'short-answer': { title: 'Essays' } },
+    }])))
+    expect(proposal.exams[0]).not.toHaveProperty('sectionHeadings')
+    expect(proposal.exams[0]!.sections).toEqual([{ title: 'Short Answer', instructions: '' }])
+  })
+})
+
+describe('an Exam Record 0.2.0', () => {
+  test('still imports, with per-type wording and its Sections left to be derived by type', async () => {
+    const proposal = await inspectImportRecord(bytesOf(packageOf(
+      [{ id: 'chem', record: chemistry() }],
+      [{
+        format: 'test-parrot/exam',
+        formatVersion: '0.2.0',
+        name: 'Older',
+        sectionHeadings: { 'short-answer': { title: 'Essays', instructions: '' } },
+        headingSize: 'large',
+        // A 0.2.0 position has no Section; a member it does not define is dropped.
+        positions: [at('chem', 'q2', { section: 0 }), at('chem', 'q1')],
+      }],
+    )))
+    expect(proposal.exams[0]).toEqual({
+      key: 'exam-1',
+      name: 'Older',
+      formatVersion: '0.2.0',
+      sectionHeadings: { open: { title: 'Essays', instructions: '' } },
+      headingSize: 'large',
+      positions: [at('chem', 'q1'), at('chem', 'q2')],
+      banks: ['chem'],
+    })
+  })
+})
