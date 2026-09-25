@@ -6,6 +6,7 @@
 
 import type { Exam, Arrangement, RandomSource } from './exam'
 import {
+  numberLabelOf,
   planExport,
   type ExportContentSelection,
   type LayoutPlan,
@@ -19,6 +20,7 @@ import {
   versionNames,
   type ShuffleOptions,
 } from './export-versions'
+import { pendingImageOf, type ProseMirrorJSON } from './question-doc'
 
 export type ExportFormat = 'pdf' | 'docx'
 
@@ -327,6 +329,50 @@ function versionsToPrint({
   return arrangements.map((paper, index) => ({ arrangement: paper, name: names[index]! }))
 }
 
+/**
+ * An Exam cannot be exported while a Question it uses still has a Pending
+ * Image: a printed test with a hole where a graph belongs is not a test. The
+ * refusal names those Questions by the numbers they print under, so the
+ * teacher can find them on the sheet.
+ */
+export class PicturesNeededError extends Error {
+  constructor(readonly questionNumbers: readonly string[]) {
+    const [last, ...rest] = [...questionNumbers].reverse()
+    const named = rest.length ? `${rest.reverse().join(', ')} and ${last}` : last
+    super(
+      questionNumbers.length === 1
+        ? `Question ${named} still needs a picture. Resolve it before exporting.`
+        : `Questions ${named} still need pictures. Resolve them before exporting.`,
+    )
+    this.name = 'PicturesNeededError'
+  }
+}
+
+function hasPendingImage(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(hasPendingImage)
+  if (!value || typeof value !== 'object') return false
+  const node = value as ProseMirrorJSON
+  return pendingImageOf(node) !== undefined || hasPendingImage(node.content)
+}
+
+function refusePendingImages(exam: Exam, testOf: () => LayoutPlan): void {
+  const needing = new Set(
+    exam.questions
+      .filter((question) => hasPendingImage(question.doc) || hasPendingImage(question.suggestedAnswer))
+      .map(({ id }) => id),
+  )
+  if (needing.size === 0) return
+  const numbers = new Map<string, string>()
+  for (const page of testOf().pages) {
+    for (const item of page.items) {
+      if (item.kind === 'question' && needing.has(item.question.id)) {
+        numbers.set(item.question.id, numberLabelOf(item.question))
+      }
+    }
+  }
+  throw new PicturesNeededError([...numbers.values()])
+}
+
 /** Resolve the visible Working Copy into one immutable export event. */
 export function prepareExport({
   examId,
@@ -347,6 +393,9 @@ export function prepareExport({
     throw new Error('Choose the student test, the answer key, or both.')
   }
 
+  // Named by the numbers the teacher sees in the Working Copy, not a
+  // shuffled Version's, so the refusal points at the sheet being edited.
+  refusePendingImages(exam, () => planExport({ exam, arrangement, selection: TEST_ONLY, measure }))
   const papers = versionsToPrint({ exam, arrangement, configuration, history, random, createId })
   const total = papers.length * 2
   let completed = 0

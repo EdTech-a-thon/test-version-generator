@@ -11,11 +11,13 @@ export function Link({
   className,
   children,
   'aria-current': ariaCurrent,
+  'aria-label': ariaLabel,
 }: {
   href: string
   className?: string
   children: ReactNode
   'aria-current'?: 'page'
+  'aria-label'?: string
 }) {
   const onClick = (event: MouseEvent<HTMLAnchorElement>) => {
     if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
@@ -24,7 +26,7 @@ export function Link({
     navigate(href)
   }
   return (
-    <a href={href} className={className} aria-current={ariaCurrent} onClick={onClick}>
+    <a href={href} className={className} aria-current={ariaCurrent} aria-label={ariaLabel} onClick={onClick}>
       {children}
     </a>
   )

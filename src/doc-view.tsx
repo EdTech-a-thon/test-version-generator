@@ -6,10 +6,11 @@
 // are the Crepe/Milkdown ones, and anything unrecognised falls back to its
 // children rather than disappearing.
 
-import type { CSSProperties, ReactNode } from 'react'
+import { useContext, type CSSProperties, type ReactNode } from 'react'
 import katex from 'katex'
-import type { ProseMirrorJSON } from './question-doc'
+import { pendingImageOf, type PendingImageReference, type ProseMirrorJSON } from './question-doc'
 import { authoredImageRatio } from './export-media'
+import { PictureSlotContext } from './picture-slot'
 
 function attrsOf(node: ProseMirrorJSON): Record<string, unknown> {
   const attrs = node.attrs
@@ -142,25 +143,31 @@ function renderNode(node: ProseMirrorJSON, key: number): ReactNode {
       return <Tex key={key} value={text(attrs.value)} display={false} />
     case 'hr':
       return <hr key={key} />
-    case 'image':
+    case 'image': {
+      const pending = pendingImageOf(node)
       return (
-        <img
-          key={key}
-          src={text(attrs.src)}
-          alt={text(attrs.alt)}
-          title={text(attrs.title) || undefined}
-        />
+        <Slot key={key} pictureKey={attrs.pictureKey} inline>
+          {pending
+            ? <PictureNeeded pending={pending} inline />
+            : <img src={text(attrs.src)} alt={text(attrs.alt)} title={text(attrs.title) || undefined} />}
+        </Slot>
       )
+    }
     case 'image-block': {
       const caption = text(attrs.caption)
+      const pending = pendingImageOf(node)
       const ratio = authoredImageRatio(attrs)
       return (
         <figure key={key} className="doc-figure">
-          <img
-            src={text(attrs.src)}
-            alt={caption}
-            style={ratio === 1 ? undefined : authoredImageStyle(ratio)}
-          />
+          <Slot pictureKey={attrs.pictureKey}>
+            {pending
+              ? <PictureNeeded pending={pending} />
+              : <img
+                  src={text(attrs.src)}
+                  alt={caption}
+                  style={ratio === 1 ? undefined : authoredImageStyle(ratio)}
+                />}
+          </Slot>
           {caption && <figcaption>{caption}</figcaption>}
         </figure>
       )
@@ -181,6 +188,25 @@ function renderNode(node: ProseMirrorJSON, key: number): ReactNode {
     default:
       return <div key={key}>{renderAll(node)}</div>
   }
+}
+
+/** A picture a preview lets the teacher change, drawn the way the preview
+ *  says; anywhere else, just the picture. */
+function Slot({ pictureKey, inline = false, children }: { pictureKey: unknown; inline?: boolean; children: ReactNode }) {
+  const slot = useContext(PictureSlotContext)
+  return <>{slot && typeof pictureKey === 'string' ? slot(pictureKey, children, inline) : children}</>
+}
+
+/** A Pending Image, read-only: a clear box in the picture's place saying
+ *  which picture belongs there. */
+export function PictureNeeded({ pending, inline = false }: { pending: PendingImageReference; inline?: boolean }) {
+  const named = 'image' in pending ? `IMG ${pending.image}` : `page ${pending.page}`
+  return (
+    <span className="picture-needed" data-inline={inline ? 'true' : undefined} role="img" aria-label={`Picture needed: ${named}`}>
+      Picture needed
+      <small>{named}</small>
+    </span>
+  )
 }
 
 /** The blocks of a question document, rendered read-only. */

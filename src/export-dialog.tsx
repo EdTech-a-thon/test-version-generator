@@ -31,6 +31,7 @@ export function ExportDialog({
   previewPlans,
   maxVersions,
   empty,
+  blocked = null,
   initialError,
   onSubmit,
   onCancel,
@@ -41,6 +42,9 @@ export function ExportDialog({
   /** How many shuffled Versions the current shuffle options allow. */
   maxVersions: number
   empty: boolean
+  /** Why this Exam cannot be exported as it is — a Question still needing a
+   *  picture — shown in place of the preview's paper. */
+  blocked?: string | null
   initialError?: string | null
   onSubmit: (
     configuration: ExportConfiguration,
@@ -71,7 +75,8 @@ export function ExportDialog({
       : !Number.isInteger(versionCount) || versionCount < 1 || versionCount > maxVersions
         ? `Choose from 1 to ${maxVersions} ${maxVersions === 1 ? 'Version' : 'Versions'} for this Exam.`
         : null
-  const invalid = selectionError !== null || emptyError !== null || versionError !== null
+  const invalid =
+    selectionError !== null || emptyError !== null || blocked !== null || versionError !== null
 
   const changeShuffle = (next: Partial<typeof shuffle>) =>
     onConfigurationChange({
@@ -314,13 +319,13 @@ export function ExportDialog({
               Export History is stored only in this browser. It is useful for
               local re-export, but it is not an archival backup.
             </p>
-            {(selectionError || emptyError) && (
+            {(selectionError || emptyError || blocked) && (
               <p
                 className="export-error"
                 id={`${id}-content-error`}
                 role="alert"
               >
-                {selectionError ?? emptyError}
+                {selectionError ?? emptyError ?? blocked}
               </p>
             )}
             {versionError && (

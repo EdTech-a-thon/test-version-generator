@@ -9,6 +9,7 @@ import {
   writeExportPreferences,
   writeShufflePreferences,
   prepareHistoricalExport,
+  PicturesNeededError,
   type ExportHistory,
 } from './export-preparation'
 import { unmeasured, type LayoutPlan } from './export-plan'
@@ -617,5 +618,59 @@ describe('shuffled Versions', () => {
     expect(prepared.record.versions).toBeUndefined()
     expect(pagesOf(prepared.documents).map((page) => page.furniture.arrangementLabel))
       .toEqual(['', ''])
+  })
+})
+
+describe('an Exam with Pending Images', () => {
+  const pictured = (id: string, image: Record<string, unknown>): Question => ({
+    id,
+    type: 'open',
+    columns: 1,
+    doc: { type: 'doc', content: [paragraph(`Describe picture ${id}.`), { type: 'image-block', attrs: image }] },
+  })
+  const exportOf = (questions: Question[]) => ({
+    ...request(),
+    exam: { title: 'Pictures', questions },
+    arrangement: { id: 'working-copy', letter: '', questionOrder: questions.map(({ id }) => id), choiceOrder: {} },
+  })
+
+  test('refuses while a Question still needs a picture, naming its printed number', () => {
+    const questions = [
+      pictured('a', { src: `/local-images/${'a'.repeat(64)}`, caption: '' }),
+      pictured('b', { src: '', caption: '', pending: { image: 3 } }),
+      pictured('c', { src: '', caption: '', pending: { page: 2 } }),
+    ]
+    expect(() => prepareExport(exportOf(questions))).toThrow(PicturesNeededError)
+    expect(() => prepareExport(exportOf(questions))).toThrow(
+      'Questions 2 and 3 still need pictures. Resolve them before exporting.',
+    )
+    expect(() => prepareExport(exportOf(questions.slice(0, 2)))).toThrow(
+      'Question 2 still needs a picture. Resolve it before exporting.',
+    )
+  })
+
+  test('names a shuffled export’s missing pictures by the Working Copy’s numbers', () => {
+    const questions = [
+      pictured('a', { src: `/local-images/${'a'.repeat(64)}`, caption: '' }),
+      pictured('b', { src: `/local-images/${'b'.repeat(64)}`, caption: '' }),
+      pictured('c', { src: '', caption: '', pending: { image: 1 } }),
+    ]
+    const shuffled = {
+      ...exportOf(questions),
+      configuration: {
+        format: 'pdf' as const,
+        selection: { test: true, answerKey: true },
+        shuffle: { questions: true, answers: false },
+        versionCount: 5,
+      },
+    }
+    expect(() => prepareExport(shuffled)).toThrow(
+      'Question 3 still needs a picture. Resolve it before exporting.',
+    )
+  })
+
+  test('exports once every picture is resolved', () => {
+    const prepared = prepareExport(exportOf([pictured('b', { src: `/local-images/${'b'.repeat(64)}`, caption: '' })]))
+    expect(prepared.record.mediaHashes).toEqual(['b'.repeat(64)])
   })
 })
