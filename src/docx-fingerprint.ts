@@ -20,6 +20,7 @@ import {
   workSpaceLine,
 } from './export-fingerprint'
 import { child, descendants, parseXml, path, type XmlNode } from './xml'
+import { BLOCKQUOTE_TABLE_STYLE, SIDE_BY_SIDE_TABLE_STYLE } from './docx-export'
 
 // ---------------------------------------------------------------------------
 // Package reading
@@ -235,7 +236,49 @@ function paragraphLine(paragraph: XmlNode, reader: Reader): ContentLine {
   return line('para', inline)
 }
 
+/** The `w:tblStyle` a table names, which is how `docx-export.ts` marks the
+ *  table-shaped blocks that are not tables: a boxed Blockquote and a
+ *  Side-by-Side. */
+function tableStyleOf(table: XmlNode): string | undefined {
+  return path(table, 'w:tblPr', 'w:tblStyle')?.attrs['w:val']
+}
+
+/** A cell without the empty paragraph a writer must end it with when its
+ *  content ends in a table: Word requires a cell to close on a paragraph. An
+ *  authored empty paragraph after the table leaves nothing to pad, so the
+ *  padding is never mistaken for content. */
+function withoutClosingPad(cell: XmlNode): XmlNode {
+  const last = cell.children.at(-1)
+  const beforeLast = cell.children.at(-2)
+  const empty = last?.name === 'w:p' && !last.children.some((node) => node.name !== 'w:pPr')
+  return empty && beforeLast?.name === 'w:tbl'
+    ? { ...cell, children: cell.children.slice(0, -1) }
+    : cell
+}
+
+function cellsOf(table: XmlNode): XmlNode[] {
+  return table.children
+    .filter((row) => row.name === 'w:tr')
+    .flatMap((row) => row.children.filter((cell) => cell.name === 'w:tc'))
+    .map(withoutClosingPad)
+}
+
 function tableLines(table: XmlNode, reader: Reader): ContentLine[] {
+  const style = tableStyleOf(table)
+  if (style === BLOCKQUOTE_TABLE_STYLE) {
+    return ['box', ...cellsOf(table).flatMap((cell) => blockLines(cell, reader)), '/box']
+  }
+  if (style === SIDE_BY_SIDE_TABLE_STYLE) {
+    const panels = cellsOf(table)
+    return [
+      `side:${panels.length}`,
+      ...panels.flatMap((panel, index) => {
+        const content = blockLines(panel, reader)
+        return [`panel:${index}`, ...(content.length > 0 ? content : ['para'])]
+      }),
+      '/side',
+    ]
+  }
   const rows = table.children.filter((row) => row.name === 'w:tr')
   const columns = rows.reduce(
     (widest, row) =>
@@ -248,7 +291,7 @@ function tableLines(table: XmlNode, reader: Reader): ContentLine[] {
     for (let column = 0; column < columns; column += 1) {
       lines.push(`cell:${rowIndex},${column}`)
       const cell = cells[column]
-      const content = cell ? blockLines(cell, reader) : []
+      const content = cell ? blockLines(withoutClosingPad(cell), reader) : []
       lines.push(...(content.length > 0 ? content : ['para']))
     }
   })

@@ -53,9 +53,15 @@ const shareOf = (box: PageBox) => Math.max(0, Math.min(1, (box.right - box.left)
  * however many columns the Exam gives it, and a picture fitting its cell is
  * already the size the cell allows.
  */
-export function estimatedSize(picture: ResolvedPicture, occurrence: Pick<PendingImageOccurrence, 'where'>): number | undefined {
+export function estimatedSize(
+  picture: ResolvedPicture,
+  occurrence: Pick<PendingImageOccurrence, 'where' | 'inPanel'>,
+): number | undefined {
   if (picture.pageShare === undefined) return undefined
   if (/Answer [A-Z]|^Item |^Word Bank /.test(occurrence.where)) return undefined
+  // A Side-by-Side's pictures share their line, each filling its Panel as they
+  // filled their share of the page they came from.
+  if (occurrence.inPanel) return undefined
   const printed = picture.pageShare * PAGE_WIDTH
   const fitted = Math.min(picture.asset.width, PAGE_CONTENT_WIDTH)
   const size = Math.round((printed / fitted) * 100) / 100

@@ -1,6 +1,6 @@
 {
   "format": "test-parrot/question-bank",
-  "formatVersion": "0.6.0",
+  "formatVersion": "0.7.0",
   "generator": {
     "name": "Contract Fixture Publisher",
     "version": "1.0.0"

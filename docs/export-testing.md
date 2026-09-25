@@ -88,9 +88,22 @@ rule
 table:<rows>x<columns>
 cell:<row>,<column>
 /table
+box
+/box
+side:<panels>
+panel:<index>
+/side
 space:blank
 space:lines:<n>
 ```
+
+A Blockquote prints boxed, so its border is content: `box` … `/box` wraps its
+lines. A Side-by-Side is `side:<n>`, then each Panel as `panel:<i>` followed by
+its own lines, then `/side`. Neither can carry a question's opening number, which
+takes a `para` line of its own before it, as a table's does. In DOCX both are
+tables — a one-cell bordered one and a borderless one-row one that cannot split
+— marked with the `Blockquote` and `SideBySide` table styles so they read back
+as a box and Panels rather than as tables.
 
 A Short Answer question's Work Space is a `space:` line: blank, or ruled with
 the plan's own count of lines. Its height is geometry and is not compared. The
@@ -130,8 +143,10 @@ The implementations are:
   starts it left of its container, and every table's grid columns are its
   cells' widths.
 - `src/pdf-export.test.ts` — PDF pages, metadata, links, media, embedded fonts,
-  unsupported-character rejection, overflow rejection, and every matching
-  prompt and Word Bank answer on its planned page.
+  unsupported-character rejection, overflow rejection, every matching
+  prompt and Word Bank answer on its planned page, school math notation written
+  as notation, a Blockquote's black border, and a Side-by-Side's pictures beside
+  one another, centred in their Panels.
 - `src/export-typography.test.ts` — one type scale (`src/export-typography.ts`)
   held against print's stylesheet, the DOCX document defaults and heading
   styles, the DOCX identity line's tab stops, and the PDF's drawn sizes.
@@ -199,6 +214,10 @@ environment record. Successful comparisons remove disposable converter state.
 
 - Office Math stores the authored LaTeX source in a native equation object; it
   does not translate LaTeX into fully structured OMML.
+- The PDF adapter has no typesetter: it writes mathematics on the line
+  (`src/pdf-math.ts`) — a fraction as `(3x − 4)⁄(2x − 5)`, relations and Greek
+  letters as their symbols — rather than stacking fractions as print's KaTeX
+  does. A command it does not know prints as its name.
 - The PDF word comparison cannot adjudicate ruled blanks or typeset math; both
   remain covered structurally.
 - Export History is browser-local. Persistent-storage permission strengthens

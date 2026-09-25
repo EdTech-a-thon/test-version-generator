@@ -718,6 +718,148 @@ export const FIXTURES: readonly Fixture[] = [
     arrangement(['o1']),
   ),
 
+  // A Blockquote prints boxed, and a boxed source passage often holds a list;
+  // opening a question, it takes the number on a line of its own, as a table
+  // does. Its source line is the ordinary paragraph after it.
+  fixture(
+    'a boxed passage that opens its question',
+    {
+      title: 'Boxes',
+      questions: [
+        open(
+          'o1',
+          {
+            type: 'blockquote',
+            content: [
+              paragraph(text('Several factors contributed to the decline:')),
+              {
+                type: 'bullet_list',
+                content: [
+                  { type: 'list_item', content: [paragraph(text('Competition from the Americas'))] },
+                  { type: 'list_item', content: [paragraph(text('Rising unemployment'))] },
+                ],
+              },
+            ],
+          },
+          paragraph(text('Source: BBC online, 2009 (adapted)')),
+          paragraph(text('Identify one cause of the decline.')),
+        ),
+      ],
+    },
+    arrangement(['o1']),
+  ),
+
+  // A Side-by-Side lays its Panels across one line: two graphs, a table beside
+  // a graph, a picture beside text — each Panel holding any stem block.
+  fixture(
+    'side-by-side panels of pictures, tables and text',
+    {
+      title: 'Side by side',
+      questions: [
+        multipleChoice(
+          'm1',
+          2,
+          [
+            {
+              type: 'sideBySide',
+              content: [
+                {
+                  type: 'sideBySidePanel',
+                  content: [
+                    {
+                      type: 'image-block',
+                      attrs: { src: `/local-images/${'b'.repeat(64)}`, caption: 'Graph of f' },
+                    },
+                  ],
+                },
+                {
+                  type: 'sideBySidePanel',
+                  content: [
+                    {
+                      type: 'image-block',
+                      attrs: { src: `/local-images/${'c'.repeat(64)}`, caption: 'Graph of g', ratio: 0.6 },
+                    },
+                  ],
+                },
+              ],
+            },
+            paragraph(text('Which transformation takes f to g?')),
+          ],
+          [
+            choice('c1', true, paragraph(text('g(x) = f(x − 2) − 3'))),
+            choice('c2', false, paragraph(text('g(x) = f(x + 2) + 3'))),
+          ],
+        ),
+        open(
+          'o1',
+          paragraph(text('Use the table and the notes below.')),
+          {
+            type: 'sideBySide',
+            content: [
+              {
+                type: 'sideBySidePanel',
+                content: [
+                  {
+                    type: 'table',
+                    content: [
+                      {
+                        type: 'table_row',
+                        content: [
+                          { type: 'table_cell', content: [paragraph(text('x'))] },
+                          { type: 'table_cell', content: [paragraph(text('−3'))] },
+                        ],
+                      },
+                      {
+                        type: 'table_row',
+                        content: [
+                          { type: 'table_cell', content: [paragraph(text('g(x)'))] },
+                          { type: 'table_cell', content: [paragraph(text('−5'))] },
+                        ],
+                      },
+                    ],
+                  },
+                ],
+              },
+              {
+                type: 'sideBySidePanel',
+                content: [
+                  paragraph(text('Upper classes: '), text('12.5%', mark('emphasis'))),
+                  {
+                    type: 'blockquote',
+                    content: [paragraph(text('Peasants: 82%'))],
+                  },
+                ],
+              },
+              {
+                type: 'sideBySidePanel',
+                content: [
+                  paragraph(
+                    text('Where '),
+                    { type: 'math_inline', attrs: { value: '-2 \\le x \\le 4' } },
+                  ),
+                ],
+              },
+            ],
+          },
+        ),
+        // A Side-by-Side opening its question takes the number on a line of
+        // its own.
+        open(
+          'o2',
+          {
+            type: 'sideBySide',
+            content: [
+              { type: 'sideBySidePanel', content: [paragraph(text('Left'))] },
+              { type: 'sideBySidePanel', content: [paragraph(text('Right'))] },
+            ],
+          },
+        ),
+      ],
+    },
+    arrangement(['m1', 'o1', 'o2']),
+    { images: true },
+  ),
+
   fixture(
     'bullet, ordered and nested lists',
     {
@@ -890,6 +1032,47 @@ export const FIXTURES: readonly Fixture[] = [
             type: 'code_block',
             attrs: { language: 'latex' },
             content: [text('\\frac{a}{b} = \\sqrt{c}')],
+          },
+        ),
+      ],
+    },
+    arrangement(['o1']),
+  ),
+
+  // The notation a precalculus test is written in, as an AI conversion writes
+  // it: display fractions, relations, sized delimiters, composition and
+  // explicit spaces.
+  fixture(
+    'school mathematics notation',
+    {
+      title: 'Function Theory',
+      questions: [
+        open(
+          'o1',
+          paragraph(
+            text('The function f is given by '),
+            { type: 'math_inline', attrs: { value: 'f(x) = \\dfrac{3x - 4}{2x - 5}' } },
+            text(' for '),
+            { type: 'math_inline', attrs: { value: '-2 \\le x \\le 4' } },
+            text('.'),
+          ),
+          paragraph(
+            { type: 'math_inline', attrs: { value: 'h(x) = 3f\\left(\\frac{x}{2}\\right) + 1' } },
+            text(', '),
+            { type: 'math_inline', attrs: { value: '(f \\circ g)(x)' } },
+            text(', '),
+            { type: 'math_inline', attrs: { value: '\\left[-\\tfrac{1}{5}, \\tfrac{1}{4}\\right]' } },
+            text(', '),
+            { type: 'math_inline', attrs: { value: '[-4,\\ 3]' } },
+            text(', '),
+            { type: 'math_inline', attrs: { value: 'f^{-1}(x) \\ne g(x)' } },
+            text(', '),
+            { type: 'math_inline', attrs: { value: '\\text{undefined}' } },
+          ),
+          {
+            type: 'code_block',
+            attrs: { language: 'latex' },
+            content: [text('\\frac{\\sqrt{x + 1}}{2} \\geq 0')],
           },
         ),
       ],

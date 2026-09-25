@@ -18,7 +18,7 @@ describe('the instructions an assistant is given', () => {
     expect(instructions).toContain('"pending": { "image": 3 }')
     expect(instructions).toContain('Do not create Media Assets, and never write base64.')
     expect(instructions).not.toContain('does not describe it yet')
-    expect(instructions).toContain('./formats/question-bank/0.5.0/schema.json')
+    expect(instructions).toContain('./formats/question-bank/0.6.0/schema.json')
   })
 
   test('list a Source Document’s tags by page', () => {

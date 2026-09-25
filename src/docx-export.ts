@@ -46,6 +46,7 @@ import {
   TableRow,
   TabStopType,
   TextRun,
+  VerticalAlignTable,
   WidthType,
   type IParagraphOptions,
   type IRunOptions,
@@ -345,6 +346,8 @@ type BlockContext = {
   indent: number
   list?: { reference: string; level: number }
   keepNext?: boolean
+  /** Inside a Panel: pictures and tables are centred across it. */
+  centred?: boolean
 }
 
 const BODY_SPACING = { after: 80, line: 276 }
@@ -437,12 +440,14 @@ function blockOf(
       ]
     }
 
+    // A Blockquote prints boxed. A box of paragraphs in Word is a table of one
+    // cell: paragraph borders only join into one box while every paragraph
+    // shares its indents, and a boxed passage often holds a list.
     case 'blockquote':
-      return blocks(
-        childrenOf(node),
-        { ...context, indent: context.indent + 360, list: undefined },
-        build,
-      )
+      return [...prefixLine(context), boxTable(node, context, build)]
+
+    case 'sideBySide':
+      return [...prefixLine(context), sideBySideTable(node, context, build)]
 
     case 'bullet_list':
     case 'ordered_list': {
@@ -514,6 +519,7 @@ function blockOf(
       return [
         new Paragraph(
           paragraphOptions(context, {
+            alignment: context.centred ? AlignmentType.CENTER : undefined,
             children: [
               ...(context.prefix ?? []),
               image
@@ -533,6 +539,7 @@ function blockOf(
       const image = build.images.get(stringOf(attrs.src))
       const figure = new Paragraph(
         paragraphOptions(context, {
+          alignment: context.centred ? AlignmentType.CENTER : undefined,
           children: [
             ...(context.prefix ?? []),
             image
@@ -550,7 +557,10 @@ function blockOf(
         new Paragraph(
           paragraphOptions(
             { ...context, prefix: undefined, hanging: undefined },
-            { children: [new TextRun({ text: caption, italics: true, size: halfPointsOf('small') })] },
+            {
+              alignment: context.centred ? AlignmentType.CENTER : undefined,
+              children: [new TextRun({ text: caption, italics: true, size: halfPointsOf('small') })],
+            },
           ),
         ),
       ]
@@ -569,19 +579,7 @@ function blockOf(
       ]
 
     case 'table':
-      // A table cannot hold a run, so an opening prefix — a question's number
-      // line, a choice's letter — takes a line of its own above it and is kept
-      // with it.
-      return [
-        ...(context.prefix
-          ? [
-              new Paragraph(
-                paragraphOptions(context, { children: context.prefix, keepNext: true }),
-              ),
-            ]
-          : []),
-        documentTable(node, context, build),
-      ]
+      return [...prefixLine(context), documentTable(node, context, build)]
 
     // A row outside a table is malformed; render its cells rather than lose them.
     case 'table_header_row':
@@ -595,6 +593,109 @@ function blockOf(
         : [inlineParagraph(node, context, build)]
     }
   }
+}
+
+// A table cannot hold a run, so an opening prefix — a question's number line,
+// a choice's letter — takes a line of its own above a table-shaped block and
+// is kept with it.
+function prefixLine(context: BlockContext): Paragraph[] {
+  return context.prefix
+    ? [new Paragraph(paragraphOptions(context, { children: context.prefix, keepNext: true }))]
+    : []
+}
+
+/** The table styles that say what a table-shaped block is, so a reader of the
+ *  package — the DOCX fingerprint among them — can tell a boxed passage and a
+ *  row of Panels from a table the teacher wrote. */
+export const BLOCKQUOTE_TABLE_STYLE = 'Blockquote'
+export const SIDE_BY_SIDE_TABLE_STYLE = 'SideBySide'
+
+const BOX_BORDER = { style: BorderStyle.SINGLE, size: 6, color: '000000' }
+// Print's `.doc-content blockquote` padding: 6px above and below, 10px aside.
+const BOX_PADDING_X = 10
+const BOX_PADDING_Y = 6
+
+function boxTable(
+  node: ProseMirrorJSON,
+  context: BlockContext,
+  build: BuildContext,
+): Table {
+  const indent = context.indent / TWIPS_PER_PX
+  const width = Math.max(1, build.contentWidth - indent)
+  const content = blocks(
+    childrenOf(node),
+    { indent: 0, keepNext: context.keepNext, centred: context.centred },
+    { ...build, contentWidth: width - BOX_PADDING_X * 2 },
+  )
+  return new Table({
+    style: BLOCKQUOTE_TABLE_STYLE,
+    width: { size: twips(width), type: WidthType.DXA },
+    columnWidths: gridOf([width]),
+    indent: context.indent ? { size: context.indent, type: WidthType.DXA } : undefined,
+    rows: [
+      new TableRow({
+        children: [
+          new TableCell({
+            width: { size: twips(width), type: WidthType.DXA },
+            margins: {
+              top: twips(BOX_PADDING_Y),
+              bottom: twips(BOX_PADDING_Y),
+              left: twips(BOX_PADDING_X),
+              right: twips(BOX_PADDING_X),
+            },
+            borders: { top: BOX_BORDER, bottom: BOX_BORDER, left: BOX_BORDER, right: BOX_BORDER },
+            children: content.length > 0 ? content : [new Paragraph({})],
+          }),
+        ],
+      }),
+    ],
+  })
+}
+
+// Print's `.doc-side-by-side` column gap.
+const PANEL_GAP = 16
+
+// A Side-by-Side is a borderless table of one row: its Panels equal, their
+// content centred against one another, and the row never split across a page.
+function sideBySideTable(
+  node: ProseMirrorJSON,
+  context: BlockContext,
+  build: BuildContext,
+): Table {
+  const panels = childrenOf(node)
+  const count = Math.max(1, panels.length)
+  const indent = context.indent / TWIPS_PER_PX
+  const width = Math.max(1, build.contentWidth - indent)
+  const panelWidth = width / count
+  return new Table({
+    style: SIDE_BY_SIDE_TABLE_STYLE,
+    width: { size: twips(width), type: WidthType.DXA },
+    columnWidths: gridOf(Array.from({ length: count }, () => panelWidth)),
+    indent: context.indent ? { size: context.indent, type: WidthType.DXA } : undefined,
+    borders: NO_BORDERS,
+    rows: [
+      new TableRow({
+        cantSplit: true,
+        children: panels.map((panel, index) => {
+          const content = blocks(
+            childrenOf(panel),
+            { indent: 0, keepNext: context.keepNext, centred: true },
+            { ...build, contentWidth: panelWidth - PANEL_GAP },
+          )
+          return new TableCell({
+            width: { size: twips(panelWidth), type: WidthType.DXA },
+            verticalAlign: VerticalAlignTable.CENTER,
+            margins: {
+              left: index === 0 ? 0 : twips(PANEL_GAP / 2),
+              right: index === count - 1 ? 0 : twips(PANEL_GAP / 2),
+            },
+            borders: NO_BORDERS,
+            children: content.length > 0 ? content : [new Paragraph({})],
+          })
+        }),
+      }),
+    ],
+  })
 }
 
 const CELL_BORDER = {
@@ -620,6 +721,7 @@ function documentTable(
   )
   const cellWidth = build.contentWidth / columns
   return new Table({
+    alignment: context.centred ? AlignmentType.CENTER : undefined,
     width: { size: twips(build.contentWidth), type: WidthType.DXA },
     columnWidths: gridOf(Array.from({ length: columns }, () => cellWidth)),
     indent: context.indent

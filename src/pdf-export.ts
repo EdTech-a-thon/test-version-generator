@@ -48,6 +48,7 @@ import {
 import { DIFFICULTY_LABELS, WORK_SPACE_LINE_PITCH } from './exam'
 import { bodyScale, pointsOf, sectionHeadingPoints, titlePoints } from './export-typography'
 import type { ProseMirrorJSON } from './question-doc'
+import { mathPieces as writtenMath } from './pdf-math'
 import {
   QUESTION_BANK_ATTACHMENT_DESCRIPTION,
   QUESTION_BANK_ATTACHMENT_NAME,
@@ -265,59 +266,14 @@ function textPieces(node: ProseMirrorJSON): InlinePiece[] {
   return pieces
 }
 
-const MATH_COMMANDS: Record<string, string> = {
-  alpha: 'α', beta: 'β', gamma: 'γ', delta: 'δ', epsilon: 'ε', theta: 'θ',
-  lambda: 'λ', mu: 'μ', pi: 'π', rho: 'ρ', sigma: 'σ', phi: 'φ', omega: 'ω',
-  Gamma: 'Γ', Delta: 'Δ', Theta: 'Θ', Lambda: 'Λ', Pi: 'Π', Sigma: 'Σ',
-  Phi: 'Φ', Omega: 'Ω', times: '×', cdot: '·', pm: '±', leq: '≤', geq: '≥',
-  neq: '≠', approx: '≈', infty: '∞', rightarrow: '→', leftarrow: '←',
-}
-
-/** A small math layout vocabulary covering the editor's existing fixtures and
- * common school notation. It retains text operators while giving fractions,
- * roots, superscripts, subscripts and Greek commands their authored form. */
+/** An equation as runs of body text: see `pdf-math.ts`. */
 function mathPieces(source: string): InlinePiece[] {
-  const pieces: InlinePiece[] = []
-  let index = 0
-  const push = (text: string, size = BODY_SIZE, rise = 0) => {
-    if (text) pieces.push({ text, font: 'regular', size, rise })
-  }
-  while (index < source.length) {
-    const rest = source.slice(index)
-    const fraction = /^\\frac\{([^{}]*)\}\{([^{}]*)\}/.exec(rest)
-    if (fraction) {
-      push(fraction[1]!)
-      push('⁄')
-      push(fraction[2]!)
-      index += fraction[0].length
-      continue
-    }
-    const root = /^\\sqrt\{([^{}]*)\}/.exec(rest)
-    if (root) {
-      push(`√${root[1]}`)
-      index += root[0].length
-      continue
-    }
-    const script = /^([_^])(?:\{([^{}]*)\}|(.))/.exec(rest)
-    if (script) {
-      push(
-        script[2] ?? script[3] ?? '',
-        BODY_SIZE * 0.75,
-        script[1] === '^' ? BODY_SIZE * 0.35 : -BODY_SIZE * 0.2,
-      )
-      index += script[0].length
-      continue
-    }
-    const command = /^\\([A-Za-z]+)/.exec(rest)
-    if (command) {
-      push(MATH_COMMANDS[command[1]!] ?? command[1]!)
-      index += command[0].length
-      continue
-    }
-    push(source[index]!)
-    index += 1
-  }
-  return pieces
+  return writtenMath(source).map((piece) => ({
+    text: piece.text,
+    font: 'regular',
+    size: BODY_SIZE * piece.scale,
+    rise: BODY_SIZE * piece.rise,
+  }))
 }
 
 function splitPiece(piece: InlinePiece, font: PDFFont, maxWidth: number): InlinePiece[] {
@@ -435,6 +391,7 @@ function drawImage(
   x: number,
   maxWidth: number,
   ratio = 1,
+  centred = false,
 ): void {
   const loaded = context.images.get(source)
   if (!loaded) throw new RequiredMediaError(null)
@@ -444,7 +401,7 @@ function drawImage(
   const height = naturalHeight * (width / naturalWidth)
   ensureRoom(context, height + 4)
   context.page.drawImage(loaded.image, {
-    x,
+    x: centred ? x + Math.max(0, (maxWidth - width) / 2) : x,
     y: context.y - height,
     width,
     height,
@@ -455,7 +412,7 @@ function drawImage(
 function drawBlocks(
   context: DrawContext,
   nodes: readonly ProseMirrorJSON[],
-  options: { x?: number; width?: number; listLevel?: number } = {},
+  options: { x?: number; width?: number; listLevel?: number; centred?: boolean } = {},
 ): void {
   const x = options.x ?? context.x
   const width = options.width ?? context.width
@@ -479,7 +436,10 @@ function drawBlocks(
         break
       }
       case 'blockquote':
-        drawBlocks(context, childrenOf(node), { x: x + 18, width: width - 18 })
+        drawBox(context, childrenOf(node), x, width, options.centred)
+        break
+      case 'sideBySide':
+        drawSideBySide(context, childrenOf(node), x, width)
         break
       case 'bullet_list':
       case 'ordered_list': {
@@ -512,12 +472,16 @@ function drawBlocks(
         break
       }
       case 'image':
-        drawImage(context, stringOf(attrs.src), x, width)
+        drawImage(context, stringOf(attrs.src), x, width, 1, options.centred)
         break
       case 'image-block': {
-        drawImage(context, stringOf(attrs.src), x, width, authoredImageRatio(attrs))
+        drawImage(context, stringOf(attrs.src), x, width, authoredImageRatio(attrs), options.centred)
         const caption = stringOf(attrs.caption)
-        if (caption) drawTextLine(context, caption, { size: SMALL_SIZE, x, width })
+        if (caption) {
+          const captionWidth = context.fonts.regular.widthOfTextAtSize(caption, SMALL_SIZE)
+          const inset = options.centred ? Math.max(0, (width - captionWidth) / 2) : 0
+          drawTextLine(context, caption, { size: SMALL_SIZE, x: x + inset, width: width - inset })
+        }
         break
       }
       case 'hr':
@@ -578,6 +542,90 @@ function drawTable(context: DrawContext, table: ProseMirrorJSON, x: number, widt
     context.y = bottom
   }
   context.y -= 4
+}
+
+// Print's `.doc-content blockquote` padding, and its black border.
+const BOX_PADDING_X = pt(10)
+const BOX_PADDING_Y = pt(6)
+const BOX_BORDER = rgb(0, 0, 0)
+
+/** A Blockquote, boxed: its blocks drawn inside the padding, then the border
+ *  ruled round the height they took. */
+function drawBox(
+  context: DrawContext,
+  nodes: readonly ProseMirrorJSON[],
+  x: number,
+  width: number,
+  centred = false,
+): void {
+  const top = context.y
+  context.y -= BOX_PADDING_Y
+  drawBlocks(context, nodes, {
+    x: x + BOX_PADDING_X,
+    width: width - BOX_PADDING_X * 2,
+    centred,
+  })
+  context.y -= BOX_PADDING_Y
+  ensureRoom(context, 0)
+  context.page.drawRectangle({
+    x,
+    y: context.y,
+    width,
+    height: top - context.y,
+    borderColor: BOX_BORDER,
+    borderWidth: 0.75,
+  })
+  context.y -= 4
+}
+
+/** How tall `nodes` come out at `width`: drawn once on a page that is thrown
+ *  away, since a Panel has to know the tallest Panel before it is placed. */
+function measureBlocks(
+  context: DrawContext,
+  nodes: readonly ProseMirrorJSON[],
+  width: number,
+  centred: boolean,
+): number {
+  const scratch = context.document.addPage([context.page.getWidth(), context.page.getHeight()])
+  const start = 1_000_000
+  const measuring: DrawContext = { ...context, page: scratch, y: start, bottom: -Infinity }
+  try {
+    drawBlocks(measuring, nodes, { x: 0, width, centred })
+  } finally {
+    context.document.removePage(context.document.getPageCount() - 1)
+  }
+  return start - measuring.y
+}
+
+// Print's `.doc-side-by-side` column gap.
+const PANEL_GAP = pt(16)
+
+/** A Side-by-Side: equal Panels across the width, each centred vertically
+ *  against the tallest, their pictures centred across them. */
+function drawSideBySide(
+  context: DrawContext,
+  panels: readonly ProseMirrorJSON[],
+  x: number,
+  width: number,
+): void {
+  const count = Math.max(1, panels.length)
+  const pitch = (width + PANEL_GAP) / count
+  const panelWidth = pitch - PANEL_GAP
+  const heights = panels.map((panel) =>
+    measureBlocks(context, childrenOf(panel), panelWidth, true),
+  )
+  const tallest = Math.max(0, ...heights)
+  const top = context.y
+  ensureRoom(context, tallest)
+  panels.forEach((panel, index) => {
+    const panelContext: DrawContext = {
+      ...context,
+      y: top - (tallest - heights[index]!) / 2,
+    }
+    const left = x + index * pitch
+    drawBlocks(panelContext, childrenOf(panel), { x: left, width: panelWidth, centred: true })
+  })
+  context.y = top - tallest - 4
 }
 
 function drawChoiceGrid(context: DrawContext, grid: ChoiceGrid, x: number, width: number): void {

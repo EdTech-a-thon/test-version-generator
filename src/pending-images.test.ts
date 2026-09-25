@@ -15,7 +15,7 @@ import { estimatedSize, resolutionOf } from './resolved-pictures'
 import { ownDocumentMedia } from './local-images'
 import { cleanDocument, pendingImageOf, type ProseMirrorJSON } from './question-doc'
 
-const example = join(import.meta.dir, '..', 'public', 'formats', 'question-bank', '0.5.0', 'examples', 'pending-images.json')
+const example = join(import.meta.dir, '..', 'public', 'formats', 'question-bank', '0.6.0', 'examples', 'pending-images.json')
 const proposal = async () => inspectImportRecord(await Bun.file(example).bytes())
 const tags = (...numbers: number[]) => numbers.map((tag) => ({ tag }))
 
@@ -161,5 +161,102 @@ describe('sizing a picture from its page', () => {
     const resolution = resolutionOf(new Map([[first.key, crop(850, 1 / 3)]]), occurrences)
     const plan = planImport(found, initialSelection(found), (() => { let next = 0; return () => `id-${next++}` })(), resolution)
     expect(JSON.stringify(plan.banks[0]!.questions[0]!.doc)).toContain('"ratio":0.4}')
+  })
+})
+
+describe('a Pending Image inside a Side-by-Side', () => {
+  const pixel = {
+    id: 'sha256:c414cd0e204de974f73753c7e28d7638e7b3691bb8b1a2bab6b25bb7fed7ce77',
+    mimeType: 'image/png' as const,
+    width: 1,
+    height: 1,
+    bytes: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+  }
+  const paragraph = (text: string) => ({ type: 'paragraph', content: [{ type: 'text', text }] })
+  const pictured = (image: number) => ({ type: 'block-image', pending: { image }, alt: `Graph ${image}` })
+  const panels = (...blocks: unknown[]) => ({
+    type: 'side-by-side',
+    content: blocks.map((block) => ({ type: 'panel', content: [block] })),
+  })
+  const record = {
+    format: 'test-parrot/question-bank',
+    formatVersion: '0.6.0',
+    generator: { name: 'Assistant', version: '1' },
+    requiredFeatures: [],
+    bank: {
+      name: 'Graphs',
+      questions: [
+        {
+          id: 'q1',
+          type: 'short-answer',
+          stem: { type: 'document', content: [paragraph('Compare the graphs.'), panels(pictured(1), pictured(2))] },
+        },
+        {
+          id: 'q2',
+          type: 'multipart',
+          stem: { type: 'document', content: [paragraph('Use the graphs.')] },
+          parts: [
+            {
+              id: 'q2-s1',
+              type: 'short-answer',
+              stem: { type: 'document', content: [panels(paragraph('Before'), pictured(3))] },
+            },
+          ],
+        },
+      ],
+    },
+    media: [],
+  }
+  const found = async () => inspectImportRecord(new TextEncoder().encode(JSON.stringify(record)))
+
+  test('is found where it sits, in a stem or a Part’s stem, and resolved in place', async () => {
+    const proposal = await found()
+    const occurrences = pendingImagesOf(proposal)
+    expect(occurrences.map(({ where, pending }) => [where, pending])).toEqual([
+      ['Question', { image: 1 }],
+      ['Question', { image: 2 }],
+      ['Part a', { image: 3 }],
+    ])
+    // Each fills its Panel rather than taking the lane's share it had on
+    // its page.
+    expect(occurrences.every((occurrence) => occurrence.inPanel)).toBe(true)
+    const third = { asset: { ...pixel, width: 850 }, origin: { kind: 'crop', page: 1 } as const, pageShare: 1 / 3 }
+    expect(estimatedSize(third, { where: 'Question' })).toBe(0.4)
+    expect(estimatedSize(third, occurrences[0]!)).toBeUndefined()
+
+    const resolution = new Map(occurrences.map(({ key }) => [key, { asset: pixel }]))
+    const plan = planImport(proposal, initialSelection(proposal), (() => { let next = 0; return () => `id-${next++}` })(), resolution)
+    const [compared, multipart] = plan.banks[0]!.questions
+    const sideBySide = (compared!.doc.content as ProseMirrorJSON[])[1]!
+    expect(sideBySide.type).toBe('sideBySide')
+    const hash = pixel.id.slice('sha256:'.length)
+    expect(JSON.stringify(sideBySide)).toContain(`/local-images/${hash}`)
+    expect(JSON.stringify(sideBySide)).not.toContain('pending')
+    expect(JSON.stringify(multipart!.doc)).toContain(`/local-images/${hash}`)
+  })
+
+  test('in a stored Question, is listed and given its stored picture', () => {
+    const question = {
+      id: 'stored',
+      doc: {
+        type: 'doc',
+        content: [
+          { type: 'paragraph', content: [{ type: 'text', text: 'Compare.' }] },
+          {
+            type: 'sideBySide',
+            content: [
+              { type: 'sideBySidePanel', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Left' }] }] },
+              { type: 'sideBySidePanel', content: [{ type: 'image-block', attrs: { src: '', pending: { image: 4 } } }] },
+            ],
+          },
+        ],
+      },
+    }
+    expect(pendingImagesOfQuestions([question]).map(({ key, where, pending }) => [key, where, pending])).toEqual([
+      ['stored/doc/0', 'Question', { image: 4 }],
+    ])
+    const resolved = withStoredPictures(question, new Map([['stored/doc/0', { src: `/local-images/${'d'.repeat(64)}` }]]))
+    expect(pendingImagesOfQuestions([resolved])).toEqual([])
+    expect(JSON.stringify(resolved)).toContain(`/local-images/${'d'.repeat(64)}`)
   })
 })

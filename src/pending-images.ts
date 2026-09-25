@@ -37,6 +37,8 @@ export type PendingImageOccurrence = {
   /** How to name it where the Question number says nothing, such as inside
    *  the Question's own editor. */
   label?: string
+  /** Whether it sits in a Side-by-Side's Panel, which it is sized to fill. */
+  inPanel?: true
 }
 
 /** The picture that fills a Pending Image, and the Authored Image Size it
@@ -86,13 +88,15 @@ function partsOf(question: QuestionBankRecordQuestion): Part[] {
   ]
 }
 
-function pendingNodes(document: SemanticDocument): SemanticNode[] {
-  const found: SemanticNode[] = []
-  const visit = (node: SemanticNode) => {
-    if ((node.type === 'inline-image' || node.type === 'block-image') && node.pending) found.push(node)
-    for (const child of node.content ?? []) visit(child)
+function pendingNodes(document: SemanticDocument): { node: SemanticNode; inPanel: boolean }[] {
+  const found: { node: SemanticNode; inPanel: boolean }[] = []
+  const visit = (node: SemanticNode, inPanel: boolean) => {
+    if ((node.type === 'inline-image' || node.type === 'block-image') && node.pending) {
+      found.push({ node, inPanel })
+    }
+    for (const child of node.content ?? []) visit(child, inPanel || node.type === 'panel')
   }
-  for (const node of document.content) visit(node)
+  for (const node of document.content) visit(node, false)
   return found
 }
 
@@ -108,7 +112,7 @@ export function pendingImagesOfRecord(
 ): PendingImageOccurrence[] {
   return record.bank.questions.flatMap((question, questionIndex) =>
     partsOf(question).flatMap((part) =>
-      pendingNodes(part.document).map((node, index) => ({
+      pendingNodes(part.document).map(({ node, inPanel }, index) => ({
         key: keyOf(bankId, question.id, part.id, index),
         bankId,
         questionNumber: questionIndex + 1,
@@ -116,6 +120,7 @@ export function pendingImagesOfRecord(
         pending: { ...node.pending! },
         ...(node.alt !== undefined ? { alt: node.alt } : {}),
         ...(node.caption !== undefined ? { caption: node.caption } : {}),
+        ...(inPanel ? { inPanel: true as const } : {}),
       })),
     ),
   )
@@ -344,7 +349,7 @@ export function pendingImagesOfQuestions(questions: readonly EditorQuestion[]): 
   return questions.flatMap((question, index) => {
     const found: PendingImageOccurrence[] = []
     const counts = { doc: 0, suggestedAnswer: 0 }
-    const visit = (part: 'doc' | 'suggestedAnswer', node: ProseMirrorJSON, where: string) => {
+    const visit = (part: 'doc' | 'suggestedAnswer', node: ProseMirrorJSON, where: string, inPanel = false) => {
       const pending = pendingImageOf(node)
       if (pending) {
         const attrs = node.attrs as Record<string, unknown>
@@ -356,6 +361,7 @@ export function pendingImagesOfQuestions(questions: readonly EditorQuestion[]): 
           pending,
           ...(typeof attrs.alt === 'string' && attrs.alt ? { alt: attrs.alt } : {}),
           ...(typeof attrs.caption === 'string' && attrs.caption ? { caption: attrs.caption } : {}),
+          ...(inPanel ? { inPanel: true as const } : {}),
         })
       }
       // A Multipart question's Parts are lettered, and so are the answers
@@ -376,6 +382,7 @@ export function pendingImagesOfQuestions(questions: readonly EditorQuestion[]): 
               : child.type === 'suggestedAnswer' && where !== 'Question'
                 ? within('Suggested Answer')
                 : where,
+          inPanel || child.type === 'sideBySidePanel',
         )
       }
     }

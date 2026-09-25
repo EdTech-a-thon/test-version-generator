@@ -38,6 +38,8 @@ export const SUPPORTED_NODES = [
   'math_inline',
   'hardbreak',
   'text',
+  'sideBySide',
+  'sideBySidePanel',
 ] as const
 
 export const SUPPORTED_MARKS = [
@@ -166,7 +168,21 @@ export function cleanDocument(value: ProseMirrorJSON): ProseMirrorJSON {
       clean.content = cleanPartContent(
         Array.isArray(clean.content) ? (clean.content as ProseMirrorJSON[]) : [],
       )
-    } else if (node.type === 'multipartPartStem' || node.type === 'suggestedAnswer') {
+    } else if (node.type === 'sideBySide') {
+      // Panels only, and no more than three; one left is unwrapped by the
+      // editor as soon as it loads.
+      clean.content = (Array.isArray(clean.content)
+        ? (clean.content as ProseMirrorJSON[])
+        : []
+      ).filter((child) => child.type === 'sideBySidePanel').slice(0, 3)
+      if ((clean.content as ProseMirrorJSON[]).length === 0) {
+        clean.content = [{ type: 'sideBySidePanel', content: [{ type: 'paragraph' }] }]
+      }
+    } else if (
+      node.type === 'multipartPartStem'
+      || node.type === 'suggestedAnswer'
+      || node.type === 'sideBySidePanel'
+    ) {
       if (!Array.isArray(clean.content) || clean.content.length === 0) {
         clean.content = [{ type: 'paragraph' }]
       }

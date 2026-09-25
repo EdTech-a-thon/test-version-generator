@@ -17,7 +17,7 @@ import {
 import type { QuestionBankResource } from './question-bank-workspaces'
 
 export const QUESTION_BANK_FORMAT = 'test-parrot/question-bank'
-export const QUESTION_BANK_FORMAT_VERSION = '0.5.0'
+export const QUESTION_BANK_FORMAT_VERSION = '0.6.0'
 export const QUESTION_BANK_ATTACHMENT_NAME = 'pdfcx.json'
 export const QUESTION_BANK_ATTACHMENT_DESCRIPTION = 'pdf-canonical-extraction'
 
@@ -40,6 +40,11 @@ export const SUPPORTED_SEMANTIC_NODE_TYPES = [
   'inline-image',
   'block-image',
 ] as const
+
+/** The layout nodes a stem alone may hold, apart from every other node: a
+ *  `side-by-side` is only ever a top-level block of a Question's or a Part's
+ *  stem, and a `panel` only ever one of its two or three areas. */
+export const SUPPORTED_STEM_LAYOUT_NODE_TYPES = ['side-by-side', 'panel'] as const
 
 export const SUPPORTED_SEMANTIC_MARK_TYPES = [
   'strong',
@@ -303,6 +308,9 @@ function semanticNode(node: ProseMirrorJSON, mediaIds: ReadonlyMap<string, strin
   const attrs = attributes(node)
   const content = () => childNodes(node).map((child) => semanticNode(child, mediaIds))
   switch (node.type) {
+    case 'sideBySide':
+    case 'sideBySidePanel':
+      throw new Error('A Side-by-Side may appear only as a top-level block of a stem.')
     case 'text': {
       const marks = semanticMarks(node)
       return {
@@ -395,6 +403,42 @@ function semanticDocument(
   return { type: 'document', content: nodes.map((node) => semanticNode(node, mediaIds)) }
 }
 
+/** A Side-by-Side: its two or three Panels, each holding ordinary blocks. */
+function semanticSideBySide(
+  node: ProseMirrorJSON,
+  mediaIds: ReadonlyMap<string, string>,
+): SemanticNode {
+  const panels = childNodes(node)
+  if (panels.length < 2 || panels.length > 3) {
+    throw new Error('A Side-by-Side must hold two or three Panels.')
+  }
+  return {
+    type: 'side-by-side',
+    content: panels.map((panel) => {
+      if (panel.type !== 'sideBySidePanel') {
+        throw new Error('A Side-by-Side may hold only Panels.')
+      }
+      const blocks = childNodes(panel)
+      if (blocks.length === 0) throw new Error('A Panel must hold at least one block.')
+      return { type: 'panel', content: blocks.map((block) => semanticNode(block, mediaIds)) }
+    }),
+  }
+}
+
+/** A Question's or a Part's stem: the one document whose top-level blocks may
+ *  also be Side-by-Sides. */
+function semanticStem(
+  nodes: readonly ProseMirrorJSON[],
+  mediaIds: ReadonlyMap<string, string>,
+): SemanticDocument {
+  return {
+    type: 'document',
+    content: nodes.map((node) =>
+      node.type === 'sideBySide' ? semanticSideBySide(node, mediaIds) : semanticNode(node, mediaIds),
+    ),
+  }
+}
+
 /** The local Question Type each record Question Type is written as. The one
  *  place the two vocabularies meet on the way out; `LOCAL_TYPES` in the
  *  importer is its inverse. */
@@ -414,7 +458,7 @@ function portableQuestion(
   const base: QuestionBankRecordQuestion = {
     id: `q${index + 1}`,
     type: RECORD_TYPES[question.type],
-    stem: semanticDocument(stemNodesOf(question.doc), mediaIds),
+    stem: semanticStem(stemNodesOf(question.doc), mediaIds),
     ...(question.difficulty ? { difficulty: question.difficulty } : {}),
     ...(topicsOf(question).length > 0
       ? { topics: [...topicsOf(question)] }
@@ -473,7 +517,7 @@ function portableQuestion(
       parts: partsOf(question).map((part, partIndex): QuestionBankRecordPart => {
         const id = `q${index + 1}-s${partIndex + 1}`
         const where = `Question ${index + 1}, Part ${partLetter(partIndex)}`
-        const stem = semanticDocument(part.stem, mediaIds)
+        const stem = semanticStem(part.stem, mediaIds)
         if (part.type === 'open') {
           return {
             id,
@@ -679,6 +723,8 @@ export async function prepareQuestionBankExport(
 }
 
 const EDITOR_NODE_TYPES: Record<string, string> = {
+  'side-by-side': 'sideBySide',
+  panel: 'sideBySidePanel',
   'hard-break': 'hardbreak',
   'bullet-list': 'bullet_list',
   'ordered-list': 'ordered_list',
