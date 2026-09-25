@@ -2617,8 +2617,12 @@ export default function App({
   const importBank = useCallback(async (
     proposal: import('./package-import').ImportProposal,
     selection: import('./import-selection').ImportSelection,
+    options: {
+      resolution: import('./pending-images').PendingImageResolution
+      finishesWaitingImport: boolean
+    },
   ) => {
-    const result = await bankWorkspaces.commitImport(proposal, selection)
+    const result = await bankWorkspaces.commitImport(proposal, selection, options)
     // One Exam is what a converted test is: it opens in the editor with the
     // banks it was built from as its tabs, from onboarding as from anywhere.
     const [onlyExam, ...otherExams] = result.createdExamIds

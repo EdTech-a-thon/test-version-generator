@@ -5,7 +5,7 @@ import type {
   SemanticDocument,
   SemanticNode,
 } from './question-bank-export'
-import { mediaDimensions, type ParsedQuestionBankRecord } from './question-bank-import'
+import type { ParsedQuestionBankRecord } from './question-bank-import'
 import type { ImportProposal } from './package-import'
 
 /**
@@ -170,6 +170,8 @@ export async function mediaAssetOf(
   bytes: Uint8Array,
   mimeType: MediaAssetDeclaration['mimeType'],
 ): Promise<MediaAssetDeclaration> {
+  // Loaded on demand: the record parsers are not wanted until a picture is.
+  const { mediaDimensions } = await import('./question-bank-import')
   const dimensions = mediaDimensions(mimeType, bytes)
   if (!dimensions) throw new Error(`This picture is not a valid ${mimeType} image.`)
   const digest = hex(await crypto.subtle.digest('SHA-256', bytes.slice().buffer as ArrayBuffer))

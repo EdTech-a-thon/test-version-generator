@@ -50,6 +50,28 @@ export const SUPPORTED_MARKS = [
   'link',
 ] as const
 
+/** What a Pending Image names instead of Media Asset bytes: the Image Tag
+ *  printed on its picture in a labeled copy of the Source Document, or only the
+ *  1-based page the picture is on. An editor image node carries it as its
+ *  `pending` attribute, with no source, until Resolve Images gives it one. */
+export type PendingImageReference = { image: number } | { page: number }
+
+/** The Pending Image an editor image node stands for, if it is one: what its
+ *  `pending` attribute names, checked, so a malformed value never reaches a
+ *  record as though it were one. */
+export function pendingImageOf(node: ProseMirrorJSON): PendingImageReference | undefined {
+  if (node.type !== 'image' && node.type !== 'image-block') return undefined
+  const attrs = node.attrs as Record<string, unknown> | null | undefined
+  const pending = attrs?.pending
+  if (typeof pending !== 'object' || pending === null) return undefined
+  const { image, page } = pending as { image?: unknown; page?: unknown }
+  const positive = (value: unknown): value is number =>
+    typeof value === 'number' && Number.isInteger(value) && value >= 1
+  if (positive(image) && page === undefined) return { image }
+  if (positive(page) && image === undefined) return { page }
+  return undefined
+}
+
 export const emptyDoc: ProseMirrorJSON = {
   type: 'doc',
   content: [{ type: 'paragraph' }],

@@ -2576,3 +2576,105 @@ button { cursor: pointer; }
   .convert-steps li { grid-template-columns: 30px minmax(0, 1fr); }
   .convert-step-action { grid-column: 2; justify-self: start; }
 }
+
+/* --- Pending Images ---------------------------------------------------------
+   A picture a Question still needs: a bordered box where the picture goes,
+   saying which one. The same box in every read-only view and the editor. */
+.picture-needed {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  min-height: 72px; padding: 12px 16px; border: 1.5px dashed var(--paper-danger); border-radius: 8px;
+  color: var(--paper-danger); background: var(--paper-danger-wash);
+  font-size: 13px; font-weight: 600; text-align: center;
+}
+.picture-needed small { font-weight: 500; color: var(--paper-ink-soft); }
+.picture-needed[data-inline] { display: inline-flex; flex-direction: row; min-height: 0; padding: 1px 8px; gap: 6px; vertical-align: middle; }
+.picture-needed button { margin-top: 6px; }
+
+/* The import that waits for an assistant: three steps in the order to take
+   them, then the drop zone for what comes back. */
+.source-document-found { margin: 4px 0 4px; font-size: 16px; font-weight: 600; color: #2f2419; }
+.source-document-note { margin: 0 0 12px; color: var(--paper-ink-soft); font-size: 13px; line-height: 1.45; }
+.source-document-steps { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; counter-reset: step; }
+.source-document-steps li { display: flex; align-items: center; gap: 12px; font-size: 13px; line-height: 1.45; }
+.source-document-steps li > span { flex: 1; }
+.source-document-steps li::before {
+  counter-increment: step; content: counter(step); flex: none; display: grid; place-items: center;
+  width: 22px; height: 22px; border-radius: 50%; color: #fffaf3; background: var(--paper-accent);
+  font-size: 12px; font-weight: 700;
+}
+.source-document-steps .secondary-button { flex: none; display: inline-flex; align-items: center; gap: 6px; }
+.source-document-steps .secondary-button svg { width: 15px; height: 15px; }
+.source-document-discard { margin: 10px 0 16px; text-align: right; }
+.link-button {
+  padding: 0; border: 0; background: none; color: var(--paper-accent); font: inherit; font-size: 13px;
+  font-weight: 600; text-decoration: underline; text-underline-offset: 3px; cursor: pointer;
+}
+.link-button:disabled { color: #a8988c; cursor: not-allowed; }
+.bank-import-assist-actions { flex: none; display: flex; gap: 8px; }
+
+.bank-import-mismatch {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  margin: 0 18px 12px; padding: 10px 14px; border: 1px solid var(--paper-danger-line); border-radius: 8px;
+  color: #2f2419; background: var(--paper-danger-wash); font-size: 13px; line-height: 1.45;
+}
+.bank-import-mismatch p { margin: 0; }
+.bank-import-mismatch strong { color: var(--paper-danger); }
+.bank-import-mismatch .secondary-button { flex: none; }
+
+/* Resolve Images: every Pending Image in the import, one row each. */
+.bank-import-resolve { flex: 1; min-height: 0; overflow: auto; border-top: 1px solid var(--paper-outline); }
+.resolve-images { max-width: 980px; margin: 0 auto; padding: 16px 20px 24px; }
+.resolve-images-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 14px; }
+.resolve-images-head h3 { margin: 0 0 4px; font-size: 17px; }
+.resolve-images-head p { margin: 0; color: var(--paper-ink-soft); font-size: 13px; }
+.resolve-images-source {
+  position: relative; display: flex; align-items: center; gap: 10px; margin-bottom: 14px; padding: 12px 14px;
+  border: 1.5px dashed var(--paper-accent); border-radius: 10px; font-size: 13px; cursor: pointer;
+}
+.resolve-images-source svg { width: 22px; height: 22px; color: var(--paper-accent); }
+.resolve-images-source input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.resolve-images-list { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.resolve-image {
+  display: grid; grid-template-columns: 180px minmax(0, 1fr); gap: 16px; padding: 12px;
+  border: 1px solid var(--paper-outline); border-radius: 10px; background: #fffdf8;
+}
+.resolve-image[data-accepted] { border-color: var(--easy-line); }
+.resolve-image-picture { display: grid; place-items: center; min-height: 100px; }
+.resolve-image-picture img { max-width: 100%; max-height: 160px; border: 1px solid var(--paper-outline); background: #fff; }
+.resolve-image-picture .picture-needed { width: 100%; box-sizing: border-box; }
+.resolve-image-body h4 { margin: 0 0 3px; font-size: 14px; }
+.resolve-image-description { margin: 0 0 3px; color: var(--paper-ink-soft); font-size: 13px; }
+.resolve-image-status { margin: 0 0 8px; font-size: 12px; color: var(--paper-ink-soft); }
+.resolve-image[data-accepted] .resolve-image-status { color: var(--easy-ink); }
+.resolve-image-share { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; font-size: 12px; }
+.resolve-image-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.resolve-image-actions button, .resolve-image-upload { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; }
+.resolve-image-actions svg { width: 14px; height: 14px; }
+.resolve-image-upload { position: relative; cursor: pointer; }
+.resolve-image-upload input { position: absolute; inset: 0; width: 100%; opacity: 0; cursor: pointer; }
+.resolve-image-note { margin: 8px 0; font-size: 12px; color: var(--paper-ink-soft); }
+.resolve-image-chooser { margin-top: 10px; padding: 10px; border: 1px solid var(--paper-outline); border-radius: 8px; background: var(--paper-surface); }
+.resolve-image-chooser h5 { margin: 4px 0 6px; font-size: 12px; color: var(--paper-ink-soft); }
+.resolve-image-chooser section + section { margin-top: 8px; }
+.resolve-image-chooser div { display: flex; flex-wrap: wrap; gap: 8px; }
+.resolve-image-chooser button {
+  display: flex; flex-direction: column; align-items: center; gap: 4px; width: 112px; padding: 6px;
+  border: 1px solid var(--paper-outline); border-radius: 6px; background: #fff; font-size: 12px; cursor: pointer;
+}
+.resolve-image-chooser button:hover, .resolve-image-chooser button:focus-visible { border-color: var(--paper-accent); }
+.resolve-image-chooser img { max-width: 100%; max-height: 72px; }
+.resolve-image-thumb-loading { width: 100%; height: 56px; background: var(--paper-surface-low); }
+.resolve-image-cropper { margin-top: 10px; padding: 10px; border: 1px solid var(--paper-outline); border-radius: 8px; background: var(--paper-surface); }
+.resolve-image-cropper-bar { display: flex; align-items: center; justify-content: flex-end; gap: 8px; font-size: 13px; }
+.resolve-image-cropper-bar span { margin-right: auto; }
+.resolve-image-page {
+  position: relative; width: min(100%, 520px, 52vh); margin: 0 auto 10px; cursor: crosshair; touch-action: none;
+  user-select: none; border: 1px solid var(--paper-outline); background: #fff; min-height: 120px;
+}
+.resolve-image-page img { display: block; width: 100%; pointer-events: none; }
+.resolve-image-page p { margin: 0; padding: 40px; text-align: center; font-size: 13px; }
+.resolve-image-box { position: absolute; border: 2px solid var(--paper-accent); background: rgb(159 80 55 / 12%); pointer-events: none; }
+@media (max-width: 640px) {
+  .resolve-image { grid-template-columns: 1fr; }
+  .source-document-steps li { flex-direction: column; align-items: flex-start; }
+}

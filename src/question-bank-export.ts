@@ -7,7 +7,12 @@ import {
   type QuestionType,
 } from './exam'
 import { bankLetter } from './matching'
-import { stemNodesOf, type ProseMirrorJSON } from './question-doc'
+import {
+  pendingImageOf,
+  stemNodesOf,
+  type PendingImageReference,
+  type ProseMirrorJSON,
+} from './question-doc'
 import type { QuestionBankResource } from './question-bank-workspaces'
 
 export const QUESTION_BANK_FORMAT = 'test-parrot/question-bank'
@@ -57,10 +62,7 @@ export type SemanticMark =
     }
   | { type: 'link'; href: string; title?: string }
 
-/** What a Pending Image names instead of Media Asset bytes: the Image Tag
- *  printed on its picture in a labeled copy of the Source Document, or only the
- *  1-based page the picture is on. */
-export type PendingImageReference = { image: number } | { page: number }
+export type { PendingImageReference } from './question-doc'
 
 export type SemanticNode = {
   type: string
@@ -238,21 +240,6 @@ function semanticMarks(node: ProseMirrorJSON): SemanticMark[] | undefined {
         )
     }
   })
-}
-
-/** The Pending Image an editor image node stands for, if it is one: what its
- *  `pending` attribute names, checked, so a malformed value never reaches a
- *  record as though it were one. */
-export function pendingImageOf(node: ProseMirrorJSON): PendingImageReference | undefined {
-  if (node.type !== 'image' && node.type !== 'image-block') return undefined
-  const pending = attributes(node).pending
-  if (typeof pending !== 'object' || pending === null) return undefined
-  const { image, page } = pending as { image?: unknown; page?: unknown }
-  const positive = (value: unknown): value is number =>
-    typeof value === 'number' && Number.isInteger(value) && value >= 1
-  if (positive(image) && page === undefined) return { image }
-  if (positive(page) && image === undefined) return { page }
-  return undefined
 }
 
 function imageSemanticNode(

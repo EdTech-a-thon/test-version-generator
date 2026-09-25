@@ -8,7 +8,7 @@
 
 import type { CSSProperties, ReactNode } from 'react'
 import katex from 'katex'
-import type { ProseMirrorJSON } from './question-doc'
+import { pendingImageOf, type PendingImageReference, type ProseMirrorJSON } from './question-doc'
 import { authoredImageRatio } from './export-media'
 
 function attrsOf(node: ProseMirrorJSON): Record<string, unknown> {
@@ -142,7 +142,9 @@ function renderNode(node: ProseMirrorJSON, key: number): ReactNode {
       return <Tex key={key} value={text(attrs.value)} display={false} />
     case 'hr':
       return <hr key={key} />
-    case 'image':
+    case 'image': {
+      const pending = pendingImageOf(node)
+      if (pending) return <PictureNeeded key={key} pending={pending} inline />
       return (
         <img
           key={key}
@@ -151,8 +153,18 @@ function renderNode(node: ProseMirrorJSON, key: number): ReactNode {
           title={text(attrs.title) || undefined}
         />
       )
+    }
     case 'image-block': {
       const caption = text(attrs.caption)
+      const pending = pendingImageOf(node)
+      if (pending) {
+        return (
+          <figure key={key} className="doc-figure">
+            <PictureNeeded pending={pending} />
+            {caption && <figcaption>{caption}</figcaption>}
+          </figure>
+        )
+      }
       const ratio = authoredImageRatio(attrs)
       return (
         <figure key={key} className="doc-figure">
@@ -181,6 +193,18 @@ function renderNode(node: ProseMirrorJSON, key: number): ReactNode {
     default:
       return <div key={key}>{renderAll(node)}</div>
   }
+}
+
+/** A Pending Image, read-only: a clear box in the picture's place saying
+ *  which picture belongs there. */
+export function PictureNeeded({ pending, inline = false }: { pending: PendingImageReference; inline?: boolean }) {
+  const named = 'image' in pending ? `IMG ${pending.image}` : `page ${pending.page}`
+  return (
+    <span className="picture-needed" data-inline={inline ? 'true' : undefined} role="img" aria-label={`Picture needed: ${named}`}>
+      Picture needed
+      <small>{named}</small>
+    </span>
+  )
 }
 
 /** The blocks of a question document, rendered read-only. */

@@ -1,6 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
-import { Check, ChevronRight, Copy, FileText, Library, UploadCloud, type LucideIcon } from 'lucide-react'
+import { Check, ChevronRight, Copy, Download, FileText, Library, UploadCloud, type LucideIcon } from 'lucide-react'
 import extractInstructions from '../public/extract.md?raw'
+import { fillImageTags } from './image-tag-list'
 import {
   RECORD_TYPE_LABELS,
   RECORD_TYPE_ORDER,
@@ -30,7 +31,11 @@ import { selectedExam } from './selected-exam'
 import { planExport, type LayoutPlan } from './export-plan'
 import { domMeasure } from './dom-measure'
 import { ExportPreview } from './exam-page'
-import { inspectUploadedFile, needsConversion as fileNeedsConversion } from './question-bank-upload'
+import { inspectUploadedFile, isRecordFile, needsConversion as fileNeedsConversion } from './question-bank-upload'
+import { checkAgainstSourceDocument, pendingImagesOf, type PendingImageResolution, type SourceDocumentCheck } from './pending-images'
+import { ResolveImages } from './resolve-images'
+import { acceptedPictures, prefilledPictures, type Resolutions, type ResolvingSource } from './resolved-pictures'
+import { discardWaitingImport, readWaitingImport, saveWaitingImport, type WaitingImport } from './waiting-import'
 import { useModalScrollLock } from './use-modal-scroll-lock'
 
 function formatBytes(bytes: number): string {
@@ -266,6 +271,12 @@ function BankSummary({ bank }: { bank: ProposedBank }) {
           <dd>{summary.questionsWithoutCorrectAnswer}</dd>
         </div>
       )}
+      {summary.pendingImages > 0 && (
+        <div className="is-warning">
+          <dt>Pictures needed</dt>
+          <dd>{summary.pendingImages}</dd>
+        </div>
+      )}
       <div>
         <dt>Media Assets</dt>
         <dd>
@@ -342,7 +353,11 @@ export function QuestionBankImportDialog({
   loadBanks,
 }: {
   onClose: () => void
-  onImport: (proposal: ImportProposal, selection: ImportSelection) => Promise<void>
+  onImport: (
+    proposal: ImportProposal,
+    selection: ImportSelection,
+    options: { resolution: PendingImageResolution; finishesWaitingImport: boolean },
+  ) => Promise<void>
   /** A file already chosen elsewhere — dropped onto the page — inspected as
    *  soon as the dialog opens rather than asked for again. */
   initialFile?: File
@@ -369,7 +384,18 @@ export function QuestionBankImportDialog({
   // not been converted yet. That failure is answered with the way to convert
   // it rather than with a reading of what went wrong.
   const [needsConversion, setNeedsConversion] = useState(false)
-  const [phase, setPhase] = useState<'choose' | 'inspecting' | 'saving'>('choose')
+  const [phase, setPhase] = useState<'choose' | 'inspecting' | 'analyzing' | 'saving'>('choose')
+  /** The import waiting for an assistant, resumed whenever the dialog opens. */
+  const [waiting, setWaiting] = useState<WaitingImport | null>(null)
+  /** A new Source Document dropped while another import waits, held until
+   *  the teacher says whether it replaces that one. */
+  const [replacing, setReplacing] = useState<File | null>(null)
+  /** Set when the file under review was paired with the waiting import: how
+   *  well it matches the Source Document. */
+  const [paired, setPaired] = useState<SourceDocumentCheck | null>(null)
+  const [resolving, setResolving] = useState(false)
+  const [filling, setFilling] = useState(false)
+  const [resolutions, setResolutions] = useState<Resolutions>(new Map())
   const [copied, setCopied] = useState(false)
   useEffect(() => {
     if (!copied) return
@@ -386,6 +412,12 @@ export function QuestionBankImportDialog({
     void loadBanks().then((banks) => { if (current) setExistingBanks(banks) }, () => undefined)
     return () => { current = false }
   }, [loadBanks])
+
+  useEffect(() => {
+    let current = true
+    void readWaitingImport().then((found) => { if (current && found) setWaiting(found) }, () => undefined)
+    return () => { current = false }
+  }, [])
 
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null
@@ -439,30 +471,118 @@ export function QuestionBankImportDialog({
     })
   }, [proposal])
 
+  const failed = (reason: unknown) => {
+    setNeedsConversion(fileNeedsConversion(reason))
+    setError(
+      reason instanceof Error && reason.message
+        ? reason.message
+        : 'This file could not be inspected safely.',
+    )
+  }
+
+  /** A PDF that is not a Test Parrot file is a Source Document: its pictures
+   *  are found and tagged, and the import waits for the assistant. */
+  const startSourceDocument = async (file: File) => {
+    setReplacing(null)
+    setPhase('analyzing')
+    setError(null)
+    setNeedsConversion(false)
+    try {
+      const bytes = new Uint8Array(await file.arrayBuffer())
+      const { analyzeSourceDocument } = await import('./source-document')
+      const analysis = await analyzeSourceDocument(bytes)
+      const next: WaitingImport = { fileName: file.name, bytes, ...analysis, createdAt: new Date().toISOString() }
+      await saveWaitingImport(next)
+      setWaiting(next)
+    } catch (reason) {
+      failed(reason)
+    } finally {
+      setPhase('choose')
+    }
+  }
+
   const inspect = (file: File) => {
     setPhase('inspecting')
     setProposal(null)
+    setPaired(null)
+    setResolving(false)
+    setResolutions(new Map())
     setError(null)
     setNeedsConversion(false)
-    void inspectUploadedFile(file)
-      .then((next) => {
+    void (async () => {
+      try {
+        const next = await inspectUploadedFile(file)
+        // JSON dropped while an import waits is the assistant's answer to
+        // it: the two are paired with nothing but that.
+        const source = isRecordFile(file) ? await readWaitingImport().catch(() => null) : null
         setProposal(next)
         setSelection(initialSelection(next, targetBankId ? { targetBankId } : {}))
         setNames(Object.fromEntries(next.banks.map((bank) => [bank.id, bank.record.bank.name])))
         // A Test is what a teacher converting a test came for, so it is what
         // the preview opens on when there is one.
         setFocus(next.exams[0] ? { kind: 'exam', key: next.exams[0].key } : { kind: 'bank', id: next.banks[0]!.id })
-      })
-      .catch((reason) => {
-        setNeedsConversion(fileNeedsConversion(reason))
-        setError(
-          reason instanceof Error && reason.message
-            ? reason.message
-            : 'This file could not be inspected safely.',
-        )
+        if (source) {
+          setWaiting(source)
+          setPaired(checkAgainstSourceDocument(next, source))
+        }
         setPhase('choose')
-      })
-      .then(() => setPhase('choose'))
+      } catch (reason) {
+        const code = reason instanceof Error && 'code' in reason ? reason.code : null
+        if (!isRecordFile(file) && code === 'missing-attachment') {
+          const existing = await readWaitingImport().catch(() => null)
+          if (existing) {
+            setWaiting(existing)
+            setReplacing(file)
+            setPhase('choose')
+            return
+          }
+          await startSourceDocument(file)
+          return
+        }
+        failed(reason)
+        setPhase('choose')
+      }
+    })()
+  }
+
+  const discard = async () => {
+    await discardWaitingImport().catch(() => undefined)
+    setWaiting(null)
+    setReplacing(null)
+  }
+
+  const downloadLabeled = async () => {
+    if (!waiting) return
+    setError(null)
+    try {
+      const [{ labelSourceDocument, labeledFilename }, { browserPdfFonts }] = await Promise.all([
+        import('./source-document'),
+        import('./pdf-export'),
+      ])
+      const bytes = await labelSourceDocument(waiting.bytes, waiting.tags, browserPdfFonts)
+      const url = URL.createObjectURL(new Blob([bytes.slice().buffer as ArrayBuffer], { type: 'application/pdf' }))
+      const link = document.createElement('a')
+      link.href = url
+      link.download = labeledFilename(waiting.fileName)
+      link.click()
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'The labeled PDF could not be made.')
+    }
+  }
+
+  const copyInstructions = (tags: WaitingImport['tags'] | null) => {
+    void navigator.clipboard.writeText(fillImageTags(extractInstructions, tags)).then(() => setCopied(true))
+  }
+
+  /** Back from a review of the wrong file to the import that waits. */
+  const chooseAnother = () => {
+    setProposal(null)
+    setSelection(null)
+    setPaired(null)
+    setResolving(false)
+    setResolutions(new Map())
+    setError(null)
   }
 
   const inspectOnOpen = useRef(initialFile)
@@ -490,13 +610,33 @@ export function QuestionBankImportDialog({
 
   const counts = proposal && selection ? importCounts(proposal, selection) : null
   const importable = selection ? hasAllowedItems(selection) : false
+  const occurrences = useMemo(
+    () => (proposal && selection ? pendingImagesOf(proposal, (id) => selection.banks[id]?.allowed ?? false) : []),
+    [proposal, selection],
+  )
+  const resolvingSource: ResolvingSource | null = paired && waiting ? waiting : null
+  const mismatch = paired !== null && !paired.matches
+
+  const startResolving = () => {
+    setResolving(true)
+    if (!resolvingSource) return
+    const unfilled = occurrences.filter(({ key }) => !resolutions.has(key))
+    if (unfilled.length === 0) return
+    setFilling(true)
+    void prefilledPictures(unfilled, resolvingSource, !mismatch)
+      .then((filled) => setResolutions((current) => new Map([...filled, ...current])))
+      .finally(() => setFilling(false))
+  }
 
   const confirm = async () => {
     if (!proposal || !selection || busy || !importable) return
     setPhase('saving')
     setError(null)
     try {
-      await onImport(proposal, selection)
+      await onImport(proposal, selection, {
+        resolution: resolving ? acceptedPictures(resolutions) : new Map(),
+        finishesWaitingImport: paired !== null,
+      })
     } catch (reason) {
       setError(
         reason instanceof Error && reason.message
@@ -570,6 +710,7 @@ export function QuestionBankImportDialog({
         className={[
           'bank-import-dialog',
           proposal ? 'bank-import-dialog--review' : '',
+          proposal && resolving ? 'bank-import-dialog--resolve' : '',
         ]
           .filter(Boolean)
           .join(' ')}
@@ -582,7 +723,78 @@ export function QuestionBankImportDialog({
           <h2 id={titleId}>Import</h2>
         </header>
 
-        {!proposal && (
+        {!proposal && replacing && waiting && (
+          <div className="bank-import-choose">
+            <div className="bank-import-assist" data-emphasis="true" role="alert">
+              <span>
+                <strong>An import is already waiting for {waiting.fileName}.</strong>{' '}
+                Start a new one from {replacing.name} instead? The waiting import
+                and its PDF will be removed from this browser.
+              </span>
+              <span className="bank-import-assist-actions">
+                <button type="button" className="secondary-button" disabled={busy} onClick={() => setReplacing(null)}>
+                  Keep waiting import
+                </button>
+                <button type="button" className="primary-button" disabled={busy} onClick={() => void startSourceDocument(replacing)}>
+                  Replace it
+                </button>
+              </span>
+            </div>
+          </div>
+        )}
+
+        {!proposal && !replacing && waiting && (
+          <div className="bank-import-choose source-document-waiting" aria-label="Waiting for your AI assistant" role="region">
+            <p className="source-document-found" role="status">
+              Found {plural(waiting.tags.length, 'picture')} in {waiting.fileName}.
+            </p>
+            <p className="source-document-note">
+              Test Parrot numbered each picture on a labeled copy of your PDF, so an
+              AI assistant can say which picture goes where. Your PDF stays in this
+              browser only until this import finishes, for at most seven days.
+            </p>
+            <ol className="source-document-steps">
+              <li>
+                <span><strong>Download the labeled PDF</strong> and attach it to your AI chat.</span>
+                <button type="button" className="secondary-button" disabled={busy} onClick={() => void downloadLabeled()}>
+                  <Download aria-hidden="true" />Download labeled PDF
+                </button>
+              </li>
+              <li>
+                <span><strong>Copy the instructions</strong>, which list those picture numbers, and paste them in the same chat.</span>
+                <button type="button" className="secondary-button" disabled={busy} onClick={() => copyInstructions(waiting.tags)}>
+                  {copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
+                  {copied ? 'Copied' : 'Copy instructions'}
+                </button>
+              </li>
+              <li><span><strong>Drop the JSON file</strong> the assistant gives back here.</span></li>
+            </ol>
+            <label className="bank-import-drop">
+              <input
+                ref={input}
+                type="file"
+                aria-label="JSON file from your AI assistant"
+                accept="application/json,.json"
+                disabled={busy}
+                onChange={(event) => {
+                  const file = event.target.files?.[0]
+                  event.target.value = ''
+                  if (file) inspect(file)
+                }}
+              />
+              <UploadCloud aria-hidden="true" />
+              <strong>JSON file from your AI assistant</strong>
+              <span>Drop it here or click to choose it</span>
+            </label>
+            <p className="source-document-discard">
+              <button type="button" className="link-button" disabled={busy} onClick={() => void discard()}>
+                Discard this import
+              </button>
+            </p>
+          </div>
+        )}
+
+        {!proposal && !waiting && (
           <div className="bank-import-choose">
             {/* The whole dashed zone is the file control: dropping on it lands
                 in the window-level drop target, clicking it opens the picker,
@@ -591,7 +803,7 @@ export function QuestionBankImportDialog({
               <input
                 ref={input}
                 type="file"
-                aria-label="Test Parrot PDF or JSON file"
+                aria-label="Your test PDF or a Test Parrot file"
                 accept="application/pdf,.pdf,application/json,.json"
                 disabled={busy}
                 onChange={(event) => {
@@ -603,8 +815,8 @@ export function QuestionBankImportDialog({
                 }}
               />
               <UploadCloud aria-hidden="true" />
-              <strong>Test Parrot PDF or JSON file</strong>
-              <span>A Question Bank or Test PDF, or a <code>.parrot.json</code> file</span>
+              <strong>Your test as a PDF, or a Test Parrot file</strong>
+              <span>A test to convert, a Question Bank or Test PDF, or a <code>.parrot.json</code> file</span>
               <span>Drop it here or click to choose one</span>
             </label>
             <div
@@ -616,16 +828,17 @@ export function QuestionBankImportDialog({
                 {needsConversion ? (
                   <>
                     <strong>That file isn’t a Test Parrot file yet.</strong>{' '}
-                    Copy these instructions and give them to an AI along with
-                    your test — as a PDF, scan or screenshot — and it will
-                    produce a file with your questions and the test itself,
-                    ready to drop here.
+                    Drop your test here as a PDF to keep its pictures, or copy
+                    these instructions and give them to an AI along with a scan
+                    or screenshot of it — it will produce a file with your
+                    questions and the test itself, ready to drop here.
                   </>
                 ) : (
                   <>
-                    Already have a test? Copy these instructions for an AI to
-                    turn any PDF or screenshot into a file with your questions
-                    and the test itself, ready to import here.
+                    Already have a test? Drop its PDF here to keep its pictures.
+                    For a photo, a Word document or pasted text, copy these
+                    instructions for an AI to turn it into a file with your
+                    questions and the test itself, ready to import here.
                   </>
                 )}
               </span>
@@ -633,9 +846,7 @@ export function QuestionBankImportDialog({
                 type="button"
                 className={needsConversion ? 'primary-button' : 'secondary-button'}
                 disabled={busy}
-                onClick={() => {
-                  void navigator.clipboard.writeText(extractInstructions).then(() => setCopied(true))
-                }}
+                onClick={() => copyInstructions(null)}
               >
                 {copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
                 {copied ? 'Copied' : 'Copy instructions'}
@@ -650,11 +861,42 @@ export function QuestionBankImportDialog({
           aria-atomic="true"
         >
           {phase === 'inspecting' && <p role="status">Validating file…</p>}
+          {phase === 'analyzing' && <p role="status">Finding the pictures in your PDF…</p>}
           {phase === 'saving' && <p role="status">Importing…</p>}
           {error && !needsConversion && <p className="home-error" role="alert">{error}</p>}
         </div>
 
-        {proposal && selection && focus && (
+        {proposal && mismatch && waiting && (
+          <div className="bank-import-mismatch" role="alert">
+            <p>
+              <strong>This file seems to come from a different test than {waiting.fileName}.</strong>{' '}
+              {paired!.unknownTags.length > 0
+                ? `It names ${paired!.unknownTags.map((tag) => `IMG ${tag}`).join(', ')}, which your PDF does not have. `
+                : ''}
+              {paired!.stemsChecked > 0 && paired!.stemsFound * 2 <= paired!.stemsChecked
+                ? 'Most of its questions are not in your PDF. '
+                : ''}
+              You can import it anyway, or choose another file.
+            </p>
+            <button type="button" className="secondary-button" disabled={busy} onClick={chooseAnother}>
+              Choose another file
+            </button>
+          </div>
+        )}
+
+        {proposal && selection && resolving && (
+          <div className="bank-import-resolve">
+            <ResolveImages
+              occurrences={occurrences}
+              source={resolvingSource}
+              resolutions={resolutions}
+              onChange={setResolutions}
+              filling={filling}
+            />
+          </div>
+        )}
+
+        {proposal && selection && focus && !resolving && (
           <section className="bank-import-body" aria-label="Import confirmation">
             <nav className="bank-import-list" aria-labelledby={`${listId}-heading`}>
               <header>
@@ -845,17 +1087,32 @@ export function QuestionBankImportDialog({
             disabled={busy}
             onClick={onClose}
           >
-            Cancel
+            {waiting && !proposal ? 'Close' : 'Cancel'}
           </button>
-          {proposal && selection && (
+          {proposal && selection && resolving && (
+            <button type="button" className="secondary-button" disabled={busy} onClick={() => setResolving(false)}>
+              Back
+            </button>
+          )}
+          {proposal && selection && (occurrences.length === 0 || resolving) && (
+            <button
+              type="button"
+              className="primary-button"
+              disabled={busy || !importable || filling}
+              aria-describedby={`${listId}-outcome`}
+              onClick={() => void confirm()}
+            >
+              {phase === 'saving' ? 'Importing…' : mismatch ? 'Import anyway' : 'Import'}
+            </button>
+          )}
+          {proposal && selection && occurrences.length > 0 && !resolving && (
             <button
               type="button"
               className="primary-button"
               disabled={busy || !importable}
-              aria-describedby={`${listId}-outcome`}
-              onClick={() => void confirm()}
+              onClick={startResolving}
             >
-              {phase === 'saving' ? 'Importing…' : 'Import'}
+              {mismatch ? 'Continue anyway' : 'Resolve Images'}
             </button>
           )}
         </footer>
