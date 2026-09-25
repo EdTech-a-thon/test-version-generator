@@ -85,7 +85,7 @@ import {
   type PreparedExport,
 } from './export-preparation'
 import { ExportDialog } from './export-dialog'
-import { maxVersionCount, NO_SHUFFLE, seededRandom } from './export-versions'
+import { DEFAULT_VERSION_COUNT, maxVersionCount, NO_SHUFFLE, seededRandom } from './export-versions'
 import { domMeasure } from './dom-measure'
 import { ownDocumentMedia, saveImage } from './local-images'
 import { configurePastedImages, settlePendingMedia } from './pasted-images'
@@ -2482,7 +2482,7 @@ function ExamEditor({
             writeExportPreferences({ format: configuration.format, selection: configuration.selection })
             writeShufflePreferences(examId, {
               shuffle: configuration.shuffle ?? NO_SHUFFLE,
-              versionCount: configuration.versionCount ?? 1,
+              versionCount: configuration.versionCount ?? DEFAULT_VERSION_COUNT,
             })
             setExportDialog((current) => (current ? { ...current, configuration } : current))
           }}

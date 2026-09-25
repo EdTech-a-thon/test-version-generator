@@ -229,6 +229,9 @@ describe('global Export preferences', () => {
 
     values.set('test-parrot-export-shuffle-v1', JSON.stringify({ 'exam-1': { shuffle: 'yes', versionCount: -1 } }))
     expect(readShufflePreferences('exam-1')).toEqual({ shuffle: { questions: false, answers: false }, versionCount: 2 })
+    // A count box left empty stores no count, and the checkboxes survive it.
+    values.set('test-parrot-export-shuffle-v1', JSON.stringify({ 'exam-1': { shuffle: { questions: true, answers: true }, versionCount: null } }))
+    expect(readShufflePreferences('exam-1')).toEqual({ shuffle: { questions: true, answers: true }, versionCount: 2 })
     values.set('test-parrot-export-shuffle-v1', 'not json')
     expect(readShufflePreferences('exam-2')).toEqual({ shuffle: { questions: false, answers: false }, versionCount: 2 })
   })
@@ -612,7 +615,7 @@ describe('shuffled Versions', () => {
     expect(prepared.record.selection).toEqual({ test: false, answerKey: true })
   })
 
-  test('an export that shuffles nothing prints the Working Copy unlabelled and records no Version', () => {
+  test('an export that shuffles nothing prints the Working Copy unlabeled and records no Version', () => {
     const prepared = prepareExport(request())
 
     expect(prepared.record.versions).toBeUndefined()

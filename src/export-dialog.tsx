@@ -6,7 +6,7 @@ import type {
   ExportConfiguration,
   PreparationProgress,
 } from './export-preparation'
-import { NO_SHUFFLE, shufflesAnything } from './export-versions'
+import { DEFAULT_VERSION_COUNT, NO_SHUFFLE, shufflesAnything, versionCountError } from './export-versions'
 
 function progressMessage(progress: PreparationProgress): string {
   return progress.stage === 'planning'
@@ -67,14 +67,8 @@ export function ExportDialog({
     : null
   const shuffle = configuration.shuffle ?? NO_SHUFFLE
   const shuffling = shufflesAnything(shuffle)
-  const versionCount = configuration.versionCount ?? 1
-  const versionError = !shuffling || empty
-    ? null
-    : maxVersions < 1
-      ? 'Nothing on this Exam can be shuffled with these options.'
-      : !Number.isInteger(versionCount) || versionCount < 1 || versionCount > maxVersions
-        ? `Choose from 1 to ${maxVersions} ${maxVersions === 1 ? 'Version' : 'Versions'} for this Exam.`
-        : null
+  const versionCount = configuration.versionCount ?? DEFAULT_VERSION_COUNT
+  const versionError = !shuffling || empty ? null : versionCountError(versionCount, maxVersions)
   const invalid =
     selectionError !== null || emptyError !== null || blocked !== null || versionError !== null
 

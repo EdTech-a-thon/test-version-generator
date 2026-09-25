@@ -170,6 +170,30 @@ describe('an Exam PDF carrying its Exam', () => {
     expect(printed(imported, importedOrder)).toEqual(printed(exam, arrangement))
   })
 
+  test('a shuffled answer-key PDF carries the Exam as authored, not one Exam per Version', async () => {
+    const shuffled = await withExamPackage(
+      prepared({
+        format: 'pdf',
+        selection: { test: true, answerKey: true },
+        shuffle: { questions: true, answers: true },
+        versionCount: 3,
+      }),
+      { exam, arrangement, ownerOf, loadMedia: noImages },
+    )
+    expect(shuffled.record.versions).toHaveLength(3)
+    const pdf = await createPublicationPdf(shuffled.documents, noImages, fonts, shuffled.record.examPackage)
+
+    const proposal = await inspectImportFile(pdf)
+    expect(proposal.exams).toHaveLength(1)
+    let next = 0
+    const plan = planImport(proposal, initialSelection(proposal), () => `local-${next++}`)
+    const { exam: imported, arrangement: importedOrder } = selectedExam(
+      plan.exams[0]!.saved.questionBank,
+      plan.exams[0]!.saved.workingCopy,
+    )
+    expect(printed(imported, importedOrder)).toEqual(printed(exam, arrangement))
+  })
+
   test('a student-only PDF and a DOCX carry nothing, and the pages are unchanged', async () => {
     const studentOnly = await withExamPackage(
       prepared({ format: 'pdf', selection: { test: true, answerKey: false } }),

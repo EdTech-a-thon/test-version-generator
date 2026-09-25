@@ -1,13 +1,7 @@
 import { useId, useLayoutEffect, useRef, useState } from 'react'
 import { ExportPreview } from './exam-page'
 import type { ExportContentSelection } from './export-plan'
-import type { ExportRecord } from './export-preparation'
-
-/** What a teacher chose to reprint from one record. */
-export type ReprintChoice = {
-  versions?: string[]
-  selection: ExportContentSelection
-}
+import type { ExportRecord, ReprintChoice } from './export-preparation'
 
 function creationTime(createdAt: string): string {
   const date = new Date(createdAt)
@@ -227,7 +221,12 @@ export function HistoricalExportRecord({
         </div>
       )}
       <div className="historical-document-pages">
-        {record.plans.map((plan, index) => (
+        {/* The pages shown are the pages a re-export prints, so ticking one
+            Version steps the view to it. */}
+        {record.plans.filter((plan) =>
+          (plan.selection.answerKey ? choice.selection.answerKey : choice.selection.test)
+          && (!record.versions || choice.versions.includes(plan.arrangement.version ?? '')),
+        ).map((plan, index) => (
           <div className="historical-paper" key={`${plan.arrangement.id}-${plan.pages[0]?.stream}-${index}`}>
             {plan.arrangement.version && (
               <p className="historical-paper-label">

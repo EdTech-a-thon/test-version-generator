@@ -14,9 +14,12 @@ import {
 } from './export-plan'
 import { imageSourcesOf } from './export-media'
 import {
+  DEFAULT_VERSION_COUNT,
+  NO_SHUFFLE,
   maxVersionCount,
   shuffledArrangements,
   shufflesAnything,
+  versionCountError,
   versionNames,
   type ShuffleOptions,
 } from './export-versions'
@@ -68,8 +71,8 @@ export function writeExportPreferences(configuration: ExportConfiguration): void
 export type ShufflePreferences = { shuffle: ShuffleOptions; versionCount: number }
 
 const DEFAULT_SHUFFLE_PREFERENCES: ShufflePreferences = {
-  shuffle: { questions: false, answers: false },
-  versionCount: 2,
+  shuffle: NO_SHUFFLE,
+  versionCount: DEFAULT_VERSION_COUNT,
 }
 
 const SHUFFLE_PREFERENCES_KEY = 'test-parrot-export-shuffle-v1'
@@ -88,18 +91,14 @@ function storedShufflePreferences(): Record<string, unknown> {
 export function readShufflePreferences(examId: string): ShufflePreferences {
   if (typeof localStorage === 'undefined') return DEFAULT_SHUFFLE_PREFERENCES
   const value = storedShufflePreferences()[examId] as Partial<ShufflePreferences> | undefined
-  if (
-    typeof value?.shuffle?.questions === 'boolean'
-    && typeof value.shuffle.answers === 'boolean'
-    && Number.isInteger(value.versionCount)
-    && value.versionCount! >= 1
-  ) {
-    return {
-      shuffle: { questions: value.shuffle.questions, answers: value.shuffle.answers },
-      versionCount: value.versionCount!,
-    }
-  }
-  return DEFAULT_SHUFFLE_PREFERENCES
+  // Each half stands alone, so a count box left empty keeps the checkboxes.
+  const shuffle = typeof value?.shuffle?.questions === 'boolean' && typeof value.shuffle.answers === 'boolean'
+    ? { questions: value.shuffle.questions, answers: value.shuffle.answers }
+    : DEFAULT_SHUFFLE_PREFERENCES.shuffle
+  const versionCount = Number.isInteger(value?.versionCount) && value!.versionCount! >= 1
+    ? value!.versionCount!
+    : DEFAULT_SHUFFLE_PREFERENCES.versionCount
+  return { shuffle, versionCount }
 }
 
 export function writeShufflePreferences(examId: string, preferences: ShufflePreferences): void {
@@ -259,6 +258,13 @@ function narrowedRecord(
   }
 }
 
+/** What a teacher chose to reprint from one record: some of its Versions,
+ *  some of its documents, or — each left out — everything it printed. */
+export type ReprintChoice = {
+  versions?: readonly string[]
+  selection?: ExportContentSelection
+}
+
 /**
  * Select a historical artifact without current authoring or layout input:
  * all of it, or some of its Versions and documents. Either way it is a new
@@ -270,12 +276,8 @@ export function prepareHistoricalExport({
   selection,
   createdAt,
   createId = () => crypto.randomUUID(),
-}: {
+}: ReprintChoice & {
   record: ExportRecord
-  /** The Versions to reprint; every one the record printed when absent. */
-  versions?: readonly string[]
-  /** What to reprint of each; the record's own Content Selection when absent. */
-  selection?: ExportContentSelection
   createdAt: string
   createId?: () => string
 }): PreparedExport {
@@ -314,16 +316,9 @@ function versionsToPrint({
 }): { arrangement: Arrangement; name?: string }[] {
   const { shuffle } = configuration
   if (!shuffle || !shufflesAnything(shuffle)) return [{ arrangement }]
-  const count = configuration.versionCount ?? 1
-  const max = maxVersionCount(exam, arrangement, shuffle)
-  if (max < 1) {
-    throw new Error('Nothing on this Exam can be shuffled with these options.')
-  }
-  if (!Number.isInteger(count) || count < 1 || count > max) {
-    throw new Error(
-      `Choose from 1 to ${max} ${max === 1 ? 'Version' : 'Versions'} for this Exam.`,
-    )
-  }
+  const count = configuration.versionCount ?? DEFAULT_VERSION_COUNT
+  const refusal = versionCountError(count, maxVersionCount(exam, arrangement, shuffle))
+  if (refusal) throw new Error(refusal)
   const arrangements = shuffledArrangements({ exam, arrangement, shuffle, count, random, createId })
   const names = versionNames(count, usedVersionNames(history), random)
   return arrangements.map((paper, index) => ({ arrangement: paper, name: names[index]! }))

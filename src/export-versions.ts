@@ -29,6 +29,19 @@ export const NO_SHUFFLE: ShuffleOptions = { questions: false, answers: false }
  *  allows: each is a whole test and key to lay out and download at once. */
 export const MAX_VERSIONS = 50
 
+/** How many Versions the dialog offers before a teacher chooses. */
+export const DEFAULT_VERSION_COUNT = 2
+
+/** Why `count` Versions cannot print when the options allow `max`, or null
+ *  when they can. The dialog and preparation share it, so they refuse alike. */
+export function versionCountError(count: number, max: number): string | null {
+  if (max < 1) return 'Nothing on this Exam can be shuffled with these options.'
+  if (!Number.isInteger(count) || count < 1 || count > max) {
+    return `Choose from 1 to ${max} ${max === 1 ? 'Version' : 'Versions'} for this Exam.`
+  }
+  return null
+}
+
 export function shufflesAnything(shuffle: ShuffleOptions | undefined): boolean {
   return shuffle !== undefined && (shuffle.questions || shuffle.answers)
 }
@@ -220,7 +233,7 @@ export function versionNames(
       }
     }
     if (name === undefined) {
-      throw new Error('This Exam has used every Version name. Export it as a new Exam to keep going.')
+      throw new Error('This Exam has used every Version name. Save it as a new Exam to keep going.')
     }
     used.add(name)
     names.push(name)

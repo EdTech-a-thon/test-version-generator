@@ -93,7 +93,7 @@ test('the margin restores the default header', async ({ page }) => {
   await field(page).fill('')
   await field(page).press('Escape')
   await expect(field(page)).toHaveValue('')
-  await expect(header).toBeVisible()
+  await expect(header.locator('.page-id')).toHaveText('')
 
   await header.hover()
   await page.getByRole('button', { name: 'Restore the default header' }).click()
