@@ -11,7 +11,7 @@ import { stemNodesOf, type ProseMirrorJSON } from './question-doc'
 import type { QuestionBankResource } from './question-bank-workspaces'
 
 export const QUESTION_BANK_FORMAT = 'test-parrot/question-bank'
-export const QUESTION_BANK_FORMAT_VERSION = '0.3.0'
+export const QUESTION_BANK_FORMAT_VERSION = '0.4.0'
 export const QUESTION_BANK_ATTACHMENT_NAME = 'pdfcx.json'
 export const QUESTION_BANK_ATTACHMENT_DESCRIPTION = 'pdf-canonical-extraction'
 
@@ -57,6 +57,11 @@ export type SemanticMark =
     }
   | { type: 'link'; href: string; title?: string }
 
+/** What a Pending Image names instead of Media Asset bytes: the Image Tag
+ *  printed on its picture in a labeled copy of the Source Document, or only the
+ *  1-based page the picture is on. */
+export type PendingImageReference = { image: number } | { page: number }
+
 export type SemanticNode = {
   type: string
   content?: SemanticNode[]
@@ -68,6 +73,7 @@ export type SemanticNode = {
   source?: string
   header?: boolean
   asset?: string
+  pending?: PendingImageReference
   alt?: string
   caption?: string
   authoredSize?: number
@@ -234,14 +240,30 @@ function semanticMarks(node: ProseMirrorJSON): SemanticMark[] | undefined {
   })
 }
 
+/** The Pending Image an editor image node stands for, if it is one: what its
+ *  `pending` attribute names, checked, so a malformed value never reaches a
+ *  record as though it were one. */
+export function pendingImageOf(node: ProseMirrorJSON): PendingImageReference | undefined {
+  if (node.type !== 'image' && node.type !== 'image-block') return undefined
+  const pending = attributes(node).pending
+  if (typeof pending !== 'object' || pending === null) return undefined
+  const { image, page } = pending as { image?: unknown; page?: unknown }
+  const positive = (value: unknown): value is number =>
+    typeof value === 'number' && Number.isInteger(value) && value >= 1
+  if (positive(image) && page === undefined) return { image }
+  if (positive(page) && image === undefined) return { page }
+  return undefined
+}
+
 function imageSemanticNode(
   node: ProseMirrorJSON,
   mediaIds: ReadonlyMap<string, string>,
 ): SemanticNode {
   const attrs = attributes(node)
+  const pending = pendingImageOf(node)
   const source = stringValue(attrs.src)
-  const asset = mediaIds.get(source)
-  if (!asset) {
+  const asset = pending ? undefined : mediaIds.get(source)
+  if (!pending && !asset) {
     throw new Error(`Required media “${source || 'without a source'}” could not be resolved. Re-add the image and try again.`)
   }
   const authoredSize = Number(attrs.ratio)
@@ -250,7 +272,7 @@ function imageSemanticNode(
   }
   return {
     type: node.type === 'image' ? 'inline-image' : 'block-image',
-    asset,
+    ...(pending ? { pending } : { asset }),
     ...(stringValue(attrs.alt) ? { alt: stringValue(attrs.alt) } : {}),
     ...(stringValue(attrs.caption) ? { caption: stringValue(attrs.caption) } : {}),
     ...(Number.isFinite(authoredSize) ? { authoredSize } : {}),
@@ -629,7 +651,11 @@ function editorNode(node: SemanticNode): ProseMirrorJSON {
     return {
       type: node.type === 'inline-image' ? 'image' : 'image-block',
       attrs: {
-        src: `/local-images/${node.asset!.slice('sha256:'.length)}`,
+        // A Pending Image has no bytes yet, so no source: it keeps what it
+        // names, exactly, until Resolve Images gives it a Media Asset.
+        ...(node.pending
+          ? { src: '', pending: { ...node.pending } }
+          : { src: `/local-images/${node.asset!.slice('sha256:'.length)}` }),
         ...(node.alt !== undefined ? { alt: node.alt } : {}),
         ...(node.caption !== undefined ? { caption: node.caption } : {}),
         ...(node.authoredSize !== undefined ? { ratio: node.authoredSize } : {}),

@@ -1,18 +1,16 @@
-# Question Bank Record 0.3.0
-
-> **Superseded by [Question Bank Record 0.4.0](question-bank-record-0.4.0.md).** Test Parrot no longer produces `0.3.0` records; it still reads them, and this contract is frozen so that every Question Bank File already shared keeps opening. The one fixture that changes after publication is `invalid/unsupported-version.json`, which names a version no Test Parrot parser implements — each time a newer version ships, it has to name the one after that to keep meaning it.
+# Question Bank Record 0.4.0
 
 The **Question Bank Record** is the authoritative, portable representation of one complete Question Bank. It is embedded in a **Question Bank File**, whose PDF pages are only a teacher-readable preview. The record, not the pages, controls import.
 
 ## Published contract
 
 - Format: `test-parrot/question-bank`
-- Version: `0.3.0`
-- Stable schema identifier: `https://testparrot.com/formats/question-bank/0.3.0/schema.json`
-- Checked-in schema: [`/formats/question-bank/0.3.0/schema.json`](../public/formats/question-bank/0.3.0/schema.json)
-- [Canonical examples](../public/formats/question-bank/0.3.0/examples/)
-- [Invalid counterexamples](../public/formats/question-bank/0.3.0/invalid/)
-- Superseded but still readable: [Question Bank Record 0.2.0](question-bank-record-0.2.0.md) and [Question Bank Record 0.1.0](question-bank-record-0.1.0.md)
+- Version: `0.4.0`
+- Stable schema identifier: `https://testparrot.com/formats/question-bank/0.4.0/schema.json`
+- Checked-in schema: [`/formats/question-bank/0.4.0/schema.json`](../public/formats/question-bank/0.4.0/schema.json)
+- [Canonical examples](../public/formats/question-bank/0.4.0/examples/)
+- [Invalid counterexamples](../public/formats/question-bank/0.4.0/invalid/)
+- Superseded but still readable: [Question Bank Record 0.3.0](question-bank-record-0.3.0.md), [Question Bank Record 0.2.0](question-bank-record-0.2.0.md) and [Question Bank Record 0.1.0](question-bank-record-0.1.0.md)
 
 The schema is the machine-readable structural contract; this document supplies semantics that JSON Schema cannot express. Implementations must perform both structural and semantic validation.
 
@@ -23,17 +21,17 @@ Every record has these required members:
 | Member             | Meaning                                                                                                                                             |
 | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `format`           | Exactly `test-parrot/question-bank`.                                                                                                                |
-| `formatVersion`    | The exact version of this contract, `0.3.0`.                                                                                                        |
+| `formatVersion`    | The exact version of this contract, `0.4.0`.                                                                                                        |
 | `generator`        | Informational producer name and version. Consumers must not gate conformance on either value.                                                       |
 | `requiredFeatures` | Semantic capabilities required to consume the record without loss. An importer must reject an unknown entry. It may ignore unknown optional fields. |
 | `bank`             | Name, optional provenance, and non-empty ordered Questions.                                                                                         |
-| `media`            | Media Asset declarations used by Question Content; empty when no image is used.                                                                     |
+| `media`            | Media Asset declarations used by Question Content; empty when no image carries bytes.                                                               |
 
-### What 0.3.0 changed
+### What 0.4.0 changed
 
-`0.3.0` adds the `matching` Question Type and nothing else, as `0.2.0` added `true-false` and nothing else. Every `0.2.0` record — and so every `0.1.0` record — is therefore also a conforming `0.3.0` record once its `formatVersion` is restated, and migration rewrites no content. The reverse does not hold: a `0.3.0` record containing a Matching Question must be rejected by an older consumer, which is why the addition is a minor version rather than a patch.
+`0.4.0` adds the Pending Image and nothing else, as `0.3.0` added the `matching` Question Type and `0.2.0` added `true-false`. Every `0.3.0` record — and so every `0.2.0` and `0.1.0` record — is therefore also a conforming `0.4.0` record once its `formatVersion` is restated, and migration rewrites no content. The reverse does not hold: a `0.4.0` record containing a Pending Image must be rejected by an older consumer, which is why the addition is a minor version rather than a patch.
 
-A producer writes `0.3.0`. A consumer implements `0.1.0`, `0.2.0` and `0.3.0` — a Question Bank File that has already been shared must keep opening — and reports to the teacher the version the file declared, not the version it migrated to.
+A producer writes `0.4.0`. A consumer implements `0.1.0`, `0.2.0`, `0.3.0` and `0.4.0` — a Question Bank File that has already been shared must keep opening — and reports to the teacher the version the file declared, not the version it migrated to.
 
 Importers accept only exact versions for which they implement a parser or migration. They must not infer compatibility from a SemVer range or accept every `0.x` version. During major version zero, a **patch** change is a compatible clarification or addition; a **minor** change may be incompatible and requires explicit parser or migration support. Major version one will establish the first stable compatibility commitment.
 
@@ -85,7 +83,7 @@ Supported nodes are:
 
 - blocks and structure: `paragraph`, `heading` (levels 1–6), `blockquote`, `bullet-list`, `ordered-list` (optional positive `start`), `list-item`, `code-block` (optional `language`), `rule`, `table`, `table-row`, and `table-cell`;
 - inline/content nodes: `text`, `inline-math`, `display-math`, and `hard-break`;
-- images: `inline-image` and `block-image`.
+- images: `inline-image` and `block-image`, each carrying a Media Asset or a Pending Image.
 
 Text marks are `strong`, `emphasis`, `inline-code`, `strike`, `subscript`, `superscript`, and `link`. A link requires an absolute HTTP or HTTPS `href` and may have `title`. Other schemes, including `javascript:`, `data:`, `file:`, and custom application schemes, are unsafe and invalidate the record.
 
@@ -95,11 +93,13 @@ Text marks are `strong`, `emphasis`, `inline-code`, `strike`, `subscript`, `supe
 
 Marks decorate a `text` node through its ordered `marks` array. A mark's meaning applies to that text only. Consumers must preserve every supported mark and reject unsupported marks instead of flattening them. A `link` mark preserves its label in the text node and destination in `href`.
 
-## Images and Media Assets
+## Images, Media Assets and Pending Images
 
-An image node identifies its bytes with `asset: "sha256:<64 lowercase hex digits>"`. It may carry `alt`, `caption`, and `authoredSize`; authored size is a relative width from `0.05` through `1` inclusive and preserves intrinsic aspect ratio.
+An image node carries exactly one of `asset` or `pending`. It may carry `alt`, `caption`, and `authoredSize` either way; authored size is a relative width from `0.05` through `1` inclusive and preserves intrinsic aspect ratio.
 
-Each referenced asset appears exactly once in `media` with:
+### Media Assets
+
+An image node with `asset: "sha256:<64 lowercase hex digits>"` identifies its bytes. Each referenced asset appears exactly once in `media` with:
 
 - the same `id` content address;
 - `mimeType`: `image/png`, `image/jpeg`, or `image/webp`;
@@ -107,6 +107,26 @@ Each referenced asset appears exactly once in `media` with:
 - canonical source `bytes` encoded as strict base64.
 
 Every image reference must resolve, every declaration must be referenced, IDs must be unique, and the decoded MIME type, dimensions, and SHA-256 digest must match their declarations. Other locally supported image forms must be normalized to PNG before record creation; SVG is not exchanged.
+
+### Pending Images
+
+A **Pending Image** is an image whose bytes the record does not carry yet. It exists so that a producer that cannot encode image bytes — an AI assistant converting a teacher's test, for example — can still say exactly where each picture belongs. Its `pending` member is an object with exactly one member:
+
+- `image`: a positive integer naming an **Image Tag**, the numbered label such as “IMG 3” that Test Parrot prints on each picture in a labeled copy of the teacher's **Source Document**; or
+- `page`: a positive integer naming the 1-based page of the Source Document the picture is on, counted the way a PDF viewer counts pages, for a picture that has no tag.
+
+```json
+{
+  "type": "block-image",
+  "pending": { "image": 3 },
+  "alt": "Map of European trading stations c. 1750",
+  "caption": "Major European Trading Stations c. 1750"
+}
+```
+
+A Pending Image with both `asset` and `pending`, an empty `pending`, one naming both `image` and `page`, a zero, negative or fractional number, or any other member in `pending` invalidates the record. A record may hold Pending Images and an empty `media` array; every declared Media Asset must still be referenced. The same tag may appear in several places — a picture shared by several Questions is repeated in each — and names the same picture every time.
+
+A Pending Image is conforming but incomplete, as an unmatched Matching item is. A consumer keeps it as it is until it is resolved with a Media Asset, and re-exports it unchanged. Image Tags are numbered by the Source Document, not by the record: a tag means nothing without the Source Document it was printed on, and a consumer that has none must leave the Pending Image unresolved rather than guess.
 
 Image bytes intentionally have up to two physical representations in a Question Bank File: canonical source bytes inside the JSON attachment and renderer-oriented image data in the PDF preview. This supports exact, editable offline import while allowing ordinary PDF viewing. PDF image XObjects are unstable under rewriting and are never referenced by the public record; repeated preview occurrences should reuse one PDF image object where possible.
 
@@ -121,19 +141,22 @@ A conforming Question Bank File is an ordinary, unencrypted PDF. It carries exac
 | description (`/Desc`)                            | `pdf-canonical-extraction` |
 | associated-file relationship (`/AFRelationship`) | `Source`                   |
 
-The PDF preview is a teacher aid containing answers. It is generated from the record but is not authoritative, and pagination has no durable parity promise. Rewriting or printing the PDF can strip the attachment and leave a preview-only document. Importers must never reconstruct Questions from PDF page text, images, annotations, OCR, or layout.
+The PDF preview is a teacher aid containing answers. It is generated from the record but is not authoritative, and pagination has no durable parity promise. Rewriting or printing the PDF can strip the attachment and leave a preview-only document. Where the record has a Pending Image, the preview draws a bordered “picture needed” box naming its tag or page instead of a picture.
+
+Importers must never reconstruct Questions from PDF page text, images, annotations, OCR, or layout. Question Content comes only from the record. The one thing a PDF may supply is the bytes of a Pending Image, and only from the Source Document that Pending Image names — never from a Question Bank File’s own preview.
 
 ## Examples and counterexamples
 
-The canonical examples cover a minimal Multiple Choice bank, a True/False bank, a Matching bank with a distractor and an unmatched item, Short Answer with Suggested Answer, every supported rich-text node and mark, provenance and external links, and referenced Media Assets. Their formatting and generator values are deliberately not Test Parrot output requirements.
+The canonical examples cover a minimal Multiple Choice bank, a True/False bank, a Matching bank with a distractor and an unmatched item, Short Answer with Suggested Answer, every supported rich-text node and mark, provenance and external links, referenced Media Assets, and Pending Images: a tag in a stem, tags as Multiple Choice answers, a tag shared by two Questions, and a page. Their formatting and generator values are deliberately not Test Parrot output requirements.
 
-The invalid fixture manifest records the expected application-level rejection category for unsupported versions and required features, unsafe URLs, malformed Questions, dangling references, and invalid Media Assets. Conformance tests validate examples directly with an independent JSON Schema implementation, inspect them through Test Parrot's public import seam, validate Test Parrot-generated records against the published schema, and assert that schema vocabulary, adapters, and examples remain aligned.
+The invalid fixture manifest records the expected application-level rejection category for unsupported versions and required features, unsafe URLs, malformed Questions, dangling references, invalid Media Assets, and malformed Pending Images: one with a Media Asset too, an empty one, one naming both a tag and a page, zero or negative numbers, and an unknown member. Conformance tests validate examples directly with an independent JSON Schema implementation, inspect them through Test Parrot's public import seam, validate Test Parrot-generated records against the published schema, and assert that schema vocabulary, adapters, and examples remain aligned.
 
 
 ## Implementation status
 
 The Question Bank File workflow described by ADR-0018 and GitHub issue #55 is
-implemented by the `0.3.0` exporter, importer, public fixtures, and contract
-tests, with `0.2.0` and `0.1.0` retained as consumer versions. Question Bank Files remain a resource-exchange format: they do not use
+implemented by the `0.4.0` exporter, importer, public fixtures, and contract
+tests, with `0.3.0`, `0.2.0` and `0.1.0` retained as consumer versions. Pending
+Images and Resolve Images are described by ADR-0024 and GitHub issue #88. Question Bank Files remain a resource-exchange format: they do not use
 Exam Export Documents or Layout Plans and do not create Exam Export Records or
 Question Bank export history.

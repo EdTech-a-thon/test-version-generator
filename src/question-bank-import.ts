@@ -4,6 +4,7 @@ import type { ProseMirrorJSON } from './question-doc'
 import questionBankSchema010 from './question-bank-record-0.1.0.schema.json'
 import questionBankSchema020 from './question-bank-record-0.2.0.schema.json'
 import questionBankSchema030 from './question-bank-record-0.3.0.schema.json'
+import questionBankSchema040 from './question-bank-record-0.4.0.schema.json'
 import {
   QUESTION_BANK_ATTACHMENT_DESCRIPTION,
   QUESTION_BANK_FORMAT,
@@ -117,6 +118,9 @@ export type QuestionBankImportProposal = {
      *  may be shared mid-authoring — so it is reported rather than refused. */
     questionsWithoutCorrectAnswer: number
     mediaAssets: number
+    /** Images that name an Image Tag or a page of a Source Document instead
+     *  of carrying bytes: conforming, and left for Resolve Images. */
+    pendingImages: number
     decodedMediaBytes: number
     externalLinks: boolean
     formatVersion: string
@@ -239,6 +243,7 @@ const ajv = new Ajv2020({ allErrors: true, strict: false })
 const validate010 = ajv.compile(questionBankSchema010)
 const validate020 = ajv.compile(questionBankSchema020)
 const validate030 = ajv.compile(questionBankSchema030)
+const validate040 = ajv.compile(questionBankSchema040)
 
 function schemaMessage(errors: ErrorObject[] | null | undefined): string {
   const first = errors?.[0]
@@ -271,6 +276,7 @@ function copyNode(node: SemanticNode): SemanticNode {
     ...(node.source !== undefined ? { source: node.source } : {}),
     ...(node.header !== undefined ? { header: node.header } : {}),
     ...(node.asset !== undefined ? { asset: node.asset } : {}),
+    ...(node.pending !== undefined ? { pending: { ...node.pending } } : {}),
     ...(node.alt !== undefined ? { alt: node.alt } : {}),
     ...(node.caption !== undefined ? { caption: node.caption } : {}),
     ...(node.authoredSize !== undefined ? { authoredSize: node.authoredSize } : {}),
@@ -322,6 +328,56 @@ function copyQuestion(question: QuestionBankRecordQuestion): QuestionBankRecordQ
 
 type SchemaValidator = (value: unknown) => boolean
 
+function valueAt(value: unknown, pointer: string): unknown {
+  return pointer
+    .split('/')
+    .filter(Boolean)
+    .reduce<unknown>((current, part) =>
+      typeof current === 'object' && current !== null
+        ? (current as Record<string, unknown>)[part]
+        : undefined, value)
+}
+
+/**
+ * A malformed Pending Image is lifted out of the generic structural failure,
+ * as an unsafe link is: it is the mistake an assistant converting a test is
+ * most likely to make, and the message should say what a Pending Image is
+ * rather than name a JSON pointer. One that names nothing is a reference to
+ * nothing; any other malformation makes its Question invalid.
+ */
+function malformedPendingImage(
+  errors: ErrorObject[] | null | undefined,
+  value: unknown,
+  sourceVersion: string,
+): QuestionBankImportError | undefined {
+  for (const error of errors ?? []) {
+    const path = error.instancePath.replace(/\/pending(?:\/.*)?$/, '')
+    const node = valueAt(value, path)
+    if (typeof node !== 'object' || node === null || !('pending' in node)) continue
+    const { type, pending, asset } = node as { type?: unknown; pending?: unknown; asset?: unknown }
+    if (type !== 'inline-image' && type !== 'block-image') continue
+    if (sourceVersion !== '0.4.0') {
+      return new QuestionBankImportError(
+        'invalid-question',
+        `Pending Images need Question Bank Record 0.4.0; this record declares ${sourceVersion}.`,
+      )
+    }
+    if (typeof pending === 'object' && pending !== null && Object.keys(pending).length === 0) {
+      return new QuestionBankImportError(
+        'dangling-reference',
+        'A Pending Image names neither an Image Tag nor a page.',
+      )
+    }
+    return new QuestionBankImportError(
+      'invalid-question',
+      asset !== undefined
+        ? 'An image carries both a Media Asset and a Pending Image; it may carry only one.'
+        : 'A Pending Image must name exactly one positive whole-number `image` tag or `page`, and nothing else.',
+    )
+  }
+  return undefined
+}
+
 /**
  * Structural validation against one version's schema, then the same copy into
  * the parsed shape. Versions differ in what their schema admits, not in how a
@@ -344,18 +400,14 @@ function parseWith(
         error.instancePath.endsWith('/href'),
     )
     if (unsafeLink) {
-      const href = unsafeLink.instancePath
-        .split('/')
-        .filter(Boolean)
-        .reduce<unknown>((current, part) =>
-          typeof current === 'object' && current !== null
-            ? (current as Record<string, unknown>)[part]
-            : undefined, value)
+      const href = valueAt(value, unsafeLink.instancePath)
       throw new QuestionBankImportError(
         'unsafe-url',
         `The link “${String(href)}” is unsafe. Question Bank links must use absolute HTTP or HTTPS URLs.`,
       )
     }
+    const pendingError = malformedPendingImage(validate.errors, value, sourceVersion)
+    if (pendingError) throw pendingError
     throw new QuestionBankImportError(
       'invalid-structure',
       schemaMessage(validate.errors),
@@ -404,10 +456,11 @@ function parseWith(
 
 /**
  * Every retained version migrates forward without rewriting anything. 0.2.0
- * added `true-false` to 0.1.0, and 0.3.0 added `matching` to 0.2.0; neither
- * can appear in an older record, and neither version changed anything an
- * older record already says — so a record that satisfies an older schema is
- * already a conforming 0.3.0 record once its version is restated.
+ * added `true-false` to 0.1.0, 0.3.0 added `matching` to 0.2.0, and 0.4.0
+ * added Pending Images to 0.3.0; none can appear in an older record, and no
+ * version changed anything an older record already says — so a record that
+ * satisfies an older schema is already a conforming 0.4.0 record once its
+ * version is restated.
  */
 const parser010: Parser = (value) => parseWith(validate010, '0.1.0', value)
 
@@ -415,9 +468,16 @@ const parser020: Parser = (value) => parseWith(validate020, '0.2.0', value)
 
 const parser030: Parser = (value) => parseWith(validate030, '0.3.0', value)
 
+const parser040: Parser = (value) => parseWith(validate040, '0.4.0', value)
+
 /** Exact versions only: adding compatibility requires adding an explicit parser or migration. */
 export const SUPPORTED_QUESTION_BANK_VERSIONS: Readonly<Record<string, Parser>> =
-  Object.freeze({ '0.1.0': parser010, '0.2.0': parser020, '0.3.0': parser030 })
+  Object.freeze({
+    '0.1.0': parser010,
+    '0.2.0': parser020,
+    '0.3.0': parser030,
+    '0.4.0': parser040,
+  })
 
 const utf8 = new TextDecoder('utf-8', { fatal: true })
 
@@ -489,6 +549,7 @@ function assertSafeUrl(value: string): void {
 
 type DocumentStats = {
   count: number
+  pendingImages: number
   depth: number
   mediaReferences: Set<string>
   externalLinks: boolean
@@ -497,6 +558,7 @@ type DocumentStats = {
 function inspectDocument(document: SemanticDocument): DocumentStats {
   let count = 0
   let depth = 0
+  let pendingImages = 0
   let externalLinks = false
   const mediaReferences = new Set<string>()
   const visit = (node: SemanticNode, atDepth: number) => {
@@ -509,7 +571,11 @@ function inspectDocument(document: SemanticDocument): DocumentStats {
       }
     }
     if (node.type === 'inline-image' || node.type === 'block-image') {
-      const reference = (node as SemanticNode & { asset?: string }).asset
+      if (node.pending !== undefined) {
+        pendingImages += 1
+        return
+      }
+      const reference = node.asset
       if (typeof reference !== 'string') {
         throw new QuestionBankImportError(
           'dangling-reference',
@@ -521,7 +587,7 @@ function inspectDocument(document: SemanticDocument): DocumentStats {
     for (const child of node.content ?? []) visit(child, atDepth + 1)
   }
   for (const node of document.content) visit(node, 1)
-  return { count, depth, mediaReferences, externalLinks }
+  return { count, depth, pendingImages, mediaReferences, externalLinks }
 }
 
 function validatedBase64Size(value: string): number {
@@ -641,6 +707,7 @@ async function validateSemantics(
   const references = new Set<string>()
   const topics = new Set<string>()
   let questionsWithoutCorrectAnswer = 0
+  let pendingImages = 0
   let externalLinks = false
   const counts: Record<QuestionBankRecordQuestionType, number> = {
     'multiple-choice': 0,
@@ -763,6 +830,7 @@ async function validateSemantics(
     for (const document of documents) {
       const stats = inspectDocument(document)
       questionNodes += stats.count
+      pendingImages += stats.pendingImages
       externalLinks ||= stats.externalLinks
       for (const reference of stats.mediaReferences) references.add(reference)
       if (stats.depth > limits.richTextDepth) {
@@ -873,6 +941,7 @@ async function validateSemantics(
     topics: [...topics].sort((left, right) => left.localeCompare(right)),
     questionsWithoutCorrectAnswer,
     mediaAssets: record.media.length,
+    pendingImages,
     decodedMediaBytes,
     externalLinks,
     formatVersion: record.sourceVersion,

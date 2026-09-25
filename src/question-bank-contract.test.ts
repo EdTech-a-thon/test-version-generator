@@ -6,8 +6,10 @@ import publicSchema010 from '../public/formats/question-bank/0.1.0/schema.json'
 import applicationSchema010 from './question-bank-record-0.1.0.schema.json'
 import publicSchema020 from '../public/formats/question-bank/0.2.0/schema.json'
 import applicationSchema020 from './question-bank-record-0.2.0.schema.json'
-import publicSchema from '../public/formats/question-bank/0.3.0/schema.json'
-import applicationSchema from './question-bank-record-0.3.0.schema.json'
+import publicSchema030 from '../public/formats/question-bank/0.3.0/schema.json'
+import applicationSchema030 from './question-bank-record-0.3.0.schema.json'
+import publicSchema from '../public/formats/question-bank/0.4.0/schema.json'
+import applicationSchema from './question-bank-record-0.4.0.schema.json'
 import {
   QUESTION_BANK_FORMAT_VERSION,
   SUPPORTED_SEMANTIC_MARK_TYPES,
@@ -48,10 +50,10 @@ function schemaEnum(definition: 'node' | 'mark', property: string): string[] {
   return schema.$defs[definition]!.properties[property]!.enum
 }
 
-describe('public Question Bank Record 0.3.0 contract', () => {
+describe('public Question Bank Record 0.4.0 contract', () => {
   test('canonical examples validate independently against the published schema', async () => {
     expect(publicSchema.$id).toBe(
-      'https://testparrot.com/formats/question-bank/0.3.0/schema.json',
+      'https://testparrot.com/formats/question-bank/0.4.0/schema.json',
     )
     expect(
       await Bun.file(
@@ -59,7 +61,7 @@ describe('public Question Bank Record 0.3.0 contract', () => {
           import.meta.dir,
           '..',
           'public',
-          'question-bank-record-0.3.0.schema.json',
+          'question-bank-record-0.4.0.schema.json',
         ),
       ).json(),
     ).toEqual(publicSchema)
@@ -74,6 +76,7 @@ describe('public Question Bank Record 0.3.0 contract', () => {
       'matching.json',
       'media-rich.json',
       'minimal-multiple-choice.json',
+      'pending-images.json',
       'provenance-and-links.json',
       'short-answer.json',
       'true-false.json',
@@ -191,6 +194,39 @@ describe('public Question Bank Record 0.3.0 contract', () => {
     )
   })
 
+  test('a Pending Image names a tag or a page, may be shared, and needs no Media Asset', async () => {
+    const proposal = await inspectQuestionBankRecord(
+      await Bun.file(join(exampleRoot, 'pending-images.json')).bytes(),
+    )
+
+    expect(proposal.summary).toMatchObject({ mediaAssets: 0, pendingImages: 6 })
+    const [inStem, asChoices, shared, byPage] = proposal.record.bank.questions
+    expect(inStem!.stem.content[1]).toEqual({
+      type: 'block-image',
+      pending: { image: 1 },
+      alt: 'Map of European trading stations in Africa and Asia around 1750',
+      caption: 'Major European Trading Stations c. 1750',
+    })
+    expect(asChoices!.choices!.map((choice) => choice.content.content[0]!.pending)).toEqual([
+      { image: 2 },
+      { image: 3 },
+      { image: 4 },
+    ])
+    expect(shared!.stem.content[0]!.pending).toEqual({ image: 1 })
+    expect(byPage!.stem.content[1]).toMatchObject({ pending: { page: 4 }, authoredSize: 0.6 })
+  })
+
+  test('a Pending Image in a record older than 0.4.0 is refused', async () => {
+    const record = (await fixture(exampleRoot, 'pending-images.json')) as { formatVersion: string }
+    record.formatVersion = '0.3.0'
+    try {
+      await inspectQuestionBankRecord(new TextEncoder().encode(JSON.stringify(record)))
+      throw new Error('unexpectedly conformed')
+    } catch (error) {
+      expect((error as QuestionBankImportError).code).toBe('invalid-question')
+    }
+  })
+
   test('invalid counterexamples are rejected with their documented application errors', async () => {
     const manifest = (await fixture(invalidRoot, 'manifest.json')) as Record<
       string,
@@ -202,11 +238,20 @@ describe('public Question Bank Record 0.3.0 contract', () => {
       'malformed-matching.json',
       'malformed-question.json',
       'malformed-true-false.json',
+      'pending-empty.json',
+      'pending-image-and-page.json',
+      'pending-negative-page.json',
+      'pending-unknown-member.json',
+      'pending-with-asset.json',
+      'pending-zero.json',
       'unsafe-url.json',
       'unsupported-required-feature.json',
       'unsupported-version.json',
     ])
+    const validate = new Ajv2020({ allErrors: true, strict: true }).compile(publicSchema)
     for (const [name, code] of Object.entries(manifest)) {
+      if (name.startsWith('pending-'))
+        expect(validate(await fixture(invalidRoot, name)), name).toBe(false)
       try {
         await inspectQuestionBankRecord(
           await Bun.file(join(invalidRoot, name)).bytes(),
@@ -303,6 +348,61 @@ describe('public Question Bank Record 0.3.0 contract', () => {
   })
 })
 
+describe('retained Question Bank Record 0.3.0 contract', () => {
+  const root030 = fixtureRootFor('0.3.0')
+
+  test('the published 0.3.0 schema is unchanged and still checked in twice', async () => {
+    expect(publicSchema030.$id).toBe(
+      'https://testparrot.com/formats/question-bank/0.3.0/schema.json',
+    )
+    expect(publicSchema030.properties.formatVersion.const).toBe('0.3.0')
+    expect(applicationSchema030).toEqual(publicSchema030)
+    expect(
+      await Bun.file(
+        join(import.meta.dir, '..', 'public', 'question-bank-record-0.3.0.schema.json'),
+      ).json(),
+    ).toEqual(publicSchema030)
+  })
+
+  test('every 0.3.0 canonical example still imports, migrated to the current version', async () => {
+    const names = await filesIn(join(root030, 'examples'))
+
+    expect(names).toEqual([
+      'complete-rich-text.json',
+      'matching.json',
+      'media-rich.json',
+      'minimal-multiple-choice.json',
+      'provenance-and-links.json',
+      'short-answer.json',
+      'true-false.json',
+    ])
+    for (const name of names) {
+      const proposal = await inspectQuestionBankRecord(
+        await Bun.file(join(root030, 'examples', name)).bytes(),
+      )
+      expect(proposal.record.formatVersion, name).toBe(QUESTION_BANK_FORMAT_VERSION)
+      expect(proposal.summary.formatVersion, name).toBe('0.3.0')
+    }
+  })
+
+  test('0.3.0 counterexamples are still rejected with their documented errors', async () => {
+    const manifest = (await fixture(join(root030, 'invalid'), 'manifest.json')) as Record<
+      string,
+      string
+    >
+
+    for (const [name, code] of Object.entries(manifest)) {
+      try {
+        await inspectQuestionBankRecord(await Bun.file(join(root030, 'invalid', name)).bytes())
+        throw new Error(`${name} unexpectedly conformed`)
+      } catch (error) {
+        expect(error, name).toBeInstanceOf(QuestionBankImportError)
+        expect((error as QuestionBankImportError).code, name).toBe(code)
+      }
+    }
+  })
+})
+
 // 0.1.0 and 0.2.0 are retired as producer versions and retained as consumer
 // ones: every Question Bank File a teacher has already shared must still open.
 // Their published contracts are therefore frozen — these are the assertions
@@ -393,7 +493,11 @@ describe('retained Question Bank Record 0.1.0 contract', () => {
 
   test('each retained version knows only the Question Types of its day', () => {
     const typeEnum = (
-      schema: typeof publicSchema010 | typeof publicSchema020 | typeof publicSchema,
+      schema:
+        | typeof publicSchema010
+        | typeof publicSchema020
+        | typeof publicSchema030
+        | typeof publicSchema,
     ) =>
       (schema as {
         $defs: { question: { properties: { type: { enum: string[] } } } }

@@ -118,11 +118,52 @@ describe('Question Bank import mapping', () => {
       'local-choice-b',
     ])
   })
+
+  test('Pending Images in stems, matching items and Word Bank answers survive import and re-export exactly', async () => {
+    const tag = (image: number) => ({ type: 'block-image', pending: { image }, alt: `Graph ${image}` })
+    const record = baseRecord()
+    record.bank.questions[0]!.stem.content.push({ type: 'inline-image', pending: { page: 2 }, caption: 'Figure' })
+    record.bank.questions.push({
+      id: 'q2',
+      type: 'matching',
+      stem: { type: 'document', content: [tag(1)] },
+      prompts: [
+        { id: 'q2-p1', content: { type: 'document', content: [tag(2)] }, answer: 'q2-a2' },
+        { id: 'q2-p2', content: paragraph('Slope 0'), answer: 'q2-a1' },
+      ],
+      wordBank: [
+        { id: 'q2-a1', content: { type: 'document', content: [tag(3)] } },
+        { id: 'q2-a2', content: paragraph('Increasing') },
+      ],
+    })
+    const proposal = await inspectQuestionBankRecord(bytesOf(record))
+    expect(proposal.summary).toMatchObject({ pendingImages: 4, mediaAssets: 0 })
+
+    const imported = importedQuestionsFromRecord(proposal.record)
+    expect(JSON.stringify(imported)).not.toContain('/local-images/')
+    const { prepareQuestionBankExport } = await import('./question-bank-export')
+    const exported = await prepareQuestionBankExport(
+      { id: 'b', name: 'Portable chemistry', createdAt: '', lastUpdatedAt: '', questions: imported },
+      async () => {
+        throw new Error('a Pending Image has no media to load')
+      },
+    )
+    expect(exported.record.media).toEqual([])
+    expect(exported.record.bank.questions.map((question) => question.stem)).toEqual(
+      proposal.record.bank.questions.map((question) => question.stem),
+    )
+    expect(exported.record.bank.questions[1]!.prompts!.map((prompt) => prompt.content)).toEqual(
+      proposal.record.bank.questions[1]!.prompts!.map((prompt) => prompt.content),
+    )
+    expect(exported.record.bank.questions[1]!.wordBank!.map((answer) => answer.content)).toEqual(
+      proposal.record.bank.questions[1]!.wordBank!.map((answer) => answer.content),
+    )
+  })
 })
 
 describe('hostile Question Bank File inspection', () => {
   test('publishes exact compatibility and production resource limits', () => {
-    expect(Object.keys(SUPPORTED_QUESTION_BANK_VERSIONS)).toEqual(['0.1.0', '0.2.0', '0.3.0'])
+    expect(Object.keys(SUPPORTED_QUESTION_BANK_VERSIONS)).toEqual(['0.1.0', '0.2.0', '0.3.0', '0.4.0'])
     expect(DEFAULT_QUESTION_BANK_IMPORT_LIMITS).toEqual({
       pdfBytes: 100 * 1024 * 1024,
       recordBytes: 75 * 1024 * 1024,
@@ -155,17 +196,17 @@ describe('hostile Question Bank File inspection', () => {
 
   test('reports the file version and exact supported versions before semantic validation', async () => {
     const source = baseRecord() as QuestionBankRecord & Record<string, unknown>
-    source.formatVersion = '0.4.0'
+    source.formatVersion = '0.5.0'
     source.requiredFeatures = ['also-unknown']
     await rejected(
       inspectQuestionBankRecord(bytesOf(source)),
       'unsupported-version',
-      '0.4.0',
+      '0.5.0',
     )
     await rejected(
       inspectQuestionBankRecord(bytesOf(source)),
       'unsupported-version',
-      '0.1.0, 0.2.0, 0.3.0',
+      '0.1.0, 0.2.0, 0.3.0, 0.4.0',
     )
   })
 

@@ -1,0 +1,199 @@
+{
+  "format": "test-parrot/question-bank",
+  "formatVersion": "0.4.0",
+  "generator": {
+    "name": "Contract Fixture Publisher",
+    "version": "1.0.0"
+  },
+  "requiredFeatures": [],
+  "bank": {
+    "name": "Pending Images",
+    "questions": [
+      {
+        "id": "q1",
+        "type": "short-answer",
+        "stem": {
+          "type": "document",
+          "content": [
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Use the map to name the trading station farthest east."
+                }
+              ]
+            },
+            {
+              "type": "block-image",
+              "pending": {
+                "image": 1
+              },
+              "alt": "Map of European trading stations in Africa and Asia around 1750",
+              "caption": "Major European Trading Stations c. 1750"
+            }
+          ]
+        }
+      },
+      {
+        "id": "q2",
+        "type": "multiple-choice",
+        "stem": {
+          "type": "document",
+          "content": [
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Which graph shows a function that is increasing everywhere?"
+                }
+              ]
+            }
+          ]
+        },
+        "choices": [
+          {
+            "id": "q2-c1",
+            "content": {
+              "type": "document",
+              "content": [
+                {
+                  "type": "block-image",
+                  "pending": {
+                    "image": 2
+                  },
+                  "alt": "Graph of a parabola opening upward"
+                }
+              ]
+            },
+            "correct": false
+          },
+          {
+            "id": "q2-c2",
+            "content": {
+              "type": "document",
+              "content": [
+                {
+                  "type": "block-image",
+                  "pending": {
+                    "image": 3
+                  },
+                  "alt": "Graph of a line rising left to right"
+                }
+              ]
+            },
+            "correct": true
+          },
+          {
+            "id": "q2-c3",
+            "content": {
+              "type": "document",
+              "content": [
+                {
+                  "type": "block-image",
+                  "pending": {
+                    "image": 4
+                  },
+                  "alt": "Graph of a sine wave"
+                }
+              ]
+            },
+            "correct": false
+          }
+        ]
+      },
+      {
+        "id": "q3",
+        "type": "multiple-choice",
+        "stem": {
+          "type": "document",
+          "content": [
+            {
+              "type": "block-image",
+              "pending": {
+                "image": 1
+              },
+              "alt": "Map of European trading stations in Africa and Asia around 1750",
+              "caption": "Major European Trading Stations c. 1750"
+            },
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Which European power held the most stations on the map?"
+                }
+              ]
+            }
+          ]
+        },
+        "choices": [
+          {
+            "id": "q3-c1",
+            "content": {
+              "type": "document",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Portugal"
+                    }
+                  ]
+                }
+              ]
+            },
+            "correct": true
+          },
+          {
+            "id": "q3-c2",
+            "content": {
+              "type": "document",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Denmark"
+                    }
+                  ]
+                }
+              ]
+            },
+            "correct": false
+          }
+        ]
+      },
+      {
+        "id": "q4",
+        "type": "short-answer",
+        "stem": {
+          "type": "document",
+          "content": [
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Describe the circuit shown below."
+                }
+              ]
+            },
+            {
+              "type": "block-image",
+              "pending": {
+                "page": 4
+              },
+              "alt": "Circuit diagram with a battery and two resistors in series",
+              "authoredSize": 0.6
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "media": []
+}
