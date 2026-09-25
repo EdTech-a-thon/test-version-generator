@@ -1,0 +1,10 @@
+[
+ {"q":1,"part":"stem","imgs":["p2#1"]},{"q":2,"part":"stem","imgs":["p2#1"]},
+ {"q":3,"part":"stem","imgs":["p3#1"]},{"q":4,"part":"stem","imgs":["p3#1"]},
+ {"q":5,"part":"stem","imgs":["p4#1"]},
+ {"q":30,"part":"stem","imgs":["p17#1"]},{"q":31,"part":"stem","imgs":["p17#1"]},{"q":32,"part":"stem","imgs":["p17#1"]},
+ {"q":35,"part":"stem","imgs":["p19#1"]},{"q":36,"part":"stem","imgs":["p19#1"]},
+ {"q":8,"part":"stem","imgs":["p6#1"],"passage":true},{"q":9,"part":"stem","imgs":["p6#1"],"passage":true},
+ {"q":26,"part":"stem","imgs":["p15#1"],"passage":true},{"q":27,"part":"stem","imgs":["p15#1"],"passage":true},
+ {"q":39,"part":"stem","imgs":["p21#1"],"passage":true}
+]

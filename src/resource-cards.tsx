@@ -81,10 +81,13 @@ export function NewResourceCard({
 export function ResourceCarousel({
   label,
   heading,
+  actions,
   children,
 }: {
   label: string
   heading: ReactNode
+  /** What the shelf offers, at the end of its bar. */
+  actions?: ReactNode
   children: ReactNode
 }) {
   const track = useRef<HTMLDivElement>(null)
@@ -120,28 +123,31 @@ export function ResourceCarousel({
     <div className="resource-carousel">
       <div className="shelf-bar">
         {heading}
-        {scrollable && (
-          <div className="carousel-arrows">
-            <button
-              type="button"
-              className="carousel-arrow"
-              aria-label={`Scroll ${label} backward`}
-              disabled={!reach.start}
-              onClick={() => step(-1)}
-            >
-              <ChevronLeft aria-hidden="true" />
-            </button>
-            <button
-              type="button"
-              className="carousel-arrow"
-              aria-label={`Scroll ${label} forward`}
-              disabled={!reach.end}
-              onClick={() => step(1)}
-            >
-              <ChevronRight aria-hidden="true" />
-            </button>
-          </div>
-        )}
+        <div className="shelf-actions">
+          {scrollable && (
+            <div className="carousel-arrows">
+              <button
+                type="button"
+                className="carousel-arrow"
+                aria-label={`Scroll ${label} backward`}
+                disabled={!reach.start}
+                onClick={() => step(-1)}
+              >
+                <ChevronLeft aria-hidden="true" />
+              </button>
+              <button
+                type="button"
+                className="carousel-arrow"
+                aria-label={`Scroll ${label} forward`}
+                disabled={!reach.end}
+                onClick={() => step(1)}
+              >
+                <ChevronRight aria-hidden="true" />
+              </button>
+            </div>
+          )}
+          {actions}
+        </div>
       </div>
       <div
         className="resource-row"

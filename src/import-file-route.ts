@@ -1,0 +1,73 @@
+import type { ImportProposal } from './package-import'
+import { checkAgainstSourceDocument, pendingImagesOf, type SourceDocumentCheck } from './pending-images'
+import { waitingImports, type WaitingImport } from './import-history'
+import { inspectUploadedFile } from './question-bank-upload'
+import { kindOfFile, startWaitingImport, unsupportedFileMessage } from './source-file'
+
+/**
+ * Where a file dropped to start an import goes. There is one way in, whatever
+ * the file:
+ *
+ * - a test — a PDF with no Test Parrot file in it, a Word document, or a
+ *   photo — starts a new import, which waits for the file its AI makes;
+ * - the file an AI made (JSON) is the answer to the import in progress it
+ *   matches, and continues that import;
+ * - a Test Parrot file is imported as it is.
+ *
+ * AI-made JSON that matches no import in progress, and names pictures only a
+ * test could supply, has nowhere to go: that is an error, with what to do.
+ * One that names no pictures — made from a test given to the AI as text —
+ * needs no test, and is imported as it is.
+ */
+export type ImportFileRoute =
+  | { to: 'waiting'; waiting: WaitingImport }
+  | { to: 'answer'; waitingImportId: string }
+  | { to: 'import' }
+  | { to: 'error'; message: string }
+
+export const NO_MATCHING_IMPORT_MESSAGE =
+  'This file doesn’t match any test waiting in Imports. Drop the test it was made from first, then this file.'
+
+/** The import in progress a file from an AI most clearly answers, if any. */
+export async function bestWaitingImport(
+  proposal: Pick<ImportProposal, 'banks'>,
+): Promise<{ source: WaitingImport; check: SourceDocumentCheck } | null> {
+  const candidates = (await waitingImports().catch(() => []))
+    .map((source) => ({ source, check: checkAgainstSourceDocument(proposal, source) }))
+    .filter(({ check }) => check.matches && check.stemsFound > 0)
+    .sort((a, b) => b.check.stemsFound - a.check.stemsFound)
+  return candidates[0] ?? null
+}
+
+const reasonOf = (reason: unknown, fallback: string) => (reason instanceof Error ? reason.message : fallback)
+
+export async function routeImportFile(file: File): Promise<ImportFileRoute> {
+  const kind = kindOfFile(file)
+  if (kind === 'other') return { to: 'error', message: unsupportedFileMessage(file) }
+  if (kind === 'record') {
+    let proposal: ImportProposal
+    try {
+      proposal = await inspectUploadedFile(file)
+    } catch (reason) {
+      return { to: 'error', message: reasonOf(reason, 'This file could not be read.') }
+    }
+    const match = await bestWaitingImport(proposal)
+    if (match) return { to: 'answer', waitingImportId: match.source.id }
+    return pendingImagesOf(proposal).length > 0 ? { to: 'error', message: NO_MATCHING_IMPORT_MESSAGE } : { to: 'import' }
+  }
+  if (kind === 'pdf') {
+    // A Question Bank File or an Exam PDF already is a Test Parrot file.
+    try {
+      await inspectUploadedFile(file)
+      return { to: 'import' }
+    } catch (reason) {
+      const code = reason instanceof Error && 'code' in reason ? reason.code : null
+      if (code !== 'missing-attachment') return { to: 'error', message: reasonOf(reason, 'This PDF could not be read.') }
+    }
+  }
+  try {
+    return { to: 'waiting', waiting: await startWaitingImport(file) }
+  } catch (reason) {
+    return { to: 'error', message: reasonOf(reason, 'This file could not be read.') }
+  }
+}

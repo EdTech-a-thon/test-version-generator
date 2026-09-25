@@ -6,12 +6,14 @@
 
 import type { Exam, Arrangement } from './exam'
 import {
+  numberLabelOf,
   planExport,
   type ExportContentSelection,
   type LayoutPlan,
   type Measure,
 } from './export-plan'
 import { imageSourcesOf } from './export-media'
+import { pendingImageOf, type ProseMirrorJSON } from './question-doc'
 
 export type ExportFormat = 'pdf' | 'docx'
 
@@ -183,6 +185,50 @@ export function prepareHistoricalExport({
   }
 }
 
+/**
+ * An Exam cannot be exported while a Question it uses still has a Pending
+ * Image: a printed test with a hole where a graph belongs is not a test. The
+ * refusal names those Questions by the numbers they print under, so the
+ * teacher can find them on the sheet.
+ */
+export class PicturesNeededError extends Error {
+  constructor(readonly questionNumbers: readonly string[]) {
+    const [last, ...rest] = [...questionNumbers].reverse()
+    const named = rest.length ? `${rest.reverse().join(', ')} and ${last}` : last
+    super(
+      questionNumbers.length === 1
+        ? `Question ${named} still needs a picture. Resolve it before exporting.`
+        : `Questions ${named} still need pictures. Resolve them before exporting.`,
+    )
+    this.name = 'PicturesNeededError'
+  }
+}
+
+function hasPendingImage(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(hasPendingImage)
+  if (!value || typeof value !== 'object') return false
+  const node = value as ProseMirrorJSON
+  return pendingImageOf(node) !== undefined || hasPendingImage(node.content)
+}
+
+function refusePendingImages(exam: Exam, test: LayoutPlan): void {
+  const needing = new Set(
+    exam.questions
+      .filter((question) => hasPendingImage(question.doc) || hasPendingImage(question.suggestedAnswer))
+      .map(({ id }) => id),
+  )
+  if (needing.size === 0) return
+  const numbers = new Map<string, string>()
+  for (const page of test.pages) {
+    for (const item of page.items) {
+      if (item.kind === 'question' && needing.has(item.question.id)) {
+        numbers.set(item.question.id, numberLabelOf(item.question))
+      }
+    }
+  }
+  throw new PicturesNeededError([...numbers.values()])
+}
+
 /** Resolve the visible Working Copy into one immutable export event. */
 export function prepareExport({
   examId,
@@ -202,6 +248,7 @@ export function prepareExport({
   }
 
   const test = planExport({ exam, arrangement, selection: TEST_ONLY, measure })
+  refusePendingImages(exam, test)
   onProgress?.({ stage: 'planning', completed: 1, total: 2 })
   const answerKey = planExport({ exam, arrangement, selection: KEY_ONLY, measure })
   onProgress?.({ stage: 'planning', completed: 2, total: 2 })

@@ -36,6 +36,26 @@ _Avoid_: Exam layout, test JSON
 A versioned bundle of one or more Question Bank Records and any number of Exam Records that reference Questions in them, versioned separately from both. It travels as a standalone JSON file or embedded in an exported Exam PDF whose Content Selection includes the answer key; importing it lets the teacher choose which banks and Exams to bring in.
 _Avoid_: Import package, bundle, transfer file
 
+**Source Document**:
+The teacher's original PDF or Word document (.docx), or a photo of their test, that an assistant converts into a Test Parrot Package. It is never authoritative for Question Content; Test Parrot uses it only to supply pictures for Pending Images, and keeps it only while its import is in progress. A photo is kept as a one-page PDF: nothing in it is tagged, so its pictures arrive as Pending Images naming page 1 and are cropped from it. A Word document has no fixed pages: its pictures are the image files it keeps, and a picture it does not keep as one, such as a chart or a shape drawn in Word, is resolved by upload. A test the teacher has only as pasted text or an older document format still converts, but has no Source Document; its pictures are resolved by upload.
+_Avoid_: Original PDF, Question Bank File
+
+**Image Tag**:
+The numbered label, such as “IMG 3”, that Test Parrot prints on each picture in a labeled copy of a Source Document — inside the picture's corner in a PDF, just before it in a Word document — so an assistant can name a picture exactly. A tag names an embedded image, not necessarily a picture: a passage stored as an image is tagged too.
+_Avoid_: Image number, image ID, label
+
+**Pending Image**:
+An image in imported Question Content that names an Image Tag, or only a page, of its Source Document instead of carrying Media Asset bytes. It stays in the Question Bank until the teacher resolves it with a Media Asset, and an Exam that uses it cannot be exported until then.
+_Avoid_: Placeholder image, dummy image
+
+**Resolve Images**:
+The step where a teacher confirms or replaces the Media Asset for each Pending Image, choosing from the Source Document's images, a crop of one of its pages, or an uploaded file. In an import it happens in the preview itself: every tagged picture is already in place, marked as detected, and clicking any picture offers the others. It can be reopened later while any remain by supplying the Source Document again.
+_Avoid_: Image doctor, image review
+
+**Import History**:
+Every import this browser has started, newest first: each test still waiting for the file its assistant makes, with its Source Document, and each finished import with what it brought in and the Pending Images it still has. Every import is its own entry — starting one never replaces or resumes another — and a waiting import that is not finished within seven days expires, its Source Document removed. It is kept outside Account Backups, like the Source Documents it holds.
+_Avoid_: Import log, upload history
+
 **Account Backup**:
 One file holding everything Test Parrot keeps in a browser: every Exam, Question Bank, Working Copy, Export History, Media Asset and preference. Restoring one replaces the browser's whole account rather than merging into it; it is refused when it comes from a storage generation this version cannot read.
 _Avoid_: Export, Question Bank File, archive
@@ -48,7 +68,7 @@ An optional, free-form label describing subject matter assessed by a question. A
 _Avoid_: Concept
 
 **Authored Image Size**:
-The width a teacher assigns to a block image relative to its printable container, such as the Question Content lane or an answer-choice cell. It preserves the image's intrinsic aspect ratio.
+The width a teacher assigns to a block image relative to its printable container, such as the Question Content lane or an answer-choice cell. It preserves the image's intrinsic aspect ratio. A picture taken from a Source Document for a Question's own content arrives at about the width it had on its page.
 _Avoid_: Image ratio, image height
 
 **Exam**:

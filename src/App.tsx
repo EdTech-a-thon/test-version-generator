@@ -73,6 +73,7 @@ import { useWorkspaceDrag } from './use-workspace-drag'
 import { WorkspaceSplit } from './workspace-split'
 import {
   DEFAULT_EXPORT_CONFIGURATION,
+  PicturesNeededError,
   prepareExport,
   prepareHistoricalExport,
   readExportPreferences,
@@ -85,6 +86,16 @@ import { ExportDialog } from './export-dialog'
 import { domMeasure } from './dom-measure'
 import { ownDocumentMedia, saveImage } from './local-images'
 import { configurePastedImages, settlePendingMedia } from './pasted-images'
+import {
+  RESOLVE_IMAGE_EVENT,
+  configurePendingImages,
+  pendingImageBlockView,
+  pendingInlineImageView,
+  type ResolveImageRequest,
+} from './pending-image-view'
+import { ResolveImagesDialog } from './resolve-images-dialog'
+import { storedPicture } from './resolved-pictures'
+import { pendingImagesOfQuestions, withStoredPictures, type PendingImageResolution, type StoredPicture } from './pending-images'
 import {
   AlignLeft,
   BookOpenText,
@@ -121,7 +132,7 @@ import {
   HEADING_SIZE_LABELS,
   TEXT_SIZES,
 } from './section-headings'
-import { BEFORE_NAVIGATE_EVENT, useRoute } from './use-route'
+import { BEFORE_NAVIGATE_EVENT, navigate, useRoute } from './use-route'
 import { Footer } from './site-chrome'
 import { HomePage } from './home-page'
 import { LandingPage, OnboardingPage } from './landing-page'
@@ -147,6 +158,7 @@ import { SettingsPage } from './settings-page'
 import { persistentStorageStatus, requestPersistentStorage, type PersistentStorageStatus } from './durable-storage'
 import { ResourceCollectionPage } from './resource-collection-page'
 import { BankFileDropTarget } from './bank-file-drop'
+import { ImportsPage, NewImportPage, WaitingImportPage } from './imports-page'
 import { questionBankCollection, type QuestionBankCollectionItem } from './resource-collections'
 import { QuestionBankExportDialog } from './question-bank-export-dialog'
 import { QuestionBankImportDialog } from './question-bank-import-dialog'
@@ -540,6 +552,8 @@ function CrepeQuestion({
       .use(matchingKeymap)
       .use(syncMatchingPicks)
       .use(keepMatching)
+      .use(pendingImageBlockView)
+      .use(pendingInlineImageView)
       .use(multipartPartsSchema)
       .use(multipartPartSchema)
       .use(multipartPartStemSchema)
@@ -554,6 +568,7 @@ function CrepeQuestion({
     // dragged within a cell or out of it.
     crepe.editor.config((ctx) => {
       configurePastedImages(ctx)
+      configurePendingImages(ctx)
       ctx.update(uploadConfig.key, (prev) => ({
         ...prev,
         enableHtmlFileUploader: true,
@@ -651,6 +666,14 @@ function QuestionDialog({
   const dialog = useRef<HTMLElement>(null)
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
+  /** A “picture needed” block's Resolve, waiting for a picture. */
+  const [resolving, setResolving] = useState<ResolveImageRequest | null>(null)
+  useEffect(() => {
+    const element = dialog.current
+    const onResolve = (event: Event) => setResolving((event as CustomEvent<ResolveImageRequest>).detail)
+    element?.addEventListener(RESOLVE_IMAGE_EVENT, onResolve)
+    return () => element?.removeEventListener(RESOLVE_IMAGE_EVENT, onResolve)
+  }, [])
 
   // Escape that lands on nothing: a click on a bare patch of the dialog, or a
   // popup closing under the focus it held, leaves focus on the document body,
@@ -739,6 +762,24 @@ function QuestionDialog({
         aria-modal="true"
         aria-label="Question editor"
       >
+        {resolving && <ResolveImagesDialog
+          occurrences={[{
+            key: 'picture',
+            bankId: '',
+            questionNumber: 0,
+            where: 'Question',
+            label: 'This picture',
+            pending: resolving.pending,
+            ...(resolving.alt ? { alt: resolving.alt } : {}),
+            ...(resolving.caption ? { caption: resolving.caption } : {}),
+          }]}
+          onClose={() => setResolving(null)}
+          onResolve={async (pictures) => {
+            const picture = pictures.get('picture')
+            if (picture) resolving.apply(await storedPicture(picture.asset), picture.authoredSize)
+            setResolving(null)
+          }}
+        />}
         <header className="dialog-header">
           <h2>{isNew ? 'Add question' : 'Edit question'}</h2>
         </header>
@@ -1478,9 +1519,23 @@ function QuestionBankTabsPane({
 
 /** The line under a bank's name: how many Questions it holds and whatever it
  *  declares about itself. A detail nobody entered is left out, not blanked. */
-function BankPageFacts({ bank }: { bank: QuestionBankResource }) {
+function BankPageFacts({
+  bank,
+  picturesNeeded = 0,
+  onResolvePictures,
+}: {
+  bank: QuestionBankResource
+  /** Pending Images still in the bank, offered to resolve in one sitting. */
+  picturesNeeded?: number
+  onResolvePictures?: () => void
+}) {
   const count = bank.questions.length
   const facts: ReactNode[] = [`${count} ${count === 1 ? 'question' : 'questions'}`]
+  if (picturesNeeded > 0) {
+    facts.push(<button type="button" className="link-button bank-page-pictures-needed" aria-haspopup="dialog" onClick={onResolvePictures}>
+      {picturesNeeded} {picturesNeeded === 1 ? 'picture' : 'pictures'} needed
+    </button>)
+  }
   if (bank.author?.trim()) facts.push(`By ${bank.author.trim()}`)
   if (bank.license?.name.trim()) {
     facts.push(bank.license.url
@@ -1533,6 +1588,22 @@ function QuestionBankPage({
     licenseUrl: initialBank.license?.url ?? '',
   })
   const [detailsBusy, setDetailsBusy] = useState(false)
+  const [resolvingPictures, setResolvingPictures] = useState(false)
+  const pendingPictures = useMemo(() => pendingImagesOfQuestions(bank.questions), [bank.questions])
+  const resolvePictures = async (pictures: PendingImageResolution) => {
+    const sources = new Map<string, StoredPicture>()
+    for (const [key, picture] of pictures) {
+      sources.set(key, { src: await storedPicture(picture.asset), ...(picture.authoredSize !== undefined ? { ratio: picture.authoredSize } : {}) })
+    }
+    let updated = bank
+    for (const question of bank.questions) {
+      const resolved = withStoredPictures(question, sources)
+      if (JSON.stringify(resolved) === JSON.stringify(question)) continue
+      updated = await bankWorkspaces.commit(bank.id, { kind: 'update-question', question: resolved })
+    }
+    setBank(updated)
+    setResolvingPictures(false)
+  }
   const [importAnnouncement] = useState(() => {
     const message = window.sessionStorage.getItem('test-parrot-import-announcement')
     window.sessionStorage.removeItem('test-parrot-import-announcement')
@@ -1596,7 +1667,11 @@ function QuestionBankPage({
               <Pencil aria-hidden="true" />
             </button>
           </div>
-          <BankPageFacts bank={bank} />
+          <BankPageFacts
+            bank={bank}
+            picturesNeeded={pendingPictures.length}
+            onResolvePictures={() => setResolvingPictures(true)}
+          />
           {nameError && <p className="home-error bank-name-error" role="alert">{nameError}</p>}
         </div>}
         extraActions={<button type="button" className="secondary-button" aria-haspopup="dialog" onClick={() => onImportInto(bank.id)}>
@@ -1611,6 +1686,11 @@ function QuestionBankPage({
         examsService={workspaces}
       />
     </div>
+    {resolvingPictures && <ResolveImagesDialog
+      occurrences={pendingPictures}
+      onClose={() => setResolvingPictures(false)}
+      onResolve={resolvePictures}
+    />}
     {editingDetails && <div className="dialog-backdrop" role="presentation">
       <section className="question-bank-details-dialog" role="dialog" aria-modal="true" aria-labelledby="bank-details-title">
         <h2 id="bank-details-title">Question Bank details</h2>
@@ -2127,6 +2207,7 @@ function ExamEditor({
 
   let exportPreview: PreparedExport | null = null
   let previewError: string | null = null
+  let exportBlocked: string | null = null
   if (exportDialog) {
     try {
       const hasNoSelectedContent =
@@ -2142,7 +2223,8 @@ function ExamEditor({
         ? { ...prepared, documents: [] }
         : prepared
     } catch (error) {
-      previewError = error instanceof Error ? error.message : 'The export cannot be prepared.'
+      if (error instanceof PicturesNeededError) exportBlocked = error.message
+      else previewError = error instanceof Error ? error.message : 'The export cannot be prepared.'
     }
   }
 
@@ -2394,6 +2476,7 @@ function ExamEditor({
           }}
           previewPlans={exportPreview?.documents ?? []}
           empty={exam.questions.length === 0}
+          blocked={exportBlocked}
           initialError={exportDialog.error ?? previewError}
           onSubmit={async (configuration, onProgress) => {
             const { withExamPackage } = await import('./exam-package-export')
@@ -2668,18 +2751,26 @@ export default function App({
   const [deletingBank, setDeletingBank] = useState<{ bank: QuestionBankCollectionItem; impact: QuestionDeletionImpact[] } | null>(null)
   const [inspectingBankFile, setInspectingBankFile] = useState(false)
   const [droppedBankFile, setDroppedBankFile] = useState<File | null>(null)
+  const [convertDrop, setConvertDrop] = useState<{ file: File; id: number } | null>(null)
   const homeError = initialError
   const [bankLibraryRevision, setBankLibraryRevision] = useState(0)
   const [importTargetBankId, setImportTargetBankId] = useState<string | null>(null)
-  const openImport = useCallback((file?: File | null, targetBankId?: string | null) => {
+  /** The waiting import the dialog finishes, when it was opened on one. */
+  const [importWaitingId, setImportWaitingId] = useState<string | null>(null)
+  /** Bumped whenever an import may have finished, for the Imports pages. */
+  const [importRevision, setImportRevision] = useState(0)
+  const openImport = useCallback((file?: File | null, targetBankId?: string | null, waitingImportId?: string | null) => {
     setDroppedBankFile(file ?? null)
     setImportTargetBankId(targetBankId ?? null)
+    setImportWaitingId(waitingImportId ?? null)
     setInspectingBankFile(true)
   }, [])
   const closeImport = useCallback(() => {
     setInspectingBankFile(false)
     setDroppedBankFile(null)
     setImportTargetBankId(null)
+    setImportWaitingId(null)
+    setImportRevision((revision) => revision + 1)
   }, [])
   const loadImportBanks = useCallback(
     async () => (await bankWorkspaces.recent()).map(({ id, name }) => ({ id, name })),
@@ -2688,8 +2779,12 @@ export default function App({
   const importBank = useCallback(async (
     proposal: import('./package-import').ImportProposal,
     selection: import('./import-selection').ImportSelection,
+    options: {
+      resolution: import('./pending-images').PendingImageResolution
+      history: { fileName: string; kind: import('./import-history').ImportFileKind; waitingImportId?: string }
+    },
   ) => {
-    const result = await bankWorkspaces.commitImport(proposal, selection)
+    const result = await bankWorkspaces.commitImport(proposal, selection, options)
     // One Exam is what a converted test is: it opens in the editor with the
     // banks it was built from as its tabs, from onboarding as from anywhere.
     const [onlyExam, ...otherExams] = result.createdExamIds
@@ -2732,6 +2827,10 @@ export default function App({
     )
     window.location.assign(`/question-bank?id=${firstBankId}`)
   }, [bankWorkspaces, closeImport, editorId, route, workspaces])
+  const picturesNeededIn = useCallback(async (bankIds: readonly string[]) => {
+    const banks = await Promise.all(bankIds.map((id) => bankWorkspaces.read(id)))
+    return banks.reduce((total, bank) => total + (bank ? pendingImagesOfQuestions(bank.questions).length : 0), 0)
+  }, [bankWorkspaces])
   const requestBankDeletion = useCallback((bank: QuestionBankCollectionItem) => {
     void bankWorkspaces.read(bank.id).then(async (resource) => {
       const impact = await workspaces.deletionImpact(resource?.questions.map(({ id }) => id) ?? [])
@@ -2800,9 +2899,10 @@ export default function App({
   const openExam = (id: string) => window.location.assign(`/editor?exam=${id}`)
   const openBank = (id: string) => window.location.assign(`/question-bank?id=${id}`)
   const importDialog = inspectingBankFile && <QuestionBankImportDialog
-    key={`${droppedBankFile ? `${droppedBankFile.name}:${droppedBankFile.lastModified}` : 'chosen'}:${importTargetBankId ?? ''}`}
+    key={`${droppedBankFile ? `${droppedBankFile.name}:${droppedBankFile.lastModified}` : 'chosen'}:${importTargetBankId ?? ''}:${importWaitingId ?? ''}`}
     initialFile={droppedBankFile ?? undefined}
     targetBankId={importTargetBankId ?? undefined}
+    waitingImportId={importWaitingId ?? undefined}
     loadBanks={loadImportBanks}
     onClose={closeImport}
     onImport={importBank}
@@ -2813,6 +2913,36 @@ export default function App({
     <BankFileDropTarget onFile={openImport} />
     {importDialog}
   </>
+  if (route === '/imports') return <>{globalChrome}<ImportsPage
+    persistentStorage={storageStatus}
+    revision={importRevision}
+    picturesNeededIn={picturesNeededIn}
+  /></>
+  // A new import takes a test as readily as a Test Parrot file, so a drop is
+  // the page's to read, as on the convert page.
+  if (route === '/imports/new') return <>
+    <BankFileDropTarget tests onFile={(file) => setConvertDrop({ file, id: Date.now() })} />
+    {importDialog}
+    <NewImportPage
+      persistentStorage={storageStatus}
+      dropped={convertDrop}
+      onOpenImport={(file, waitingImportId) => openImport(file, null, waitingImportId)}
+    />
+  </>
+  if (route === '/import') {
+    const waitingId = new URLSearchParams(window.location.search).get('id') ?? ''
+    // A file dropped on a waiting import's page is the AI's answer to it.
+    return <>
+      <BankFileDropTarget onFile={(file) => openImport(file, null, waitingId)} />
+      {importDialog}
+      <WaitingImportPage
+        id={waitingId}
+        persistentStorage={storageStatus}
+        revision={importRevision}
+        onReturnedFile={(file) => openImport(file, null, waitingId)}
+      />
+    </>
+  }
   if (route === '/about') return <>{globalChrome}<AboutPage persistentStorage={storageStatus} /></>
   if (route === '/privacy') return <>{globalChrome}<PrivacyPage persistentStorage={storageStatus} /></>
   if (route === '/settings') return <>{globalChrome}<SettingsPage persistentStorage={storageStatus} /></>
@@ -2834,7 +2964,7 @@ export default function App({
     onOpenBank={openBank}
     onNewBank={newBank}
     onDeleteBank={requestBankDeletion}
-    onImportBank={() => openImport()}
+    onImportBank={() => navigate('/imports/new')}
   />{bankDeletionConfirmation}</>
   // A device that has never been here gets the front door instead of empty
   // shelves; the same page stays reachable at /welcome afterwards.
@@ -2843,7 +2973,13 @@ export default function App({
   if (route === '/get-started') return <>{globalChrome}<OnboardingPage onNewBank={newBank} onNewExam={newExam} /></>
   // Its last step is "drop the file anywhere", which the page-wide drop
   // target in the global chrome already is.
-  if (route === '/get-started/convert') return <>{globalChrome}<ConvertPage /></>
+  // Converting starts from the test itself, so on the convert page a drop is
+  // the page's to read: only a Test Parrot file goes straight to the import.
+  if (route === '/get-started/convert') return <>
+    <BankFileDropTarget tests onFile={(file) => setConvertDrop({ file, id: Date.now() })} />
+    {importDialog}
+    <ConvertPage dropped={convertDrop} onOpenImport={(file, waitingImportId) => openImport(file, null, waitingImportId)} />
+  </>
   if (route === '/') return <>{globalChrome}<HomePage
     exams={exams}
     banks={bankCollection}
@@ -2852,7 +2988,6 @@ export default function App({
     onNewExam={newExam}
     onOpen={openExam}
     onNewBank={newBank}
-    onImportBank={() => openImport()}
     onOpenBank={openBank}
     onDeleteBank={requestBankDeletion}
   />{bankDeletionConfirmation}</>

@@ -4,7 +4,7 @@ import {
   STORAGE_NAME,
   STORAGE_VERSION,
 } from './storage-schema'
-import type { ProseMirrorJSON } from './question-doc'
+import { pendingImageOf, type ProseMirrorJSON } from './question-doc'
 
 const imagePath = '/local-images/'
 const ownedReference = /^\/local-images\/[a-f0-9]{64}$/
@@ -120,10 +120,12 @@ export async function captureImageSource(source: string): Promise<string> {
   return saveImage(image)
 }
 
-/** Ensures no mutable image source survives when Question Content is stored. */
+/** Ensures no mutable image source survives when Question Content is stored.
+ *  A Pending Image has no source to own yet, and is stored as it is. */
 export async function ownDocumentMedia(document: ProseMirrorJSON): Promise<ProseMirrorJSON> {
   const own = async (node: ProseMirrorJSON): Promise<ProseMirrorJSON> => {
     const attrs = node.attrs as Record<string, unknown> | undefined
+    if (pendingImageOf(node)) return node
     if ((node.type === 'image' || node.type === 'image-block') && typeof attrs?.src === 'string') {
       try {
         return { ...node, attrs: { ...attrs, src: await captureImageSource(attrs.src) } }

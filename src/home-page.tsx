@@ -4,6 +4,7 @@ import type { QuestionBankCollectionItem } from './resource-collections'
 import { homePreview } from './resource-collections'
 import { CreateFirstCard, ExamCard, NewResourceCard, QuestionBankCard, ResourceCarousel } from './resource-cards'
 import { AppShell } from './app-shell'
+import { Link } from './site-chrome'
 
 /**
  * Home is a resume surface and nothing else: a shelf of the Exams you were
@@ -12,8 +13,8 @@ import { AppShell } from './app-shell'
  * each section gets a quiet label rather than a title. Creating happens on
  * the shelf itself: an empty shelf is one full-width dotted invitation, and a
  * shelf with anything on it ends with a ghost card the size of the next
- * one. The only button is Import, because a Question Bank made elsewhere has
- * nowhere on the shelf to come from.
+ * one. The only button is Import, at the end of the first shelf's bar: a
+ * test or a Question Bank made elsewhere has nowhere on a shelf to come from.
  */
 export function HomePage({
   exams,
@@ -23,7 +24,6 @@ export function HomePage({
   onNewExam,
   onOpen,
   onNewBank,
-  onImportBank,
   onOpenBank,
   onDeleteBank,
 }: {
@@ -34,11 +34,11 @@ export function HomePage({
   onNewExam: () => void
   onOpen: (id: string) => void
   onNewBank: () => void
-  onImportBank: () => void
   onOpenBank: (id: string) => void
   onDeleteBank: (bank: QuestionBankCollectionItem) => void
 }) {
   const recentExams = homePreview(exams)
+  const importLink = <Link href="/imports/new" className="primary-button">Import</Link>
   return (
     <AppShell crumbs={[{ label: 'Home' }]} persistentStorage={persistentStorage}>
       {error && (
@@ -54,12 +54,14 @@ export function HomePage({
               <h1 id="recent-exams-heading" className="shelf-label">
                 Pick up where you left off
               </h1>
+              {importLink}
             </div>
             <CreateFirstCard label="New Exam" onClick={onNewExam} />
           </>
         ) : (
           <ResourceCarousel
             label="Recent Exams"
+            actions={importLink}
             heading={
               <h1 id="recent-exams-heading" className="shelf-label">
                 Pick up where you left off
@@ -83,9 +85,6 @@ export function HomePage({
           <h2 id="question-banks-heading" className="shelf-label">
             Question Banks
           </h2>
-          <button type="button" className="secondary-button" onClick={onImportBank}>
-            Import Question Bank
-          </button>
         </div>
         {banks.length === 0 ? (
           <CreateFirstCard label="New Question Bank" onClick={onNewBank} />

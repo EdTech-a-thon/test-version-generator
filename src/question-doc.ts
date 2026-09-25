@@ -50,6 +50,28 @@ export const SUPPORTED_MARKS = [
   'link',
 ] as const
 
+/** What a Pending Image names instead of Media Asset bytes: the Image Tag
+ *  printed on its picture in a labeled copy of the Source Document, or only the
+ *  1-based page the picture is on. An editor image node carries it as its
+ *  `pending` attribute, with no source, until Resolve Images gives it one. */
+export type PendingImageReference = { image: number } | { page: number }
+
+/** The Pending Image an editor image node stands for, if it is one: what its
+ *  `pending` attribute names, checked, so a malformed value never reaches a
+ *  record as though it were one. */
+export function pendingImageOf(node: ProseMirrorJSON): PendingImageReference | undefined {
+  if (node.type !== 'image' && node.type !== 'image-block') return undefined
+  const attrs = node.attrs as Record<string, unknown> | null | undefined
+  const pending = attrs?.pending
+  if (typeof pending !== 'object' || pending === null) return undefined
+  const { image, page } = pending as { image?: unknown; page?: unknown }
+  const positive = (value: unknown): value is number =>
+    typeof value === 'number' && Number.isInteger(value) && value >= 1
+  if (positive(image) && page === undefined) return { image }
+  if (positive(page) && image === undefined) return { page }
+  return undefined
+}
+
 export const emptyDoc: ProseMirrorJSON = {
   type: 'doc',
   content: [{ type: 'paragraph' }],
@@ -123,6 +145,13 @@ export function cleanDocument(value: ProseMirrorJSON): ProseMirrorJSON {
     } else if (node.type === 'matchingAnswer') {
       const attrs = (node.attrs ?? {}) as Record<string, unknown>
       clean.attrs = { id: typeof attrs.id === 'string' ? attrs.id : '' }
+    } else if ((node.type === 'image' || node.type === 'image-block') && clean.attrs) {
+      // A Pending Image keeps exactly what it names; every other image has
+      // no `pending` at all, rather than the editor's empty default.
+      const pending = pendingImageOf(node)
+      const { pending: _pending, ...rest } = clean.attrs as Record<string, unknown>
+      void _pending
+      clean.attrs = pending ? { ...rest, pending: { ...pending } } : rest
     } else if (node.type === 'multipartParts') {
       clean.content = (Array.isArray(clean.content)
         ? (clean.content as ProseMirrorJSON[])

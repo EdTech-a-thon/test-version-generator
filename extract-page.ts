@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { Connect, Plugin } from 'vite'
 import { marked } from 'marked'
+import { fillImageTags } from './src/image-tag-list'
 
 /**
  * `/extract` is a plain HTML page, not a route of the app. Its readers are AI
@@ -10,6 +11,11 @@ import { marked } from 'marked'
  * public/extract.md, which stays published raw at `/extract.md`, so the two
  * cannot drift. The dev server renders it per request; a build emits
  * `extract.html`, which Vercel's `cleanUrls` serves at `/extract`.
+ *
+ * Both are served with the image tag list filled in: an assistant that
+ * fetches a link was given no labeled copy, so every picture it writes names
+ * its page. `/extract.md` is overwritten with that filled copy for the same
+ * reason — the source keeps the slot, a reader never sees it.
  */
 const SOURCE = 'public/extract.md'
 
@@ -85,9 +91,17 @@ function escapeHtml(text: string): string {
 
 export function extractPage(): Plugin {
   let source = SOURCE
-  const render = () => renderExtractPage(fs.readFileSync(source, 'utf8'))
+  const markdown = () => fillImageTags(fs.readFileSync(source, 'utf8'), null)
+  const render = () => renderExtractPage(markdown())
+  let outDir = 'dist'
   const serve: Connect.NextHandleFunction = (req, res, next) => {
-    if (req.url?.split('?')[0] !== '/extract') return next()
+    const url = req.url?.split('?')[0]
+    if (url === '/extract.md') {
+      res.setHeader('Content-Type', 'text/markdown; charset=utf-8')
+      res.end(markdown())
+      return
+    }
+    if (url !== '/extract') return next()
     res.setHeader('Content-Type', 'text/html; charset=utf-8')
     res.end(render())
   }
@@ -95,6 +109,7 @@ export function extractPage(): Plugin {
     name: 'extract-page',
     configResolved(config) {
       source = path.resolve(config.root, SOURCE)
+      outDir = path.resolve(config.root, config.build.outDir)
     },
     configureServer(server) {
       server.middlewares.use(serve)
@@ -104,6 +119,12 @@ export function extractPage(): Plugin {
     },
     generateBundle() {
       this.emitFile({ type: 'asset', fileName: 'extract.html', source: render() })
+    },
+    // Public files are copied as they are, after the bundle; the filled copy
+    // replaces the template once they have been.
+    closeBundle() {
+      const published = path.join(outDir, 'extract.md')
+      if (fs.existsSync(published)) fs.writeFileSync(published, markdown())
     },
   }
 }

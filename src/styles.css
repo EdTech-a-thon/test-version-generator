@@ -1890,6 +1890,8 @@ button { cursor: pointer; }
    than titles — Home is where you resume work, not a page about itself. */
 .home-shelf + .home-shelf { margin-top: 34px; }
 .shelf-bar { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
+.shelf-actions { display: flex; align-items: center; gap: 12px; margin-left: auto; }
+.shelf-actions a { text-decoration: none; }
 .shelf-label {
   margin: 0; color: #6e5b4d; font-size: 13px; font-weight: 700;
   letter-spacing: .04em; text-transform: uppercase;
@@ -2748,6 +2750,70 @@ button { cursor: pointer; }
 .convert-step-text code { font-size: 12.5px; color: #332a24; }
 .convert-step-action { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
 .convert-step-action svg { width: 15px; height: 15px; }
+.convert-drop { padding: 56px 24px 50px; }
+.convert-drop strong { font-size: 18px; }
+.convert-text-only { margin: 12px 0 0; color: #5f4d40; font-size: 13.5px; text-align: center; }
+
+/* The one path a dropped test needs. Each step is one button, the whole row,
+   with what clicking it does on the right. */
+.source-steps-title, .convert-title {
+  display: flex; align-items: baseline; gap: 0.3em; min-width: 0; margin: 0 0 8px;
+}
+.source-steps-title { font-size: 19px; color: #2f2419; }
+.source-steps-title > span, .convert-title > span { flex: none; }
+.source-steps-title .source-steps-name, .convert-title .convert-title-name {
+  flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.source-steps-note {
+  display: inline-flex; align-items: center; gap: 6px; margin: 0 0 12px; padding: 3px 10px;
+  border-radius: 999px; background: var(--paper-accent-wash); color: #5f4d40; font-size: 13px; font-weight: 600;
+}
+.source-steps-note svg { width: 14px; height: 14px; color: var(--paper-accent); }
+.source-steps-list { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.source-steps-list > li { position: relative; }
+.source-step {
+  display: grid; grid-template-columns: 30px minmax(0, 1fr) auto; align-items: center; gap: 12px;
+  width: 100%; padding: 12px 14px; border: 1px solid var(--paper-outline); border-radius: 10px;
+  background: #fffdf8; color: inherit; font: inherit; text-align: left; box-sizing: border-box;
+}
+.source-step { cursor: pointer; transition: border-color 120ms, background 120ms; }
+.source-step:hover:not(:disabled), .source-step[aria-expanded='true'] { border-color: var(--paper-accent); background: #fff8ef; }
+.source-step:focus-visible { outline: 2px solid var(--paper-accent); outline-offset: 2px; }
+.source-step:disabled { cursor: default; opacity: 0.6; }
+.source-step-number {
+  display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%;
+  color: var(--paper-accent); background: var(--paper-accent-wash); font-weight: 700; font-size: 13px;
+}
+.source-step-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.source-step-text strong { font-size: 15px; }
+.source-step-text span { color: #5f4d40; font-size: 13.5px; line-height: 1.45; }
+.source-step-icon { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 8px; color: var(--paper-accent); background: var(--paper-accent-wash); }
+.source-step-icon svg { width: 17px; height: 17px; }
+.source-step:hover:not(:disabled) .source-step-icon { color: #fff; background: var(--paper-accent); }
+.source-step-menu {
+  position: absolute; top: calc(100% + 4px); right: 0; z-index: 5; display: grid; min-width: 180px; padding: 4px;
+  border: 1px solid var(--paper-outline); border-radius: 10px; background: #fffdf8; box-shadow: 0 8px 24px rgb(0 0 0 / 14%);
+}
+.source-step-menu button {
+  padding: 9px 12px; border: 0; border-radius: 7px; background: none; color: #2f2419; font: inherit; font-weight: 600;
+  text-align: left; cursor: pointer;
+}
+.source-step-menu button:hover, .source-step-menu button:focus-visible { background: var(--paper-accent-wash); outline: none; }
+.source-steps-drop { margin: 10px 0 0; padding: 22px 18px; }
+.source-steps-foot { margin: 12px 0 0; font-size: 12.5px; }
+@media (max-width: 640px) {
+  .source-step { grid-template-columns: 30px minmax(0, 1fr) auto; gap: 10px; }
+}
+.convert-file { position: relative; cursor: pointer; }
+.convert-file input { position: absolute; inset: 0; width: 100%; opacity: 0; cursor: pointer; }
+.convert-alternative {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  margin-top: 18px; padding: 12px 14px; border: 1px solid var(--paper-outline); border-radius: 10px;
+  color: #5f4d40; font-size: 13.5px; line-height: 1.45;
+}
+.convert-alternative p { margin: 0; }
+.convert-alternative strong { color: #332a24; }
+@media (max-width: 640px) { .convert-alternative { flex-direction: column; align-items: flex-start; } }
 .convert-select {
   min-height: 36px; padding: 7px 30px 7px 12px; border: 1px solid #bda995; border-radius: 8px;
   color: #4e3b2f; background: #f7eee3; font-weight: 600; cursor: pointer;
@@ -2777,3 +2843,222 @@ button { cursor: pointer; }
   .convert-steps li { grid-template-columns: 30px minmax(0, 1fr); }
   .convert-step-action { grid-column: 2; justify-self: start; }
 }
+
+/* --- Pending Images ---------------------------------------------------------
+   A picture a Question still needs: a bordered box where the picture goes,
+   saying which one. The same box in every read-only view and the editor. */
+.picture-needed {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  min-height: 72px; padding: 12px 16px; border: 1.5px dashed var(--paper-danger); border-radius: 8px;
+  color: var(--paper-danger); background: var(--paper-danger-wash);
+  font-size: 13px; font-weight: 600; text-align: center;
+}
+.picture-needed small { font-weight: 500; color: var(--paper-ink-soft); }
+.picture-needed[data-inline] { display: inline-flex; flex-direction: row; min-height: 0; padding: 1px 8px; gap: 6px; vertical-align: middle; }
+.picture-needed button { margin-top: 6px; }
+
+/* The import that waits for an assistant: three steps in the order to take
+   them, then the drop zone for what comes back. */
+.source-document-found { margin: 4px 0 4px; font-size: 16px; font-weight: 600; color: #2f2419; }
+.source-document-note { margin: 0 0 12px; color: var(--paper-ink-soft); font-size: 13px; line-height: 1.45; }
+.source-document-steps { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; counter-reset: step; }
+.source-document-steps li { display: flex; align-items: center; gap: 12px; font-size: 13px; line-height: 1.45; }
+.source-document-steps li > span { flex: 1; }
+.source-document-steps li::before {
+  counter-increment: step; content: counter(step); flex: none; display: grid; place-items: center;
+  width: 22px; height: 22px; border-radius: 50%; color: #fffaf3; background: var(--paper-accent);
+  font-size: 12px; font-weight: 700;
+}
+.source-document-steps .secondary-button { flex: none; display: inline-flex; align-items: center; gap: 6px; }
+.source-document-steps .secondary-button svg { width: 15px; height: 15px; }
+.source-document-discard { margin: 10px 0 16px; text-align: right; }
+.link-button {
+  padding: 0; border: 0; background: none; color: var(--paper-accent); font: inherit; font-size: 13px;
+  font-weight: 600; text-decoration: underline; text-underline-offset: 3px; cursor: pointer;
+}
+.link-button:disabled { color: #a8988c; cursor: not-allowed; }
+.bank-import-assist-actions { flex: none; display: flex; gap: 8px; }
+
+.bank-import-mismatch {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  margin: 0 18px 12px; padding: 10px 14px; border: 1px solid var(--paper-danger-line); border-radius: 8px;
+  color: #2f2419; background: var(--paper-danger-wash); font-size: 13px; line-height: 1.45;
+}
+.bank-import-mismatch p { margin: 0; }
+.bank-import-mismatch strong { color: var(--paper-danger); }
+.bank-import-mismatch .secondary-button { flex: none; }
+
+/* Resolve Images: every Pending Image in the import, one row each. */
+.bank-import-resolve { flex: 1; min-height: 0; overflow: auto; border-top: 1px solid var(--paper-outline); }
+.resolve-images { max-width: 980px; margin: 0 auto; padding: 16px 20px 24px; }
+.resolve-images-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 14px; }
+.resolve-images-head h3 { margin: 0 0 4px; font-size: 17px; }
+.resolve-images-head p { margin: 0; color: var(--paper-ink-soft); font-size: 13px; }
+.resolve-images-source {
+  position: relative; display: flex; align-items: center; gap: 10px; margin-bottom: 14px; padding: 12px 14px;
+  border: 1.5px dashed var(--paper-accent); border-radius: 10px; font-size: 13px; cursor: pointer;
+}
+.resolve-images-source svg { width: 22px; height: 22px; color: var(--paper-accent); }
+.resolve-images-source input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.resolve-images-list { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.resolve-image {
+  display: grid; grid-template-columns: 180px minmax(0, 1fr); gap: 16px; padding: 12px;
+  border: 1px solid var(--paper-outline); border-radius: 10px; background: #fffdf8;
+}
+.resolve-image[data-accepted] { border-color: var(--easy-line); }
+.resolve-image-picture { display: grid; place-items: center; min-height: 100px; }
+.resolve-image-picture img { max-width: 100%; max-height: 160px; border: 1px solid var(--paper-outline); background: #fff; }
+.resolve-image-picture .picture-needed { width: 100%; box-sizing: border-box; }
+.resolve-image-body h4 { margin: 0 0 3px; font-size: 14px; }
+.resolve-image-description { margin: 0 0 3px; color: var(--paper-ink-soft); font-size: 13px; }
+.resolve-image-status { margin: 0 0 8px; font-size: 12px; color: var(--paper-ink-soft); }
+.resolve-image[data-accepted] .resolve-image-status { color: var(--easy-ink); }
+.resolve-image-share { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; font-size: 12px; }
+.resolve-image-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.resolve-image-actions button, .resolve-image-upload { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; }
+.resolve-image-actions svg { width: 14px; height: 14px; }
+.resolve-image-upload { position: relative; cursor: pointer; }
+.resolve-image-upload input { position: absolute; inset: 0; width: 100%; opacity: 0; cursor: pointer; }
+.resolve-image-note { margin: 8px 0; font-size: 12px; color: var(--paper-ink-soft); }
+.resolve-image-chooser { margin-top: 10px; padding: 10px; border: 1px solid var(--paper-outline); border-radius: 8px; background: var(--paper-surface); }
+.resolve-image-chooser h5 { margin: 4px 0 6px; font-size: 12px; color: var(--paper-ink-soft); }
+.resolve-image-chooser section + section { margin-top: 8px; }
+.resolve-image-chooser div { display: flex; flex-wrap: wrap; gap: 8px; }
+.resolve-image-chooser button {
+  display: flex; flex-direction: column; align-items: center; gap: 4px; width: 112px; padding: 6px;
+  border: 1px solid var(--paper-outline); border-radius: 6px; background: #fff; font-size: 12px; cursor: pointer;
+}
+.resolve-image-chooser button:hover, .resolve-image-chooser button:focus-visible { border-color: var(--paper-accent); }
+.resolve-image-chooser img { max-width: 100%; max-height: 72px; }
+.resolve-image-thumb-loading { width: 100%; height: 56px; background: var(--paper-surface-low); }
+.resolve-image-cropper { margin-top: 10px; padding: 10px; border: 1px solid var(--paper-outline); border-radius: 8px; background: var(--paper-surface); }
+.resolve-image-cropper-bar { display: flex; align-items: center; justify-content: flex-end; gap: 8px; font-size: 13px; }
+.resolve-image-cropper-bar span { margin-right: auto; }
+.resolve-image-page {
+  position: relative; width: min(100%, 520px, 52vh); margin: 0 auto 10px; cursor: crosshair; touch-action: none;
+  user-select: none; border: 1px solid var(--paper-outline); background: #fff; min-height: 120px;
+}
+.resolve-image-page img { display: block; width: 100%; pointer-events: none; }
+.resolve-image-page p { margin: 0; padding: 40px; text-align: center; font-size: 13px; }
+.resolve-image-box { position: absolute; border: 2px solid var(--paper-accent); background: rgb(159 80 55 / 12%); pointer-events: none; }
+@media (max-width: 640px) {
+  .resolve-image { grid-template-columns: 1fr; }
+  .source-document-steps li { flex-direction: column; align-items: flex-start; }
+}
+
+/* A Pending Image in the import preview: the picture as it will print, with a
+   badge saying where it came from. The badge floats over the picture's corner
+   and takes up no room, so the pages lay out exactly as they will print. */
+.doc-figure:has(> .preview-picture) { position: relative; }
+.preview-picture { cursor: pointer; }
+.preview-picture[data-inline] { position: relative; display: inline-block; }
+.preview-picture:focus-visible { outline: none; }
+.preview-picture > img, .preview-picture > .picture-needed { transition: outline-color 120ms; outline: 2px solid transparent; outline-offset: 2px; }
+.preview-picture:hover > img, .preview-picture:hover > .picture-needed,
+.preview-picture:focus-visible > img, .preview-picture:focus-visible > .picture-needed { outline: 2px dashed var(--paper-accent); }
+.preview-picture[data-selected] > img, .preview-picture[data-selected] > .picture-needed { outline: 3px solid var(--paper-accent); }
+.preview-picture-badge {
+  position: absolute; top: 6px; left: 6px; z-index: 1; padding: 2px 8px; border-radius: 999px;
+  background: var(--easy-ink); color: #fff; font: 600 11px/1.5 system-ui, sans-serif; letter-spacing: 0.01em;
+  white-space: nowrap; pointer-events: none; box-shadow: 0 1px 3px rgb(0 0 0 / 25%);
+}
+.preview-picture[data-state='needed'] .preview-picture-badge { background: var(--paper-accent); }
+.preview-picture[data-inline] .preview-picture-badge { top: auto; bottom: calc(100% + 2px); left: 0; }
+
+.bank-import-picture-hint {
+  display: flex; align-items: center; gap: 8px; max-width: 680px; margin: 0 auto 16px; padding: 9px 13px;
+  border: 1px solid var(--easy-line); border-radius: 8px; background: var(--easy-wash); color: var(--easy-ink); font-size: 13px;
+}
+.bank-import-picture-hint svg { flex: none; width: 16px; height: 16px; }
+.bank-import-preview > .resolve-image-cropper { max-width: 720px; margin: 0 auto; }
+.bank-import-picture .picture-choices { display: grid; gap: 4px; }
+.bank-import-picture .resolve-image-chooser { margin-top: 4px; }
+.bank-import-picture .resolve-image-chooser button { width: calc(50% - 4px); box-sizing: border-box; }
+.bank-import-picture .resolve-image-actions { margin-top: 8px; }
+.bank-import-picture-done { align-self: flex-start; }
+.resolve-image-chooser button[aria-pressed='true'] { border: 2px solid var(--paper-accent); padding: 5px; }
+
+/* Imports: what is still waiting first, then what each import brought in —
+   each a card with its test's first page, as an Exam card shows its own. */
+.import-section { margin-top: 28px; }
+.import-section h2 { margin: 0 0 12px; font-size: 13px; letter-spacing: 0.04em; text-transform: uppercase; color: #6e5b4d; }
+.import-grid { margin: 0; padding: 0; list-style: none; }
+.import-card { position: relative; width: var(--sheet-width); }
+.import-card-main { display: grid; gap: 8px; color: inherit; text-decoration: none; }
+.import-sheet { display: grid; place-items: center; background: #fff; }
+.import-sheet img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.import-sheet-placeholder { display: grid; justify-items: center; gap: 8px; color: #866f5e; font-size: 12px; font-weight: 600; }
+.import-sheet-placeholder svg { width: 34px; height: 34px; stroke-width: 1.5; }
+a.import-card-main:hover .exam-sheet, a.import-card-main:focus-visible .exam-sheet { border-color: #b65f43; box-shadow: 0 3px 12px rgb(91 68 47 / 18%); }
+.import-card[data-stage='expired'] .import-sheet { opacity: 0.55; }
+.import-card-caption { display: grid; justify-items: start; gap: 4px; padding: 0 1px; }
+.import-card-title { max-width: 100%; overflow: hidden; font-size: 14px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.import-card-facts { color: #866f5e; font-size: 12px; }
+.import-card-menu { position: absolute; top: 6px; right: 6px; }
+.import-stage {
+  display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; border-radius: 999px;
+  font-size: 11.5px; font-weight: 700;
+}
+.import-stage svg { width: 12px; height: 12px; }
+.import-stage[data-stage='waiting'] { color: #7a4a12; background: #fbecd3; }
+.import-stage[data-stage='imported'] { color: var(--easy-ink); background: var(--easy-wash); }
+.import-stage[data-stage='expired'] { color: #6e5b4d; background: #efe6da; }
+.import-pictures-needed {
+  display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; border-radius: 999px;
+  color: var(--paper-accent); background: var(--paper-accent-wash); font-size: 11.5px; font-weight: 700;
+}
+.import-pictures-needed svg { width: 12px; height: 12px; }
+.import-list-status { color: #6e5b4d; }
+/* One waiting import: its first page and what is known about it on the
+   left, the steps on the right. */
+.import-page {
+  display: grid; grid-template-columns: minmax(200px, 250px) minmax(0, 1fr); align-items: start; gap: 12px 56px;
+  max-width: 1040px;
+}
+/* The steps end where the preview's details do: the drop for the file the AI
+   gives back takes the height left. */
+.import-page > .source-steps { display: flex; flex-direction: column; align-self: stretch; }
+.import-page .source-steps-drop { flex: 1; justify-content: center; }
+.import-page-title {
+  grid-column: 1 / -1; display: flex; align-items: baseline; gap: 0.3em; min-width: 0; margin: 0 0 12px;
+  color: #2f2419; font-size: 24px;
+}
+.import-page-title > span { flex: none; }
+.import-page-title .import-page-name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.import-page-side { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; min-width: 0; position: sticky; top: 16px; }
+.import-preview-sheet { position: relative; }
+.import-preview-turn {
+  position: absolute; top: 50%; display: grid; place-items: center; width: 32px; height: 32px; padding: 0;
+  border: 1px solid var(--paper-outline); border-radius: 50%; background: rgb(255 253 248 / 94%); color: #2f2419;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 16%); cursor: pointer; opacity: 0; transform: translateY(-50%);
+  transition: opacity 120ms;
+}
+.import-preview-turn[data-side='previous'] { left: 8px; }
+.import-preview-turn[data-side='next'] { right: 8px; }
+.import-preview-turn svg { width: 18px; height: 18px; }
+.import-preview-sheet:hover .import-preview-turn:not(:disabled), .import-preview-turn:focus-visible { opacity: 1; }
+.import-preview-turn:hover { border-color: var(--paper-accent); color: var(--paper-accent); }
+.import-preview-turn:disabled { cursor: default; }
+@media (hover: none) { .import-preview-turn:not(:disabled) { opacity: 1; } }
+.import-preview { margin: 0; }
+.import-preview-sheet {
+  display: grid; place-items: center; aspect-ratio: 8.5 / 11; overflow: hidden; border: 1px solid #e0d3c2;
+  border-radius: 3px; background: #fff; box-shadow: 0 2px 10px rgb(91 68 47 / 12%);
+}
+.import-preview-sheet img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.import-preview figcaption { margin-top: 8px; color: #6e5b4d; font-size: 12.5px; line-height: 1.45; }
+.import-facts { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; margin: 0; }
+.import-facts > div { display: flex; justify-content: space-between; gap: 12px; padding: 7px 0; border-top: 1px solid #eadfd1; font-size: 13px; }
+.import-facts > div:last-child { border-bottom: 1px solid #eadfd1; }
+.import-facts dt { flex: none; color: #6e5b4d; }
+.import-facts dd { min-width: 0; margin: 0; overflow: hidden; font-weight: 600; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 820px) {
+  .import-page { grid-template-columns: minmax(0, 1fr); gap: 24px; }
+  .import-page > .source-steps { align-self: start; }
+  .import-page-title { margin: 0; }
+  .import-page-side { position: static; grid-template-columns: minmax(0, 180px) minmax(0, 1fr); align-items: start; }
+}
+.collection-actions a { text-decoration: none; }
+/* A new import: one drop, for the test or the file its AI made. */
+.new-import { max-width: 720px; }
+.new-import-lede { margin: 0 0 18px; color: #5f4d40; font-size: 15px; line-height: 1.5; }

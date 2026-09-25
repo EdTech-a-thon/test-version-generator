@@ -11,6 +11,7 @@ import {
 import { persistentStorageStatus } from './durable-storage'
 import { questionBankCollection } from './resource-collections'
 import { applyStagedRestore } from './account-backup'
+import { expireWaitingImports } from './import-history'
 import './styles.css'
 
 async function start() {
@@ -24,6 +25,8 @@ async function start() {
   const restoreError = restored && !restored.applied
     ? 'The backup could not be restored, so nothing in this browser was changed.'
     : ''
+  // A Source Document left waiting for more than seven days is deleted.
+  void expireWaitingImports().catch(() => undefined)
   const workspaces = createExamWorkspaceService()
   const bankWorkspaces = createQuestionBankWorkspaceService()
   const startingOnEditor = window.location.pathname === '/editor'

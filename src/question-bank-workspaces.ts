@@ -411,11 +411,24 @@ export function createQuestionBankWorkspaceService(
     async commitImport(
       proposal: import('./package-import').ImportProposal,
       selection: import('./import-selection').ImportSelection,
+      options: {
+        /** Pending Images resolved in Resolve Images. */
+        resolution?: import('./pending-images').PendingImageResolution
+        /** What the import history records once it lands: the file, and the
+         *  waiting import it finishes — whose Source Document is then deleted
+         *  — when it was paired with one. */
+        history?: {
+          fileName: string
+          kind: import('./import-history').ImportFileKind
+          waitingImportId?: string
+        }
+      } = {},
     ): Promise<ImportResult> {
       const { planImport } = await import('./package-commit')
-      const plan = planImport(proposal, selection, createId)
+      const plan = planImport(proposal, selection, createId, options.resolution)
       const timestamp = now().toISOString()
       const written: string[] = []
+      const bankNames = new Map(plan.banks.flatMap(({ bankId, created }) => (created ? [[bankId, created.name] as const] : [])))
       try {
         for (const exam of plan.exams) {
           written.push(exam.examId)
@@ -450,6 +463,7 @@ export function createQuestionBankWorkspaceService(
               } else {
                 const existing = await requestOf(registryStore.get(bank.bankId)) as StoredBank | undefined
                 if (!existing) throw new Error('The Question Bank chosen to add to is no longer on this device.')
+                bankNames.set(bank.bankId, existing.name)
                 registryStore.put({
                   ...existing,
                   lastUpdatedAt: timestamp,
@@ -501,6 +515,18 @@ export function createQuestionBankWorkspaceService(
         throw error
       }
       void requestPersistentStorage()
+      if (options.history) {
+        const [{ recordImport }, { pendingImagesOfQuestions }] = await Promise.all([
+          import('./import-history'),
+          import('./pending-images'),
+        ])
+        await recordImport(options.history, {
+          banks: plan.banks.map(({ bankId }) => ({ id: bankId, name: bankNames.get(bankId) ?? '' })),
+          exams: plan.exams.map(({ examId, saved }) => ({ id: examId, name: saved.workingCopy.title })),
+          questions: plan.banks.reduce((total, { questions }) => total + questions.length, 0),
+          picturesNeeded: plan.banks.reduce((total, { questions }) => total + pendingImagesOfQuestions(questions).length, 0),
+        }).catch(() => undefined)
+      }
       return {
         createdBankIds: plan.banks.filter(({ created }) => created).map(({ bankId }) => bankId),
         updatedBankIds: plan.banks.filter(({ created }) => !created).map(({ bankId }) => bankId),

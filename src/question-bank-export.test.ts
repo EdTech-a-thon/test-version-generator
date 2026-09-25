@@ -407,7 +407,7 @@ describe('Question Bank exchange export seam', () => {
   test('writes a Multipart question as its material and lettered Parts, each under a package-local id', async () => {
     const { record } = await prepareQuestionBankExport(bank([multipart, emptyMultipart]))
 
-    expect(record.formatVersion).toBe('0.4.0')
+    expect(record.formatVersion).toBe('0.5.0')
     expect(record.bank.questions[0]).toEqual({
       id: 'q1',
       type: 'multipart',
@@ -733,5 +733,58 @@ describe('Question Bank exchange export seam', () => {
     expect(
       last.items.map((item) => ('str' in item ? item.str : '')).join(' '),
     ).toContain('Complete line 120')
+  })
+})
+
+describe('a Question Bank with Pending Images', () => {
+  const pictured: Question = {
+    id: 'local-pictured-id',
+    type: 'multiple-choice',
+    columns: 1,
+    doc: {
+      type: 'doc',
+      content: [
+        paragraph(text('Which graph is increasing?')),
+        { type: 'image-block', attrs: { src: '', caption: 'Graphs of f and g', ratio: 1, pending: { image: 3 } } },
+        {
+          type: 'multipleChoice',
+          content: [
+            { type: 'multipleChoiceChoice', attrs: { id: 'a', correct: true }, content: [{ type: 'image-block', attrs: { src: '', caption: '', ratio: 1, pending: { page: 2 } } }] },
+            choice('b', false, 'Neither'),
+          ],
+        },
+      ],
+    },
+  }
+
+  test('shares them unresolved: in the record, as a box in the preview, and back again on import', async () => {
+    const prepared = await prepareQuestionBankExport(bank([pictured]), async () => {
+      throw new Error('a Pending Image has no media to load')
+    })
+    expect(prepared.record.formatVersion).toBe('0.5.0')
+    expect(prepared.record.media).toEqual([])
+    expect(prepared.record.bank.questions[0]!.stem.content[1]).toEqual({
+      type: 'block-image',
+      pending: { image: 3 },
+      caption: 'Graphs of f and g',
+      authoredSize: 1,
+    })
+    expect(prepared.record.bank.questions[0]!.choices![0]!.content.content[0]).toMatchObject({ pending: { page: 2 } })
+
+    const bytes = await createQuestionBankPdf(prepared, fonts)
+    const reader = await getDocument({ data: bytes.slice(), disableWorker: true }).promise
+    const preview = (await (await reader.getPage(1)).getTextContent()).items
+      .map((item) => ('str' in item ? item.str : ''))
+      .join(' ')
+    expect(preview).toContain('Picture needed')
+    expect(preview).toContain('IMG 3')
+    expect(preview).toContain('page 2')
+
+    const { importedQuestionsFromRecord, inspectQuestionBankFile } = await import('./question-bank-import')
+    const reimported = await inspectQuestionBankFile(bytes)
+    expect(reimported.summary.pendingImages).toBe(2)
+    const [question] = importedQuestionsFromRecord(reimported.record)
+    expect(JSON.stringify(question!.doc)).toContain('"pending":{"image":3}')
+    expect(JSON.stringify(question!.doc)).toContain('"pending":{"page":2}')
   })
 })
