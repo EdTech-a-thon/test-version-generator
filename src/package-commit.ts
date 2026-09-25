@@ -130,12 +130,14 @@ export function planImport(
         }
       }
     }
-    // A 0.3.0 Exam's Sections are stored, each under a fresh id, and every
-    // Question is placed in the one its position names. An older Exam stores
-    // none and keeps its per-type wording, so its Sections are derived.
-    const sections: ExamSection[] | undefined = exam.sections?.map((section) => ({
+    // A 0.3.0 Exam's Sections are stored, each under a fresh id with its
+    // wording in full, and every Question is placed in the one its position
+    // names, whatever its type. An older Exam stores none and keeps its
+    // per-type wording, so its Sections are derived one per type.
+    const sections: ExamSection[] | undefined = exam.sections?.map(({ title, instructions }) => ({
       id: createId(),
-      ...section,
+      title,
+      instructions,
     }))
     const sectionOf: Record<string, string> = {}
     if (sections) {

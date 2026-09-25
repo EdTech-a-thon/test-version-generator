@@ -4,20 +4,20 @@
   "name": "Unit 3 Quiz",
   "sections": [
     {
-      "type": "multiple-choice",
       "title": "Warm-up",
       "instructions": "Circle the best answer."
     },
     {
-      "type": "short-answer",
+      "title": "Short Answer",
       "instructions": ""
     },
     {
-      "type": "multiple-choice",
-      "title": "Challenge"
+      "title": "Challenge",
+      "instructions": "Answer each question. Read carefully."
     },
     {
-      "type": "matching"
+      "title": "Extra Credit",
+      "instructions": "Optional."
     }
   ],
   "headingSize": "large",
@@ -37,6 +37,13 @@
     {
       "question": {
         "bank": "bank",
+        "question": "q3"
+      },
+      "section": 0
+    },
+    {
+      "question": {
+        "bank": "bank",
         "question": "q5"
       },
       "section": 1
@@ -48,6 +55,13 @@
       },
       "section": 2,
       "columns": 1
+    },
+    {
+      "question": {
+        "bank": "bank",
+        "question": "q4"
+      },
+      "section": 2
     }
   ]
 }

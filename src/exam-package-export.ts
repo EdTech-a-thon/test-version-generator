@@ -15,7 +15,6 @@ import {
 import type { PreparedExport } from './export-preparation'
 import {
   QUESTION_BANK_FORMAT_VERSION,
-  RECORD_TYPES,
   prepareQuestionBankExport,
   type QuestionBankMediaLoader,
 } from './question-bank-export'
@@ -114,9 +113,9 @@ export async function examPackage({
   // columns and Work Space are not carried yet — Exam Record 0.1.0 keys
   // presentation by Question and has nowhere to put a Part's — so the
   // imported Exam gives each Part its defaults.
-  // Every Section travels, empty ones included, in print order and in the
-  // record's own vocabulary, where a Short Answer section is
-  // `'short-answer'`. `sectionsOf` has already folded an Exam's legacy
+  // Every Section travels, empty ones included, in print order, with its
+  // wording in full — an empty string is a part the teacher cleared. A
+  // Section has no type. `sectionsOf` has already folded an Exam's legacy
   // per-type wording into its derived Sections.
   const sections = sectionsOf(exam)
   const sectionIndex = new Map(sections.map((section, index) => [section.id, index]))
@@ -137,11 +136,7 @@ export async function examPackage({
     format: EXAM_FORMAT,
     formatVersion: EXAM_FORMAT_VERSION,
     name: exam.title,
-    sections: sections.map((section): ExamRecordSection => ({
-      type: RECORD_TYPES[section.type],
-      ...(section.title !== undefined ? { title: section.title } : {}),
-      ...(section.instructions !== undefined ? { instructions: section.instructions } : {}),
-    })),
+    sections: sections.map(({ title, instructions }): ExamRecordSection => ({ title, instructions })),
     ...(exam.headingSize && exam.headingSize !== 'normal' ? { headingSize: exam.headingSize } : {}),
     ...(exam.textSize && exam.textSize !== 'normal' ? { textSize: exam.textSize } : {}),
     ...(exam.header ? { header: { ...exam.header } } : {}),

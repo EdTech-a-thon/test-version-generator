@@ -397,59 +397,72 @@ export function reconcileOrder(
   return result
 }
 
-/** One Question Section of an Exam: a type, and wording where it departs from
- *  that type's default. An absent part is the default; an empty string is a
- *  part the teacher cleared, which prints nothing (ADR-0025, ADR-0029). */
+/** One Question Section of an Exam: its heading and directions, and nothing
+ *  about what kind of question it holds — a Section holds Questions of any
+ *  type (ADR-0029). Both are the teacher's own text, begun from the defaults
+ *  of the type of the first Question put in it; an empty string is a part the
+ *  teacher cleared, which prints nothing. */
 export type ExamSection = {
   id: string
-  type: QuestionType
-  title?: string
-  instructions?: string
+  title: string
+  instructions: string
+}
+
+/** The heading and directions a new Section begins with: those of the type of
+ *  the first Question put in it. */
+export function newSectionWording(type: QuestionType): Pick<ExamSection, 'title' | 'instructions'> {
+  return { title: SECTION_TITLE[type], instructions: SECTION_INSTRUCTIONS[type] }
+}
+
+/** A stored Section as this build reads it, or `null` when it cannot be read.
+ *  A Section stored while Sections were typed carries a `type` and only the
+ *  wording it departed from that type's default with; it reads with that
+ *  default filled in, so it prints as it did. */
+export function readExamSection(value: unknown): ExamSection | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null
+  const { id, type, title, instructions } = value as Record<string, unknown>
+  if (typeof id !== 'string' || id === '') return null
+  if (title !== undefined && typeof title !== 'string') return null
+  if (instructions !== undefined && typeof instructions !== 'string') return null
+  const typed = SECTION_ORDER.includes(type as QuestionType) ? (type as QuestionType) : null
+  return {
+    id,
+    title: title ?? (typed ? SECTION_TITLE[typed] : ''),
+    instructions: instructions ?? (typed ? SECTION_INSTRUCTIONS[typed] : ''),
+  }
 }
 
 /** Whether a stored value is a Section this build can read. The single guard,
  *  so storage and import agree on what a readable record is. */
-export function isExamSection(value: unknown): value is ExamSection {
-  const section = value as ExamSection | null
-  return (
-    typeof section === 'object'
-    && section !== null
-    && typeof section.id === 'string'
-    && section.id !== ''
-    && SECTION_ORDER.includes(section.type)
-    && (section.title === undefined || typeof section.title === 'string')
-    && (section.instructions === undefined || typeof section.instructions === 'string')
-  )
+export function isExamSection(value: unknown): boolean {
+  return readExamSection(value) !== null
 }
 
 // The Section a question belongs to: the stored one it names, if that is still
-// there and of its type; otherwise the last stored Section of its type; and
-// otherwise a derived one whose id is the type itself. A stored Section's id
-// is a UUID, so the two never collide, and an Exam written before Sections
-// were stored reads as one Section per type, exactly as it printed.
+// there; otherwise the last stored Section; and otherwise — on an Exam that
+// stores none — a derived one per type, whose id is the type itself. A stored
+// Section's id is a UUID, so the two never collide, and an Exam written before
+// Sections were stored reads as one Section per type, exactly as it printed.
 function resolvedSectionIdOf(
   question: Question,
   sectionOf: Record<string, string> | undefined,
   stored: readonly ExamSection[],
 ): string {
   const placed = sectionOf?.[question.id]
-  if (placed !== undefined) {
-    const section = stored.find(({ id }) => id === placed)
-    if (section?.type === question.type) return section.id
-  }
-  for (let index = stored.length - 1; index >= 0; index -= 1) {
-    if (stored[index]!.type === question.type) return stored[index]!.id
-  }
-  return question.type
+  if (placed !== undefined && stored.some(({ id }) => id === placed)) return placed
+  return stored.at(-1)?.id ?? question.type
 }
 
 function storedSectionsOf(exam: Pick<Exam, 'sections'>): ExamSection[] {
   const seen = new Set<string>()
-  return (exam.sections ?? []).filter((section) => {
-    if (!isExamSection(section) || seen.has(section.id)) return false
+  const sections: ExamSection[] = []
+  for (const value of exam.sections ?? []) {
+    const section = readExamSection(value)
+    if (!section || seen.has(section.id)) continue
     seen.add(section.id)
-    return true
-  })
+    sections.push(section)
+  }
+  return sections
 }
 
 /** The id of the Section this question belongs to on this Exam. */
@@ -459,32 +472,22 @@ export function sectionIdOf(exam: Exam, question: Question): string {
 
 /**
  * Every Section of this Exam, in print order: its stored Sections — empty ones
- * included, which stay until the teacher deletes them — then a derived Section
- * for each type that has questions but no stored Section, in `SECTION_ORDER`.
- * A derived Section takes its wording from the Exam's legacy `sectionHeadings`.
+ * included, which stay until the teacher deletes them. An Exam that stores
+ * none has a derived Section for each type it has questions of, in
+ * `SECTION_ORDER`, worded by its legacy `sectionHeadings`.
  */
 export function sectionsOf(exam: Exam): ExamSection[] {
   const stored = storedSectionsOf(exam)
-  const storedIds = new Set(stored.map(({ id }) => id))
-  const derived = new Set<QuestionType>()
-  for (const question of exam.questions) {
-    // A derived Section, once stored, keeps its type as its id: it is stored
-    // then, not derived.
-    const id = resolvedSectionIdOf(question, exam.sectionOf, stored)
-    if (!storedIds.has(id)) derived.add(question.type)
-  }
-  return [
-    ...stored,
-    ...SECTION_ORDER.filter((type) => derived.has(type)).map((type): ExamSection => {
-      const heading = exam.sectionHeadings?.[type]
-      return {
-        id: type,
-        type,
-        ...(heading?.title !== undefined ? { title: heading.title } : {}),
-        ...(heading?.instructions !== undefined ? { instructions: heading.instructions } : {}),
-      }
-    }),
-  ]
+  if (stored.length > 0) return stored
+  const types = new Set(exam.questions.map(({ type }) => type))
+  return SECTION_ORDER.filter((type) => types.has(type)).map((type): ExamSection => {
+    const heading = exam.sectionHeadings?.[type]
+    return {
+      id: type,
+      title: heading?.title ?? SECTION_TITLE[type],
+      instructions: heading?.instructions ?? SECTION_INSTRUCTIONS[type],
+    }
+  })
 }
 
 export function sectionById(exam: Exam, sectionId: string): ExamSection | undefined {
@@ -558,7 +561,7 @@ export function sectionLayoutOf(exam: Exam, arrangement: Arrangement): SectionLa
 export type QuestionPlacement = 'before' | 'after'
 
 /** Where questions are put: beside a question, at the end of a Section, or in
- *  new Sections of their own directly below one — at the end of the Exam when
+ *  a new Section of their own directly below one — at the end of the Exam when
  *  `afterSectionId` is `null`. */
 export type SectionTarget =
   | { kind: 'question'; questionId: string; placement: QuestionPlacement }
@@ -567,13 +570,10 @@ export type SectionTarget =
 
 /**
  * Puts questions — already on the Exam, or just added to it — at a target,
- * keeping their on-page order.
- *
- * A Section holds one type, so beside a question or at the end of a Section
- * only the questions of that Section's type move, and the rest stay where they
- * are. A new-Section target takes them all, in one new Section per type, in
- * `SECTION_ORDER`. A Section a move empties stays. `null` means nothing would
- * change.
+ * keeping their on-page order. A Section holds Questions of any type, so every
+ * one of them goes. A new Section begins with the heading and directions of
+ * the type of the first Question put in it. A Section a move empties stays.
+ * `null` means nothing would change.
  */
 export function placeQuestions(
   exam: Exam,
@@ -588,54 +588,37 @@ export function placeQuestions(
   // On-page order: the requested questions in the order they print. Every
   // question on the Exam resolves to a Section, so this is all of them.
   const moving = members.flatMap(({ ids }) => ids).filter((id) => requested.has(id))
-  const typeOf = (id: string) => typeById.get(id)!
+  if (moving.length === 0) return null
+  const movingSet = new Set(moving)
+  const next: Members = members.map(({ section, ids }) => ({
+    section,
+    ids: ids.filter((id) => !movingSet.has(id)),
+  }))
 
   if (target.kind === 'new-section') {
-    if (moving.length === 0) return null
     const at =
       target.afterSectionId === null
         ? members.length
         : members.findIndex(({ section }) => section.id === target.afterSectionId) + 1
     if (at === 0) return null
-    const movingSet = new Set(moving)
-    const next: Members = members.map(({ section, ids }) => ({
-      section,
-      ids: ids.filter((id) => !movingSet.has(id)),
-    }))
-    next.splice(
-      at,
-      0,
-      ...SECTION_ORDER.filter((type) => moving.some((id) => typeOf(id) === type)).map(
-        (type) => ({
-          section: { id: newSectionId(), type },
-          ids: moving.filter((id) => typeOf(id) === type),
-        }),
-      ),
-    )
+    next.splice(at, 0, {
+      section: { id: newSectionId(), ...newSectionWording(typeById.get(moving[0]!)!) },
+      ids: moving,
+    })
     return layoutOf(next)
   }
 
-  const destinationId =
+  if (target.kind === 'question' && movingSet.has(target.questionId)) return null
+  const into =
     target.kind === 'section-end'
-      ? target.sectionId
-      : members.find(({ ids }) => ids.includes(target.questionId))?.section.id
-  const destination = members.find(({ section }) => section.id === destinationId)
-  if (!destination) return null
-  const eligible = moving.filter((id) => typeOf(id) === destination.section.type)
-  if (eligible.length === 0) return null
-  if (target.kind === 'question' && eligible.includes(target.questionId)) return null
-
-  const eligibleSet = new Set(eligible)
-  const next: Members = members.map(({ section, ids }) => ({
-    section,
-    ids: ids.filter((id) => !eligibleSet.has(id)),
-  }))
-  const into = next.find(({ section }) => section.id === destination.section.id)!
+      ? next.find(({ section }) => section.id === target.sectionId)
+      : next.find(({ ids }) => ids.includes(target.questionId))
+  if (!into) return null
   const index =
     target.kind === 'section-end'
       ? into.ids.length
       : into.ids.indexOf(target.questionId) + (target.placement === 'after' ? 1 : 0)
-  into.ids.splice(index, 0, ...eligible)
+  into.ids.splice(index, 0, ...moving)
   const layout = layoutOf(next)
   return sameLayout(layout, layoutOf(members)) ? null : layout
 }
@@ -670,9 +653,9 @@ export function deleteSection(
   return { layout: layoutOf(members), removedQuestionIds: removed!.ids }
 }
 
-/** The Exam with one Section reworded, stored as its departures from its
- *  type's default: `null` sets a part back to its default, and an absent key
- *  leaves it. `null` when nothing changes or the Section does not exist. */
+/** The Exam with one Section reworded. An absent key leaves that part as it
+ *  is; an empty string clears it. `null` when nothing changes or the Section
+ *  does not exist. */
 export function rewordSection(
   exam: Exam,
   arrangement: Arrangement,
@@ -682,30 +665,11 @@ export function rewordSection(
   const members = membersOf(exam, arrangement)
   const entry = members.find(({ section }) => section.id === sectionId)
   if (!entry) return null
-  const reworded = withSectionWording(entry.section, change)
-  if (
-    reworded.title === entry.section.title
-    && reworded.instructions === entry.section.instructions
-  ) {
-    return null
-  }
-  entry.section = reworded
+  const title = change.title ?? entry.section.title
+  const instructions = change.instructions ?? entry.section.instructions
+  if (title === entry.section.title && instructions === entry.section.instructions) return null
+  entry.section = { id: entry.section.id, title, instructions }
   return layoutOf(members)
-}
-
-function withSectionWording(section: ExamSection, change: SectionHeadingChange): ExamSection {
-  const part = (key: 'title' | 'instructions', fallback: string): string | undefined => {
-    const next = key in change ? change[key] : section[key]
-    return next === null || next === undefined || next === fallback ? undefined : next
-  }
-  const title = part('title', SECTION_TITLE[section.type])
-  const instructions = part('instructions', SECTION_INSTRUCTIONS[section.type])
-  return {
-    id: section.id,
-    type: section.type,
-    ...(title !== undefined ? { title } : {}),
-    ...(instructions !== undefined ? { instructions } : {}),
-  }
 }
 
 /** Whether two layouts say the same thing. */
@@ -730,7 +694,6 @@ export function sameSections(
     && first.every(
       (section, index) =>
         section.id === second[index]!.id
-        && section.type === second[index]!.type
         && section.title === second[index]!.title
         && section.instructions === second[index]!.instructions,
     )

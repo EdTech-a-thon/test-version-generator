@@ -5,16 +5,14 @@
 // only ever Inserts: before or after a rendered question, at the end of an
 // empty Question Section, or into a new Section of its own.
 //
-// A Question Section holds one Question Type, so a Multiple Choice question
-// only ever reaches a line beside another Multiple Choice question — in any of
-// the Exam's Multiple Choice Sections — and never one inside a Short Answer
-// Section.
+// A Question Section holds Questions of any type, so every line between two
+// questions, in any Section, is somewhere a question can go.
 //
 // And a drop is never aimed. Released anywhere over the Working Copy, a gesture
 // lands at the legal insertion line nearest the pointer. The one exception is
 // a new Section, which is only ever made on purpose: when the nearest line is
-// the foot of a Section — below its last question, of whatever type — a "new
-// Section" target opens beneath it, and only a release over that open target
+// the foot of a Section — below its last question — a "new Section" target
+// opens beneath it, and only a release over that open target
 // makes one. The target opens rather than appearing at once, so the sheet does
 // not jump under the pointer, and it says what it will do before it does it.
 // The only release that changes nothing is one outside the Working Copy,
@@ -56,17 +54,14 @@ export type DropBox = { top: number; bottom: number; left: number; right: number
 export type DropCandidate = {
   questionId: string
   sectionId: string
-  type: QuestionType
   before: DropEdge
   after: DropEdge
 }
 
 /** An empty Question Section as a gesture sees it: the box it offers to drop
- *  into. It takes questions of its own type, and — like any Section — can
- *  have a new Section opened beneath it. */
+ *  into. Like any Section, it can have a new Section opened beneath it. */
 export type EmptySection = {
   sectionId: string
-  type: QuestionType
   box: DropBox
 }
 
@@ -180,30 +175,18 @@ export function dropIntent(
   }
 
   for (const candidate of others) {
-    const foot = footOf.has(candidate.questionId)
-    if (candidate.type === source.type) {
-      consider(distanceTo(candidate.before, point), {
-        kind: 'insert',
-        targetQuestionId: candidate.questionId,
-        placement: 'before',
-        opensBelow: null,
-      })
-      consider(distanceTo(candidate.after, point), {
-        kind: 'insert',
-        targetQuestionId: candidate.questionId,
-        placement: 'after',
-        opensBelow: foot ? candidate.sectionId : null,
-      })
-    } else if (foot) {
-      // The foot of a Section of another type takes nothing itself, but a new
-      // Section can be opened beneath it.
-      consider(distanceTo(candidate.after, point), {
-        kind: 'new-section',
-        afterSectionId: candidate.sectionId,
-        armed: false,
-        opensBelow: candidate.sectionId,
-      })
-    }
+    consider(distanceTo(candidate.before, point), {
+      kind: 'insert',
+      targetQuestionId: candidate.questionId,
+      placement: 'before',
+      opensBelow: null,
+    })
+    consider(distanceTo(candidate.after, point), {
+      kind: 'insert',
+      targetQuestionId: candidate.questionId,
+      placement: 'after',
+      opensBelow: footOf.has(candidate.questionId) ? candidate.sectionId : null,
+    })
   }
   for (const empty of emptySections) {
     const middle: DropEdge = {
@@ -212,17 +195,7 @@ export function dropIntent(
       right: empty.box.right,
     }
     const distance = isInside(empty.box, point) ? 0 : distanceTo(middle, point)
-    consider(
-      distance,
-      empty.type === source.type
-        ? { kind: 'section-end', sectionId: empty.sectionId, opensBelow: empty.sectionId }
-        : {
-            kind: 'new-section',
-            afterSectionId: empty.sectionId,
-            armed: false,
-            opensBelow: empty.sectionId,
-          },
-    )
+    consider(distance, { kind: 'section-end', sectionId: empty.sectionId, opensBelow: empty.sectionId })
   }
 
   // Still close to an open target, it stays open: moving down onto it must not

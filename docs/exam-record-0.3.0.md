@@ -30,20 +30,19 @@ Unknown optional members are ignored and are not preserved on import.
 
 ## Sections
 
-A Question Section holds Questions of one Question Type under a heading and a line of directions (ADR-0029). Each entry of `sections` has:
+A Question Section is an ordered group of Questions of any Question Type under a heading and a line of directions (ADR-0029). A Section has no type. Each entry of `sections` has:
 
 | Member         | Required | Meaning |
 | -------------- | -------- | ------- |
-| `type`         | yes      | `multiple-choice`, `true-false`, `matching`, `short-answer` or `multipart`: the type of every Question in the Section. |
-| `title`        | no       | The Section's heading, where it departs from Test Parrot's default for its type. |
-| `instructions` | no       | The Section's directions, where they depart from Test Parrot's default for its type. |
+| `title`        | yes      | The Section's heading, as the teacher wrote it. At most 500 characters. |
+| `instructions` | yes      | The Section's directions, as the teacher wrote them. At most 2000 characters. |
 
-- An Exam may have several Sections of one type, in any order.
+- A Section may hold Questions of several types, in any order.
 - A Section no position belongs to is conforming. It is kept on import, so a teacher can put Questions in it, but prints nothing on the test or the Answer Key.
-- An absent `title` or `instructions` reads as Test Parrot's default wording for the Section's type (ADR-0025).
+- Both members are always written out in full; there is no default wording to fall back on. Test Parrot begins a new Section's wording from the defaults of the type of the first Question put in it, but that is editing behaviour, not part of the record.
 - An empty string is a part the teacher cleared: it prints nothing. A Section whose `title` and `instructions` are both empty prints no heading at all.
-- Producers record only departures from the default. Importers keep the members as given.
-- The Answer Key's section titles follow `title`; a Section whose `title` is empty is still named by its default there.
+- Importers keep the members as given.
+- The Answer Key groups its entries by Section under each Section's `title`; a Section whose `title` is empty is named by its place there ("Section 2").
 
 ## Positions
 
@@ -60,7 +59,7 @@ Each position has these members:
 Semantic rules:
 
 - Every `question` reference must resolve to a Question in a Question Bank Record in the same package.
-- Every `section` must be an index into `sections`, and that Section's `type` must be the Question's type.
+- Every `section` must be an index into `sections`. Any Question may be in any Section.
 - An Exam uses each Question at most once.
 - Exam Records carry no point values.
 
@@ -90,4 +89,4 @@ Record `columns` only when the source layout makes them clear, and never guess `
 
 ## Changes from 0.2.0
 
-`sections` and each position's `section` are new and required: an Exam's Sections are stored and arranged by the teacher rather than derived from Question Type, so an Exam may have several Sections of one type, in any order, and empty ones (ADR-0029). `sectionHeadings` is withdrawn; each Section carries its own `title` and `instructions`. Test Parrot writes `0.3.0` and still imports `0.2.0` and `0.1.0`, deriving their Sections the old way: one per Question Type that has Questions, in the fixed order Multiple Choice, True/False, Matching, Short Answer, Multipart, each worded by that record's `sectionHeadings`.
+`sections` and each position's `section` are new and required: an Exam's Sections are stored and arranged by the teacher rather than derived from Question Type, so a Section may hold Questions of any type, an Exam may arrange its Sections in any order, and it may keep empty ones (ADR-0029). `sectionHeadings` is withdrawn; each Section carries its own `title` and `instructions`, in full. Test Parrot writes `0.3.0` and still imports `0.2.0` and `0.1.0`, deriving their Sections the old way: one per Question Type that has Questions, in the fixed order Multiple Choice, True/False, Matching, Short Answer, Multipart, each worded by that record's `sectionHeadings`.

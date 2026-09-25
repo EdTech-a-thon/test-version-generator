@@ -68,11 +68,7 @@ import {
   type WorkSpace,
 } from './exam'
 import type { Selection } from './use-selection'
-import {
-  SECTION_INSTRUCTIONS,
-  SECTION_TITLE,
-  type SectionHeadingChange,
-} from './section-headings'
+import type { SectionHeadingChange } from './section-headings'
 import { sectionHeadingStyles } from './export-typography'
 import type { WorkspaceDrag } from './use-workspace-drag'
 import { dropStateOf, type QuestionDropState } from './workspace-drag'
@@ -88,7 +84,7 @@ import {
   ListRestart,
   Pencil,
   PencilLine,
-  RotateCcw,
+  Heading,
   Shuffle,
   SquareDashed,
   X,
@@ -753,6 +749,10 @@ function QuestionView({
   )
 }
 
+/** How far a Section's highlight reaches past its first and last pieces: to
+ *  its dotted rule above, and halfway into the gap below. */
+const SECTION_BAND_BLEED = 12
+
 /** A new-Section target a gesture has opened: the Section it opened beneath,
  *  and whether the pointer is over it, which is when a release makes one. */
 type NewSectionTargetState = { afterSectionId: string; armed: boolean }
@@ -797,6 +797,7 @@ function SectionHeadingField({
   value,
   placeholder,
   disabled,
+  autoFocus = false,
   onChange,
   onFocusChange,
 }: {
@@ -804,6 +805,8 @@ function SectionHeadingField({
   value: string
   placeholder: string
   disabled: boolean
+  /** Focused as it appears: what bringing a cleared heading back does. */
+  autoFocus?: boolean
   onChange: (value: string) => void
   onFocusChange: (focused: boolean) => void
 }) {
@@ -816,6 +819,7 @@ function SectionHeadingField({
         value={value}
         placeholder={placeholder}
         disabled={disabled}
+        autoFocus={autoFocus}
         spellCheck
         onChange={(event) => onChange(event.target.value.replace(/\s*\n\s*/g, ' '))}
         onKeyDown={(event) => {
@@ -834,7 +838,8 @@ function SectionHeadingField({
 // A section heading on the sheet, reworded where it prints. A part the teacher
 // clears stays open to type into while it has focus, and prints nothing once
 // they leave it; a heading cleared of both is kept at no height, with a way to
-// bring it back in the page margin, where the question handles sit.
+// give it a heading again beside the Section's own controls in the left page
+// margin, where the question handles sit.
 function EditableSectionHeading({
   item,
   disabled,
@@ -842,6 +847,7 @@ function EditableSectionHeading({
   controls,
   emptyActive,
   newSectionTarget,
+  onHover,
 }: {
   item: SectionHeadingItem
   disabled: boolean
@@ -850,34 +856,36 @@ function EditableSectionHeading({
   /** Whether a gesture would land in this Section's empty box. */
   emptyActive: boolean
   newSectionTarget: NewSectionTargetState | null
+  onHover: (sectionId: string | null) => void
 }) {
-  const edited =
-    item.title !== SECTION_TITLE[item.section]
-    || item.instructions !== SECTION_INSTRUCTIONS[item.section]
   const [focused, setFocused] = useState<'title' | 'instructions' | null>(null)
   const focus = (part: 'title' | 'instructions') => (on: boolean) =>
     setFocused((current) => (on ? part : current === part ? null : current))
-  const name = SECTION_TITLE[item.section]
-  const reset = (
-    <div className="section-heading-handles">
-      <button
-        type="button"
-        className="question-handle"
-        aria-label={`Restore the ${name} heading`}
-        title="Restore the default heading and directions"
-        disabled={disabled}
-        onClick={() => onChange(item.sectionId, { title: null, instructions: null })}
-      >
-        <RotateCcw aria-hidden="true" />
-      </button>
-    </div>
-  )
+  const showTitle = item.title !== '' || focused === 'title'
+  const showInstructions = item.instructions !== '' || focused === 'instructions'
+  const hidden = !showTitle && !showInstructions
+  const hover = {
+    onPointerEnter: () => onHover(item.sectionId),
+    onPointerLeave: () => onHover(null),
+  }
   const sectionControls = controls && (
-    <div className="section-controls">
+    <div className="section-controls" {...hover}>
+      {hidden && (
+        <button
+          type="button"
+          className="question-handle"
+          aria-label="Add a section heading"
+          title="Add a heading"
+          disabled={disabled}
+          onClick={() => setFocused('title')}
+        >
+          <Heading aria-hidden="true" />
+        </button>
+      )}
       <button
         type="button"
         className="question-handle"
-        aria-label={`Move the ${name} section up`}
+        aria-label="Move section up"
         title="Move section up"
         disabled={disabled || !controls.canMoveUp}
         onClick={() => controls.onMove(-1)}
@@ -887,7 +895,7 @@ function EditableSectionHeading({
       <button
         type="button"
         className="question-handle"
-        aria-label={`Move the ${name} section down`}
+        aria-label="Move section down"
         title="Move section down"
         disabled={disabled || !controls.canMoveDown}
         onClick={() => controls.onMove(1)}
@@ -897,7 +905,7 @@ function EditableSectionHeading({
       <button
         type="button"
         className="question-handle"
-        aria-label={`Delete the ${name} section`}
+        aria-label="Delete section"
         title="Delete section and remove its questions"
         disabled={disabled}
         onClick={controls.onDelete}
@@ -914,13 +922,10 @@ function EditableSectionHeading({
       {newSectionTarget && <NewSectionTarget {...newSectionTarget} />}
     </div>
   )
-  const showTitle = item.title !== '' || focused === 'title'
-  const showInstructions = item.instructions !== '' || focused === 'instructions'
-  if (!showTitle && !showInstructions) {
+  if (hidden) {
     return (
       <>
-        <div className="exam-section-hidden">
-          {reset}
+        <div className="exam-section-hidden" data-section-id={item.sectionId}>
           {sectionControls}
         </div>
         {empty}
@@ -930,16 +935,20 @@ function EditableSectionHeading({
   const styles = sectionHeadingStyles(item.size)
   return (
     <>
-    <header className="exam-section exam-section--editable">
-      {edited && reset}
+    <header
+      className="exam-section exam-section--editable"
+      data-section-id={item.sectionId}
+      {...hover}
+    >
       {sectionControls}
       {showTitle && (
         <h2 className="section-title" style={styles.title}>
           <SectionHeadingField
-            label={`${name} heading`}
+            label="Section heading"
             value={item.title}
-            placeholder={name}
+            placeholder="Section heading"
             disabled={disabled}
+            autoFocus={focused === 'title' && item.title === ''}
             onChange={(title) => onChange(item.sectionId, { title })}
             onFocusChange={focus('title')}
           />
@@ -948,9 +957,9 @@ function EditableSectionHeading({
       {showInstructions && (
         <p className="section-instructions" style={styles.instructions}>
           <SectionHeadingField
-            label={`${name} directions`}
+            label="Section directions"
             value={item.instructions}
-            placeholder={SECTION_INSTRUCTIONS[item.section]}
+            placeholder="Directions"
             disabled={disabled}
             onChange={(instructions) => onChange(item.sectionId, { instructions })}
             onFocusChange={focus('instructions')}
@@ -983,6 +992,7 @@ function PageItemView({
   sectionIdOf,
   newSectionTarget,
   emptySectionActive,
+  onHoverSection,
 }: {
   item: PageItem
   /** Present in the editor: rewords a section heading where it prints. */
@@ -996,6 +1006,8 @@ function PageItemView({
   newSectionTarget: (item: PageItem) => NewSectionTargetState | null
   /** Whether a gesture would land in this empty Section's box. */
   emptySectionActive: (sectionId: string) => boolean
+  /** Points at a Section through its heading, or at none. */
+  onHoverSection: (sectionId: string | null) => void
   orderedIds: readonly string[]
   selection: Selection
   onEdit: (questionId: string) => void
@@ -1023,6 +1035,7 @@ function PageItemView({
           controls={sectionControls?.(item.sectionId) ?? null}
           emptyActive={emptySectionActive(item.sectionId)}
           newSectionTarget={newSectionTarget(item)}
+          onHover={onHoverSection}
         />
       ) : (
         <SectionHeadingContent item={item} />
@@ -1326,10 +1339,7 @@ export function ExamPage({
     point: { x: number; y: number },
   ) => {
     const ids = selection.isSelected(question.id)
-      ? [...new Set(orderedIds.filter((id) =>
-          selection.isSelected(id) &&
-          exam.questions.find((item) => item.id === id)?.type === question.type,
-        ))]
+      ? [...new Set(orderedIds.filter((id) => selection.isSelected(id)))]
       : [question.id]
     if (!selection.isSelected(question.id)) {
       selection.selectOne(question.id, orderedIds, {
@@ -1346,7 +1356,7 @@ export function ExamPage({
       { pane: 'exam-draft', questionIds: ids, type: question.type },
       { elements, bounds: element.getBoundingClientRect(), point },
     )
-  }, [drag, exam.questions, orderedIds, selection])
+  }, [drag, orderedIds, selection])
 
   // A question split across sheets draws its line above on its first piece and
   // its line below on its last, which is where the drop would actually land.
@@ -1426,6 +1436,36 @@ export function ExamPage({
     ),
   )
   const sectionIdOf = (questionId: string) => sectionOfQuestion.get(questionId) ?? ''
+  // The Section pointed at through its heading — never while a gesture is in
+  // flight, which has its own feedback to give.
+  const [hoveredSectionId, setHoveredSectionId] = useState<string | null>(null)
+  const highlightedSectionId = drag.source ? null : hoveredSectionId
+  // The highlight is one band per sheet, across the paper's whole width, from
+  // just above the Section's heading to just below its last piece on that
+  // sheet — read off the rendered pieces, since a Section may run across
+  // several sheets and the plan knows nothing of where they are drawn.
+  const [highlightBands, setHighlightBands] = useState<
+    Record<number, { top: number; height: number }>
+  >({})
+  useLayoutEffect(() => {
+    if (!highlightedSectionId) {
+      setHighlightBands((current) => (Object.keys(current).length === 0 ? current : {}))
+      return
+    }
+    const bands: Record<number, { top: number; height: number }> = {}
+    const selector = `[data-section-id="${CSS.escape(highlightedSectionId)}"]`
+    workspace.current?.querySelectorAll<HTMLElement>('.exam-page').forEach((page, index) => {
+      const pieces = [...page.querySelectorAll<HTMLElement>(selector)].map((piece) =>
+        piece.getBoundingClientRect(),
+      )
+      if (pieces.length === 0) return
+      const origin = page.getBoundingClientRect().top
+      const top = Math.min(...pieces.map(({ top }) => top)) - origin - SECTION_BAND_BLEED
+      const bottom = Math.max(...pieces.map(({ bottom }) => bottom)) - origin + SECTION_BAND_BLEED
+      bands[index] = { top, height: bottom - top }
+    })
+    setHighlightBands(bands)
+  }, [highlightedSectionId, plan])
   const sectionControls =
     onMoveSection && onDeleteSection
       ? (sectionId: string): SectionControls => {
@@ -1522,6 +1562,9 @@ export function ExamPage({
           key={`${page.header}-${page.number}`}
           onClick={clearOnBackground}
         >
+          {highlightBands[index] && (
+            <div className="section-highlight" style={highlightBands[index]} aria-hidden="true" />
+          )}
           <PageHeaderContent
             header={page.header}
             furniture={page.furniture}
@@ -1558,6 +1601,7 @@ export function ExamPage({
                 sectionIdOf={sectionIdOf}
                 newSectionTarget={newSectionTarget}
                 emptySectionActive={emptySectionActive}
+                onHoverSection={setHoveredSectionId}
                 orderedIds={orderedIds}
                 selection={selection}
                 onEdit={onEdit}

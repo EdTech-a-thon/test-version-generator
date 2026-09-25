@@ -24,12 +24,9 @@ import {
   deleteSection,
   NO_WORK_SPACE,
   placeQuestions,
-  questionById,
   rewordSection,
   sameSectionOf,
   sameSections,
-  SECTION_ORDER,
-  sectionById,
   sectionIdOf,
   sectionLayoutOf,
   sectionsOf,
@@ -43,10 +40,10 @@ import {
   shuffleSelectedQuestions,
   type Arrangement,
   type ColumnSetting,
-  type Exam,
+  newSectionWording,
+  type ExamSection,
   type Part,
   type Question,
-  type QuestionType,
   type SectionTarget,
   type WorkSpace,
 } from './exam'
@@ -501,47 +498,36 @@ function withDirtyFlag(current: AuthoringState, saved: SavedState | null): Autho
   return current.dirty === dirty ? current : { ...current, dirty }
 }
 
-/** The Section type a target can take, or `null` when it takes any — a new
- *  Section is made for whatever arrives. `undefined` when the target is not on
- *  this Exam at all. */
-function targetTypeOf(
-  exam: Exam,
-  target: SectionTarget,
-): QuestionType | null | undefined {
-  if (target.kind === 'new-section') return null
-  if (target.kind === 'section-end') return sectionById(exam, target.sectionId)?.type
-  return questionById(exam, target.questionId)?.type
-}
-
 /**
  * Adds canonical references and puts them in their Sections, without crossing
  * the history boundary.
  *
- * With a target, every question the target can take lands there, in the order
- * given, and a question of another type is not added at all. Without one — Add
- * and Add all — each question goes to the end of the last Section of its type,
- * and a type with no Section gets a new one at the end of the Exam; those new
- * Sections are made in `SECTION_ORDER`. A question already referenced is left
- * where it is: a reference occurs at most once, so adding one twice is not a
- * move.
+ * With a target, every question lands there, in the order given. Without one —
+ * Add and Add all — they go to the end of the last Section, and on an Exam
+ * with no Section yet, into a new one worded for the first of them. A question
+ * already referenced is left where it is: a reference occurs at most once, so
+ * adding one twice is not a move.
  */
 function withQuestionsAdded(
   current: AuthoringState,
   questionsOrIds: readonly (string | Question)[],
   target: SectionTarget | null,
 ): AuthoringState {
-  const before = selectedExam(current.questionBank, current.workingCopy)
-  const accepts = target ? targetTypeOf(before.exam, target) : null
-  if (accepts === undefined) return current
-
   let bank = current.questionBank
-  let workingCopy = current.workingCopy
+  // An Exam written before Sections were stored has them stored first, as
+  // they print, so what is added joins one of them rather than a new Section
+  // of its own type beside them.
+  const prior = selectedExam(bank, current.workingCopy)
+  const hadSections = sectionsOf(prior.exam).length > 0
+  let workingCopy = hadSections
+    ? withSectionLayout(current.workingCopy, sectionLayoutOf(prior.exam, prior.arrangement))
+    : current.workingCopy
   const added: Question[] = []
   for (const item of questionsOrIds) {
     const supplied = typeof item === 'string' ? null : item
     const questionId = typeof item === 'string' ? item : item.id
     const question = supplied ?? bankQuestionById(bank, questionId)
-    if (!question || (accepts !== null && question.type !== accepts)) continue
+    if (!question) continue
     const referenced = withReferenceAdded(workingCopy, questionId)
     if (referenced === workingCopy) continue
     if (supplied) bank = withQuestionBanked(bank, supplied)
@@ -550,30 +536,30 @@ function withQuestionsAdded(
   }
   if (added.length === 0) return current
 
-  const place = (
-    draft: ExamWorkingCopy,
-    ids: readonly string[],
-    to: SectionTarget,
-  ): ExamWorkingCopy => {
-    // Stored even when the question already landed where it was put, so a
-    // Section made later can never draw an unplaced question into itself.
-    const { exam, arrangement } = selectedExam(bank, draft)
-    const layout = placeQuestions(exam, arrangement, ids, to) ?? sectionLayoutOf(exam, arrangement)
-    return withSectionLayout(draft, layout)
-  }
-  if (target) {
-    workingCopy = place(workingCopy, added.map(({ id }) => id), target)
+  if (!hadSections) {
+    // An Exam with nothing on it: whatever arrives, however it was asked for,
+    // starts its first Section, in the order given, worded for the first of
+    // them.
+    const section: ExamSection = { id: crypto.randomUUID(), ...newSectionWording(added[0]!.type) }
+    workingCopy = withSectionLayout(workingCopy, {
+      sections: [section],
+      sectionOf: Object.fromEntries(added.map(({ id }) => [id, section.id])),
+      questionOrder: added.map(({ id }) => id),
+    })
   } else {
-    // Placed one at a time, in `SECTION_ORDER`, so that a type's second
-    // question joins the Section its first one just made. A question on the
-    // Exam always belongs to a Section of its type — the last stored one, or a
-    // new one at the end — so the last of them is where Add puts it.
-    const byType = SECTION_ORDER.flatMap((type) => added.filter((question) => question.type === type))
-    for (const question of byType) {
-      const { exam } = selectedExam(bank, workingCopy)
-      const last = sectionsOf(exam).filter(({ type }) => type === question.type).at(-1)!
-      workingCopy = place(workingCopy, [question.id], { kind: 'section-end', sectionId: last.id })
+    // Stored even when the questions already landed where they were put, so a
+    // Section made later can never draw an unplaced question into itself. A
+    // question on the Exam belongs to its last Section until placed, so that
+    // is where Add puts it.
+    const { exam, arrangement } = selectedExam(bank, workingCopy)
+    const to: SectionTarget = target ?? {
+      kind: 'section-end',
+      sectionId: sectionsOf(exam).at(-1)!.id,
     }
+    const layout =
+      placeQuestions(exam, arrangement, added.map(({ id }) => id), to)
+      ?? sectionLayoutOf(exam, arrangement)
+    workingCopy = withSectionLayout(workingCopy, layout)
   }
   return {
     ...current,

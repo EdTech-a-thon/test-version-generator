@@ -1,5 +1,5 @@
 import Ajv2020, { type ErrorObject } from 'ajv/dist/2020'
-import type { ColumnSetting, QuestionType, WorkSpace } from './exam'
+import type { ColumnSetting, WorkSpace } from './exam'
 import type { HeadingSize, SectionHeadings, TextSize } from './section-headings'
 import type { ExamHeader } from './page-header'
 import examSchema010 from './exam-record-0.1.0.schema.json'
@@ -67,13 +67,12 @@ export type ExamRecordPosition = {
 /** One Question Section's wording, as an Exam Record 0.2.0 writes it. */
 export type ExamRecordSectionHeading = { title?: string; instructions?: string }
 
-/** One Question Section, as an Exam Record 0.3.0 writes it: its type in the
- *  record's vocabulary, and only the wording that departs from that type's
- *  default. */
+/** One Question Section, as an Exam Record 0.3.0 writes it: its wording in
+ *  full, and no type — a Section holds Questions of any type (ADR-0029). An
+ *  empty string is a part the teacher cleared. */
 export type ExamRecordSection = {
-  type: QuestionBankRecordQuestionType
-  title?: string
-  instructions?: string
+  title: string
+  instructions: string
 }
 
 export type ExamRecord = {
@@ -114,12 +113,11 @@ export type ProposedBank = {
   exams: string[]
 }
 
-/** An imported Section, in the local vocabulary. It has no id yet: the plan
- *  that writes it gives it a fresh one. */
+/** An imported Section's wording. It has no id yet: the plan that writes it
+ *  gives it a fresh one. */
 export type ProposedSection = {
-  type: QuestionType
-  title?: string
-  instructions?: string
+  title: string
+  instructions: string
 }
 
 export type ProposedExam = {
@@ -228,12 +226,7 @@ function localHeadingsOf(
   )
   return {
     ...(exam.sections
-      ? {
-          sections: exam.sections.map((section) => ({
-            type: LOCAL_TYPES[section.type],
-            ...wordingOf(section),
-          })),
-        }
+      ? { sections: exam.sections.map(({ title, instructions }) => ({ title, instructions })) }
       : {}),
     ...(entries.length > 0 ? { sectionHeadings } : {}),
     ...(exam.headingSize && exam.headingSize !== 'normal' ? { headingSize: exam.headingSize } : {}),
@@ -276,7 +269,8 @@ const examParser020: ExamParser = (value) => {
 }
 
 // 0.3.0 stores the Exam's Sections, each with its own wording, and places
-// every position in one; per-type `sectionHeadings` is gone (ADR-0029).
+// every position in one. A Section holds Questions of any type, and
+// per-type `sectionHeadings` is gone (ADR-0029).
 const examParser030: ExamParser = (value) => {
   if (!validateExam030(value)) throw schemaFailure('Exam Record', validateExam030.errors)
   const exam = value as ExamRecord
@@ -284,7 +278,7 @@ const examParser030: ExamParser = (value) => {
     format: EXAM_FORMAT,
     formatVersion: '0.3.0',
     name: exam.name,
-    sections: exam.sections!.map((section) => ({ type: section.type, ...wordingOf(section) })),
+    sections: exam.sections!.map(({ title, instructions }) => ({ title, instructions })),
     ...(exam.headingSize ? { headingSize: exam.headingSize } : {}),
     ...(exam.textSize ? { textSize: exam.textSize } : {}),
     ...(exam.header ? { header: { ...exam.header } } : {}),
@@ -433,19 +427,12 @@ function proposedExam(
       }
     }
     // A 0.3.0 record places each position in one of its own Sections, which
-    // must hold the Question's type; an older record's are placed by type.
+    // takes a Question of any type; an older record's are placed by type.
     if (exam.sections) {
-      const section = exam.sections[position.section!]
-      if (!section) {
+      if (position.section! >= exam.sections.length) {
         throw new QuestionBankImportError(
           'dangling-reference',
           `${where} names Section ${position.section! + 1}, but this Exam has ${exam.sections.length}.`,
-        )
-      }
-      if (section.type !== question.type) {
-        throw new QuestionBankImportError(
-          'invalid-position',
-          `${where} puts a ${question.type} Question in Section ${position.section! + 1}, which holds ${section.type} Questions.`,
         )
       }
       return { position, section: position.section! }

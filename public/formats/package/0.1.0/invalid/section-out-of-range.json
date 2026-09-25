@@ -414,7 +414,8 @@
       "name": "Missing section",
       "sections": [
         {
-          "type": "multiple-choice"
+          "title": "Multiple Choice",
+          "instructions": "Choose the best answer."
         }
       ],
       "positions": [

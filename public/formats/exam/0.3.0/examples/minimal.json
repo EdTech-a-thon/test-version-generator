@@ -4,7 +4,8 @@
   "name": "Pop Quiz",
   "sections": [
     {
-      "type": "multiple-choice"
+      "title": "Multiple Choice",
+      "instructions": "Identify the choice that best completes the statement or answers the question."
     }
   ],
   "positions": [

@@ -74,8 +74,8 @@ test("forced deletion takes a Question out of its Section and keeps the emptied 
     workingCopy: {
       ...base.workingCopy,
       sections: [
-        { id: "first", type: "open", title: "Essays" },
-        { id: "second", type: "open" },
+        { id: "first", title: "Essays", instructions: "" },
+        { id: "second", title: "Short Answer", instructions: "" },
       ],
       sectionOf: { a: "first", b: "second", c: "second" },
     },

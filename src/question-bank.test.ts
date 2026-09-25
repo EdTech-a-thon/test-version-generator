@@ -169,14 +169,14 @@ describe('writing back Sections', () => {
   test('stores every Section, every placement and the order, and drops the legacy per-type wording', () => {
     const draft = { ...draftOf(), sectionHeadings: { open: { title: 'Essays' } } }
     const laidOut = withSectionLayout(draft, {
-      sections: [{ id: 'open', type: 'open', title: 'Essays' }, { id: 'B', type: 'open' }],
+      sections: [{ id: 'open', title: 'Essays', instructions: '' }, { id: 'B', title: 'Short Answer', instructions: '' }],
       sectionOf: { q1: 'open', q2: 'B', q3: 'open' },
       questionOrder: ['q1', 'q3', 'q2'],
     })
     expect(laidOut).toEqual({
       ...createWorkingCopy(),
       questionIds: ['q1', 'q3', 'q2'],
-      sections: [{ id: 'open', type: 'open', title: 'Essays' }, { id: 'B', type: 'open' }],
+      sections: [{ id: 'open', title: 'Essays', instructions: '' }, { id: 'B', title: 'Short Answer', instructions: '' }],
       sectionOf: { q1: 'open', q2: 'B', q3: 'open' },
     })
   })

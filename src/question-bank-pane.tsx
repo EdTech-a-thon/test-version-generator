@@ -361,8 +361,7 @@ export function QuestionBankPane({
         const questionIds = selectedQuestionIds.has(held.questionId)
           ? questions
               .filter((candidate) =>
-                candidate.type === held.type
-                && selectedQuestionIds.has(candidate.id)
+                selectedQuestionIds.has(candidate.id)
                 && !workingCopyIds.has(candidate.id),
               )
               .map(({ id }) => id)

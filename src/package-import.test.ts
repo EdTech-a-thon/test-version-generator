@@ -372,19 +372,23 @@ describe('Exam Record 0.3.0 Sections', () => {
     format: 'test-parrot/exam', formatVersion: '0.3.0', name: 'Sectioned', sections, positions,
   })
 
-  test('are proposed in record order, in the local vocabulary, empty ones included', async () => {
+  const worded = (title: string, instructions = '') => ({ title, instructions })
+
+  test('are proposed in record order with their wording in full, mixed types and empty ones included', async () => {
     const proposal = await inspectImportRecord(bytesOf(packageOf(
       [{ id: 'b', record: mixed() }],
       [sectioned(
         [
-          { type: 'short-answer', title: 'Essays', instructions: '' },
-          { type: 'multiple-choice', title: 'Warm-up' },
-          { type: 'matching' },
-          { type: 'multiple-choice', title: '' },
+          { title: 'Essays', instructions: '' },
+          { title: 'Warm-up', instructions: 'Answer each question.' },
+          { title: 'Nothing here', instructions: 'Kept, but prints nothing.' },
+          { title: '', instructions: 'Circle one.' },
         ],
-        // Interleaved positions regroup by Section, keeping order within each.
+        // Interleaved positions regroup stably by Section, keeping order
+        // within each; Section 2 takes a Multiple Choice and a True/False.
         [
           at('b', 'q2', { section: 3 }),
+          at('b', 'q3', { section: 1 }),
           at('b', 'q4', { section: 0 }),
           at('b', 'q1', { section: 1 }),
         ],
@@ -395,13 +399,14 @@ describe('Exam Record 0.3.0 Sections', () => {
       name: 'Sectioned',
       formatVersion: '0.3.0',
       sections: [
-        { type: 'open', title: 'Essays', instructions: '' },
-        { type: 'multiple-choice', title: 'Warm-up' },
-        { type: 'matching' },
-        { type: 'multiple-choice', title: '' },
+        { title: 'Essays', instructions: '' },
+        { title: 'Warm-up', instructions: 'Answer each question.' },
+        { title: 'Nothing here', instructions: 'Kept, but prints nothing.' },
+        { title: '', instructions: 'Circle one.' },
       ],
       positions: [
         at('b', 'q4', { section: 0 }),
+        at('b', 'q3', { section: 1 }),
         at('b', 'q1', { section: 1 }),
         at('b', 'q2', { section: 3 }),
       ],
@@ -409,48 +414,53 @@ describe('Exam Record 0.3.0 Sections', () => {
     })
   })
 
-  test('a position must name one of the record’s Sections, of its Question’s type', async () => {
+  test('a position must name one of the record’s Sections, and any Section takes any type', async () => {
     await rejected(
-      packageOf([{ id: 'b', record: mixed() }], [sectioned([{ type: 'multiple-choice' }], [at('b', 'q1', { section: 1 })])]),
+      packageOf([{ id: 'b', record: mixed() }], [sectioned([worded('Only')], [at('b', 'q1', { section: 1 })])]),
       'dangling-reference',
       'Section 2',
     )
-    await rejected(
-      packageOf([{ id: 'b', record: mixed() }], [sectioned(
-        [{ type: 'multiple-choice' }, { type: 'short-answer' }],
-        [at('b', 'q1', { section: 1 })],
-      )]),
-      'invalid-position',
-      'Section 2',
-    )
+    const proposal = await inspectImportRecord(bytesOf(packageOf(
+      [{ id: 'b', record: mixed() }],
+      [sectioned([worded('Multiple Choice'), worded('Short Answer')], [at('b', 'q1', { section: 1 })])],
+    )))
+    expect(proposal.exams[0]!.positions).toEqual([at('b', 'q1', { section: 1 })])
   })
 
-  test('sections, and each position’s section, are required, and a Section holds only its type and wording', async () => {
+  test('sections, and each position’s section, are required, and a Section is its full wording and nothing else', async () => {
     await rejected(
       packageOf([{ id: 'b', record: mixed() }], [{ format: 'test-parrot/exam', formatVersion: '0.3.0', name: 'No sections', positions: [] }]),
       'invalid-structure',
     )
     await rejected(
-      packageOf([{ id: 'b', record: mixed() }], [sectioned([{ type: 'multiple-choice' }], [at('b', 'q1')])]),
+      packageOf([{ id: 'b', record: mixed() }], [sectioned([worded('A')], [at('b', 'q1')])]),
       'invalid-structure',
     )
     await rejected(
-      packageOf([{ id: 'b', record: mixed() }], [sectioned([{ type: 'open' }], [])]),
+      packageOf([{ id: 'b', record: mixed() }], [sectioned([{ title: 'No directions' }], [])]),
       'invalid-structure',
     )
     await rejected(
-      packageOf([{ id: 'b', record: mixed() }], [sectioned([{ type: 'matching', colour: 'red' }], [])]),
+      packageOf([{ id: 'b', record: mixed() }], [sectioned([{ instructions: 'No heading' }], [])]),
+      'invalid-structure',
+    )
+    await rejected(
+      packageOf([{ id: 'b', record: mixed() }], [sectioned([{ ...worded('Typed'), type: 'multiple-choice' }], [])]),
+      'invalid-structure',
+    )
+    await rejected(
+      packageOf([{ id: 'b', record: mixed() }], [sectioned([{ title: 3, instructions: '' }], [])]),
       'invalid-structure',
     )
   })
 
   test('leave per-type section wording behind: in 0.3.0 it is an unknown member, and ignored', async () => {
     const proposal = await inspectImportRecord(bytesOf(packageOf([{ id: 'b', record: mixed() }], [{
-      ...sectioned([{ type: 'short-answer' }], []),
+      ...sectioned([worded('Short Answer')], []),
       sectionHeadings: { 'short-answer': { title: 'Essays' } },
     }])))
     expect(proposal.exams[0]).not.toHaveProperty('sectionHeadings')
-    expect(proposal.exams[0]!.sections).toEqual([{ type: 'open' }])
+    expect(proposal.exams[0]!.sections).toEqual([{ title: 'Short Answer', instructions: '' }])
   })
 })
 

@@ -55,8 +55,6 @@ export { SECTION_INSTRUCTIONS, SECTION_TITLE } from './section-headings'
 import {
   DEFAULT_HEADING_SIZE,
   DEFAULT_TEXT_SIZE,
-  SECTION_INSTRUCTIONS,
-  SECTION_TITLE,
   type HeadingSize,
   type TextSize,
 } from './section-headings'
@@ -256,8 +254,6 @@ export type SectionHeadingItem = {
   kind: 'section-heading'
   /** Which of the Exam's Sections this heads. */
   sectionId: string
-  /** That Section's Question Type — what its default wording is for. */
-  section: QuestionType
   title: string
   instructions: string
   /** A heading is never left at the foot of a page without its first question.
@@ -322,7 +318,6 @@ export type AnswerKeyHeadingItem = { kind: 'answer-key-heading' }
 export type AnswerKeySectionItem = {
   kind: 'answer-key-section'
   sectionId: string
-  section: QuestionType
   title: string
 }
 
@@ -763,9 +758,8 @@ function deriveItems(
       items.push({
         kind: 'section-heading',
         sectionId: section.id,
-        section: section.type,
-        title: section.title ?? SECTION_TITLE[section.type],
-        instructions: section.instructions ?? SECTION_INSTRUCTIONS[section.type],
+        title: section.title,
+        instructions: section.instructions,
         keepWithNext: true,
         ...(questions.length === 0 ? { empty: true as const } : {}),
         ...(exam.headingSize && exam.headingSize !== DEFAULT_HEADING_SIZE
@@ -1146,6 +1140,8 @@ function deriveAnswerKey(testItems: readonly PageItem[]): PageItem[] {
   const seen = new Set<string>()
   let heading: SectionHeadingItem | null = null
   let grouped: string | null = null
+  // A Section whose heading the teacher cleared is named by its place.
+  let unnamed = 0
 
   for (const item of testItems) {
     if (item.kind === 'section-heading') heading = item
@@ -1156,8 +1152,7 @@ function deriveAnswerKey(testItems: readonly PageItem[]): PageItem[] {
       items.push({
         kind: 'answer-key-section',
         sectionId: heading.sectionId,
-        section: heading.section,
-        title: heading.title || SECTION_TITLE[heading.section],
+        title: heading.title || `Section ${++unnamed}`,
       })
     }
     const metadata = {

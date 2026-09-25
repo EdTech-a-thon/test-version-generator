@@ -272,7 +272,7 @@ describe('a Multipart question in an Exam package', () => {
 
     // Per-Part answer order and columns are not carried yet: the position is bare.
     expect(carried.exams[0]!.positions).toEqual([{ question: { bank: 'bank-1', question: 'q1' }, section: 0 }])
-    expect(carried.exams[0]!.sections).toEqual([{ type: 'multipart' }])
+    expect(carried.exams[0]!.sections).toEqual([{ title: 'Multipart', instructions: 'Answer every part of each question.' }])
     const proposal = await inspectImportRecord(new TextEncoder().encode(JSON.stringify(carried)))
     expect(proposal.banks[0]!.record.bank.questions[0]).toMatchObject({
       type: 'multipart',
@@ -293,13 +293,13 @@ describe('a Multipart question in an Exam package', () => {
       textSize: 'large',
     }
     const carried = await examPackage({ exam: worded, arrangement, ownerOf, loadMedia: noImages })
-    // A Short Answer section is `short-answer` in the record, `open` in the app.
+    // Each derived Section travels with its wording in full, and no type.
     expect(carried.exams[0]).toMatchObject({
       formatVersion: '0.3.0',
       sections: [
-        { type: 'multiple-choice' },
-        { type: 'matching', title: 'Vocabulary' },
-        { type: 'short-answer', title: 'Essays', instructions: '' },
+        { title: 'Multiple Choice', instructions: 'Identify the choice that best completes the statement or answers the question.' },
+        { title: 'Vocabulary', instructions: 'Match each item with the correct answer from the word bank. Write its letter in the blank.' },
+        { title: 'Essays', instructions: '' },
       ],
       headingSize: 'small',
       header: { first: 'Student: ____  Period: __', later: '' },
@@ -321,12 +321,12 @@ describe('a Multipart question in an Exam package', () => {
     expect(imported.textSize).toBe('large')
   })
 
-  test('an Exam that keeps the default headings writes no wording and no sizes', async () => {
+  test('an Exam that keeps the default headings writes their wording out in full, and no sizes', async () => {
     const carried = await examPackage({ exam, arrangement, ownerOf, loadMedia: noImages })
     expect(carried.exams[0]!.sections).toEqual([
-      { type: 'multiple-choice' },
-      { type: 'matching' },
-      { type: 'short-answer' },
+      { title: 'Multiple Choice', instructions: 'Identify the choice that best completes the statement or answers the question.' },
+      { title: 'Matching', instructions: 'Match each item with the correct answer from the word bank. Write its letter in the blank.' },
+      { title: 'Short Answer', instructions: 'Answer the following questions in the space provided. Show all work.' },
     ])
     expect(carried.exams[0]).not.toHaveProperty('sectionHeadings')
     expect(carried.exams[0]).not.toHaveProperty('headingSize')
@@ -335,40 +335,41 @@ describe('a Multipart question in an Exam package', () => {
   })
 })
 
-const withoutIds = (sections: readonly ExamSection[]) => sections.map((section) => ({ type: section.type, ...(section.title !== undefined ? { title: section.title } : {}), ...(section.instructions !== undefined ? { instructions: section.instructions } : {}) }))
+const withoutIds = (sections: readonly ExamSection[]) =>
+  sections.map(({ title, instructions }) => ({ title, instructions }))
 
 describe('an Exam’s stored Sections in its package', () => {
-  // Two Multiple Choice Sections with their own headings, a Short Answer
-  // Section between them whose directions are cleared, and an emptied
-  // Matching Section that is kept but prints nothing.
-  const sectioned: Exam = {
+  // A Section holding Questions of two types, a Short Answer Section whose
+  // directions are cleared, a Section whose heading is cleared, and an
+  // emptied Section that is kept but prints nothing.
+  const sheet: Exam = {
     ...exam,
     sections: [
-      { id: 'warm-up', type: 'multiple-choice', title: 'Warm-up' },
-      { id: 'written', type: 'open', instructions: '' },
-      { id: 'challenge', type: 'multiple-choice', title: 'Challenge', instructions: 'Show your reasoning.' },
-      { id: 'empty', type: 'matching', title: '' },
+      { id: 'warm-up', title: 'Warm-up', instructions: 'Answer each question.' },
+      { id: 'written', title: 'Written', instructions: '' },
+      { id: 'challenge', title: '', instructions: 'Show your reasoning.' },
+      { id: 'empty', title: 'Extra Credit', instructions: 'Optional.' },
     ],
     sectionOf: {
-      'cells-1': 'challenge',
       'forces-2': 'warm-up',
+      'cells-2': 'warm-up',
       'forces-1': 'written',
-      // The matching set is left to its type's last Section.
+      'cells-1': 'challenge',
     },
   }
-  const sheet: Exam = { ...sectioned, questions: sectioned.questions.filter(({ id }) => id !== 'cells-2') }
 
   test('travel in print order, empty ones included, each position naming its Section', async () => {
     const carried = await examPackage({ exam: sheet, arrangement, ownerOf, loadMedia: noImages })
     const record = carried.exams[0]!
     expect(record.formatVersion).toBe('0.3.0')
     expect(record.sections).toEqual([
-      { type: 'multiple-choice', title: 'Warm-up' },
-      { type: 'short-answer', instructions: '' },
-      { type: 'multiple-choice', title: 'Challenge', instructions: 'Show your reasoning.' },
-      { type: 'matching', title: '' },
+      { title: 'Warm-up', instructions: 'Answer each question.' },
+      { title: 'Written', instructions: '' },
+      { title: '', instructions: 'Show your reasoning.' },
+      { title: 'Extra Credit', instructions: 'Optional.' },
     ])
-    expect(record.positions.map(({ section }) => section)).toEqual([0, 1, 2])
+    // The Warm-up Section holds a Multiple Choice and a Matching Question.
+    expect(record.positions.map(({ section }) => section)).toEqual([0, 0, 1, 2])
   })
 
   test('import again as the same Sections under fresh ids, printing the same sheet', async () => {

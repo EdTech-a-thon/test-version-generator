@@ -33,7 +33,6 @@ import {
   type SectionHeadingItem,
 } from './export-plan'
 import type { ProseMirrorJSON } from './question-doc'
-import { SECTION_LABELS } from './exam'
 
 /** The blocks inside a node — a choice's own paragraphs, say. */
 function blocksOf(node: ProseMirrorJSON): ProseMirrorJSON[] {
@@ -308,8 +307,7 @@ export function SectionHeadingContent({ item }: { item: SectionHeadingItem }) {
   )
 }
 
-/** Where an empty Question Section takes questions of its type on the exam
- *  sheet. Only the sheet plans an empty Section, so this is never exported; it
+/** Where an empty Question Section takes questions on the exam sheet. Only the sheet plans an empty Section, so this is never exported; it
  *  is drawn here, with the heading, so the sheet measures the room it takes. */
 export function EmptySectionBox({
   item,
@@ -323,10 +321,9 @@ export function EmptySectionBox({
       className="exam-section-empty"
       data-empty-section=""
       data-section-id={item.sectionId}
-      data-section-type={item.section}
       data-active={active ? 'true' : undefined}
     >
-      Drag {SECTION_LABELS[item.section].toLowerCase()} questions here
+      Drag questions here
     </div>
   )
 }

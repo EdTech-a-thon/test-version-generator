@@ -1,5 +1,4 @@
 import { describe, expect, test } from 'bun:test'
-import type { QuestionType } from './exam'
 import {
   dropIntent,
   landsOnRelease,
@@ -36,14 +35,12 @@ const shortAnswerFromQuestionBank: DragSource = {
 function rendered(
   questionId: string,
   sectionId: string,
-  type: QuestionType,
   top: number,
   bottom: number,
 ): DropCandidate {
   return {
     questionId,
     sectionId,
-    type,
     before: { y: top, left: 100, right: 700 },
     after: { y: bottom, left: 100, right: 700 },
   }
@@ -59,11 +56,11 @@ function field(
 // A Multiple Choice Section of two questions, a Short Answer Section of two,
 // then a second Multiple Choice Section of one, down one sheet.
 const page = field([
-  rendered('q1', 'mc', 'multiple-choice', 100, 300),
-  rendered('q2', 'mc', 'multiple-choice', 326, 526),
-  rendered('s1', 'sa', 'open', 600, 700),
-  rendered('s2', 'sa', 'open', 726, 826),
-  rendered('q3', 'mc-2', 'multiple-choice', 900, 1000),
+  rendered('q1', 'mc', 100, 300),
+  rendered('q2', 'mc', 326, 526),
+  rendered('s1', 'sa', 600, 700),
+  rendered('s2', 'sa', 726, 826),
+  rendered('q3', 'mc-2', 900, 1000),
 ])
 
 describe('a Question Bank question released over the Working Copy', () => {
@@ -85,7 +82,7 @@ describe('a Question Bank question released over the Working Copy', () => {
     })
   })
 
-  test('reaches a second Section of its type as readily as the first', () => {
+  test('reaches a later Section as readily as the first', () => {
     expect(dropIntent(fromQuestionBank, page, { x: 400, y: 910 })).toEqual({
       kind: 'insert',
       targetQuestionId: 'q3',
@@ -94,14 +91,22 @@ describe('a Question Bank question released over the Working Copy', () => {
     })
   })
 
-  test('never lands inside a Section of another type, going to the nearest line of its own', () => {
-    // Over the middle of the Short Answer Section: the nearest Multiple Choice
-    // line is below the first Section.
-    const intent = dropIntent(fromQuestionBank, page, { x: 400, y: 560 })
-    expect(intent).toMatchObject({ kind: 'insert', targetQuestionId: 'q2', placement: 'after' })
+  test('lands inside a Section of Short Answer questions, at the nearest line', () => {
+    // Between s1 and s2: a Multiple Choice question goes there like any other.
+    expect(dropIntent(fromQuestionBank, page, { x: 400, y: 710 })).toEqual({
+      kind: 'insert',
+      targetQuestionId: 's1',
+      placement: 'after',
+      opensBelow: null,
+    })
+    expect(dropIntent(fromQuestionBank, page, { x: 400, y: 590 })).toMatchObject({
+      kind: 'insert',
+      targetQuestionId: 's1',
+      placement: 'before',
+    })
   })
 
-  test('opens a new-Section target at the foot of its own type of Section', () => {
+  test('opens a new-Section target at the foot of a Section, below its last question', () => {
     expect(dropIntent(fromQuestionBank, page, { x: 400, y: 520 })).toEqual({
       kind: 'insert',
       targetQuestionId: 'q2',
@@ -110,15 +115,15 @@ describe('a Question Bank question released over the Working Copy', () => {
     })
   })
 
-  test('opens one at the foot of a Section of another type, which releases nothing until aimed at', () => {
+  test('at the foot of a Section of another type, inserts after its last question and opens a new-Section target', () => {
     const intent = dropIntent(fromQuestionBank, page, { x: 400, y: 830 })
     expect(intent).toEqual({
-      kind: 'new-section',
-      afterSectionId: 'sa',
-      armed: false,
+      kind: 'insert',
+      targetQuestionId: 's2',
+      placement: 'after',
       opensBelow: 'sa',
     })
-    expect(landsOnRelease(intent)).toBe(false)
+    expect(landsOnRelease(intent)).toBe(true)
   })
 
   test('makes a new Section only when released over the open target', () => {
@@ -138,34 +143,44 @@ describe('a Question Bank question released over the Working Copy', () => {
     expect(landsOnRelease(intent)).toBe(true)
   })
 
-  test('drops into an empty Section of its own type, and offers a new one beneath one of another', () => {
+  test('drops into any empty Section, whatever the question’s type', () => {
     const withEmpty = field(page.candidates, {
       emptySections: [
-        { sectionId: 'empty-mc', type: 'multiple-choice', box: { top: 1100, bottom: 1156, left: 100, right: 700 } },
-        { sectionId: 'empty-sa', type: 'open', box: { top: 1250, bottom: 1306, left: 100, right: 700 } },
+        { sectionId: 'empty-1', box: { top: 1100, bottom: 1156, left: 100, right: 700 } },
+        { sectionId: 'empty-2', box: { top: 1250, bottom: 1306, left: 100, right: 700 } },
       ],
     })
-    expect(dropIntent(fromQuestionBank, withEmpty, { x: 400, y: 1120 })).toEqual({
-      kind: 'section-end',
-      sectionId: 'empty-mc',
-      opensBelow: 'empty-mc',
-    })
-    expect(dropIntent(fromQuestionBank, withEmpty, { x: 400, y: 1270 })).toMatchObject({
-      kind: 'new-section',
-      afterSectionId: 'empty-sa',
-      armed: false,
-    })
+    for (const source of [fromQuestionBank, shortAnswerFromQuestionBank]) {
+      expect(dropIntent(source, withEmpty, { x: 400, y: 1120 })).toEqual({
+        kind: 'section-end',
+        sectionId: 'empty-1',
+        opensBelow: 'empty-1',
+      })
+      expect(dropIntent(source, withEmpty, { x: 400, y: 1270 })).toEqual({
+        kind: 'section-end',
+        sectionId: 'empty-2',
+        opensBelow: 'empty-2',
+      })
+    }
   })
 
-  test('a Short Answer question reaches only Short Answer lines', () => {
-    expect(dropIntent(shortAnswerFromQuestionBank, page, { x: 400, y: 150 })).toMatchObject({
-      kind: 'new-section',
-      afterSectionId: 'mc',
+  test('a Short Answer question reaches every line, beside a question of any type', () => {
+    expect(dropIntent(shortAnswerFromQuestionBank, page, { x: 400, y: 150 })).toEqual({
+      kind: 'insert',
+      targetQuestionId: 'q1',
+      placement: 'before',
+      opensBelow: null,
     })
     expect(dropIntent(shortAnswerFromQuestionBank, page, { x: 400, y: 610 })).toMatchObject({
       kind: 'insert',
       targetQuestionId: 's1',
       placement: 'before',
+    })
+    expect(dropIntent(shortAnswerFromQuestionBank, page, { x: 400, y: 990 })).toEqual({
+      kind: 'insert',
+      targetQuestionId: 'q3',
+      placement: 'after',
+      opensBelow: 'mc-2',
     })
   })
 

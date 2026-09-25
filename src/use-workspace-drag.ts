@@ -106,7 +106,6 @@ function fieldAt(point: { x: number; y: number }): DropField | null {
         ? [{
             questionId,
             sectionId,
-            type,
             before: { y: first.top, left: first.left, right: first.right },
             after: { y: last.bottom, left: last.left, right: last.right },
           }]
@@ -115,11 +114,10 @@ function fieldAt(point: { x: number; y: number }): DropField | null {
   const emptySections: EmptySection[] = [
     ...zone.querySelectorAll<HTMLElement>(EMPTY_SECTION_SELECTOR),
   ].flatMap((element) => {
-    const { sectionId, sectionType } = element.dataset
-    return sectionId && sectionType
+    const { sectionId } = element.dataset
+    return sectionId
       ? [{
           sectionId,
-          type: sectionType as QuestionType,
           box: boxOf(element.getBoundingClientRect()),
         }]
       : []

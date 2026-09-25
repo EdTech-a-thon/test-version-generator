@@ -27,7 +27,7 @@ import {
 } from './section-headings'
 import {
   columnsOf,
-  isExamSection,
+  readExamSection,
   isWorkSpace,
   sameSectionOf,
   sameSections,
@@ -153,7 +153,10 @@ export function selectedExam(
   // Sections are this Exam's structure: every readable stored Section, empty
   // ones included, and the placement of each question it still references.
   const sections = Array.isArray(draft.sections)
-    ? draft.sections.filter(isExamSection)
+    ? draft.sections.flatMap((value) => {
+        const section = readExamSection(value)
+        return section ? [section] : []
+      })
     : undefined
   const sectionOf: Record<string, string> = {}
   for (const [id, section] of Object.entries(draft.sectionOf ?? {})) {

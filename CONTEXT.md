@@ -102,7 +102,7 @@ To exclude Question Content from an Exam while leaving it in its Question Bank.
 To permanently remove Question Content from its Question Bank, every Exam that references it, and their Working Copies. Deletion requires showing the affected Exams and explicit confirmation; existing Export Records remain unchanged.
 
 **Question Type**:
-What a Question asks for, settled when it is created and never changed afterwards: Multiple Choice, True/False, Matching, Short Answer, or Multipart. It decides which Question Sections may hold the Question, the default wording of a Section of that type, and what its Answer Key entry records.
+What a Question asks for, settled when it is created and never changed afterwards: Multiple Choice, True/False, Matching, Short Answer, or Multipart. It decides how the Question is answered and laid out, the wording a Question Section begins with when this Question is the first put in it, and what its Answer Key entry records.
 _Avoid_: Question format, question kind
 
 **True/False**:
@@ -146,15 +146,15 @@ The line an Exam prints at the top of each test page, beside the paper's ID. By 
 _Avoid_: Letterhead, banner, identity line
 
 **Question Section**:
-An ordered group of Questions of one Question Type within an Exam, fixed in the Exam and its exported output. Its type is settled when the Section is created and never changes, and it only ever holds Questions of that type; an Exam may hold several Sections of the same type, in whatever order the teacher arranges them. Every Question in an Exam belongs to exactly one Section. A Section has its own Section Heading and Section Directions, and an emptied Section stays on the exam sheet as a place to put Questions until the teacher deletes it, but is omitted from exported output; deleting a Section Removes its Questions. Every heading on an Exam, its title included, prints at one of three sizes, and its questions and answers at one of three text sizes chosen apart from the headings. The Answer Key groups its entries by Section and uses the test's headings.
+An ordered group of Questions within an Exam, of any Question Type, fixed in the Exam and its exported output. An Exam's Sections print in whatever order the teacher arranges them, and every Question in an Exam belongs to exactly one Section. A Section has its own Section Heading and Section Directions, and an emptied Section stays on the exam sheet as a place to put Questions until the teacher deletes it, but is omitted from exported output; deleting a Section Removes its Questions. Every heading on an Exam, its title included, prints at one of three sizes, and its questions and answers at one of three text sizes chosen apart from the headings. The Answer Key groups its entries by Section and uses the test's headings.
 _Avoid_: Question category, type section
 
 **Section Heading**:
-The title a Question Section prints above its Questions. It begins as its type's default wording; the teacher may reword it for that Section alone, or clear it so it prints nothing.
+The title a Question Section prints above its Questions. A new Section begins with the heading of the type of the first Question put in it; after that it is the teacher's own text for that Section alone, which they may reword, or clear so it prints nothing.
 _Avoid_: Section title, header
 
 **Section Directions**:
-The line of instructions a Question Section prints under its Section Heading, telling a student how to answer. Like the heading, it begins as its type's default wording and may be reworded or cleared for that Section alone.
+The line of instructions a Question Section prints under its Section Heading, telling a student how to answer. Like the heading, it begins as that of the type of the first Question put in the Section and is then the teacher's to reword or clear.
 _Avoid_: Subheading, instructions, section subtitle
 
 **Vary**:

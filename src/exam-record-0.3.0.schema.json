@@ -22,7 +22,7 @@
       "type": "string"
     },
     "sections": {
-      "description": "The Exam's Question Sections, in the order they print. Each holds Questions of one type. An Exam may have several Sections of one type, and a Section no position belongs to, which prints nothing.",
+      "description": "The Exam's Question Sections, in the order they print. A Section holds Questions of any type. A Section no position belongs to is kept, but prints nothing.",
       "type": "array",
       "items": {
         "$ref": "#/$defs/section"
@@ -68,27 +68,18 @@
     "section": {
       "type": "object",
       "required": [
-        "type"
+        "title",
+        "instructions"
       ],
       "additionalProperties": false,
       "properties": {
-        "type": {
-          "description": "The Question Type every Question in this Section has.",
-          "enum": [
-            "multiple-choice",
-            "true-false",
-            "matching",
-            "short-answer",
-            "multipart"
-          ]
-        },
         "title": {
-          "description": "The Section's heading, where it departs from Test Parrot's default for its type. An empty string is a heading the teacher cleared, which prints nothing.",
+          "description": "The Section's heading, as the teacher wrote it. An empty string is a heading the teacher cleared, which prints nothing.",
           "type": "string",
           "maxLength": 500
         },
         "instructions": {
-          "description": "The Section's directions, where they depart from Test Parrot's default for its type. An empty string is directions the teacher cleared, which print nothing.",
+          "description": "The Section's directions, as the teacher wrote them. An empty string is directions the teacher cleared, which print nothing.",
           "type": "string",
           "maxLength": 2000
         }
@@ -119,7 +110,7 @@
           }
         },
         "section": {
-          "description": "The index, from 0, into `sections` of the Section this position belongs to. That Section's type must be the Question's type.",
+          "description": "The index, from 0, into `sections` of the Section this position belongs to.",
           "type": "integer",
           "minimum": 0
         },

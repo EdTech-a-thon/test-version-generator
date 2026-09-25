@@ -107,17 +107,19 @@ describe('public Exam Record 0.3.0 contract', () => {
     }
   })
 
-  test('a Section names one Question Type and may carry only its wording', () => {
+  test('a Section has no type and carries its heading and directions in full', () => {
     const validate = strict().compile(publicExamSchema030)
     const exam = (sections: unknown, positions: unknown[] = []) => ({
       format: 'test-parrot/exam', formatVersion: '0.3.0', name: 'Quiz', sections, positions,
     })
     expect(validate(exam([]))).toBe(true)
-    expect(validate(exam([{ type: 'short-answer', title: '', instructions: '' }, { type: 'short-answer' }]))).toBe(true)
-    expect(validate(exam([{ type: 'open' }]))).toBe(false)
-    expect(validate(exam([{ title: 'Untyped' }]))).toBe(false)
-    expect(validate(exam([{ type: 'matching', title: 3 }]))).toBe(false)
-    expect(validate(exam([{ type: 'matching', colour: 'red' }]))).toBe(false)
+    expect(validate(exam([{ title: '', instructions: '' }, { title: 'Essays', instructions: 'Write.' }]))).toBe(true)
+    expect(validate(exam([{ title: 'No directions' }]))).toBe(false)
+    expect(validate(exam([{ instructions: 'No heading' }]))).toBe(false)
+    expect(validate(exam([{ type: 'matching', title: 'Typed', instructions: '' }]))).toBe(false)
+    expect(validate(exam([{ title: 3, instructions: '' }]))).toBe(false)
+    expect(validate(exam([{ title: 'x'.repeat(501), instructions: '' }]))).toBe(false)
+    expect(validate(exam([{ title: '', instructions: 'x'.repeat(2001) }]))).toBe(false)
     expect(validate(exam(undefined))).toBe(false)
   })
 
@@ -127,7 +129,7 @@ describe('public Exam Record 0.3.0 contract', () => {
       format: 'test-parrot/exam',
       formatVersion: '0.3.0',
       name: 'Quiz',
-      sections: [{ type: 'multiple-choice' }],
+      sections: [{ title: 'Multiple Choice', instructions: '' }],
       positions: [{ question: { bank: 'b', question: 'q1' }, ...position }],
     })
     expect(validate(exam({ section: 0 }))).toBe(true)
@@ -146,12 +148,14 @@ describe('public Exam Record 0.3.0 contract', () => {
       new TextEncoder().encode(JSON.stringify({ ...testParrotPackage, exams: [exam] })),
     )
     expect(proposal.exams[0]!.sections).toEqual([
-      { type: 'multiple-choice', title: 'Warm-up', instructions: 'Circle the best answer.' },
-      { type: 'open', instructions: '' },
-      { type: 'multiple-choice', title: 'Challenge' },
-      { type: 'matching' },
+      { title: 'Warm-up', instructions: 'Circle the best answer.' },
+      { title: 'Short Answer', instructions: '' },
+      { title: 'Challenge', instructions: 'Answer each question. Read carefully.' },
+      { title: 'Extra Credit', instructions: 'Optional.' },
     ])
-    expect(proposal.exams[0]!.positions.map(({ section }) => section)).toEqual([0, 1, 2])
+    // Warm-up and Challenge each hold Questions of two types.
+    expect(proposal.exams[0]!.positions.map(({ question, section }) => `${section}:${question.question}`))
+      .toEqual(['0:q1', '0:q3', '1:q5', '2:q2', '2:q4'])
   })
 })
 

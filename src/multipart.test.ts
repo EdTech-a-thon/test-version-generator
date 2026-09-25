@@ -160,8 +160,8 @@ describe('a Multipart question on the paper', () => {
   const planned = () =>
     document().test.flatMap((item) => (item.kind === 'question' ? [item.question] : []))
 
-  test('prints last, in a Multipart section of its own, under one number', () => {
-    const headings = document().test.flatMap((item) => (item.kind === 'section-heading' ? [item.section] : []))
+  test('on an Exam that stores no Sections, prints last, in a Multipart section of its own, under one number', () => {
+    const headings = document().test.flatMap((item) => (item.kind === 'section-heading' ? [item.sectionId] : []))
     expect(headings).toEqual(['open', 'multipart'])
     expect(planned().map((question) => [question.id, question.number])).toEqual([
       ['o1', 1],
