@@ -8,7 +8,7 @@ import type { WaitingImport } from './import-history'
  * What to do with the test a teacher just dropped, while its import waits for
  * the AI. Only one of three paths is ever shown, the one the file needs:
  *
- * - a PDF or Word document with pictures goes to the AI as an AI-ready copy,
+ * - a PDF or Word document with pictures goes to the AI as a labeled copy,
  *   with a number on each picture, so it can say which picture goes where;
  * - one without pictures goes as it is, with the plain instructions;
  * - a photo goes as it is, and each picture in it is cropped after importing.
@@ -120,7 +120,7 @@ export function SourceDocumentSteps({
   const copy = () => void navigator.clipboard.writeText(instructions).then(() => setCopied(true))
   /** What the teacher calls the file they dropped. */
   const file = photo ? 'photo' : word ? 'document' : 'PDF'
-  const attach = pictures ? `the AI-ready ${file} (not your original)` : `your ${file}`
+  const attach = pictures ? `the labeled ${file} (not your original)` : `your ${file}`
 
   const download = async () => {
     setError(null)
@@ -147,7 +147,7 @@ export function SourceDocumentSteps({
       link.click()
       window.setTimeout(() => URL.revokeObjectURL(url), 1000)
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : `The AI-ready ${file} could not be made.`)
+      setError(reason instanceof Error ? reason.message : `The labeled ${file} could not be made.`)
     }
   }
 
@@ -177,8 +177,8 @@ export function SourceDocumentSteps({
       {pictures && <li>
         <StepButton
           number={++number}
-          title={`Download the AI-ready ${file}`}
-          text={`We’ve tweaked your ${file} so your AI can tell its pictures apart.`}
+          title={`Download the labeled ${file}`}
+          text={`We’ve added labels to your ${file}’s images so your AI can easily tell them apart.`}
           icon={<Download />}
           disabled={busy}
           onClick={() => void download()}

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Clock, FileText, ImageIcon, Library } from 'lucide-react'
+import { Clock, EllipsisVertical, FileImage, FileJson, FileText, FolderOpen, ImageIcon, Library, Trash2 } from 'lucide-react'
 import { AppShell } from './app-shell'
 import type { PersistentStorageStatus } from './durable-storage'
 import {
@@ -12,6 +12,7 @@ import {
   type WaitingImport,
 } from './import-history'
 import { Link } from './site-chrome'
+import { ContextMenu, type MenuItem, type MenuPoint } from './context-menu'
 import { SourceDocumentSteps } from './source-document-steps'
 
 /**
@@ -41,74 +42,120 @@ function timeLeft(createdAt: string, now: Date): string {
 /** One import's own page. */
 const importHref = (id: string) => `/import?id=${encodeURIComponent(id)}`
 
-function WaitingRow({ entry, onDiscard }: { entry: Extract<ImportEntry, { stage: 'waiting' }>; onDiscard: () => void }) {
-  const [confirming, setConfirming] = useState(false)
-  return <li className="import-row" aria-label={entry.fileName}>
-    <div className="import-row-main">
-      <strong className="import-row-name">{entry.fileName}</strong>
-      <span className="import-stage" data-stage="waiting"><Clock aria-hidden="true" />Waiting for the file from your AI</span>
-      <span className="import-row-facts">
-        {KIND_LABELS[entry.kind]} · started {when(entry.createdAt)}
-        {entry.tags > 0 && ` · ${plural(entry.tags, 'picture')} detected`}
-        {' · '}{timeLeft(entry.createdAt, new Date())}
-      </span>
-    </div>
-    <div className="import-row-actions">
-      {confirming
-        ? <>
-            <span>Discard it and its file?</span>
-            <button type="button" className="secondary-button" onClick={() => setConfirming(false)}>Keep</button>
-            <button type="button" className="danger-button" onClick={onDiscard}>Discard</button>
-          </>
-        : <>
-            <button type="button" className="secondary-button" onClick={() => setConfirming(true)}>Discard…</button>
-            <Link href={importHref(entry.id)} className="primary-button">Continue</Link>
-          </>}
-    </div>
-  </li>
+/** An import's first page, drawn from the thumbnail it kept — or, for a
+ *  waiting import from before thumbnails were kept, from its file. A Word
+ *  document or a Test Parrot file has no page to show, so says what it is. */
+function ImportSheet({ entry }: { entry: ImportEntry }) {
+  const [source, setSource] = useState<string | null>(null)
+  useEffect(() => {
+    let current = true
+    let url: string | null = null
+    const show = (png: Uint8Array | undefined) => {
+      if (!png || !current) return
+      url = URL.createObjectURL(new Blob([png.slice().buffer as ArrayBuffer], { type: 'image/png' }))
+      setSource(url)
+    }
+    if (entry.thumbnail) show(entry.thumbnail)
+    else if (entry.stage === 'waiting' && (entry.kind === 'pdf' || entry.kind === 'photo')) {
+      void readWaitingImport(entry.id)
+        .then(async (waiting) => (waiting ? (await import('./source-file')).firstPageThumbnail(waiting) : undefined))
+        .then(show, () => undefined)
+    }
+    return () => {
+      current = false
+      if (url) URL.revokeObjectURL(url)
+    }
+  }, [entry])
+  const Icon = entry.kind === 'record' ? FileJson : entry.kind === 'word' ? FileText : FileImage
+  return <div className="exam-sheet import-sheet" aria-hidden="true">
+    {source
+      ? <img src={source} alt="" />
+      : <span className="import-sheet-placeholder"><Icon />{KIND_LABELS[entry.kind]}</span>}
+  </div>
 }
 
-function FinishedRow({
+function ImportCard({
   entry,
   picturesNeeded,
+  onDiscard,
 }: {
-  entry: Exclude<ImportEntry, { stage: 'waiting' }>
+  entry: ImportEntry
   /** How many of its pictures are still needed now, once counted. */
   picturesNeeded: number | undefined
+  onDiscard: () => void
 }) {
+  const [menu, setMenu] = useState<MenuPoint | null>(null)
   const needed = entry.stage === 'imported' ? picturesNeeded ?? entry.imported.picturesNeeded : 0
-  return <li className="import-row" aria-label={entry.fileName}>
-    <div className="import-row-main">
-      <strong className="import-row-name">{entry.fileName}</strong>
-      {entry.stage === 'imported'
-        ? <span className="import-stage" data-stage="imported">Imported</span>
-        : <span className="import-stage" data-stage="expired">Expired</span>}
-      <span className="import-row-facts">
-        {KIND_LABELS[entry.kind]} · {entry.stage === 'imported'
-          ? `imported ${when(entry.importedAt)} · ${plural(entry.imported.questions, 'Question')}`
-          : `started ${when(entry.createdAt)}, and its file was removed after seven days before it was imported`}
+  // The editor and a bank's page are loaded as the page starts, so they are
+  // opened with a full load, as their own cards open them.
+  const opens = entry.stage === 'imported'
+    ? [
+        ...entry.imported.exams.map((exam) => ({ label: exam.name || 'Untitled Test', href: `/editor?exam=${exam.id}`, Icon: FileText })),
+        ...entry.imported.banks.map((bank) => ({ label: bank.name || 'Untitled Question Bank', href: `/question-bank?id=${bank.id}`, Icon: Library })),
+      ]
+    : []
+  const items: MenuItem[] = entry.stage === 'waiting'
+    ? [
+        { kind: 'action', label: 'Continue', icon: <FolderOpen />, onSelect: () => window.location.assign(importHref(entry.id)) },
+        { kind: 'separator' },
+        { kind: 'action', label: 'Discard', icon: <Trash2 />, destructive: true, onSelect: onDiscard },
+      ]
+    : opens.map(({ label, href, Icon }) => ({ kind: 'action', label: `Open ${label}`, icon: <Icon />, onSelect: () => window.location.assign(href) }))
+  const caption = <>
+    <ImportSheet entry={entry} />
+    <span className="import-card-caption">
+      <span className="import-card-title">{entry.fileName}</span>
+      {entry.stage === 'waiting'
+        ? <span className="import-stage" data-stage="waiting"><Clock aria-hidden="true" />Waiting for your AI</span>
+        : entry.stage === 'imported'
+          ? <span className="import-stage" data-stage="imported">Imported</span>
+          : <span className="import-stage" data-stage="expired">Expired</span>}
+      <span className="import-card-facts">
+        {entry.stage === 'waiting'
+          ? <>
+              {entry.tags > 0 ? `${plural(entry.tags, 'picture')} detected · ` : ''}
+              {timeLeft(entry.createdAt, new Date())}
+            </>
+          : entry.stage === 'imported'
+            ? `${plural(entry.imported.questions, 'Question')} · ${when(entry.importedAt)}`
+            : `Not imported within seven days`}
       </span>
-      {entry.stage === 'imported' && (entry.imported.exams.length > 0 || entry.imported.banks.length > 0) && (
-        <span className="import-row-links">
-          {entry.imported.exams.map((exam) => (
-            // The editor and a bank's page are loaded as the page starts, so
-            // they are opened with a full load, as their cards open them.
-            <a key={exam.id} href={`/editor?exam=${exam.id}`} className="import-row-link">
-              <FileText aria-hidden="true" />{exam.name || 'Untitled Test'}
-            </a>
-          ))}
-          {entry.imported.banks.map((bank) => (
-            <a key={bank.id} href={`/question-bank?id=${bank.id}`} className="import-row-link">
-              <Library aria-hidden="true" />{bank.name || 'Untitled Question Bank'}
-            </a>
-          ))}
+      {needed > 0 && (
+        <span className="import-pictures-needed">
+          <ImageIcon aria-hidden="true" />{plural(needed, 'picture')} still needed
         </span>
       )}
-    </div>
-    {needed > 0 && (
-      <span className="import-pictures-needed">
-        <ImageIcon aria-hidden="true" />{plural(needed, 'picture')} still needed
-      </span>
+    </span>
+  </>
+  const first = opens[0]
+  return <li className="import-card" aria-label={entry.fileName} data-stage={entry.stage}>
+    {entry.stage === 'waiting'
+      ? <Link href={importHref(entry.id)} className="import-card-main" aria-label={`Continue ${entry.fileName}`}>{caption}</Link>
+      : first
+        ? <a href={first.href} className="import-card-main" aria-label={`Open ${first.label}`}>{caption}</a>
+        : <div className="import-card-main">{caption}</div>}
+    {items.length > 0 && (
+      <button
+        type="button"
+        className="bank-card-menu import-card-menu"
+        aria-label={`${entry.fileName} actions`}
+        aria-haspopup="menu"
+        onClick={(event) => {
+          const bounds = event.currentTarget.getBoundingClientRect()
+          setMenu({ x: bounds.right, y: bounds.bottom + 4 })
+        }}
+      >
+        <EllipsisVertical aria-hidden="true" />
+      </button>
+    )}
+    {menu && (
+      <ContextMenu
+        point={menu}
+        side="left"
+        ariaLabel={`${entry.fileName} actions`}
+        items={items}
+        onClose={() => setMenu(null)}
+      />
     )}
   </li>
 }
@@ -165,11 +212,12 @@ export function ImportsPage({
         : <>
             {waiting.length > 0 && <section className="import-section" aria-labelledby="imports-waiting">
               <h2 id="imports-waiting">In progress</h2>
-              <ul className="import-list">
+              <ul className="collection-grid collection-grid--exams import-grid">
                 {waiting.map((entry) => (
-                  <WaitingRow
+                  <ImportCard
                     key={entry.id}
                     entry={entry}
+                    picturesNeeded={undefined}
                     onDiscard={() => void discardWaitingImport(entry.id).then(() => setReload((count) => count + 1))}
                   />
                 ))}
@@ -177,8 +225,10 @@ export function ImportsPage({
             </section>}
             {finished.length > 0 && <section className="import-section" aria-labelledby="imports-history">
               <h2 id="imports-history">History</h2>
-              <ul className="import-list">
-                {finished.map((entry) => <FinishedRow key={entry.id} entry={entry} picturesNeeded={needed.get(entry.id)} />)}
+              <ul className="collection-grid collection-grid--exams import-grid">
+                {finished.map((entry) => (
+                  <ImportCard key={entry.id} entry={entry} picturesNeeded={needed.get(entry.id)} onDiscard={() => undefined} />
+                ))}
               </ul>
             </section>}
           </>}

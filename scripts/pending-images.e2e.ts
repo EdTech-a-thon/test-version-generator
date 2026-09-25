@@ -29,8 +29,8 @@ test('a converted test gets its pictures from the teacher’s own PDF', async ({
   expect(instructions).not.toContain('{{IMAGE_TAGS}}')
 
   const download = page.waitForEvent('download')
-  await dialog.getByRole('button', { name: 'Download the AI-ready PDF' }).click()
-  expect((await download).suggestedFilename()).toBe('unit-test (AI-ready).pdf')
+  await dialog.getByRole('button', { name: 'Download the labeled PDF' }).click()
+  expect((await download).suggestedFilename()).toBe('unit-test (labeled).pdf')
 
   // The import waits while the teacher is in their AI chat, reload and all.
   // Import again is a new import: it does not pick the waiting one up.
@@ -43,9 +43,11 @@ test('a converted test gets its pictures from the teacher’s own PDF', async ({
   // It waits in Imports, and is continued from there.
   await page.getByRole('navigation', { name: 'Sections' }).getByRole('link', { name: 'Imports' }).click()
   const waitingRow = page.getByRole('region', { name: 'In progress' }).getByRole('listitem', { name: 'unit-test.pdf' })
-  await expect(waitingRow).toContainText('Waiting for the file from your AI')
+  await expect(waitingRow).toContainText('Waiting for your AI')
   await expect(waitingRow).toContainText('2 pictures detected')
-  await waitingRow.getByRole('link', { name: 'Continue' }).click()
+  // Its card shows the test's own first page.
+  await expect(waitingRow.locator('.import-sheet img')).toHaveAttribute('src', /^blob:/)
+  await waitingRow.getByRole('link', { name: 'Continue unit-test.pdf' }).click()
   await expect(page.getByRole('heading', { name: 'Converting unit-test.pdf' })).toBeVisible()
   await expect(page.getByRole('status').filter({ hasText: 'pictures detected' })).toHaveText('2 pictures detected in your PDF')
 
@@ -115,8 +117,12 @@ test('a converted test gets its pictures from the teacher’s own PDF', async ({
   await expect(importedRow).toContainText('Imported')
   await expect(importedRow).toContainText('5 Questions')
   await expect(importedRow).toContainText('1 picture still needed')
-  await expect(importedRow.getByRole('link', { name: 'Trading Stations', exact: true })).toBeVisible()
-  await importedRow.getByRole('link', { name: 'Trading Stations Quiz' }).click()
+  await importedRow.getByRole('button', { name: 'unit-test.pdf actions' }).click()
+  await expect(page.getByRole('menu', { name: 'unit-test.pdf actions' }).getByRole('menuitem'))
+    .toHaveText(['Open Trading Stations Quiz', 'Open Trading Stations'])
+  await page.keyboard.press('Escape')
+  // The card itself opens the Test it brought in.
+  await importedRow.getByRole('link', { name: 'Open Trading Stations Quiz' }).click()
   await expect(page).toHaveURL(/\/editor\?exam=/)
 
   // Four pictures arrived; the cell diagram is still needed.

@@ -82,8 +82,25 @@ export async function readSourceDocument(file: File): Promise<SourceFile> {
   return { kind, fileName: file.name, bytes, ...(await analyzeSourceDocument(bytes)) }
 }
 
+/** The first page of a PDF (a photo is kept as one) as a small PNG, for
+ *  recognising the import in Imports. A Word document has no pages to draw. */
+export async function firstPageThumbnail(source: Pick<SourceFile, 'kind' | 'bytes'>): Promise<Uint8Array | undefined> {
+  if (source.kind === 'word') return undefined
+  try {
+    const { renderSourcePage, browserRaster } = await import('./source-document')
+    return await renderSourcePage(source.bytes, 1, browserRaster, THUMBNAIL_WIDTH)
+  } catch {
+    return undefined
+  }
+}
+
+/** Twice a card's sheet, for a sharp thumbnail on a dense screen. */
+const THUMBNAIL_WIDTH = 340
+
 /** Find the pictures in a dropped test and start a new import waiting on
  *  it. Any other import already waiting keeps waiting. */
 export async function startWaitingImport(file: File): Promise<WaitingImport> {
-  return saveWaitingImport({ ...(await readSourceDocument(file)), createdAt: new Date().toISOString() })
+  const source = await readSourceDocument(file)
+  const thumbnail = await firstPageThumbnail(source)
+  return saveWaitingImport({ ...source, createdAt: new Date().toISOString(), ...(thumbnail ? { thumbnail } : {}) })
 }

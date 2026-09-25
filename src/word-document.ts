@@ -258,5 +258,5 @@ export async function labelWordDocument(bytes: Uint8Array): Promise<Uint8Array> 
 
 export function labeledWordFilename(name: string): string {
   const stem = name.replace(/\.docx$/i, '') || 'source'
-  return `${stem} (AI-ready).docx`
+  return `${stem} (labeled).docx`
 }

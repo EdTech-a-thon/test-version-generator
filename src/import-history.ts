@@ -42,6 +42,8 @@ export type WaitingImport = {
   pageText: string[]
   /** ISO time the Source Document was dropped. */
   createdAt: string
+  /** A small PNG of its first page, for recognising it in Imports. */
+  thumbnail?: Uint8Array
 }
 
 /** What a finished import brought in. */
@@ -59,6 +61,8 @@ export type ImportEntry = {
   kind: ImportFileKind
   fileName: string
   createdAt: string
+  /** Its first page, kept after its file is gone. */
+  thumbnail?: Uint8Array
 } & (
   | { stage: 'waiting'; tags: number }
   | { stage: 'imported'; importedAt: string; imported: ImportedItems }
@@ -77,6 +81,7 @@ type Stored = {
   pageText?: string[]
   importedAt?: string
   imported?: ImportedItems
+  thumbnail?: ArrayBuffer
 }
 
 const newId = () => crypto.randomUUID()
@@ -135,8 +140,8 @@ const tooOld = (entry: Pick<Stored, 'createdAt'>, now: Date) =>
   now.getTime() - new Date(entry.createdAt).getTime() > WAITING_IMPORT_LIFETIME_MS
 
 /** An entry past its seven days, with its Source Document dropped. */
-function expiredEntry({ id, kind, fileName, createdAt }: Stored): Stored {
-  return { id, kind, fileName, createdAt, stage: 'expired' }
+function expiredEntry({ id, kind, fileName, createdAt, thumbnail }: Stored): Stored {
+  return { id, kind, fileName, createdAt, stage: 'expired', ...(thumbnail ? { thumbnail } : {}) }
 }
 
 /** Every entry, expiring any waiting import that has run out of time. */
@@ -159,6 +164,7 @@ function waitingOf(entry: Stored): WaitingImport {
     tags: entry.tags ?? [],
     pageText: entry.pageText ?? [],
     createdAt: entry.createdAt,
+    ...(entry.thumbnail ? { thumbnail: new Uint8Array(entry.thumbnail) } : {}),
   }
 }
 
@@ -178,7 +184,13 @@ export async function waitingImports(now = new Date()): Promise<WaitingImport[]>
 /** The whole history, newest first, without any file's bytes. */
 export async function listImports(now = new Date()): Promise<ImportEntry[]> {
   return (await allEntries(now)).sort(newestFirst).map((entry): ImportEntry => {
-    const base = { id: entry.id, kind: entry.kind, fileName: entry.fileName, createdAt: entry.createdAt }
+    const base = {
+      id: entry.id,
+      kind: entry.kind,
+      fileName: entry.fileName,
+      createdAt: entry.createdAt,
+      ...(entry.thumbnail ? { thumbnail: new Uint8Array(entry.thumbnail) } : {}),
+    }
     if (entry.stage === 'waiting') return { ...base, stage: 'waiting', tags: entry.tags?.length ?? 0 }
     if (entry.stage === 'imported') return { ...base, stage: 'imported', importedAt: entry.importedAt!, imported: entry.imported! }
     return { ...base, stage: 'expired' }
@@ -198,6 +210,7 @@ export async function saveWaitingImport(waiting: Omit<WaitingImport, 'id'> & { i
     pageCount: saved.pageCount,
     tags: saved.tags.map((tag) => ({ ...tag, box: { ...tag.box } })),
     pageText: [...saved.pageText],
+    ...(saved.thumbnail ? { thumbnail: saved.thumbnail.slice().buffer as ArrayBuffer } : {}),
   }
   await withStore('readwrite', (store) => { store.put(stored) })
   return saved
@@ -223,7 +236,16 @@ export async function recordImport(
     ? (await withStore<Stored | undefined>('readonly', (store) => store.get(waitingImportId)))
     : undefined
   const entry: Stored = waiting
-    ? { id: waiting.id, kind: waiting.kind, fileName: waiting.fileName, createdAt: waiting.createdAt, stage: 'imported', importedAt, imported }
+    ? {
+        id: waiting.id,
+        kind: waiting.kind,
+        fileName: waiting.fileName,
+        createdAt: waiting.createdAt,
+        stage: 'imported',
+        importedAt,
+        imported,
+        ...(waiting.thumbnail ? { thumbnail: waiting.thumbnail } : {}),
+      }
     : { id: newId(), kind, fileName, createdAt: importedAt, stage: 'imported', importedAt, imported }
   await withStore('readwrite', (store) => { store.put(entry) })
 }
