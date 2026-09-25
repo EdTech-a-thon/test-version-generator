@@ -409,9 +409,16 @@ export function createQuestionBankWorkspaceService(
     async commitImport(
       proposal: import('./package-import').ImportProposal,
       selection: import('./import-selection').ImportSelection,
+      options: {
+        /** Pending Images resolved in Resolve Images. */
+        resolution?: import('./pending-images').PendingImageResolution
+        /** Whether this import was paired with the waiting import, which
+         *  is finished — and its Source Document deleted — once it lands. */
+        finishesWaitingImport?: boolean
+      } = {},
     ): Promise<ImportResult> {
       const { planImport } = await import('./package-commit')
-      const plan = planImport(proposal, selection, createId)
+      const plan = planImport(proposal, selection, createId, options.resolution)
       const timestamp = now().toISOString()
       const written: string[] = []
       try {
@@ -499,6 +506,10 @@ export function createQuestionBankWorkspaceService(
         throw error
       }
       void requestPersistentStorage()
+      if (options.finishesWaitingImport) {
+        const { discardWaitingImport } = await import('./waiting-import')
+        await discardWaitingImport()
+      }
       return {
         createdBankIds: plan.banks.filter(({ created }) => created).map(({ bankId }) => bankId),
         updatedBankIds: plan.banks.filter(({ created }) => !created).map(({ bankId }) => bankId),

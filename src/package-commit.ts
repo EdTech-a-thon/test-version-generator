@@ -8,6 +8,7 @@ import {
 import type { SavedState } from './exam-store'
 import type { ImportSelection } from './import-selection'
 import type { ImportProposal } from './package-import'
+import { withResolvedImages, type PendingImageResolution } from './pending-images'
 import { createWorkingCopy } from './question-bank'
 import { UNTITLED_QUESTION_BANK } from './question-bank-workspaces'
 import {
@@ -58,11 +59,14 @@ export type ImportPlan = {
 
 /** Every Question and answer gets a fresh identity, nothing is deduplicated,
  *  and only allowed items appear. A selection whose allowed Exam needs a
- *  denied bank is refused rather than half-applied. */
+ *  denied bank is refused rather than half-applied. Pending Images resolved
+ *  in Resolve Images arrive as ordinary images of their Media Assets; the
+ *  rest stay Pending Images. */
 export function planImport(
   proposal: ImportProposal,
   selection: ImportSelection,
   createId: () => string = () => crypto.randomUUID(),
+  resolution: PendingImageResolution = new Map(),
 ): ImportPlan {
   const identities = new Map<string, Map<string, ImportedQuestionIdentity>>()
   const localBankIds = new Map<string, string>()
@@ -71,11 +75,11 @@ export function planImport(
   for (const bank of proposal.banks) {
     const chosen = selection.banks[bank.id]
     if (!chosen?.allowed) continue
-    const imported = importedQuestionIdentities(bank.record, createId)
+    const record = withResolvedImages(bank.id, bank.record, resolution)
+    const imported = importedQuestionIdentities(record, createId)
     identities.set(bank.id, imported)
     const bankId = chosen.target.kind === 'existing' ? chosen.target.bankId : createId()
     localBankIds.set(bank.id, bankId)
-    const { record } = bank
     banks.push({
       source: bank.id,
       bankId,

@@ -671,7 +671,7 @@ function webpDimensions(bytes: Uint8Array): { width: number; height: number } | 
   return null
 }
 
-function mediaDimensions(
+export function mediaDimensions(
   mimeType: ParsedMediaAsset['mimeType'],
   bytes: Uint8Array,
 ): { width: number; height: number } | null {
