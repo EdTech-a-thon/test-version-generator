@@ -36,6 +36,18 @@ _Avoid_: Exam layout, test JSON
 A versioned bundle of one or more Question Bank Records and any number of Exam Records that reference Questions in them, versioned separately from both. It travels as a standalone JSON file or embedded in an exported Exam PDF whose Content Selection includes the answer key; importing it lets the teacher choose which banks and Exams to bring in.
 _Avoid_: Import package, bundle, transfer file
 
+**Source Document**:
+The teacher's original PDF or image that an assistant converted into a Question Bank Record. It is never authoritative for Question Content; Test Parrot uses it only to resolve Pending Images.
+_Avoid_: Original PDF, Question Bank File
+
+**Pending Image**:
+An image in imported Question Content that names a location in its Source Document instead of carrying Media Asset bytes. It stays in the Question Bank until the teacher resolves it with a Media Asset.
+_Avoid_: Placeholder image, dummy image
+
+**Resolve Images**:
+The step where a teacher confirms or replaces the Media Asset for each Pending Image, choosing from the Source Document's images, a crop of one of its pages, or an uploaded file. It follows an import that leaves Pending Images and can be reopened while any remain.
+_Avoid_: Image doctor, image review
+
 **Account Backup**:
 One file holding everything Test Parrot keeps in a browser: every Exam, Question Bank, Working Copy, Export History, Media Asset and preference. Restoring one replaces the browser's whole account rather than merging into it; it is refused when it comes from a storage generation this version cannot read.
 _Avoid_: Export, Question Bank File, archive
