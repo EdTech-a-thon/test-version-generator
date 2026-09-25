@@ -60,12 +60,16 @@ The locally backed-up editing state currently open for an Exam. It may differ fr
 _Avoid_: Exam Draft, Draft, autosaved Exam, local save
 
 **Export Record**:
-An immutable, undeletable record attached to an Exam and created each time its Working Copy or a previous Export Record is exported. It retains only the exact Content Selection, format, question state, and Layout Plans produced by that event; repeated and historical re-exports produce separate Export Records, and export does not save the Exam.
+An immutable, undeletable record attached to an Exam and created each time its Working Copy or a previous Export Record is exported. It retains only the exact Content Selection, format, any Versions, question state, and Layout Plans produced by that event; repeated and historical re-exports produce separate Export Records, and export does not save the Exam. A historical re-export reproduces some or all of the record's Versions exactly and never creates new ones.
 _Avoid_: Version, saved Exam, deduplicated export
 
 **Export Artifact**:
 A PDF or DOCX produced by an export and described by its Export Record.
 _Avoid_: Version, Exam
+
+**Version**:
+One shuffled arrangement of an Exam's Questions and answers, produced by an export and kept in its Export Record. Each Version has a two-word name, such as “Curly Fox”, that implies no order and is never reused within its Exam's Export History, and that name prints on its student test and answer key. Versions in one export differ from one another and from the Working Copy's own arrangement; an export that shuffles nothing prints the Working Copy's arrangement, unnamed, and produces no Version. Producing Versions never changes the Exam.
+_Avoid_: Form, Variant, Version History, saved Exam
 
 **Export History**:
 The permanent chronological collection of an Exam's Export Records. Export History preserves what the teacher produced without making the Exam immutable.
@@ -130,7 +134,7 @@ A group of questions of the same Question Type whose boundary remains fixed with
 _Avoid_: Question category
 
 **Vary**:
-A family of Exam actions that shuffle question order or answer order — a Multiple Choice question's or Part's answers, or a Matching set's Word Bank — before saving or exporting.
+A family of Exam actions that shuffle question order or answer order — a Multiple Choice question's or Part's answers, or a Matching set's Word Bank — in the Working Copy, before saving or exporting. Shuffling that happens during export produces Versions instead and leaves the Exam untouched; it is not Vary.
 _Avoid_: Randomization, version generation
 
 **Export Preview**:
