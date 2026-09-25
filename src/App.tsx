@@ -2856,7 +2856,7 @@ export default function App({
   if (route === '/get-started') return <>{globalChrome}<OnboardingPage onNewBank={newBank} onNewExam={newExam} /></>
   // Its last step is "drop the file anywhere", which the page-wide drop
   // target in the global chrome already is.
-  if (route === '/get-started/convert') return <>{globalChrome}<ConvertPage /></>
+  if (route === '/get-started/convert') return <>{globalChrome}<ConvertPage importOpen={inspectingBankFile} onOpenImport={(file) => openImport(file)} /></>
   if (route === '/') return <>{globalChrome}<HomePage
     exams={exams}
     banks={bankCollection}

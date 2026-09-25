@@ -2547,6 +2547,16 @@ button { cursor: pointer; }
 .convert-step-text code { font-size: 12.5px; color: #332a24; }
 .convert-step-action { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
 .convert-step-action svg { width: 15px; height: 15px; }
+.convert-file { position: relative; cursor: pointer; }
+.convert-file input { position: absolute; inset: 0; width: 100%; opacity: 0; cursor: pointer; }
+.convert-alternative {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  margin-top: 18px; padding: 12px 14px; border: 1px solid var(--paper-outline); border-radius: 10px;
+  color: #5f4d40; font-size: 13.5px; line-height: 1.45;
+}
+.convert-alternative p { margin: 0; }
+.convert-alternative strong { color: #332a24; }
+@media (max-width: 640px) { .convert-alternative { flex-direction: column; align-items: flex-start; } }
 .convert-select {
   min-height: 36px; padding: 7px 30px 7px 12px; border: 1px solid #bda995; border-radius: 8px;
   color: #4e3b2f; background: #f7eee3; font-weight: 600; cursor: pointer;
