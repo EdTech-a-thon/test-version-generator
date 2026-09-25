@@ -129,6 +129,9 @@ export type ExportRecord = {
    *  when it shuffled nothing, as on every record made before Versions
    *  existed. Each plan names its Version in `arrangement.version`. */
   versions?: string[]
+  /** What the export shuffled to make its Versions; present exactly when
+   *  `versions` is. */
+  shuffle?: ShuffleOptions
 }
 
 export type ExportHistory = { records: ExportRecord[] }
@@ -220,70 +223,36 @@ function historicalRecord(
   }
 }
 
-/** A record narrowed to some of what it printed: only stored plans are kept,
- *  in their recorded order, and nothing is planned, shuffled or named. */
-function narrowedRecord(
-  record: ExportRecord,
-  versions: readonly string[] | undefined,
-  selection: ExportContentSelection | undefined,
-): ExportRecord {
-  const chosen = selection ?? record.selection
-  if (chosen.test && !record.selection.test) {
-    throw new Error('This export did not include the student test.')
-  }
-  if (chosen.answerKey && !record.selection.answerKey) {
-    throw new Error('This export did not include the answer key.')
-  }
-  if (!chosen.test && !chosen.answerKey) {
-    throw new Error('Choose the student test, the answer key, or both.')
-  }
-  const names = versions === undefined
-    ? record.versions
-    : (record.versions ?? []).filter((name) => versions.includes(name))
-  if (versions !== undefined && names!.length === 0) {
+/** A record narrowed to some of its Versions: only stored plans are kept, in
+ *  their recorded order, and nothing is planned, shuffled or named. Its format
+ *  and Content Selection are frozen as they were exported. */
+function withVersions(record: ExportRecord, versions: readonly string[]): ExportRecord {
+  const names = (record.versions ?? []).filter((name) => versions.includes(name))
+  if (names.length === 0) {
     throw new Error('Choose at least one Version this export printed.')
   }
-  const plans = record.plans.filter((plan) =>
-    (plan.selection.answerKey ? chosen.answerKey : chosen.test)
-    && (names === undefined || names.includes(plan.arrangement.version ?? '')))
-  const { examPackage, ...rest } = record
-  return {
-    ...rest,
-    selection: { ...chosen },
-    plans,
-    mediaHashes: mediaHashesOf(plans),
-    ...(names !== undefined ? { versions: [...names] } : {}),
-    // Only a PDF that includes the answer key carries the Exam for import.
-    ...(examPackage !== undefined && chosen.answerKey ? { examPackage } : {}),
-  }
-}
-
-/** What a teacher chose to reprint from one record: some of its Versions,
- *  some of its documents, or — each left out — everything it printed. */
-export type ReprintChoice = {
-  versions?: readonly string[]
-  selection?: ExportContentSelection
+  const plans = record.plans.filter((plan) => names.includes(plan.arrangement.version ?? ''))
+  return { ...record, plans, mediaHashes: mediaHashesOf(plans), versions: names }
 }
 
 /**
  * Select a historical artifact without current authoring or layout input:
- * all of it, or some of its Versions and documents. Either way it is a new
- * Export Record of stored plans, and never a new Version.
+ * all of it, or — for a shuffled export — some of its Versions. Either way it
+ * is a new Export Record of stored plans, and never a new Version.
  */
 export function prepareHistoricalExport({
   record,
   versions,
-  selection,
   createdAt,
   createId = () => crypto.randomUUID(),
-}: ReprintChoice & {
+}: {
   record: ExportRecord
+  /** The Versions to print again; every one the record printed when absent. */
+  versions?: readonly string[]
   createdAt: string
   createId?: () => string
 }): PreparedExport {
-  const source = versions === undefined && selection === undefined
-    ? record
-    : narrowedRecord(record, versions, selection)
+  const source = versions === undefined ? record : withVersions(record, versions)
   const copied = historicalRecord(source, createdAt, createId)
   return {
     documents: copied.plans,
@@ -427,7 +396,7 @@ export function prepareExport({
     questionCount: exam.questions.length,
     plans: structuredClone(documents),
     mediaHashes: mediaHashesOf(documents),
-    ...(versions.length > 0 ? { versions } : {}),
+    ...(versions.length > 0 ? { versions, shuffle: { ...configuration.shuffle! } } : {}),
   }
   return {
     documents,

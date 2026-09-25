@@ -1,4 +1,4 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { useModalScrollLock } from './use-modal-scroll-lock'
 import { ExportPreview } from './exam-page'
 import type { LayoutPlan } from './export-plan'
@@ -6,7 +6,14 @@ import type {
   ExportConfiguration,
   PreparationProgress,
 } from './export-preparation'
-import { DEFAULT_VERSION_COUNT, NO_SHUFFLE, shufflesAnything, versionCountError } from './export-versions'
+import { exportTime } from './export-time'
+import {
+  DEFAULT_VERSION_COUNT,
+  NO_SHUFFLE,
+  shufflesAnything,
+  versionCountError,
+  versionNamesIn,
+} from './export-versions'
 
 function progressMessage(progress: PreparationProgress): string {
   return progress.stage === 'planning'
@@ -25,65 +32,204 @@ function focusableWithin(root: HTMLElement): HTMLElement[] {
   )
 }
 
-export function ExportDialog({
+/**
+ * The Versions under a dialog's settings, one line each. Naming one snaps the
+ * preview to that Version's first paper; where `included` is given, each also
+ * has a checkbox choosing whether it prints.
+ */
+function VersionLine({
+  names,
+  current,
+  onSnap,
+  included,
+  onIncludedChange,
+  disabled,
+}: {
+  names: readonly string[]
+  current: string | null
+  onSnap: (name: string) => void
+  included?: readonly string[]
+  onIncludedChange?: (name: string, included: boolean) => void
+  disabled: boolean
+}) {
+  return (
+    <section className="export-version-line" aria-label="Versions">
+      <h3>{names.length === 1 ? '1 Version' : `${names.length} Versions`}</h3>
+      <ul>
+        {names.map((name) => (
+          <li key={name}>
+            {included && (
+              <input
+                type="checkbox"
+                aria-label={`Re-export ${name}`}
+                checked={included.includes(name)}
+                disabled={disabled}
+                onChange={(event) => onIncludedChange?.(name, event.target.checked)}
+              />
+            )}
+            <button
+              type="button"
+              className="export-version-name"
+              aria-current={current === name ? 'true' : undefined}
+              onClick={() => onSnap(name)}
+            >
+              {name}
+            </button>
+          </li>
+        ))}
+      </ul>
+    </section>
+  )
+}
+
+/**
+ * Format, Content selection and Shuffled Versions: the settings an export is
+ * made with. Frozen, they show a recorded export's settings and change nothing.
+ */
+function ExportSettings({
   configuration,
-  onConfigurationChange,
-  previewPlans,
+  onChange,
   maxVersions,
-  empty,
-  blocked = null,
+  frozen,
+  disabled,
+}: {
+  configuration: ExportConfiguration
+  onChange?: (configuration: ExportConfiguration) => void
+  maxVersions?: number
+  frozen: boolean
+  disabled: boolean
+}) {
+  const id = useId()
+  const { selection } = configuration
+  const shuffle = configuration.shuffle ?? NO_SHUFFLE
+  const shuffling = shufflesAnything(shuffle)
+  const versionCount = configuration.versionCount ?? DEFAULT_VERSION_COUNT
+  const change = (next: Partial<ExportConfiguration>) =>
+    onChange?.({ ...configuration, shuffle, versionCount, ...next })
+  const locked = frozen || disabled
+
+  return (
+    <>
+      <fieldset className="export-field" disabled={locked}>
+        <legend>Format</legend>
+        {(['pdf', 'docx'] as const).map((format) => (
+          <label key={format}>
+            <input
+              type="radio"
+              name={`${id}-format`}
+              value={format}
+              checked={configuration.format === format}
+              onChange={() => change({ format })}
+            />
+            {format.toUpperCase()}
+          </label>
+        ))}
+      </fieldset>
+
+      <fieldset className="export-field" disabled={locked}>
+        <legend>Content selection</legend>
+        <label>
+          <input
+            type="checkbox"
+            checked={selection.test}
+            onChange={(event) => change({ selection: { ...selection, test: event.target.checked } })}
+          />
+          Student test
+        </label>
+        <label>
+          <input
+            type="checkbox"
+            checked={selection.answerKey}
+            onChange={(event) => change({ selection: { ...selection, answerKey: event.target.checked } })}
+          />
+          Answer key
+        </label>
+      </fieldset>
+
+      <fieldset className="export-field" disabled={locked} aria-describedby={`${id}-version-hint`}>
+        <legend>Shuffled Versions</legend>
+        <label>
+          <input
+            type="checkbox"
+            checked={shuffle.questions}
+            onChange={(event) => change({ shuffle: { ...shuffle, questions: event.target.checked } })}
+          />
+          Shuffle question order
+        </label>
+        <label>
+          <input
+            type="checkbox"
+            checked={shuffle.answers}
+            onChange={(event) => change({ shuffle: { ...shuffle, answers: event.target.checked } })}
+          />
+          Shuffle answer order
+        </label>
+        <label className="export-count">
+          Versions
+          <input
+            type="number"
+            min={1}
+            max={Math.max(1, maxVersions ?? versionCount)}
+            step={1}
+            inputMode="numeric"
+            value={Number.isNaN(versionCount) ? '' : versionCount}
+            disabled={!shuffling}
+            onChange={(event) => change({ versionCount: event.target.valueAsNumber })}
+          />
+        </label>
+        {!frozen && (
+          <p className="export-hint" id={`${id}-version-hint`}>
+            {shuffling
+              ? `Each Version gets its own name, printed at the top right. Up to ${Math.max(0, maxVersions ?? 0)} for this Exam.`
+              : 'Turn on a shuffle to print named Versions. Otherwise the Exam prints as you see it.'}
+          </p>
+        )}
+      </fieldset>
+    </>
+  )
+}
+
+/**
+ * The frame both export dialogs share: an output-faithful preview beside the
+ * settings, a line of Versions that snaps the preview, and one action. It owns
+ * the modal behaviour — focus, Escape, preparation progress and failure.
+ */
+function ExportDialogFrame({
+  title,
+  eyebrow,
+  previewPlans,
+  settings,
+  versions,
+  notes,
+  submitLabel,
+  submitDisabled,
   initialError,
   onSubmit,
   onCancel,
 }: {
-  configuration: ExportConfiguration
-  onConfigurationChange: (configuration: ExportConfiguration) => void
+  title: string
+  eyebrow?: string
   previewPlans: readonly LayoutPlan[]
-  /** How many shuffled Versions the current shuffle options allow. */
-  maxVersions: number
-  empty: boolean
-  /** Why this Exam cannot be exported as it is — a Question still needing a
-   *  picture — shown in place of the preview's paper. */
-  blocked?: string | null
+  settings: (disabled: boolean) => ReactNode
+  versions?: {
+    included?: readonly string[]
+    onIncludedChange?: (name: string, included: boolean) => void
+  }
+  notes?: ReactNode
+  submitLabel: string
+  submitDisabled: boolean
   initialError?: string | null
-  onSubmit: (
-    configuration: ExportConfiguration,
-    onProgress: (progress: PreparationProgress) => void,
-  ) => Promise<void>
+  onSubmit: (onProgress: (progress: PreparationProgress) => void) => Promise<void>
   onCancel: () => void
 }) {
   const [preparing, setPreparing] = useState(false)
   const [progress, setProgress] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(initialError ?? null)
+  const [current, setCurrent] = useState<string | null>(null)
   const dialog = useRef<HTMLElement>(null)
+  const preview = useRef<HTMLDivElement>(null)
   const id = useId()
-  const { selection } = configuration
-  const selectionError =
-    !selection.test && !selection.answerKey
-      ? 'Choose the student test, the answer key, or both.'
-      : null
-  const emptyError = empty
-    ? 'Add at least one question to the Working Copy before exporting.'
-    : null
-  const shuffle = configuration.shuffle ?? NO_SHUFFLE
-  const shuffling = shufflesAnything(shuffle)
-  const versionCount = configuration.versionCount ?? DEFAULT_VERSION_COUNT
-  const versionError = !shuffling || empty ? null : versionCountError(versionCount, maxVersions)
-  const invalid =
-    selectionError !== null || emptyError !== null || blocked !== null || versionError !== null
-
-  const changeShuffle = (next: Partial<typeof shuffle>) =>
-    onConfigurationChange({
-      ...configuration,
-      shuffle: { ...shuffle, ...next },
-      versionCount,
-    })
-
-  const changeSelection = (selection: ExportConfiguration['selection']) =>
-    onConfigurationChange({ ...configuration, selection })
-
-  const changeFormat = (format: ExportConfiguration['format']) =>
-    onConfigurationChange({ ...configuration, format })
+  const names = versionNamesIn(previewPlans)
 
   useEffect(() => {
     const [first] = focusableWithin(dialog.current!)
@@ -110,15 +256,23 @@ export function ExportDialog({
     if (!preparing) onCancel()
   }
 
+  // Scroll the preview, and only the preview, to a Version's first paper.
+  const snap = (name: string) => {
+    setCurrent(name)
+    const scroller = preview.current
+    const paper = scroller?.querySelector<HTMLElement>(`[data-version="${CSS.escape(name)}"]`)
+    if (!scroller || !paper) return
+    const top = paper.getBoundingClientRect().top - scroller.getBoundingClientRect().top
+    scroller.scrollTo({ top: scroller.scrollTop + top - 18, behavior: 'smooth' })
+  }
+
   const submit = async () => {
-    if (preparing || invalid) return
+    if (preparing || submitDisabled) return
     setPreparing(true)
     setError(null)
-    setProgress(`Preparing ${configuration.format.toUpperCase()} document…`)
+    setProgress('Preparing document…')
     try {
-      await onSubmit(configuration, (update) =>
-        setProgress(progressMessage(update)),
-      )
+      await onSubmit((update) => setProgress(progressMessage(update)))
     } catch (failure) {
       setError(
         failure instanceof Error
@@ -179,154 +333,42 @@ export function ExportDialog({
         tabIndex={-1}
       >
         <header className="dialog-header">
-          <h2 id={`${id}-title`}>Export</h2>
+          <h2 id={`${id}-title`}>{title}</h2>
+          {eyebrow && <p className="export-dialog-eyebrow">{eyebrow}</p>}
         </header>
 
         <div className="export-publication-body">
           {/* The preview is output-faithful, not an alternate reading or
               navigation surface. `inert` prevents authored links and any
               future focusable document content from escaping this dialog. */}
-          <div className="export-preview" aria-label="Export Preview">
+          <div className="export-preview" aria-label="Export Preview" ref={preview}>
             {/* Keep paper content inert while leaving its scroll container live:
                 browsing a long preview must not pass wheel input through to
                 the document under this modal. */}
             <div inert>
               {previewPlans.map((plan, index) => (
-                <ExportPreview
-                  key={`${plan.pages[0]?.stream ?? 'empty'}-${index}`}
-                  plan={plan}
-                />
+                <div
+                  key={`${plan.arrangement.id}-${plan.pages[0]?.stream ?? 'empty'}-${index}`}
+                  data-version={plan.arrangement.version}
+                >
+                  <ExportPreview plan={plan} />
+                </div>
               ))}
             </div>
           </div>
 
           <div className="export-controls">
-            <fieldset className="export-field" disabled={preparing}>
-              <legend>Format</legend>
-              <label>
-                <input
-                  type="radio"
-                  name={`${id}-format`}
-                  value="pdf"
-                  checked={configuration.format === 'pdf'}
-                  onChange={() => changeFormat('pdf')}
-                />
-                PDF
-              </label>
-              <label>
-                <input
-                  type="radio"
-                  name={`${id}-format`}
-                  value="docx"
-                  checked={configuration.format === 'docx'}
-                  onChange={() => changeFormat('docx')}
-                />
-                DOCX
-              </label>
-            </fieldset>
-
-            <fieldset
-              className="export-field"
-              aria-describedby={
-                selectionError ? `${id}-content-error` : undefined
-              }
-              disabled={preparing}
-            >
-              <legend>Content selection</legend>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={selection.test}
-                  onChange={(event) =>
-                    changeSelection({
-                      ...selection,
-                      test: event.target.checked,
-                    })
-                  }
-                />
-                Student test
-              </label>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={selection.answerKey}
-                  onChange={(event) =>
-                    changeSelection({
-                      ...selection,
-                      answerKey: event.target.checked,
-                    })
-                  }
-                />
-                Answer key
-              </label>
-            </fieldset>
-
-            <fieldset
-              className="export-field"
-              aria-describedby={versionError ? `${id}-version-error` : `${id}-version-hint`}
-              disabled={preparing}
-            >
-              <legend>Shuffled Versions</legend>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={shuffle.questions}
-                  onChange={(event) => changeShuffle({ questions: event.target.checked })}
-                />
-                Shuffle question order
-              </label>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={shuffle.answers}
-                  onChange={(event) => changeShuffle({ answers: event.target.checked })}
-                />
-                Shuffle answer order
-              </label>
-              <label className="export-count">
-                Versions
-                <input
-                  type="number"
-                  min={1}
-                  max={Math.max(1, maxVersions)}
-                  step={1}
-                  inputMode="numeric"
-                  value={Number.isNaN(versionCount) ? '' : versionCount}
-                  disabled={!shuffling}
-                  onChange={(event) =>
-                    onConfigurationChange({
-                      ...configuration,
-                      shuffle,
-                      versionCount: event.target.valueAsNumber,
-                    })
-                  }
-                />
-              </label>
-              <p className="export-hint" id={`${id}-version-hint`}>
-                {shuffling
-                  ? `Each Version gets its own name, printed at the top right. Up to ${Math.max(0, maxVersions)} for this Exam.`
-                  : 'Turn on a shuffle to print named Versions. Otherwise the Exam prints as you see it.'}
-              </p>
-            </fieldset>
-
-            <p className="export-durability-note">
-              Export History is stored only in this browser. It is useful for
-              local re-export, but it is not an archival backup.
-            </p>
-            {(selectionError || emptyError || blocked) && (
-              <p
-                className="export-error"
-                id={`${id}-content-error`}
-                role="alert"
-              >
-                {selectionError ?? emptyError ?? blocked}
-              </p>
+            {settings(preparing)}
+            {names.length > 0 && (
+              <VersionLine
+                names={names}
+                current={current}
+                onSnap={snap}
+                disabled={preparing}
+                {...versions}
+              />
             )}
-            {versionError && (
-              <p className="export-error" id={`${id}-version-error`} role="alert">
-                {versionError}
-              </p>
-            )}
+            {notes}
           </div>
         </div>
 
@@ -355,15 +397,151 @@ export function ExportDialog({
           <button
             type="button"
             className="primary-button"
-            disabled={preparing || invalid}
+            disabled={preparing || submitDisabled}
             onClick={() => void submit()}
           >
-            {preparing
-              ? 'Preparing…'
-              : `Download ${configuration.format.toUpperCase()}`}
+            {preparing ? 'Preparing…' : submitLabel}
           </button>
         </footer>
       </section>
     </div>
+  )
+}
+
+export function ExportDialog({
+  configuration,
+  onConfigurationChange,
+  previewPlans,
+  maxVersions,
+  empty,
+  blocked = null,
+  initialError,
+  onSubmit,
+  onCancel,
+}: {
+  configuration: ExportConfiguration
+  onConfigurationChange: (configuration: ExportConfiguration) => void
+  previewPlans: readonly LayoutPlan[]
+  /** How many shuffled Versions the current shuffle options allow. */
+  maxVersions: number
+  empty: boolean
+  /** Why this Exam cannot be exported as it is — a Question still needing a
+   *  picture — shown in place of the preview's paper. */
+  blocked?: string | null
+  initialError?: string | null
+  onSubmit: (
+    configuration: ExportConfiguration,
+    onProgress: (progress: PreparationProgress) => void,
+  ) => Promise<void>
+  onCancel: () => void
+}) {
+  const { selection } = configuration
+  const selectionError =
+    !selection.test && !selection.answerKey
+      ? 'Choose the student test, the answer key, or both.'
+      : null
+  const emptyError = empty
+    ? 'Add at least one question to the Working Copy before exporting.'
+    : null
+  const shuffling = shufflesAnything(configuration.shuffle)
+  const versionError = !shuffling || empty
+    ? null
+    : versionCountError(configuration.versionCount ?? DEFAULT_VERSION_COUNT, maxVersions)
+  const problem = selectionError ?? emptyError ?? blocked ?? versionError
+
+  return (
+    <ExportDialogFrame
+      title="Export"
+      previewPlans={previewPlans}
+      settings={(disabled) => (
+        <ExportSettings
+          configuration={configuration}
+          onChange={onConfigurationChange}
+          maxVersions={maxVersions}
+          frozen={false}
+          disabled={disabled}
+        />
+      )}
+      notes={
+        <>
+          <p className="export-durability-note">
+            Export History is stored only in this browser. It is useful for
+            local re-export, but it is not an archival backup.
+          </p>
+          {problem && (
+            <p className="export-error" role="alert">
+              {problem}
+            </p>
+          )}
+        </>
+      }
+      submitLabel={`Download ${configuration.format.toUpperCase()}`}
+      submitDisabled={problem !== null}
+      initialError={initialError}
+      onSubmit={(onProgress) => onSubmit(configuration, onProgress)}
+      onCancel={onCancel}
+    />
+  )
+}
+
+/**
+ * A recorded export, opened from Export History. Its settings are frozen as
+ * they were exported; the only choice is which of its Versions to print again.
+ */
+export function ReExportDialog({
+  number,
+  name,
+  createdAt,
+  configuration,
+  plans,
+  onSubmit,
+  onCancel,
+}: {
+  /** Its place in the Exam's Export History, counting from the first. */
+  number: number
+  name: string
+  createdAt: string
+  configuration: ExportConfiguration
+  plans: readonly LayoutPlan[]
+  onSubmit: (
+    versions: readonly string[] | undefined,
+    onProgress: (progress: PreparationProgress) => void,
+  ) => Promise<void>
+  onCancel: () => void
+}) {
+  const names = versionNamesIn(plans)
+  const [included, setIncluded] = useState<string[]>(names)
+
+  return (
+    <ExportDialogFrame
+      title="Re-export"
+      eyebrow="Export Record, Immutable"
+      previewPlans={plans}
+      settings={(disabled) => (
+        <>
+          <dl className="export-record-identity">
+            <div><dt>Export</dt><dd>#{number}</dd></div>
+            <div><dt>Title</dt><dd>{name}</dd></div>
+            <div><dt>Exported</dt><dd><time dateTime={createdAt}>{exportTime(createdAt)}</time></dd></div>
+          </dl>
+          <ExportSettings configuration={configuration} frozen disabled={disabled} />
+        </>
+      )}
+      versions={names.length > 0
+        ? {
+            included,
+            onIncludedChange: (name, on) =>
+              // Kept in the record's own order, whatever order they were ticked in.
+              setIncluded(names.filter((candidate) => (candidate === name ? on : included.includes(candidate)))),
+          }
+        : undefined}
+      notes={names.length > 0 && included.length === 0 && (
+        <p className="export-error" role="alert">Choose at least one Version to re-export.</p>
+      )}
+      submitLabel={`Re-export ${configuration.format.toUpperCase()}`}
+      submitDisabled={names.length > 0 && included.length === 0}
+      onSubmit={(onProgress) => onSubmit(names.length > 0 ? included : undefined, onProgress)}
+      onCancel={onCancel}
+    />
   )
 }

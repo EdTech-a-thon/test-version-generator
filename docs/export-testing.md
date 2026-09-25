@@ -39,8 +39,7 @@ and never deduplicate records or name output.
 Each Export Record is attached to its Exam UUID and retains the captured Exam
 name, exact format and Content Selection, question count, required media hashes,
 and complete resolved Layout Plans. Historical view and fixed-format re-export
-consume only that stored record, or a chosen subset of its Versions and
-documents. They never consult current Questions, restore an Exam, or invoke the
+consume only that stored record, or a chosen subset of its Versions. They never consult current Questions, restore an Exam, or invoke the
 current layout engine.
 
 The print adapter remains an internal preview/reference path (`ExportPreview`

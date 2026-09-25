@@ -553,54 +553,45 @@ describe('shuffled Versions', () => {
     expect(input.arrangement).toEqual(arrangement)
   })
 
-  test('a reprint reproduces a chosen subset of stored Versions and documents exactly', () => {
+  test('a re-export reproduces a chosen subset of stored Versions exactly, settings frozen', () => {
     const original = {
-      ...prepareExport(shuffledRequest({ questions: true, answers: true }, 3)).record,
+      ...prepareExport(shuffledRequest({ questions: true, answers: false }, 3)).record,
       examPackage: '{"package":true}',
     }
+    // The record keeps what it shuffled, so the Re-export dialog can show it.
+    expect(original.shuffle).toEqual({ questions: true, answers: false })
     const [first, second, third] = original.versions!
     const reprint = prepareHistoricalExport({
       record: original,
       versions: [third!, first!],
-      selection: { test: false, answerKey: true },
       createdAt: '2026-09-12T09:00:00.000Z',
       createId: () => 'record-9',
     })
 
     // In the record's own order, from its stored plans, and nothing else.
-    const keyOf = (name: string) => original.plans.find((plan) =>
-      plan.arrangement.version === name && plan.pages[0]?.stream === 'answer-key')
-    expect(reprint.documents).toEqual([keyOf(first!)!, keyOf(third!)!])
+    const plansOf = (name: string) => original.plans.filter((plan) => plan.arrangement.version === name)
+    expect(reprint.documents).toEqual([
+      plansOf(first!)[0], plansOf(third!)[0], plansOf(first!)[1], plansOf(third!)[1],
+    ])
+    expect(reprint.documents.map((plan) => plan.pages[0]?.stream)).toEqual(['test', 'test', 'answer-key', 'answer-key'])
     expect(reprint.record).toMatchObject({
       id: 'record-9',
       sourceRecordId: original.id,
       createdAt: '2026-09-12T09:00:00.000Z',
-      selection: { test: false, answerKey: true },
+      format: original.format,
+      selection: original.selection,
+      shuffle: original.shuffle,
       versions: [first, third],
       plans: reprint.documents,
+      examPackage: '{"package":true}',
     })
     expect(reprint.record.versions).not.toContain(second)
-    // The key still prints, so the PDF still carries the Exam for import.
-    expect(reprint.record.examPackage).toBe('{"package":true}')
-
-    const testsOnly = prepareHistoricalExport({
-      record: original,
-      selection: { test: true, answerKey: false },
-      createdAt: '2026-09-12T09:00:00.000Z',
-    })
-    expect(testsOnly.documents.map((plan) => [plan.pages[0]?.stream, plan.arrangement.version]))
-      .toEqual([['test', first], ['test', second], ['test', third]])
-    expect(testsOnly.record.examPackage).toBeUndefined()
   })
 
-  test('a reprint cannot ask for what its record never printed', () => {
-    const original = prepareExport(shuffledRequest({ questions: true, answers: true }, 2, {
-      selection: { test: true, answerKey: false },
-    })).record
+  test('a re-export cannot ask for a Version its record never printed', () => {
+    const original = prepareExport(shuffledRequest({ questions: true, answers: true }, 2)).record
     const createdAt = '2026-09-12T09:00:00.000Z'
 
-    expect(() => prepareHistoricalExport({ record: original, selection: { test: false, answerKey: true }, createdAt }))
-      .toThrow('This export did not include the answer key.')
     expect(() => prepareHistoricalExport({ record: original, versions: ['Made Up'], createdAt }))
       .toThrow('Choose at least one Version this export printed.')
     expect(() => prepareHistoricalExport({ record: original, versions: [], createdAt }))

@@ -95,9 +95,10 @@ test("full Question editor discloses impact, cancels safely, and permanently del
 
   await page.getByRole("button", { name: "Export History" }).click();
   await page.getByLabel("Export History").locator(".export-history-item").click();
-  await expect(page.locator(".historical-document")).toContainText("Shared cell question");
+  const reExport = page.getByRole("dialog", { name: "Re-export" });
+  await expect(reExport.getByLabel("Export Preview")).toContainText("Shared cell question");
   const historicalDownload = page.waitForEvent("download");
-  await page.getByRole("button", { name: "Re-export PDF", exact: true }).click();
+  await reExport.getByRole("button", { name: "Re-export PDF", exact: true }).click();
   await historicalDownload;
 });
 

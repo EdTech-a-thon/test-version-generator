@@ -16,6 +16,7 @@ import {
   type Exam,
   type RandomSource,
 } from './exam'
+import type { LayoutPlan } from './export-plan'
 
 /** What an export may shuffle. Question order moves only within each Question
  *  Section; answer order covers Multiple Choice answers, a Multipart
@@ -40,6 +41,11 @@ export function versionCountError(count: number, max: number): string | null {
     return `Choose from 1 to ${max} ${max === 1 ? 'Version' : 'Versions'} for this Exam.`
   }
   return null
+}
+
+/** Each Version a set of plans prints, in the order its papers first appear. */
+export function versionNamesIn(plans: readonly LayoutPlan[]): string[] {
+  return [...new Set(plans.flatMap((plan) => (plan.arrangement.version ? [plan.arrangement.version] : [])))]
 }
 
 export function shufflesAnything(shuffle: ShuffleOptions | undefined): boolean {
