@@ -1,6 +1,11 @@
 import { describe, expect, test } from 'bun:test'
-import type { QuestionType } from './exam'
-import { dropIntent, type DragSource, type DropCandidate } from './workspace-drag'
+import {
+  dropIntent,
+  landsOnRelease,
+  type DragSource,
+  type DropCandidate,
+  type DropField,
+} from './workspace-drag'
 
 const fromQuestionBank: DragSource = {
   pane: 'question-bank',
@@ -20,28 +25,43 @@ const fromExamWorkingCopy: DragSource = {
   type: 'multiple-choice',
 }
 
+const shortAnswerFromQuestionBank: DragSource = {
+  pane: 'question-bank',
+  questionIds: ['bank-3'],
+  type: 'open',
+}
+
 /** A rendered question on a sheet spanning x 100–700, from `top` to `bottom`. */
 function rendered(
   questionId: string,
-  type: QuestionType,
+  sectionId: string,
   top: number,
   bottom: number,
 ): DropCandidate {
   return {
     questionId,
-    type,
+    sectionId,
     before: { y: top, left: 100, right: 700 },
     after: { y: bottom, left: 100, right: 700 },
   }
 }
 
-// Two Multiple Choice questions, then two Short Answer ones, down one sheet.
-const page: DropCandidate[] = [
-  rendered('q1', 'multiple-choice', 100, 300),
-  rendered('q2', 'multiple-choice', 326, 526),
-  rendered('s1', 'open', 600, 700),
-  rendered('s2', 'open', 726, 826),
-]
+function field(
+  candidates: DropCandidate[],
+  extra: Partial<DropField> = {},
+): DropField {
+  return { candidates, emptySections: [], openNewSection: null, ...extra }
+}
+
+// A Multiple Choice Section of two questions, a Short Answer Section of two,
+// then a second Multiple Choice Section of one, down one sheet.
+const page = field([
+  rendered('q1', 'mc', 100, 300),
+  rendered('q2', 'mc', 326, 526),
+  rendered('s1', 'sa', 600, 700),
+  rendered('s2', 'sa', 726, 826),
+  rendered('q3', 'mc-2', 900, 1000),
+])
 
 describe('a Question Bank question released over the Working Copy', () => {
   test('inserts before a question when nearer its top', () => {
@@ -49,107 +69,155 @@ describe('a Question Bank question released over the Working Copy', () => {
       kind: 'insert',
       targetQuestionId: 'q1',
       placement: 'before',
+      opensBelow: null,
     })
   })
 
-  test('inserts after a question when nearer its bottom — there is no Replace', () => {
-    // The middle of a question is an insertion point too: whichever edge is
-    // nearer, and never the question itself.
+  test('inserts after a question when nearer its bottom, and never replaces it', () => {
     expect(dropIntent(fromQuestionBank, page, { x: 400, y: 210 })).toEqual({
       kind: 'insert',
       targetQuestionId: 'q1',
       placement: 'after',
+      opensBelow: null,
     })
   })
 
-  test('lands in its own section however far into another it is released', () => {
-    // A Short Answer question dropped among the Multiple Choice ones goes to
-    // the top of the Short Answer section: the nearest place it can go.
-    const shortAnswer: DragSource = { pane: 'question-bank', questionIds: ['bank-9'], type: 'open' }
-    expect(dropIntent(shortAnswer, page, { x: 400, y: 120 })).toEqual({
+  test('reaches a later Section as readily as the first', () => {
+    expect(dropIntent(fromQuestionBank, page, { x: 400, y: 910 })).toEqual({
+      kind: 'insert',
+      targetQuestionId: 'q3',
+      placement: 'before',
+      opensBelow: null,
+    })
+  })
+
+  test('lands inside a Section of Short Answer questions, at the nearest line', () => {
+    // Between s1 and s2: a Multiple Choice question goes there like any other.
+    expect(dropIntent(fromQuestionBank, page, { x: 400, y: 710 })).toEqual({
+      kind: 'insert',
+      targetQuestionId: 's1',
+      placement: 'after',
+      opensBelow: null,
+    })
+    expect(dropIntent(fromQuestionBank, page, { x: 400, y: 590 })).toMatchObject({
       kind: 'insert',
       targetQuestionId: 's1',
       placement: 'before',
     })
-    // And a Multiple Choice question released below every Short Answer one goes
-    // to the foot of the Multiple Choice section.
-    expect(dropIntent(fromQuestionBank, page, { x: 400, y: 900 })).toEqual({
+  })
+
+  test('opens a new-Section target at the foot of a Section, below its last question', () => {
+    expect(dropIntent(fromQuestionBank, page, { x: 400, y: 520 })).toEqual({
       kind: 'insert',
       targetQuestionId: 'q2',
       placement: 'after',
+      opensBelow: 'mc',
     })
   })
 
-  test('lands when released in the margin beside the sheet', () => {
-    expect(dropIntent(fromQuestionBank, page, { x: 20, y: 110 })).toEqual({
+  test('at the foot of a Section of another type, inserts after its last question and opens a new-Section target', () => {
+    const intent = dropIntent(fromQuestionBank, page, { x: 400, y: 830 })
+    expect(intent).toEqual({
       kind: 'insert',
-      targetQuestionId: 'q1',
-      placement: 'before',
+      targetQuestionId: 's2',
+      placement: 'after',
+      opensBelow: 'sa',
     })
+    expect(landsOnRelease(intent)).toBe(true)
   })
 
-  test('reaches the nearest line across sheets laid side by side', () => {
-    const sideBySide: DropCandidate[] = [
-      rendered('q1', 'multiple-choice', 100, 900),
-      {
-        questionId: 'q2',
-        type: 'multiple-choice',
-        before: { y: 100, left: 800, right: 1400 },
-        after: { y: 300, left: 800, right: 1400 },
+  test('makes a new Section only when released over the open target', () => {
+    const open = field(page.candidates, {
+      openNewSection: {
+        afterSectionId: 'sa',
+        box: { top: 832, bottom: 884, left: 100, right: 700 },
       },
-    ]
-    expect(dropIntent(fromQuestionBank, sideBySide, { x: 1000, y: 250 })).toEqual({
-      kind: 'insert',
-      targetQuestionId: 'q2',
-      placement: 'after',
     })
-  })
-
-  test('inserts a multi-row selection the same way', () => {
-    expect(dropIntent(severalFromQuestionBank, page, { x: 400, y: 510 })).toEqual({
-      kind: 'insert',
-      targetQuestionId: 'q2',
-      placement: 'after',
+    const intent = dropIntent(fromQuestionBank, open, { x: 400, y: 860 })
+    expect(intent).toEqual({
+      kind: 'new-section',
+      afterSectionId: 'sa',
+      armed: true,
+      opensBelow: 'sa',
     })
+    expect(landsOnRelease(intent)).toBe(true)
   })
 
-  test('adds the first question of a Question Section the exam has none of', () => {
-    const trueFalse: DragSource = { pane: 'question-bank', questionIds: ['bank-3'], type: 'true-false' }
-    expect(dropIntent(trueFalse, page, { x: 400, y: 150 })).toEqual({ kind: 'insert-first' })
-    expect(dropIntent(trueFalse, [], { x: 400, y: 150 })).toEqual({ kind: 'insert-first' })
+  test('drops into any empty Section, whatever the question’s type', () => {
+    const withEmpty = field(page.candidates, {
+      emptySections: [
+        { sectionId: 'empty-1', box: { top: 1100, bottom: 1156, left: 100, right: 700 } },
+        { sectionId: 'empty-2', box: { top: 1250, bottom: 1306, left: 100, right: 700 } },
+      ],
+    })
+    for (const source of [fromQuestionBank, shortAnswerFromQuestionBank]) {
+      expect(dropIntent(source, withEmpty, { x: 400, y: 1120 })).toEqual({
+        kind: 'section-end',
+        sectionId: 'empty-1',
+        opensBelow: null,
+      })
+      expect(dropIntent(source, withEmpty, { x: 400, y: 1270 })).toEqual({
+        kind: 'section-end',
+        sectionId: 'empty-2',
+        opensBelow: null,
+      })
+    }
   })
-})
 
-describe('a Working Copy question dragged within the Working Copy', () => {
-  test('reorders to the nearest line, never onto itself', () => {
-    // Over its own body, q2 is placed relative to the nearest other question.
-    expect(dropIntent(fromExamWorkingCopy, page, { x: 400, y: 450 })).toEqual({
+  test('a Short Answer question reaches every line, beside a question of any type', () => {
+    expect(dropIntent(shortAnswerFromQuestionBank, page, { x: 400, y: 150 })).toEqual({
       kind: 'insert',
       targetQuestionId: 'q1',
-      placement: 'after',
+      placement: 'before',
+      opensBelow: null,
     })
-    expect(dropIntent(fromExamWorkingCopy, page, { x: 400, y: 120 })).toEqual({
+    expect(dropIntent(shortAnswerFromQuestionBank, page, { x: 400, y: 610 })).toMatchObject({
+      kind: 'insert',
+      targetQuestionId: 's1',
+      placement: 'before',
+    })
+    expect(dropIntent(shortAnswerFromQuestionBank, page, { x: 400, y: 990 })).toEqual({
+      kind: 'insert',
+      targetQuestionId: 'q3',
+      placement: 'after',
+      opensBelow: 'mc-2',
+    })
+  })
+
+  test('starts the first Section of an Exam with nothing on it', () => {
+    expect(dropIntent(fromQuestionBank, field([]), { x: 400, y: 150 })).toEqual({
+      kind: 'new-section',
+      afterSectionId: null,
+      armed: true,
+      opensBelow: null,
+    })
+  })
+
+  test('a gesture carrying several is placed like one', () => {
+    expect(dropIntent(severalFromQuestionBank, page, { x: 400, y: 150 })).toMatchObject({
       kind: 'insert',
       targetQuestionId: 'q1',
       placement: 'before',
     })
   })
 
-  test('stays in its own section when released in another', () => {
-    expect(dropIntent(fromExamWorkingCopy, page, { x: 400, y: 800 })).toEqual({
-      kind: 'insert',
-      targetQuestionId: 'q1',
-      placement: 'after',
-    })
-  })
-
-  test('has nowhere to go when it is the whole of its section', () => {
-    const alone: DragSource = { pane: 'exam-draft', questionIds: ['q1', 'q2'], type: 'multiple-choice' }
-    expect(dropIntent(alone, page, { x: 400, y: 120 })).toBeNull()
+  test('outside the Working Copy, a release changes nothing', () => {
+    expect(dropIntent(fromQuestionBank, page, null)).toBeNull()
   })
 })
 
-test('a release outside the Working Copy changes nothing', () => {
-  expect(dropIntent(fromQuestionBank, page, null)).toBeNull()
-  expect(dropIntent(fromExamWorkingCopy, page, null)).toBeNull()
+describe('a Working Copy question moved within it', () => {
+  test('is never placed relative to itself, and the foot of its Section is the question above it', () => {
+    // q2 is being carried: the line below q1 is the foot of its Section now.
+    expect(dropIntent(fromExamWorkingCopy, page, { x: 400, y: 380 })).toEqual({
+      kind: 'insert',
+      targetQuestionId: 'q1',
+      placement: 'after',
+      opensBelow: 'mc',
+    })
+  })
+
+  test('an Exam with nothing on it offers a move nothing', () => {
+    expect(dropIntent(fromExamWorkingCopy, field([]), { x: 400, y: 150 })).toBeNull()
+  })
 })

@@ -16,9 +16,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   dropIntent,
+  landsOnRelease,
   type DragSource,
+  type DropBox,
   type DropCandidate,
+  type DropField,
   type DropIntent,
+  type EmptySection,
 } from './workspace-drag'
 import type { QuestionType } from './exam'
 
@@ -55,41 +59,87 @@ export type WorkspaceDrag = {
  *  reader so the markup and the reader cannot drift. */
 export const DROP_ZONE_SELECTOR = '[data-drop-zone]'
 const QUESTION_PIECE_SELECTOR = '.exam-question[data-question-id]'
+/** An empty Question Section's heading on the sheet, which is where a gesture
+ *  drops into it. */
+export const EMPTY_SECTION_SELECTOR = '[data-empty-section]'
+/** The new-Section target, while it is open beneath a Section. */
+export const NEW_SECTION_SELECTOR = '[data-new-section-after]'
 
-/** Every rendered question in the Working Copy, read out of the real page — or
- *  `null` when the pointer is not over the Working Copy at all. */
-function candidatesAt(point: { x: number; y: number }): DropCandidate[] | null {
-  const zone = document
-    .elementFromPoint(point.x, point.y)
-    ?.closest<HTMLElement>(DROP_ZONE_SELECTOR)
+function boxOf(bounds: DOMRect): DropBox {
+  return { top: bounds.top, bottom: bounds.bottom, left: bounds.left, right: bounds.right }
+}
+
+/** Everything a gesture can land on in the Working Copy, read out of the real
+ *  page — or `null` when the pointer is not over the Working Copy at all. */
+function fieldAt(point: { x: number; y: number }): DropField | null {
+  const under = document.elementFromPoint(point.x, point.y)
+  const zone =
+    under?.closest<HTMLElement>(DROP_ZONE_SELECTOR)
+    // The open target is drawn over the sheet, and belongs to it.
+    ?? (under?.closest(NEW_SECTION_SELECTOR)
+      ? document.querySelector<HTMLElement>(DROP_ZONE_SELECTOR)
+      : null)
   if (!zone) return null
   // A question split across sheets renders one piece per sheet, in page order,
   // and only its numbered piece names its type. Its line above is on the first
   // piece and its line below on the last.
-  const byId = new Map<string, { type?: QuestionType; first: DOMRect; last: DOMRect }>()
+  const byId = new Map<
+    string,
+    { type?: QuestionType; sectionId?: string; first: DOMRect; last: DOMRect }
+  >()
   for (const piece of zone.querySelectorAll<HTMLElement>(QUESTION_PIECE_SELECTOR)) {
     const questionId = piece.dataset.questionId!
     const bounds = piece.getBoundingClientRect()
     const type = piece.dataset.dropTarget as QuestionType | undefined
+    const sectionId = piece.dataset.sectionId
     const seen = byId.get(questionId)
     if (seen) {
       seen.last = bounds
       seen.type ??= type
+      seen.sectionId ??= sectionId
     } else {
-      byId.set(questionId, { type, first: bounds, last: bounds })
+      byId.set(questionId, { type, sectionId, first: bounds, last: bounds })
     }
   }
-  return [...byId].flatMap(([questionId, { type, first, last }]) =>
-    type
-      ? [{
-          questionId,
-          type,
-          before: { y: first.top, left: first.left, right: first.right },
-          after: { y: last.bottom, left: last.left, right: last.right },
-        }]
-      : [],
+  const candidates: DropCandidate[] = [...byId].flatMap(
+    ([questionId, { type, sectionId, first, last }]) =>
+      type && sectionId
+        ? [{
+            questionId,
+            sectionId,
+            before: { y: first.top, left: first.left, right: first.right },
+            after: { y: last.bottom, left: last.left, right: last.right },
+          }]
+        : [],
   )
+  const emptySections: EmptySection[] = [
+    ...zone.querySelectorAll<HTMLElement>(EMPTY_SECTION_SELECTOR),
+  ].flatMap((element) => {
+    const { sectionId } = element.dataset
+    return sectionId
+      ? [{
+          sectionId,
+          box: boxOf(element.getBoundingClientRect()),
+        }]
+      : []
+  })
+  const open = document.querySelector<HTMLElement>(NEW_SECTION_SELECTOR)
+  return {
+    candidates,
+    emptySections,
+    openNewSection: open
+      ? {
+          afterSectionId: open.dataset.newSectionAfter!,
+          box: boxOf(open.getBoundingClientRect()),
+        }
+      : null,
+  }
 }
+
+/** How long a gesture's line rests at the foot of a Section before the target
+ *  that makes a new Section opens there: long enough that passing by does not
+ *  open it, short enough that aiming at it does not feel like waiting. */
+const NEW_SECTION_DELAY_MS = 200
 
 /** How close to the Exam's top or bottom edge the pointer has to be before a
  *  gesture scrolls it, and how fast it goes at the very edge. */
@@ -124,9 +174,13 @@ function autoscrollStep(y: number, top: number, bottom: number): number {
 
 function sameIntent(a: DropIntent | null, b: DropIntent | null): boolean {
   if (a === b) return true
-  if (!a || !b || a.kind !== b.kind) return false
+  if (!a || !b || a.kind !== b.kind || a.opensBelow !== b.opensBelow) return false
   if (a.kind === 'insert' && b.kind === 'insert') {
     return a.targetQuestionId === b.targetQuestionId && a.placement === b.placement
+  }
+  if (a.kind === 'section-end' && b.kind === 'section-end') return a.sectionId === b.sectionId
+  if (a.kind === 'new-section' && b.kind === 'new-section') {
+    return a.afterSectionId === b.afterSectionId && a.armed === b.armed
   }
   return true
 }
@@ -134,7 +188,13 @@ function sameIntent(a: DropIntent | null, b: DropIntent | null): boolean {
 /** What the preview says it would do, in the teacher's words. A release that
  *  would change nothing says nothing: the cursor already says it. */
 function intentLabel(intent: DropIntent | null): string {
-  return intent ? 'Insert' : ''
+  if (!landsOnRelease(intent)) return ''
+  return intent!.kind === 'new-section' ? 'New section' : 'Insert'
+}
+
+/** The intent as the root's `data-drag-intent` says it, for the cursor. */
+function intentName(intent: DropIntent | null): string {
+  return landsOnRelease(intent) ? intent!.kind : 'none'
 }
 
 /** The page-owned counterpart to the browser's drag image: the real markup,
@@ -197,7 +257,16 @@ export function useWorkspaceDrag(
     new Set(),
   )
 
+  // The Section whose new-Section target is open, and the one about to open
+  // once the line has rested at its foot for `NEW_SECTION_DELAY_MS`.
+  const openedBelow = useRef<string | null>(null)
+  const opening = useRef<{ sectionId: string; timer: ReturnType<typeof setTimeout> } | null>(null)
+  const relocate = useRef<() => void>(() => {})
+
   const clearArtifacts = useCallback(() => {
+    if (opening.current) clearTimeout(opening.current.timer)
+    opening.current = null
+    openedBelow.current = null
     if (autoscrollFrame.current !== null) cancelAnimationFrame(autoscrollFrame.current)
     autoscrollFrame.current = null
     pointer.current = null
@@ -214,11 +283,37 @@ export function useWorkspaceDrag(
   // closed hand over a page that is no longer dragging anything.
   useEffect(() => clearArtifacts, [clearArtifacts])
 
-  const paint = useCallback((next: DropIntent | null) => {
+  const paint = useCallback((wanted: DropIntent | null) => {
+    // A target the geometry would open beneath a Section waits until the line
+    // has rested there; one the line has left closes at once.
+    const below = wanted?.opensBelow ?? null
+    if (below !== openedBelow.current) {
+      if (below === null) {
+        openedBelow.current = null
+      } else if (opening.current?.sectionId !== below) {
+        if (opening.current) clearTimeout(opening.current.timer)
+        opening.current = {
+          sectionId: below,
+          timer: setTimeout(() => {
+            opening.current = null
+            openedBelow.current = below
+            relocate.current()
+          }, NEW_SECTION_DELAY_MS),
+        }
+      }
+    }
+    if (below === null || below === openedBelow.current) {
+      if (opening.current) clearTimeout(opening.current.timer)
+      opening.current = null
+    }
+    const next: DropIntent | null =
+      wanted && wanted.opensBelow !== openedBelow.current
+        ? { ...wanted, opensBelow: openedBelow.current }
+        : wanted
     intentRef.current = next
-    document.documentElement.dataset.dragIntent = next ? next.kind : 'none'
+    document.documentElement.dataset.dragIntent = intentName(next)
     if (preview.current) {
-      preview.current.element.dataset.intent = next ? next.kind : 'none'
+      preview.current.element.dataset.intent = intentName(next)
       preview.current.element.dataset.intentLabel = intentLabel(next)
     }
     // Pointer movement is continuous; only a change in what would happen is
@@ -267,11 +362,22 @@ export function useWorkspaceDrag(
     (point: { x: number; y: number }) => {
       const current = sourceRef.current
       if (!current) return
-      const candidates = candidatesAt(point)
-      paint(dropIntent(current, candidates ?? [], candidates ? point : null))
+      const field = fieldAt(point)
+      paint(
+        dropIntent(
+          current,
+          field ?? { candidates: [], emptySections: [], openNewSection: null },
+          field ? point : null,
+        ),
+      )
     },
     [paint],
   )
+  useEffect(() => {
+    relocate.current = () => {
+      if (pointer.current) locate(pointer.current)
+    }
+  }, [locate])
 
   // Hovering near the Exam's top or bottom edge scrolls it, wherever the drag
   // started — a bank question bound for page six should not have to be
@@ -319,7 +425,7 @@ export function useWorkspaceDrag(
     const current = sourceRef.current
     const landing = intentRef.current
     finish()
-    if (!current || !landing) return
+    if (!current || !landing || !landsOnRelease(landing)) return
     onDrop(current, landing)
     // Feedback for a reorder belongs to the questions that moved. A
     // composition's incoming question is revealed and highlighted instead,

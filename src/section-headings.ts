@@ -29,7 +29,7 @@ export const SECTION_INSTRUCTIONS: Record<QuestionType, string> = {
   'multiple-choice':
     'Identify the choice that best completes the statement or answers the question.',
   'true-false':
-    'Write T if the statement is true and F if it is false.',
+    'Circle T if the statement is true and F if it is false.',
   matching:
     'Match each item with the correct answer from the word bank. Write its letter in the blank.',
   open: 'Answer the following questions in the space provided. Show all work.',

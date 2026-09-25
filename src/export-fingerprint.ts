@@ -500,9 +500,7 @@ function planQuestion(item: QuestionItem, images: ImageOrdinals): ContentLine[] 
     ? [
         {
           kind: 'text',
-          text: item.question.answerBlank
-            ? `_______ ${item.question.number}. `
-            : `${item.question.number}. `,
+          text: `${[...item.question.marks, `${item.question.number}.`].join(' ')} `,
           marks: [],
         },
       ]

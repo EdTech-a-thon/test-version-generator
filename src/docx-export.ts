@@ -74,6 +74,8 @@ import {
 } from './export-media'
 import {
   CHOICE_AREA_WIDTH,
+  MATCHING_AREA_WIDTH,
+  MATCHING_INDENT,
   questionIndentOf,
   MATCHING_BANK_WIDTH,
   PAGE_CONTENT_WIDTH,
@@ -122,12 +124,10 @@ function gridOf(columns: readonly number[]): number[] {
 }
 
 // The number column of `.exam-question` in styles.css: the width print gives a
-// question's number and answer blank, plus the grid gap beside it. A question's
-// body hangs off it, so a continued piece's text stays where the first piece's
-// text was. A Short Answer question's column is narrower — see
-// `questionIndentOf` — and this is the width every other question uses.
+// Multiple Choice question's number, plus the grid gap beside it. Its choice
+// grid hangs off it. A True/False question's column is wider, for its marks —
+// see `questionIndentOf`.
 const QUESTION_INDENT_PX = questionIndentOf({ type: 'multiple-choice' })
-const QUESTION_INDENT = twips(QUESTION_INDENT_PX)
 /** Where the key's answer column starts: past `.answer-key-entry`'s 42px
  *  number column and its 8px gap. */
 const ANSWER_KEY_ANSWER_INDENT = twips(42 + 8)
@@ -734,8 +734,8 @@ function matchingContent(
       blocks(
         childrenOf(prompt.node),
         {
-          indent: QUESTION_INDENT,
-          hanging: QUESTION_INDENT,
+          indent: twips(MATCHING_INDENT),
+          hanging: twips(MATCHING_INDENT),
           prefix: [new TextRun({ text: `_______  ${prompt.number}.\t` })],
         },
         { ...build, contentWidth },
@@ -749,11 +749,11 @@ function matchingContent(
     )
 
   if (set.bankGrid) {
-    const cellWidth = CHOICE_AREA_WIDTH / set.bankGrid.columns
+    const cellWidth = MATCHING_AREA_WIDTH / set.bankGrid.columns
     const grid = new Table({
-      width: { size: twips(CHOICE_AREA_WIDTH), type: WidthType.DXA },
+      width: { size: twips(MATCHING_AREA_WIDTH), type: WidthType.DXA },
       columnWidths: gridOf(Array.from({ length: set.bankGrid.columns }, () => cellWidth)),
-      indent: { size: QUESTION_INDENT, type: WidthType.DXA },
+      indent: { size: twips(MATCHING_INDENT), type: WidthType.DXA },
       borders: NO_BORDERS,
       rows: set.bankGrid.cells.map(
         (row) =>
@@ -764,7 +764,7 @@ function matchingContent(
           }),
       ),
     })
-    return [grid, ...prompts(PAGE_CONTENT_WIDTH - QUESTION_INDENT_PX)]
+    return [grid, ...prompts(PAGE_CONTENT_WIDTH - MATCHING_INDENT)]
   }
 
   const itemsWidth = PAGE_CONTENT_WIDTH - MATCHING_BANK_WIDTH
@@ -776,7 +776,7 @@ function matchingContent(
       rows: [
         new TableRow({
           children: [
-            cell(itemsWidth, prompts(itemsWidth - QUESTION_INDENT_PX)),
+            cell(itemsWidth, prompts(itemsWidth - MATCHING_INDENT)),
             cell(
               MATCHING_BANK_WIDTH,
               set.bank.flatMap((item) => answer(item, MATCHING_BANK_WIDTH)),
@@ -844,9 +844,7 @@ function questionContent(
   const prefix: ParagraphChild[] = numbered
     ? [
         new TextRun({
-          text: item.question.answerBlank
-            ? `_______  ${item.question.number}.\t`
-            : `${item.question.number}.\t`,
+          text: `${[...item.question.marks, `${item.question.number}.`].join('  ')}\t`,
         }),
       ]
     : []

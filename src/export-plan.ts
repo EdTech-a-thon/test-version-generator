@@ -26,13 +26,13 @@
 // never leaving a bare question number at the foot of a page.
 
 import {
-  SECTION_ORDER,
   columnsOf,
   orderedChoices,
   orderedPartChoices,
   partsOf,
   promptsOf,
   questionsInSection,
+  sectionsOf,
   takesWorkSpace,
   topicsOf,
   WORK_SPACE_LINE_PITCH,
@@ -55,8 +55,6 @@ export { SECTION_INSTRUCTIONS, SECTION_TITLE } from './section-headings'
 import {
   DEFAULT_HEADING_SIZE,
   DEFAULT_TEXT_SIZE,
-  SECTION_TITLE,
-  sectionHeadingOf,
   type HeadingSize,
   type TextSize,
 } from './section-headings'
@@ -202,15 +200,16 @@ export type PlannedQuestion = {
    *  matching set's number is its first prompt's: its prompts take the run of
    *  numbers from there, one each, and the set's stem prints unnumbered. */
   number: number
-  /** Multiple Choice and True/False questions print a blank: the student writes
-   *  a choice letter in one, T or F in the other. */
-  answerBlank: boolean
+  /** What a student circles in the number column, before the number: T and F
+   *  on a True/False question, and nothing on any other. A Multiple Choice
+   *  question's letter is circled on its answer, so it prints no mark here. */
+  marks: readonly string[]
   /** The question document's top-level blocks, without the choice list. */
   stem: ProseMirrorJSON[]
   /** The answers in this arrangement's order, lettered. Empty for short answer
    *  and for a matching set, whose Word Bank is in `matching`. A True/False
    *  question carries its pair here — lettered `T` and `F`, which is what the
-   *  Answer Key reports — even though the test prints only a blank for them. */
+   *  Answer Key reports — even though the test prints only its `marks`. */
   choices: PlannedChoice[]
   /** How those answers lay out, or `null` when the test does not print them —
    *  a short answer question has none, and a True/False question's pair is
@@ -253,7 +252,8 @@ export function numberLabelOf(question: PlannedQuestion): string {
 
 export type SectionHeadingItem = {
   kind: 'section-heading'
-  section: QuestionType
+  /** Which of the Exam's Sections this heads. */
+  sectionId: string
   title: string
   instructions: string
   /** A heading is never left at the foot of a page without its first question.
@@ -262,6 +262,9 @@ export type SectionHeadingItem = {
   /** The Exam's heading size, present only when it is not `'normal'` — so an
    *  Exam that never chose one plans exactly as it always did. */
   size?: HeadingSize
+  /** A Section with no questions yet. It prints like any other; the sheet
+   *  also offers it as a place to put some. */
+  empty?: true
 }
 
 // A question, or as much of one as this page has room for.
@@ -314,7 +317,7 @@ export type AnswerKeyHeadingItem = { kind: 'answer-key-heading' }
 
 export type AnswerKeySectionItem = {
   kind: 'answer-key-section'
-  section: QuestionType
+  sectionId: string
   title: string
 }
 
@@ -499,47 +502,63 @@ export function pageContentHeight(header: PageHeader): number {
 export const MAX_WORK_SPACE_HEIGHT =
   Math.floor((pageContentHeight('later') - 96) / WORK_SPACE_LINE_PITCH) * WORK_SPACE_LINE_PITCH
 
-// The choice grid does not span the page's full content width: it renders
+// A question's body does not span the page's full content width: it renders
 // inside `.question-body`, the second column of `.exam-question`'s grid in
-// styles.css (`grid-template-columns: 92px 1fr; gap: 6px;`) — the number
+// styles.css (`grid-template-columns: 34px 1fr; gap: 6px;`) — the number
 // column sits to its left. These numbers are copied from that rule because
 // CSS can't be read from here at build time; if that rule's column width or
 // gap ever changes, this must change with it.
-const QUESTION_NUMBER_COLUMN_WIDTH = 92
+//
+// The column holds the number alone, and is as wide as a three-digit number:
+// no question prints an answer blank beside its number. A True/False question
+// also prints the T and F a student circles, so its column is wider —
+// `.question-number--marks` in styles.css.
+const QUESTION_NUMBER_COLUMN_WIDTH = 34
+const MARKS_QUESTION_NUMBER_COLUMN_WIDTH = 64
 const QUESTION_NUMBER_COLUMN_GAP = 6
-// A Short Answer question has no answer blank to make room for, so its column
-// holds the number alone — `.question-number--compact` in styles.css, which
-// is wide enough for a three-digit number.
-const COMPACT_QUESTION_NUMBER_COLUMN_WIDTH = 34
 
 /** Where a question's body starts, in pixels from the content edge: past the
  *  number column and its gap. Every adapter indents a question by this. */
 export function questionIndentOf(question: Pick<PlannedQuestion, 'type'>): number {
   return (
-    (hasCompactNumber(question.type)
-      ? COMPACT_QUESTION_NUMBER_COLUMN_WIDTH
+    (hasMarks(question.type)
+      ? MARKS_QUESTION_NUMBER_COLUMN_WIDTH
       : QUESTION_NUMBER_COLUMN_WIDTH) + QUESTION_NUMBER_COLUMN_GAP
   )
 }
 
-/** Whether a question's number column holds its number alone, with no answer
- *  blank to make room for: a Short Answer question, and a Multipart question,
- *  which prints none — nor do its Parts. */
-export function hasCompactNumber(type: QuestionType): boolean {
-  return type === 'open' || type === 'multipart'
+/** Whether a question's number column carries marks a student circles before
+ *  its number: only True/False, whose answer is one of two fixed letters. */
+export function hasMarks(type: QuestionType): boolean {
+  return type === 'true-false'
 }
+
+/** The letters a True/False question's student circles, in the order they print. */
+export const TRUE_FALSE_MARKS: readonly string[] = ['T', 'F']
+
+// A matching set's prompts keep their own column: a blank for the letter a
+// student writes, then the number (`.matching-prompt` in styles.css,
+// `grid-template-columns: 92px 1fr; gap: 6px;`). A long Word Bank prints above
+// the prompts, set in by the same step.
+const MATCHING_NUMBER_COLUMN_WIDTH = 92
+
+/** Where a matching prompt's body starts, and how far a long Word Bank is set in. */
+export const MATCHING_INDENT = MATCHING_NUMBER_COLUMN_WIDTH + QUESTION_NUMBER_COLUMN_GAP
+
+/** The width a long Word Bank's grid is laid out in. */
+export const MATCHING_AREA_WIDTH = PAGE_CONTENT_WIDTH - MATCHING_INDENT
 
 /** Where a Part's body starts within its Multipart question's body: past its own letter
  *  column, which holds the letter alone. A Part prints no answer blank, of
  *  either kind — a Multiple Choice Part's answer is circled, not written in a
  *  margin — so every Part is set in by the same short step. */
-export const PART_INDENT = COMPACT_QUESTION_NUMBER_COLUMN_WIDTH + QUESTION_NUMBER_COLUMN_GAP
+export const PART_INDENT = QUESTION_NUMBER_COLUMN_WIDTH + QUESTION_NUMBER_COLUMN_GAP
 
 /** The width a Multiple Choice Part's choice grid is laid out in: the page
  *  less its Multipart question's number column and its own letter column. */
 export const PART_CHOICE_AREA_WIDTH = PAGE_CONTENT_WIDTH - 2 * PART_INDENT
 
-/** The width a choice grid is actually laid out in — derived from
+/** The width a Multiple Choice question's choice grid is laid out in — derived from
  *  `PAGE_CONTENT_WIDTH` so the two numbers cannot drift apart on their own. */
 export const CHOICE_AREA_WIDTH =
   PAGE_CONTENT_WIDTH - QUESTION_NUMBER_COLUMN_WIDTH - QUESTION_NUMBER_COLUMN_GAP
@@ -552,10 +571,10 @@ export const MATCHING_BANK_WIDTH = 240
 
 const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
 
-/** What a student writes in a True/False question's blank, by the position of
- *  the answer in the authored pair. A longer pair cannot happen — the editor
- *  fixes it at two — so anything past it falls back to a choice letter rather
- *  than printing nothing. */
+/** What a student circles for a True/False question, by the position of the
+ *  answer in the authored pair. A longer pair cannot happen — the editor fixes
+ *  it at two — so anything past it falls back to a choice letter rather than
+ *  printing nothing. */
 const TRUE_FALSE_LETTERS = ['T', 'F']
 
 /** The letter a Part prints under its Multipart question — 'a', 'b', … — told apart
@@ -692,8 +711,8 @@ function deriveQuestion(
   const ordered = matching || multipart ? [] : orderedChoices(question, arrangement)
   const choices: PlannedChoice[] = ordered.map((choice, index) => ({
     id: choice.id,
-    // A True/False answer is written the way the student writes it in the
-    // blank, so the Answer Key reads T or F rather than A or B.
+    // A True/False answer is written the way the student circles it, so the
+    // Answer Key reads T or F rather than A or B.
     letter: trueFalse ? TRUE_FALSE_LETTERS[index] ?? letterAt(index) : letterAt(index),
     correct: choice.correct,
     node: choice.node,
@@ -702,14 +721,11 @@ function deriveQuestion(
     id: question.id,
     type: question.type,
     number,
-    // A matching set's blanks are on its prompts, one each, not beside its stem.
-    // A Multipart question prints no blank, and neither do its Parts.
-    answerBlank: question.type !== 'open' && !matching && !multipart,
+    marks: trueFalse ? TRUE_FALSE_MARKS : [],
     stem: stemNodesOf(question.doc),
     choices,
-    // A True/False question never prints its pair: the section's directions
-    // already say what goes in the blank, so repeating "True / False" under
-    // every statement would be furniture rather than content.
+    // A True/False question never prints its pair as lettered answers: its
+    // marks are the T and F a student circles beside its number.
     grid: trueFalse || matching || multipart ? null : layOutGrid(choices, columnsOf(question)),
     matching: matching ? deriveMatching(question, arrangement, number) : null,
     workSpace: takesWorkSpace(question.type) ? workSpaceOf(exam, question.id) : null,
@@ -722,30 +738,29 @@ function deriveQuestion(
   }
 }
 
-// Sections in fixed order, each omitted entirely when it holds no questions —
-// Empty sections omit their printed heading and instructions. Questions are
-// inserted from the application toolbar, outside the printable document.
+// The Exam's Sections in their own order. A Section with no questions still
+// prints its heading and directions, on the sheet and on paper alike, so
+// every question lands on the same page in both — a Section that showed on the
+// sheet but vanished from the export would move questions between pages.
 function deriveItems(exam: Exam, arrangement: Arrangement): PageItem[] {
   const items: PageItem[] = []
   let number = 1
-  for (const section of SECTION_ORDER) {
-    const questions = questionsInSection(exam, arrangement, section)
-    if (questions.length > 0) {
-      // A part the teacher cleared is an empty string: it prints nothing, and
-      // a heading cleared of both still holds its place in the plan — at no
-      // height — so the sheet can offer to bring it back.
-      const heading = sectionHeadingOf(exam.sectionHeadings, section)
-      items.push({
-        kind: 'section-heading',
-        section,
-        title: heading.title,
-        instructions: heading.instructions,
-        keepWithNext: true,
-        ...(exam.headingSize && exam.headingSize !== DEFAULT_HEADING_SIZE
-          ? { size: exam.headingSize }
-          : {}),
-      })
-    }
+  for (const section of sectionsOf(exam)) {
+    const questions = questionsInSection(exam, arrangement, section.id)
+    // A part the teacher cleared is an empty string: it prints nothing, and a
+    // heading cleared of both still holds its place in the plan — at no height
+    // — so the sheet can offer to bring it back.
+    items.push({
+      kind: 'section-heading',
+      sectionId: section.id,
+      title: section.title,
+      instructions: section.instructions,
+      keepWithNext: true,
+      ...(questions.length === 0 ? { empty: true as const } : {}),
+      ...(exam.headingSize && exam.headingSize !== DEFAULT_HEADING_SIZE
+        ? { size: exam.headingSize }
+        : {}),
+    })
     for (const question of questions) {
       const planned = deriveQuestion(exam, question, arrangement, number)
       items.push(wholeQuestion(planned))
@@ -1110,26 +1125,28 @@ function paginate(
 // is a number on the test — because the key is derived before layout and the
 // id set guards repeats.
 function deriveAnswerKey(testItems: readonly PageItem[]): PageItem[] {
-  // The key's section titles are the test's own, as the Exam words them. A
-  // heading cleared from the test still names its group here: the key is a
-  // teacher's reference, and a run of answers with no label is not one.
-  const titles = new Map<QuestionType, string>()
-  for (const item of testItems) {
-    if (item.kind === 'section-heading' && item.title) titles.set(item.section, item.title)
-  }
+  // The key groups its lines by the test's Sections, under the test's own
+  // titles, as the Exam words them. A heading cleared from the test still
+  // names its group here: the key is a teacher's reference, and a run of
+  // answers with no label is not one. A Section with no questions has no
+  // group.
   const items: PageItem[] = [{ kind: 'answer-key-heading' }]
   const seen = new Set<string>()
-  let section: QuestionType | null = null
+  let heading: SectionHeadingItem | null = null
+  let grouped: string | null = null
+  // A Section whose heading the teacher cleared is named by its place.
+  let unnamed = 0
 
   for (const item of testItems) {
+    if (item.kind === 'section-heading') heading = item
     if (item.kind !== 'question' || seen.has(item.question.id)) continue
     seen.add(item.question.id)
-    if (item.question.type !== section) {
-      section = item.question.type
+    if (heading && heading.sectionId !== grouped) {
+      grouped = heading.sectionId
       items.push({
         kind: 'answer-key-section',
-        section,
-        title: titles.get(section) ?? SECTION_TITLE[section],
+        sectionId: heading.sectionId,
+        title: heading.title || `Section ${++unnamed}`,
       })
     }
     const metadata = {

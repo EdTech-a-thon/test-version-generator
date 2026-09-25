@@ -4,6 +4,7 @@ import type { HeadingSize, SectionHeadings, TextSize } from './section-headings'
 import type { ExamHeader } from './page-header'
 import examSchema010 from './exam-record-0.1.0.schema.json'
 import examSchema020 from './exam-record-0.2.0.schema.json'
+import examSchema030 from './exam-record-0.3.0.schema.json'
 import packageSchema010 from './test-parrot-package-0.1.0.schema.json'
 import {
   QUESTION_BANK_FORMAT,
@@ -34,7 +35,7 @@ import {
  */
 
 export const EXAM_FORMAT = 'test-parrot/exam'
-export const EXAM_FORMAT_VERSION = '0.2.0'
+export const EXAM_FORMAT_VERSION = '0.3.0'
 export const PACKAGE_FORMAT = 'test-parrot/package'
 export const PACKAGE_FORMAT_VERSION = '0.1.0'
 /** The conventional extension a standalone package is saved under. */
@@ -55,6 +56,9 @@ export type PackageImportLimits = typeof DEFAULT_PACKAGE_IMPORT_LIMITS
 /** One Exam position, as the package wrote it. */
 export type ExamRecordPosition = {
   question: { bank: string; question: string }
+  /** From Exam Record 0.3.0: the index into the record's `sections` of the
+   *  Section this position is in. */
+  section?: number
   columns?: ColumnSetting
   answerOrder?: string[]
   workSpace?: WorkSpace
@@ -63,14 +67,25 @@ export type ExamRecordPosition = {
 /** One Question Section's wording, as an Exam Record 0.2.0 writes it. */
 export type ExamRecordSectionHeading = { title?: string; instructions?: string }
 
+/** One Question Section, as an Exam Record 0.3.0 writes it: its wording in
+ *  full, and no type — a Section holds Questions of any type (ADR-0029). An
+ *  empty string is a part the teacher cleared. */
+export type ExamRecordSection = {
+  title: string
+  instructions: string
+}
+
 export type ExamRecord = {
   format: typeof EXAM_FORMAT
   /** The version the record was written in. A parser migrates an older
    *  record's content forward but keeps saying which version it came from. */
   formatVersion: keyof typeof SUPPORTED_EXAM_VERSIONS
   name: string
-  /** Keyed by the record's own Question Type names (`'short-answer'`, not
-   *  `'open'`); only departures from the default wording. */
+  /** From 0.3.0: the Exam's Sections in print order, empty ones included. */
+  sections?: ExamRecordSection[]
+  /** 0.2.0 only. Keyed by the record's own Question Type names
+   *  (`'short-answer'`, not `'open'`); only departures from the default
+   *  wording. */
   sectionHeadings?: Partial<Record<QuestionBankRecordQuestionType, ExamRecordSectionHeading>>
   headingSize?: HeadingSize
   textSize?: TextSize
@@ -98,19 +113,31 @@ export type ProposedBank = {
   exams: string[]
 }
 
+/** An imported Section's wording. It has no id yet: the plan that writes it
+ *  gives it a fresh one. */
+export type ProposedSection = {
+  title: string
+  instructions: string
+}
+
 export type ProposedExam = {
   /** Exam Records carry no id; this is the Exam's place in the package. */
   key: string
   name: string
   formatVersion: string
-  /** The Exam's section wording, keyed by local Question Type, and heading
-   *  size — absent when the record says nothing but the defaults. */
+  /** The Exam's Sections in print order, from a 0.3.0 record; each
+   *  position's `section` indexes this list. Absent for an older record,
+   *  whose Sections are derived one per Question Type. */
+  sections?: ProposedSection[]
+  /** An older record's section wording, keyed by local Question Type —
+   *  absent when the record says nothing but the defaults. */
   sectionHeadings?: SectionHeadings
   headingSize?: HeadingSize
   textSize?: TextSize
   header?: ExamHeader
-  /** Positions regrouped into Test Parrot's Section order, keeping only the
-   *  order within each Section. */
+  /** Positions regrouped Section by Section — in `sections` order, or for an
+   *  older record in Test Parrot's fixed type order — keeping only the order
+   *  within each Section. */
   positions: ExamRecordPosition[]
   /** Ids of the banks this Exam uses, in order of first use. */
   banks: string[]
@@ -128,6 +155,7 @@ export const BARE_RECORD_BANK_ID = 'bank'
 const ajv = new Ajv2020({ allErrors: true, strict: false })
 const validateExam010 = ajv.compile(examSchema010)
 const validateExam020 = ajv.compile(examSchema020)
+const validateExam030 = ajv.compile(examSchema030)
 const validatePackage010 = ajv.compile(packageSchema010)
 
 function schemaFailure(
@@ -149,8 +177,9 @@ function stringAt(object: unknown, key: string): string | undefined {
   return typeof value === 'string' ? value : undefined
 }
 
-/** Copy only what this version defines: unknown optional fields are dropped
- *  here, as they are from a Question Bank Record. */
+/** Copy only what every version defines: unknown optional fields are dropped
+ *  here, as they are from a Question Bank Record. A 0.3.0 position's
+ *  `section` is added by its own parser. */
 function copyPosition(position: ExamRecordPosition): ExamRecordPosition {
   return {
     question: { bank: position.question.bank, question: position.question.question },
@@ -168,11 +197,21 @@ function copyPosition(position: ExamRecordPosition): ExamRecordPosition {
   }
 }
 
-/** An Exam Record's section wording in the local vocabulary, where a Short
- *  Answer section is `'open'` — or nothing, when it keeps the defaults. */
+/** Only the wording parts a record sets. */
+function wordingOf(heading: ExamRecordSectionHeading): ExamRecordSectionHeading {
+  return {
+    ...(heading.title !== undefined ? { title: heading.title } : {}),
+    ...(heading.instructions !== undefined ? { instructions: heading.instructions } : {}),
+  }
+}
+
+/** An Exam Record's Sections and section wording in the local vocabulary,
+ *  where a Short Answer section is `'open'` — or nothing, when it keeps the
+ *  defaults. */
 function localHeadingsOf(
   exam: ExamRecord,
 ): {
+  sections?: ProposedSection[]
   sectionHeadings?: SectionHeadings
   headingSize?: HeadingSize
   textSize?: TextSize
@@ -186,6 +225,9 @@ function localHeadingsOf(
     entries.map(([type, heading]) => [LOCAL_TYPES[type], { ...heading }]),
   )
   return {
+    ...(exam.sections
+      ? { sections: exam.sections.map(({ title, instructions }) => ({ title, instructions })) }
+      : {}),
     ...(entries.length > 0 ? { sectionHeadings } : {}),
     ...(exam.headingSize && exam.headingSize !== 'normal' ? { headingSize: exam.headingSize } : {}),
     ...(exam.textSize && exam.textSize !== 'normal' ? { textSize: exam.textSize } : {}),
@@ -212,10 +254,7 @@ const examParser020: ExamParser = (value) => {
   if (!validateExam020(value)) throw schemaFailure('Exam Record', validateExam020.errors)
   const exam = value as ExamRecord
   const sectionHeadings = Object.fromEntries(
-    Object.entries(exam.sectionHeadings ?? {}).map(([type, heading]) => [type, {
-      ...(heading.title !== undefined ? { title: heading.title } : {}),
-      ...(heading.instructions !== undefined ? { instructions: heading.instructions } : {}),
-    }]),
+    Object.entries(exam.sectionHeadings ?? {}).map(([type, heading]) => [type, wordingOf(heading)]),
   )
   return {
     format: EXAM_FORMAT,
@@ -229,11 +268,33 @@ const examParser020: ExamParser = (value) => {
   }
 }
 
+// 0.3.0 stores the Exam's Sections, each with its own wording, and places
+// every position in one. A Section holds Questions of any type, and
+// per-type `sectionHeadings` is gone (ADR-0029).
+const examParser030: ExamParser = (value) => {
+  if (!validateExam030(value)) throw schemaFailure('Exam Record', validateExam030.errors)
+  const exam = value as ExamRecord
+  return {
+    format: EXAM_FORMAT,
+    formatVersion: '0.3.0',
+    name: exam.name,
+    sections: exam.sections!.map(({ title, instructions }) => ({ title, instructions })),
+    ...(exam.headingSize ? { headingSize: exam.headingSize } : {}),
+    ...(exam.textSize ? { textSize: exam.textSize } : {}),
+    ...(exam.header ? { header: { ...exam.header } } : {}),
+    positions: exam.positions.map((position) => ({
+      ...copyPosition(position),
+      section: position.section!,
+    })),
+  }
+}
+
 /** Exact versions only, as for the Question Bank Record: each supported
  *  version names its own parser, which migrates it forward. */
 export const SUPPORTED_EXAM_VERSIONS = Object.freeze({
   '0.1.0': examParser010,
   '0.2.0': examParser020,
+  '0.3.0': examParser030,
 } satisfies Record<string, ExamParser>)
 
 type PackageParser = (value: unknown) => TestParrotPackage
@@ -364,6 +425,17 @@ function proposedExam(
           `${where} has an answer order that does not list each of Question “${questionId}”’s answers exactly once.`,
         )
       }
+    }
+    // A 0.3.0 record places each position in one of its own Sections, which
+    // takes a Question of any type; an older record's are placed by type.
+    if (exam.sections) {
+      if (position.section! >= exam.sections.length) {
+        throw new QuestionBankImportError(
+          'dangling-reference',
+          `${where} names Section ${position.section! + 1}, but this Exam has ${exam.sections.length}.`,
+        )
+      }
+      return { position, section: position.section! }
     }
     return { position, section: SECTION_INDEX.get(question.type)! }
   })

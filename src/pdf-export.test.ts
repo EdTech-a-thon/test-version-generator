@@ -237,8 +237,8 @@ describe('PDF Export Adapter', () => {
     expect(drawn).toContain('Write the letter of the matching definition.')
     expect(drawn).not.toContain(SECTION_INSTRUCTIONS['multiple-choice'])
     expect(drawn).not.toContain(SECTION_INSTRUCTIONS.open)
-    // Cleared from the test, the Short Answer group is still named in the key.
-    expect(drawn).toContain('Short Answer')
+    // Cleared from the test, the group is still named in the key, by its place.
+    expect(drawn).toContain('Section 1')
   })
 
   // An Exam's own header line replaces the blanks, and a Version's name

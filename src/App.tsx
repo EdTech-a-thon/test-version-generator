@@ -61,7 +61,7 @@ import {
   topicsOf,
   withTopicAdded,
 } from './exam'
-import type { Difficulty, Question, QuestionPlacement, QuestionType } from './exam'
+import type { Difficulty, Question, QuestionType, SectionTarget } from './exam'
 import { DifficultyBadge, TopicBadge } from './badges'
 import { bankQuestionById } from './question-bank'
 import { createExamStore, loadExamStore, type ExamStore } from './exam-store'
@@ -1927,11 +1927,10 @@ function ExamEditor({
   }
   const addManyToWorkingCopy = (
     questions: readonly Question[],
-    targetQuestionId: string | null = null,
-    placement: QuestionPlacement = 'after',
+    target: SectionTarget | null = null,
   ) => {
     if (questions.length === 0) return
-    store.addManyToWorkingCopy(questions, targetQuestionId, placement)
+    store.addManyToWorkingCopy(questions, target)
     selectAndReveal(questions.at(-1)!.id)
   }
   const shuffleSelectedQuestions = (questionIds: readonly string[]) => {
@@ -1949,22 +1948,23 @@ function ExamEditor({
   // itself refuses a cross-section or duplicating drop, so the geometry above
   // only ever has to decide *where*, never *whether*.
   const drag = useWorkspaceDrag((source, intent) => {
+    const target: SectionTarget =
+      intent.kind === 'insert'
+        ? { kind: 'question', questionId: intent.targetQuestionId, placement: intent.placement }
+        : intent.kind === 'section-end'
+          ? { kind: 'section-end', sectionId: intent.sectionId }
+          : { kind: 'new-section', afterSectionId: intent.afterSectionId }
     if (source.pane === 'exam-draft') {
-      // Dragging inside the Working Copy reorders and nothing else: the pane a
+      // Dragging inside the Working Copy moves and nothing else: the pane a
       // gesture starts in is what gives it its meaning.
-      if (intent.kind !== 'insert') return
-      store.moveInWorkingCopy(source.questionIds, intent.targetQuestionId, intent.placement)
+      store.moveInWorkingCopy(source.questionIds, target)
       return
     }
     const questions = source.questionIds.flatMap((questionId) => {
       const question = bankQuestionById(store.getState().questionBank, questionId)
       return question ? [question] : []
     })
-    if (intent.kind === 'insert') {
-      addManyToWorkingCopy(questions, intent.targetQuestionId, intent.placement)
-    } else {
-      addManyToWorkingCopy(questions)
-    }
+    addManyToWorkingCopy(questions, target)
   })
 
   const openExport = useCallback(() => {
@@ -2580,7 +2580,9 @@ function ExamEditor({
             revealQuestionId={revealQuestionId}
             onRevealed={clearReveal}
             onTitleChange={(title) => store.setTitle(title)}
-            onSectionHeadingChange={(section, change) => store.setSectionHeading(section, change)}
+            onSectionHeadingChange={(sectionId, change) => store.setSectionHeading(sectionId, change)}
+            onMoveSection={(sectionId, direction) => store.moveSection(sectionId, direction)}
+            onDeleteSection={(sectionId) => store.deleteSection(sectionId)}
             onHeaderLineChange={(line, text) => store.setHeaderLine(line, text)}
             titleDisabled={isHistoricalBrowsing}
             onEdit={(questionId) => {

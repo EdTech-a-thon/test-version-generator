@@ -8,5 +8,6 @@
   "no-banks.json": "invalid-structure",
   "unsupported-package-version.json": "unsupported-version",
   "unsupported-exam-version.json": "unsupported-version",
-  "exam-record-alone.json": "unsupported-format"
+  "exam-record-alone.json": "unsupported-format",
+  "section-out-of-range.json": "dangling-reference"
 }

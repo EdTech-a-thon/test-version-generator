@@ -9,8 +9,13 @@ import {
   createArrangement,
   duplicateQuestion,
   nextArrangementLetter,
-  moveQuestion,
-  moveQuestions,
+  deleteSection,
+  moveSection,
+  newSectionWording,
+  placeQuestions,
+  rewordSection,
+  sectionLayoutOf,
+  sectionsOf,
   shuffleSelectedAnswers,
   shuffleSelectedQuestions,
   orderedChoices,
@@ -23,7 +28,7 @@ import {
   withQuestionRemoved,
   withTopicAdded,
 } from './exam'
-import type { Exam, Question, Arrangement } from './exam'
+import type { Exam, ExamSection, Question, QuestionType, Arrangement } from './exam'
 import type { ProseMirrorJSON } from './question-doc'
 
 function choice(id: string, correct = false): ProseMirrorJSON {
@@ -344,7 +349,7 @@ describe('choice ordering', () => {
 })
 
 describe('arrangement ordering edits', () => {
-  test('moves a question to a specific position within its derived section', () => {
+  test('moves a question to a specific position within its section', () => {
     const exam = examOf([
       multipleChoice('q1', ['a']),
       multipleChoice('q2', ['a']),
@@ -353,16 +358,29 @@ describe('arrangement ordering edits', () => {
     ])
     const arrangement = arrangementOf(['q1', 'q2', 'q3', 'o1'])
 
-    const moved = moveQuestion(exam, arrangement, 'q3', 'q1', 'before')
+    const moved = placeQuestions(exam, arrangement, ['q3'], {
+      kind: 'question',
+      questionId: 'q1',
+      placement: 'before',
+    })
 
-    expect(moved.questionOrder).toEqual(['q3', 'q1', 'q2', 'o1'])
+    expect(moved?.questionOrder).toEqual(['q3', 'q1', 'q2', 'o1'])
   })
 
-  test('refuses to move a question into another derived section', () => {
+  test('moves a question into a section that holds another type', () => {
     const exam = examOf([multipleChoice('q1', ['a']), open('o1')])
     const arrangement = arrangementOf(['q1', 'o1'])
 
-    expect(moveQuestion(exam, arrangement, 'q1', 'o1', 'after')).toBe(arrangement)
+    const beside = placeQuestions(exam, arrangement, ['q1'], {
+      kind: 'question',
+      questionId: 'o1',
+      placement: 'after',
+    })
+    expect(beside?.questionOrder).toEqual(['o1', 'q1'])
+    expect(beside?.sectionOf).toEqual({ o1: 'open', q1: 'open' })
+    expect(
+      placeQuestions(exam, arrangement, ['q1'], { kind: 'section-end', sectionId: 'open' })?.sectionOf.q1,
+    ).toBe('open')
   })
 
   test('moves selected questions as one block and preserves their relative order', () => {
@@ -370,11 +388,15 @@ describe('arrangement ordering edits', () => {
     const arrangement = arrangementOf(['q1', 'q2', 'q3', 'q4'])
 
     expect(
-      moveQuestions(exam, arrangement, ['q2', 'q3'], 'q4', 'after').questionOrder,
+      placeQuestions(exam, arrangement, ['q2', 'q3'], {
+        kind: 'question',
+        questionId: 'q4',
+        placement: 'after',
+      })?.questionOrder,
     ).toEqual(['q1', 'q4', 'q2', 'q3'])
   })
 
-  test('a mixed selection moves only questions in the target section', () => {
+  test('a mixed selection moves as one block, every type of it', () => {
     const exam = examOf([
       multipleChoice('q1', ['a']),
       multipleChoice('q2', ['a']),
@@ -383,9 +405,25 @@ describe('arrangement ordering edits', () => {
     ])
     const arrangement = arrangementOf(['q1', 'q2', 'q3', 'o1'])
 
+    const moved = placeQuestions(exam, arrangement, ['q1', 'o1'], {
+      kind: 'question',
+      questionId: 'q3',
+      placement: 'after',
+    })
+    expect(moved?.questionOrder).toEqual(['q2', 'q3', 'q1', 'o1'])
+    expect(moved?.sectionOf.o1).toBe('multiple-choice')
+  })
+
+  test('a move that changes nothing is refused', () => {
+    const exam = examOf([multipleChoice('q1', ['a']), multipleChoice('q2', ['a'])])
+    const arrangement = arrangementOf(['q1', 'q2'])
+
     expect(
-      moveQuestions(exam, arrangement, ['q1', 'o1'], 'q3', 'after').questionOrder,
-    ).toEqual(['q2', 'q3', 'q1', 'o1'])
+      placeQuestions(exam, arrangement, ['q1'], { kind: 'question', questionId: 'q2', placement: 'before' }),
+    ).toBeNull()
+    expect(
+      placeQuestions(exam, arrangement, ['q2'], { kind: 'question', questionId: 'q2', placement: 'after' }),
+    ).toBeNull()
   })
 
   test('shuffles selected questions only within their existing section positions', () => {
@@ -441,6 +479,285 @@ describe('arrangement ordering edits', () => {
     withQuestionRemoved(arrangement, 'q1')
     expect(arrangement.questionOrder).toEqual(['q1'])
     expect(arrangement.choiceOrder).toEqual({ q1: ['c1'] })
+  })
+})
+
+describe('stored Question Sections', () => {
+  const mc = (id: string) => multipleChoice(id, ['a'])
+  // A Section worded as a new one begins for a question of `type`.
+  const section = (id: string, type: QuestionType): ExamSection => ({
+    id,
+    ...newSectionWording(type),
+  })
+  let nextId = 0
+  const freshId = () => `new${++nextId}`
+
+  // Two Multiple Choice Sections around a Short Answer one: m1 m2 | o1 | m3.
+  function twoMultipleChoiceSections(): { exam: Exam; arrangement: Arrangement } {
+    nextId = 0
+    return {
+      exam: {
+        title: 'Test',
+        questions: [mc('m1'), mc('m2'), open('o1'), mc('m3')],
+        sections: [section('A', 'multiple-choice'), section('B', 'open'), section('C', 'multiple-choice')],
+        sectionOf: { m1: 'A', m2: 'A', o1: 'B', m3: 'C' },
+      },
+      arrangement: arrangementOf(['m1', 'm2', 'o1', 'm3']),
+    }
+  }
+
+  test('an Exam written before Sections were stored reads as one Section per type, in fixed order, whatever the ordering says', () => {
+    const exam: Exam = {
+      ...examOf([open('o1'), trueFalse('t1'), mc('m1'), open('o2')]),
+      sectionHeadings: { open: { title: 'Essays' } },
+    }
+    const arrangement = arrangementOf(['o2', 't1', 'o1', 'm1'])
+
+    // A derived Section's id is its type, and it takes the Exam's legacy wording.
+    expect(sectionsOf(exam)).toEqual([
+      section('multiple-choice', 'multiple-choice'),
+      section('true-false', 'true-false'),
+      { ...section('open', 'open'), title: 'Essays' },
+    ])
+    expect(ids(orderedQuestions(exam, arrangement))).toEqual(['m1', 't1', 'o2', 'o1'])
+    expect(ids(questionsInSection(exam, arrangement, 'open'))).toEqual(['o2', 'o1'])
+  })
+
+  test('two Sections of the same type print in the order the Exam stores them', () => {
+    const { exam, arrangement } = twoMultipleChoiceSections()
+
+    expect(sectionsOf(exam).map(({ id }) => id)).toEqual(['A', 'B', 'C'])
+    expect(ids(orderedQuestions(exam, arrangement))).toEqual(['m1', 'm2', 'o1', 'm3'])
+    expect(ids(questionsInSection(exam, arrangement, 'C'))).toEqual(['m3'])
+    // The ordering orders questions within a Section, never across them.
+    expect(ids(orderedQuestions(exam, arrangementOf(['m3', 'o1', 'm2', 'm1'])))).toEqual([
+      'm2',
+      'm1',
+      'o1',
+      'm3',
+    ])
+  })
+
+  test('an empty stored Section is still one of the Exam\'s Sections', () => {
+    const exam: Exam = {
+      title: 'Test',
+      questions: [mc('m1')],
+      sections: [section('A', 'multiple-choice'), section('B', 'open')],
+      sectionOf: { m1: 'A' },
+    }
+    expect(sectionsOf(exam).map(({ id }) => id)).toEqual(['A', 'B'])
+    expect(questionsInSection(exam, arrangementOf(['m1']), 'B')).toEqual([])
+  })
+
+  test('a question placed nowhere that is there falls into the last Section, whatever its type, and no Section is derived beside stored ones', () => {
+    const exam: Exam = {
+      title: 'Test',
+      questions: [mc('m1'), mc('m2'), mc('m3'), open('o1'), trueFalse('t1')],
+      sections: [section('A', 'multiple-choice'), section('B', 'open'), section('C', 'multiple-choice')],
+      // m2 names a Section that is gone, and t1 none. m3 names a Section first
+      // worded for another type, which holds it all the same.
+      sectionOf: { m1: 'A', m2: 'gone', m3: 'B', o1: 'B' },
+    }
+    const arrangement = arrangementOf(['m1', 'm2', 'm3', 'o1', 't1'])
+
+    expect(sectionsOf(exam).map(({ id }) => id)).toEqual(['A', 'B', 'C'])
+    expect(ids(questionsInSection(exam, arrangement, 'B'))).toEqual(['m3', 'o1'])
+    expect(ids(questionsInSection(exam, arrangement, 'C'))).toEqual(['m2', 't1'])
+    expect(ids(orderedQuestions(exam, arrangement))).toEqual(['m1', 'm3', 'o1', 'm2', 't1'])
+  })
+
+  test('a Section holds Questions of any type, in the order the arrangement gives them', () => {
+    const exam: Exam = {
+      title: 'Test',
+      questions: [mc('m1'), open('o1'), trueFalse('t1')],
+      sections: [section('A', 'multiple-choice')],
+      sectionOf: { m1: 'A', o1: 'A', t1: 'A' },
+    }
+
+    expect(sectionsOf(exam).map(({ id }) => id)).toEqual(['A'])
+    expect(ids(orderedQuestions(exam, arrangementOf(['o1', 't1', 'm1'])))).toEqual(['o1', 't1', 'm1'])
+  })
+
+  test('a Section stored while Sections were typed reads with its type\'s wording filled in', () => {
+    const exam = {
+      title: 'Test',
+      questions: [mc('m1'), open('o1')],
+      sections: [
+        { id: 'A', type: 'multiple-choice' },
+        { id: 'B', type: 'open', instructions: '' },
+        { id: 'C', type: 'true-false', title: 'Quick check' },
+      ],
+      sectionOf: { m1: 'A', o1: 'B' },
+    } as unknown as Exam
+
+    expect(sectionsOf(exam)).toEqual([
+      section('A', 'multiple-choice'),
+      { ...section('B', 'open'), instructions: '' },
+      { ...section('C', 'true-false'), title: 'Quick check' },
+    ])
+  })
+
+  test('moves a question into another Section of the same type', () => {
+    const { exam, arrangement } = twoMultipleChoiceSections()
+
+    const beside = placeQuestions(exam, arrangement, ['m1'], {
+      kind: 'question',
+      questionId: 'm3',
+      placement: 'before',
+    })
+    expect(beside?.questionOrder).toEqual(['m2', 'o1', 'm1', 'm3'])
+    expect(beside?.sectionOf).toEqual({ m2: 'A', o1: 'B', m1: 'C', m3: 'C' })
+
+    const atEnd = placeQuestions(exam, arrangement, ['m3'], { kind: 'section-end', sectionId: 'A' })
+    expect(atEnd?.questionOrder).toEqual(['m1', 'm2', 'm3', 'o1'])
+    expect(atEnd?.sectionOf.m3).toBe('A')
+  })
+
+  test('takes a question into a Section first worded for another type, and moves a mixed selection whole', () => {
+    const { exam, arrangement } = twoMultipleChoiceSections()
+
+    const atEnd = placeQuestions(exam, arrangement, ['m1'], { kind: 'section-end', sectionId: 'B' })
+    expect(atEnd?.questionOrder).toEqual(['m2', 'o1', 'm1', 'm3'])
+    expect(atEnd?.sectionOf.m1).toBe('B')
+    const beside = placeQuestions(exam, arrangement, ['m1'], {
+      kind: 'question',
+      questionId: 'o1',
+      placement: 'before',
+    })
+    expect(beside?.questionOrder).toEqual(['m2', 'm1', 'o1', 'm3'])
+    expect(beside?.sectionOf.m1).toBe('B')
+
+    const mixed = placeQuestions(exam, arrangement, ['m1', 'o1'], { kind: 'section-end', sectionId: 'C' })!
+    expect(mixed.questionOrder).toEqual(['m2', 'm3', 'm1', 'o1'])
+    expect(mixed.sectionOf).toEqual({ m2: 'A', m3: 'C', m1: 'C', o1: 'C' })
+    // The Section the move emptied stays, and no Section is made.
+    expect(mixed.sections.map(({ id }) => id)).toEqual(['A', 'B', 'C'])
+  })
+
+  test('a Section that a move empties stays', () => {
+    const { exam, arrangement } = twoMultipleChoiceSections()
+
+    const layout = placeQuestions(exam, arrangement, ['m3'], { kind: 'section-end', sectionId: 'A' })!
+    expect(layout.sections.map(({ id }) => id)).toEqual(['A', 'B', 'C'])
+    const moved: Exam = { ...exam, sections: layout.sections, sectionOf: layout.sectionOf }
+    expect(questionsInSection(moved, arrangementOf(layout.questionOrder), 'C')).toEqual([])
+  })
+
+  test('a new-Section target makes one Section, worded for the first question moving, directly below the one given', () => {
+    const { exam, arrangement } = twoMultipleChoiceSections()
+
+    // On the page m2 comes before o1, so the new Section is worded for Multiple Choice.
+    const layout = placeQuestions(
+      exam,
+      arrangement,
+      ['o1', 'm2'],
+      { kind: 'new-section', afterSectionId: 'A' },
+      freshId,
+    )!
+    expect(layout.sections).toEqual([
+      section('A', 'multiple-choice'),
+      section('new1', 'multiple-choice'),
+      section('B', 'open'),
+      section('C', 'multiple-choice'),
+    ])
+    expect(layout.questionOrder).toEqual(['m1', 'm2', 'o1', 'm3'])
+    expect(layout.sectionOf).toEqual({ m1: 'A', m2: 'new1', o1: 'new1', m3: 'C' })
+
+    const openFirst = placeQuestions(
+      exam,
+      arrangement,
+      ['m3', 'o1'],
+      { kind: 'new-section', afterSectionId: 'C' },
+      freshId,
+    )!
+    expect(openFirst.sections.at(-1)).toEqual(section('new2', 'open'))
+    expect(openFirst.sectionOf).toEqual({ m1: 'A', m2: 'A', o1: 'new2', m3: 'new2' })
+  })
+
+  test('a new-Section target with no Section above it goes at the end of the Exam', () => {
+    const { exam, arrangement } = twoMultipleChoiceSections()
+
+    const layout = placeQuestions(exam, arrangement, ['m1'], { kind: 'new-section', afterSectionId: null }, freshId)!
+    expect(layout.sections.map(({ id }) => id)).toEqual(['A', 'B', 'C', 'new1'])
+    expect(layout.questionOrder).toEqual(['m2', 'o1', 'm3', 'm1'])
+    expect(
+      placeQuestions(exam, arrangement, ['m1'], { kind: 'new-section', afterSectionId: 'gone' }),
+    ).toBeNull()
+  })
+
+  test('moves a Section up or down past its neighbour, and refuses at either end', () => {
+    const { exam, arrangement } = twoMultipleChoiceSections()
+
+    const down = moveSection(exam, arrangement, 'A', 1)
+    expect(down?.sections.map(({ id }) => id)).toEqual(['B', 'A', 'C'])
+    expect(down?.questionOrder).toEqual(['o1', 'm1', 'm2', 'm3'])
+    const up = moveSection(exam, arrangement, 'C', -1)
+    expect(up?.sections.map(({ id }) => id)).toEqual(['A', 'C', 'B'])
+    expect(up?.questionOrder).toEqual(['m1', 'm2', 'm3', 'o1'])
+
+    expect(moveSection(exam, arrangement, 'A', -1)).toBeNull()
+    expect(moveSection(exam, arrangement, 'C', 1)).toBeNull()
+    expect(moveSection(exam, arrangement, 'gone', 1)).toBeNull()
+  })
+
+  test('deleting a Section names the questions it held and leaves every other Section', () => {
+    const { exam, arrangement } = twoMultipleChoiceSections()
+
+    const deleted = deleteSection(exam, arrangement, 'A')
+    expect(deleted?.removedQuestionIds).toEqual(['m1', 'm2'])
+    expect(deleted?.layout.sections.map(({ id }) => id)).toEqual(['B', 'C'])
+    expect(deleted?.layout.questionOrder).toEqual(['o1', 'm3'])
+    expect(deleteSection(exam, arrangement, 'gone')).toBeNull()
+  })
+
+  test('rewording a Section stores its own wording, and a part left out stays as it is', () => {
+    const { exam, arrangement } = twoMultipleChoiceSections()
+
+    const reworded = rewordSection(exam, arrangement, 'C', { title: 'Bonus', instructions: '' })!
+    expect(reworded.sections[2]).toEqual({ id: 'C', title: 'Bonus', instructions: '' })
+    // The other Section worded for Multiple Choice is untouched.
+    expect(reworded.sections[0]).toEqual(section('A', 'multiple-choice'))
+
+    const back: Exam = { ...exam, sections: reworded.sections }
+    expect(
+      rewordSection(back, arrangement, 'C', { instructions: 'Show your work.' })?.sections[2],
+    ).toEqual({ id: 'C', title: 'Bonus', instructions: 'Show your work.' })
+    expect(rewordSection(exam, arrangement, 'C', { title: 'Multiple Choice' })).toBeNull()
+  })
+
+  test('making a legacy Exam\'s Sections explicit keeps each type\'s wording and changes nothing that prints', () => {
+    const exam: Exam = {
+      ...examOf([open('o1'), mc('m1')]),
+      sectionHeadings: { 'multiple-choice': { instructions: '' } },
+    }
+    const arrangement = arrangementOf(['o1', 'm1'])
+
+    const layout = sectionLayoutOf(exam, arrangement)
+    expect(layout).toEqual({
+      sections: [
+        { ...section('multiple-choice', 'multiple-choice'), instructions: '' },
+        section('open', 'open'),
+      ],
+      sectionOf: { m1: 'multiple-choice', o1: 'open' },
+      questionOrder: ['m1', 'o1'],
+    })
+    const stored: Exam = { ...exam, sections: layout.sections, sectionOf: layout.sectionOf }
+    delete stored.sectionHeadings
+    expect(sectionsOf(stored)).toEqual(sectionsOf(exam))
+  })
+
+  test('shuffling selected questions keeps each within its own stored Section', () => {
+    const { exam } = twoMultipleChoiceSections()
+    const withMore: Exam = {
+      ...exam,
+      questions: [...exam.questions, mc('m4')],
+      sectionOf: { ...exam.sectionOf, m4: 'C' },
+    }
+    const arrangement = arrangementOf(['m1', 'm2', 'o1', 'm3', 'm4'])
+
+    const shuffled = shuffleSelectedQuestions(withMore, arrangement, ['m1', 'm2', 'm3', 'm4'], () => 0)
+
+    expect(shuffled.questionOrder).toEqual(['m2', 'm1', 'o1', 'm4', 'm3'])
   })
 })
 

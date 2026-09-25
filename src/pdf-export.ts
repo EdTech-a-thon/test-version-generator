@@ -34,6 +34,7 @@ import {
   PART_INDENT,
   printsNumberLine,
   questionIndentOf,
+  MATCHING_INDENT,
   type AnswerKeyEntryItem,
   type ChoiceGrid,
   type LayoutPlan,
@@ -626,10 +627,10 @@ function drawWorkSpace(
 
 // A matching set as print lays it out (`.matching-*` in styles.css), across the
 // question's full width. Each prompt opens with its bold blank and number in a
-// 92px column and a 6px gap. A short Word Bank stands in a 240px column to the
+// 92px column and a 6px gap — `MATCHING_INDENT`. A short Word Bank stands in a 240px column to the
 // prompts' right, set in 24px from its edge; a long one prints above them in
 // columns, under the number column.
-const MATCHING_NUMBER_COLUMN = 98
+const MATCHING_NUMBER_COLUMN = MATCHING_INDENT
 const MATCHING_BANK_INSET = 24
 const MATCHING_GAP = 10
 
@@ -718,9 +719,7 @@ function drawQuestion(context: DrawContext, item: QuestionItem): void {
   const bodyX = context.x + indent
   const bodyWidth = context.width - indent
   if (printsNumberLine(item)) {
-    const prefix = item.question.answerBlank
-      ? `_______  ${item.question.number}.`
-      : `${item.question.number}.`
+    const prefix = [...item.question.marks, `${item.question.number}.`].join('  ')
     drawTextLine(context, prefix, { font: 'bold', width: indent - 5 })
     context.y += BODY_LINE
   }
