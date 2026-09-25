@@ -615,9 +615,11 @@ function furnitureLines(furniture: PageFurniture): {
   footer: ContentLine[]
 } {
   const identity = [
-    ...furniture.identityFields.map((field) => `${field}:`),
+    ...(furniture.identityLine !== undefined
+      ? [normalizeSpace(furniture.identityLine).trim()]
+      : furniture.identityFields.map((field) => `${field}:`)),
     furniture.arrangementLabel,
-  ].join(' ')
+  ].filter(Boolean).join(' ')
   return {
     header: [
       `para ${identity}`,

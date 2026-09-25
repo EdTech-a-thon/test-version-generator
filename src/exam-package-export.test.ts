@@ -253,7 +253,7 @@ describe('a Multipart question in an Exam package', () => {
     expect(proposal.exams[0]!.positions).toHaveLength(1)
   })
 
-  test('carries the Exam’s section wording and heading size, in the record’s vocabulary, and imports them again', async () => {
+  test('carries the Exam’s section wording, heading size and header lines, in the record’s vocabulary, and imports them again', async () => {
     const worded: Exam = {
       ...exam,
       sectionHeadings: {
@@ -261,6 +261,7 @@ describe('a Multipart question in an Exam package', () => {
         matching: { title: 'Vocabulary' },
       },
       headingSize: 'small',
+      header: { first: 'Student: ____  Period: __', later: '' },
     }
     const carried = await examPackage({ exam: worded, arrangement, ownerOf, loadMedia: noImages })
     // A Short Answer section is `short-answer` in the record, `open` in the app.
@@ -271,6 +272,7 @@ describe('a Multipart question in an Exam package', () => {
         matching: { title: 'Vocabulary' },
       },
       headingSize: 'small',
+      header: { first: 'Student: ____  Period: __', later: '' },
     })
 
     const proposal = await inspectImportRecord(new TextEncoder().encode(JSON.stringify(carried)))
@@ -282,11 +284,13 @@ describe('a Multipart question in an Exam package', () => {
     )
     expect(imported.sectionHeadings).toEqual(worded.sectionHeadings)
     expect(imported.headingSize).toBe('small')
+    expect(imported.header).toEqual(worded.header)
   })
 
   test('an Exam that keeps the default headings writes nothing about them', async () => {
     const carried = await examPackage({ exam, arrangement, ownerOf, loadMedia: noImages })
     expect(carried.exams[0]).not.toHaveProperty('sectionHeadings')
     expect(carried.exams[0]).not.toHaveProperty('headingSize')
+    expect(carried.exams[0]).not.toHaveProperty('header')
   })
 })

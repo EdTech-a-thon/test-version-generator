@@ -1,6 +1,7 @@
 import Ajv2020, { type ErrorObject } from 'ajv/dist/2020'
 import type { ColumnSetting, WorkSpace } from './exam'
 import type { HeadingSize, SectionHeadings } from './section-headings'
+import type { ExamHeader } from './page-header'
 import examSchema010 from './exam-record-0.1.0.schema.json'
 import examSchema020 from './exam-record-0.2.0.schema.json'
 import packageSchema010 from './test-parrot-package-0.1.0.schema.json'
@@ -72,6 +73,8 @@ export type ExamRecord = {
    *  `'open'`); only departures from the default wording. */
   sectionHeadings?: Partial<Record<QuestionBankRecordQuestionType, ExamRecordSectionHeading>>
   headingSize?: HeadingSize
+  /** The Exam's own test-page header lines; only departures from the default. */
+  header?: ExamHeader
   positions: ExamRecordPosition[]
 }
 
@@ -103,6 +106,7 @@ export type ProposedExam = {
    *  size — absent when the record says nothing but the defaults. */
   sectionHeadings?: SectionHeadings
   headingSize?: HeadingSize
+  header?: ExamHeader
   /** Positions regrouped into Test Parrot's Section order, keeping only the
    *  order within each Section. */
   positions: ExamRecordPosition[]
@@ -166,7 +170,7 @@ function copyPosition(position: ExamRecordPosition): ExamRecordPosition {
  *  Answer section is `'open'` — or nothing, when it keeps the defaults. */
 function localHeadingsOf(
   exam: ExamRecord,
-): { sectionHeadings?: SectionHeadings; headingSize?: HeadingSize } {
+): { sectionHeadings?: SectionHeadings; headingSize?: HeadingSize; header?: ExamHeader } {
   const entries = Object.entries(exam.sectionHeadings ?? {}) as [
     QuestionBankRecordQuestionType,
     ExamRecordSectionHeading,
@@ -177,6 +181,7 @@ function localHeadingsOf(
   return {
     ...(entries.length > 0 ? { sectionHeadings } : {}),
     ...(exam.headingSize && exam.headingSize !== 'normal' ? { headingSize: exam.headingSize } : {}),
+    ...(exam.header && Object.keys(exam.header).length > 0 ? { header: { ...exam.header } } : {}),
   }
 }
 
@@ -210,6 +215,7 @@ const examParser020: ExamParser = (value) => {
     name: exam.name,
     ...(Object.keys(sectionHeadings).length > 0 ? { sectionHeadings } : {}),
     ...(exam.headingSize ? { headingSize: exam.headingSize } : {}),
+    ...(exam.header ? { header: { ...exam.header } } : {}),
     positions: exam.positions.map(copyPosition),
   }
 }

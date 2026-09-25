@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { DEFAULT_HEADER } from './page-header'
 import {
   CHOICE_AREA_WIDTH,
   FOOTER_HEIGHT,
@@ -1224,12 +1225,14 @@ describe('the Layout Plan', () => {
     const [testPage, keyPage] = planOf().pages
     expect(testPage!.furniture).toEqual({
       identityFields: ['Name', 'Class', 'Date'],
+      identityLine: DEFAULT_HEADER.first,
       title: 'Chemistry Unit 3',
       arrangementLabel: 'ID: C',
       pageNumber: 1,
     })
     // The key is the teacher's copy: nothing for a student to fill in.
     expect(keyPage!.furniture.identityFields).toEqual([])
+    expect(keyPage!.furniture.identityLine).toBeUndefined()
     expect(keyPage!.furniture.arrangementLabel).toBe('ID: C')
   })
 
@@ -1246,6 +1249,7 @@ describe('the Layout Plan', () => {
     expect(pages.length).toBe(2)
     expect(pages[1]!.furniture).toEqual({
       identityFields: ['Name'],
+      identityLine: DEFAULT_HEADER.later,
       title: null,
       arrangementLabel: 'ID: C',
       pageNumber: 2,

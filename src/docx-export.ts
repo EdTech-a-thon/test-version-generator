@@ -1032,6 +1032,18 @@ function identityLine(furniture: PageFurniture): Paragraph {
   // Bold by style, as `.page-id` is bold by class: page furniture, not an
   // authored strong mark.
   const id = new TextRun({ text: furniture.arrangementLabel, style: OUTPUT_ID_STYLE })
+  if (furniture.identityLine !== undefined) {
+    // An Exam's own line: its text, then the ID against a right stop.
+    return new Paragraph({
+      children: [
+        new TextRun({ text: furniture.identityLine }),
+        new TextRun({ children: [new Tab()] }),
+        id,
+      ],
+      tabStops: [{ type: TabStopType.RIGHT, position: twips(PAGE_CONTENT_WIDTH) }],
+      spacing: { after: 60 },
+    })
+  }
   const fields = furniture.identityFields
   if (fields.length === 0) {
     return new Paragraph({ children: [id], alignment: AlignmentType.RIGHT, spacing: { after: 60 } })

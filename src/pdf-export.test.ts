@@ -225,6 +225,20 @@ describe('PDF Export Adapter', () => {
     expect(drawn).toContain('Short Answer')
   })
 
+  // An Exam's own header line replaces the blanks, and the ID still prints.
+  test('draws a reworded header line beside the ID', async () => {
+    const { plans } = plansOf('a reworded header line')
+    const bytes = await createPublicationPdf(plans, noImages, fonts)
+    const document = await getDocument({ data: bytes, disableWorker: true }).promise
+    const drawn = (await (await document.getPage(1)).getTextContent()).items
+      .map((item) => ('str' in item ? item.str : ''))
+      .join(' ')
+      .replace(/\s+/g, ' ')
+    expect(drawn).toContain('Student: __________ Period: ____')
+    expect(drawn).not.toContain('Class:')
+    expect(drawn).toContain('ID: ')
+  })
+
   // A matching question once printed its stem and nothing else: no prompts, no
   // Word Bank. Every prompt's number and text, and every answer's letter and
   // text, must reach the page the plan put them on.

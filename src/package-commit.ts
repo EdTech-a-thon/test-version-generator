@@ -133,6 +133,7 @@ export function planImport(
       ...(Object.keys(workSpace).length > 0 ? { workSpace } : {}),
       ...(exam.sectionHeadings ? { sectionHeadings: exam.sectionHeadings } : {}),
       ...(exam.headingSize ? { headingSize: exam.headingSize } : {}),
+      ...(exam.header ? { header: exam.header } : {}),
     }
     return [{
       source: exam.key,

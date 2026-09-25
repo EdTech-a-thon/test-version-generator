@@ -582,6 +582,19 @@ export const FIXTURES: readonly Fixture[] = [
     { answerKey: true },
   ),
 
+  // An Exam's own header line on its first page, beside the ID that is never
+  // part of it.
+  fixture(
+    'a reworded header line',
+    {
+      title: 'Reworded header',
+      questions: [open('o1', paragraph(text('Explain osmosis.')))],
+      header: { first: 'Student: __________  Period: ____' },
+    },
+    arrangement(['o1']),
+    { answerKey: true },
+  ),
+
   fixture(
     'a plain short-answer question',
     {

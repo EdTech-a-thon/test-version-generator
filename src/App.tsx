@@ -2475,6 +2475,7 @@ function ExamEditor({
             onRevealed={clearReveal}
             onTitleChange={(title) => store.setTitle(title)}
             onSectionHeadingChange={(section, change) => store.setSectionHeading(section, change)}
+            onHeaderLineChange={(line, text) => store.setHeaderLine(line, text)}
             titleDisabled={isHistoricalBrowsing}
             onEdit={(questionId) => {
               const question = bankQuestionById(state.questionBank, questionId)

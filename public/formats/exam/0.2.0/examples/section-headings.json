@@ -12,6 +12,9 @@
     }
   },
   "headingSize": "large",
+  "header": {
+    "first": "Student: ____________  Period: ____"
+  },
   "positions": [
     {
       "question": {

@@ -26,7 +26,9 @@ import {
   QuestionContent,
   SectionHeadingContent,
   WorkSpaceView,
+  type IdentityLineEditor,
 } from './page-item-view'
+import { headerLineOf, type HeaderLine } from './page-header'
 import {
   FOOTER_HEIGHT,
   MAX_WORK_SPACE_HEIGHT,
@@ -39,6 +41,7 @@ import {
   unmeasured,
   type ExportContentSelection,
   type LayoutPlan,
+  type PageHeader,
   type PlannedPage,
   type PageItem,
   type QuestionItem,
@@ -1141,6 +1144,7 @@ export function ExamPage({
   onSetWorkSpace,
   onTitleChange,
   onSectionHeadingChange,
+  onHeaderLineChange,
   titleDisabled = false,
   unsavedDraft = false,
   contentSelection = { test: true, answerKey: true },
@@ -1167,6 +1171,8 @@ export function ExamPage({
   onTitleChange?: (title: string) => void
   /** Rewords a section heading from where it prints. See `EditableSectionHeading`. */
   onSectionHeadingChange?: SetSectionHeading
+  /** Rewords a test page's header line; `null` restores its default. */
+  onHeaderLineChange?: (line: HeaderLine, text: string | null) => void
   titleDisabled?: boolean
   unsavedDraft?: boolean
   contentSelection?: ExportContentSelection
@@ -1290,6 +1296,17 @@ export function ExamPage({
   // repetition — a continuation page's, the answer key's — is that same name
   // shown again, so it is drawn as text rather than as a second field.
   const titleLine = pages.findIndex((page) => page.furniture.title !== null)
+  // Every test page's header line can be typed on, and every later page shows
+  // the one later line: they are the same words printed again.
+  const identityEditorFor = (header: PageHeader): IdentityLineEditor | undefined => {
+    if (!onHeaderLineChange || (header !== 'first' && header !== 'later')) return undefined
+    return {
+      text: headerLineOf(exam.header, header),
+      edited: exam.header?.[header] !== undefined,
+      disabled: titleDisabled,
+      onChange: (text) => onHeaderLineChange(header, text),
+    }
+  }
   const workspaceClasses = ['exam-workspace']
   if (unsavedDraft) workspaceClasses.push('exam-workspace--unsaved')
   if (draggedQuestionIds.size > 0) workspaceClasses.push('exam-workspace--dragging')
@@ -1316,6 +1333,7 @@ export function ExamPage({
           <PageHeaderContent
             header={page.header}
             furniture={page.furniture}
+            identityEditor={identityEditorFor(page.header)}
             onTitleChange={index === titleLine ? onTitleChange : undefined}
             titleDisabled={titleDisabled}
           />

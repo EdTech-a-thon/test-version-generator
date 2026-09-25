@@ -16,6 +16,7 @@
 // Nothing downstream can tell the difference between this and an edited
 // Arrangement, and nothing here writes anything back.
 
+import { isExamHeader, sameExamHeader } from './page-header'
 import {
   DEFAULT_HEADING_SIZE,
   isHeadingSize,
@@ -148,6 +149,8 @@ export function selectedExam(
     isHeadingSize(draft.headingSize) && draft.headingSize !== DEFAULT_HEADING_SIZE
       ? draft.headingSize
       : undefined
+  const header =
+    isExamHeader(draft.header) && Object.keys(draft.header).length > 0 ? draft.header : undefined
   const exam: Exam =
     previous
     && previous.exam.title === draft.title
@@ -156,6 +159,7 @@ export function selectedExam(
     && sameWorkSpace(previous.exam.workSpace, hasAnyWorkSpace ? workSpace : undefined)
     && sameSectionHeadings(previous.exam.sectionHeadings, sectionHeadings)
     && previous.exam.headingSize === headingSize
+    && sameExamHeader(previous.exam.header, header)
       ? previous.exam
       : {
           title: draft.title,
@@ -163,6 +167,7 @@ export function selectedExam(
           ...(hasAnyWorkSpace ? { workSpace } : {}),
           ...(sectionHeadings ? { sectionHeadings } : {}),
           ...(headingSize ? { headingSize } : {}),
+          ...(header ? { header } : {}),
         }
 
   // Only ids the bank can resolve: an ordering may tolerate a stranger, but an

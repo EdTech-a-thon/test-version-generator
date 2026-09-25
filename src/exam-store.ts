@@ -46,6 +46,7 @@ import {
   type HeadingSize,
   type SectionHeadingChange,
 } from './section-headings'
+import { isExamHeader, sameExamHeader, withHeaderLine, type HeaderLine } from './page-header'
 import {
   bankQuestionById,
   createWorkingCopy,
@@ -179,7 +180,8 @@ function isWorkingCopy(value: unknown): value is ExamWorkingCopy {
     (draft.workSpace === undefined || isWorkSpaceSettings(draft.workSpace)) &&
     (draft.choiceOrder === undefined || isChoiceOrder(draft.choiceOrder)) &&
     (draft.sectionHeadings === undefined || isSectionHeadings(draft.sectionHeadings)) &&
-    (draft.headingSize === undefined || isHeadingSize(draft.headingSize))
+    (draft.headingSize === undefined || isHeadingSize(draft.headingSize)) &&
+    (draft.header === undefined || isExamHeader(draft.header))
   )
 }
 
@@ -224,6 +226,8 @@ export type ExamStore = {
   setSectionHeading(section: QuestionType, change: SectionHeadingChange): void
   /** How large every section heading prints on this Exam. */
   setHeadingSize(size: HeadingSize): void
+  /** Rewords one test-page header line; `null` restores its default. */
+  setHeaderLine(line: HeaderLine, text: string | null): void
   /** Refreshes the canonical Questions projected from open Question Banks.
    * Workspace browsing is not an Exam command and creates no Undo step. */
   syncCanonicalQuestions(questions: readonly Question[]): void
@@ -368,6 +372,7 @@ function sameExamWorkingCopy(left: ExamWorkingCopy, right: ExamWorkingCopy): boo
     )
     && sameSectionHeadings(left.sectionHeadings, right.sectionHeadings)
     && (left.headingSize ?? DEFAULT_HEADING_SIZE) === (right.headingSize ?? DEFAULT_HEADING_SIZE)
+    && sameExamHeader(left.header, right.header)
 }
 
 /** The Part with this id, when it belongs to a Multipart question this Exam references.
@@ -648,6 +653,15 @@ export function createExamStore(options: {
         // The default is stored as its absence, like every other default here.
         const workingCopy: ExamWorkingCopy = { ...current.workingCopy, headingSize: size }
         if (size === DEFAULT_HEADING_SIZE) delete workingCopy.headingSize
+        return { ...current, workingCopy }
+      }),
+
+    setHeaderLine: (line, text) =>
+      change((current) => {
+        const header = withHeaderLine(current.workingCopy.header, line, text)
+        if (sameExamHeader(header, current.workingCopy.header)) return current
+        const workingCopy: ExamWorkingCopy = { ...current.workingCopy, header }
+        if (!header) delete workingCopy.header
         return { ...current, workingCopy }
       }),
 

@@ -47,6 +47,7 @@ import {
   type WorkSpaceStyle,
 } from './exam'
 import { stemNodesOf, type ProseMirrorJSON } from './question-doc'
+import { headerLineOf, type ExamHeader, type HeaderLine } from './page-header'
 
 // The default section wording lives with the rest of what an Exam may say
 // about its sections; re-exported for the adapters and tests that print it.
@@ -385,6 +386,11 @@ export type IdentityField = 'Name' | 'Class' | 'Date'
 
 export type PageFurniture = {
   identityFields: readonly IdentityField[]
+  /** What this test page's header line prints beside the ID: the Exam's own
+   *  words, or the default blanks written as text. Absent on answer-key pages,
+   *  and on plans recorded before a header could be reworded, which print
+   *  `identityFields` as they always did. Empty means the ID alone. */
+  identityLine?: string
   /** The exam title, on the pages that repeat it; `null` on the rest. */
   title: string | null
   /** Which arrangement's paper this is — printed on every page, both streams. */
@@ -412,13 +418,25 @@ const REPEATS_TITLE: Record<PageHeader, boolean> = {
   'answer-key-later': false,
 }
 
+// Which of an Exam's header lines a test page prints. The key has none.
+const HEADER_LINE: Record<PageHeader, HeaderLine | null> = {
+  first: 'first',
+  later: 'later',
+  'answer-key': null,
+  'answer-key-later': null,
+}
+
 function furnitureOf(
   page: { header: PageHeader; number: number },
   title: string,
   arrangementLetter: string,
+  header: ExamHeader | undefined,
 ): PageFurniture {
+  const line = HEADER_LINE[page.header]
+  const identityLine = line ? headerLineOf(header, line) : undefined
   return {
     identityFields: IDENTITY_FIELDS[page.header],
+    ...(identityLine !== undefined ? { identityLine } : {}),
     title: REPEATS_TITLE[page.header] ? title : null,
     arrangementLabel: `ID: ${arrangementLetter}`,
     pageNumber: page.number,
@@ -1174,6 +1192,8 @@ export type ExportDocument = {
   test: PageItem[]
   /** The answer key's content items, in order, before page assignment. */
   answerKey: PageItem[]
+  /** The Exam's own header lines, where it has reworded them. */
+  header?: ExamHeader
 }
 
 /** Semantic derivation, on its own. Exposed so tests and fingerprints can read
@@ -1190,6 +1210,7 @@ export function buildExportDocument(
     selection,
     test,
     answerKey: deriveAnswerKey(test),
+    ...(exam.header ? { header: exam.header } : {}),
   }
 }
 
@@ -1260,7 +1281,7 @@ function resolveLayout(
     // rather than rediscover one of its own.
     pages: pages.map((page, index) => ({
       ...page,
-      furniture: furnitureOf(page, document.title, document.arrangement.letter),
+      furniture: furnitureOf(page, document.title, document.arrangement.letter, document.header),
       breakBefore: index > 0,
     })),
   }

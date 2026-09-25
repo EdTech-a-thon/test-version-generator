@@ -154,3 +154,14 @@ test('Format → Heading size sets how large the Exam’s section headings print
 
   expect(await printedSize()).toBeLessThan(normal)
 })
+
+test('a heading’s underline is as wide as its words, not the page', async ({ page }) => {
+  await openExam(page)
+  const width = async () => (await heading(page).boundingBox())!.width
+  const sheet = (await page.locator('.exam-workspace .page-content').first().boundingBox())!.width
+  expect(await width()).toBeLessThan(sheet / 2)
+  await heading(page).fill('MC')
+  const short = await width()
+  await heading(page).fill('Multiple Choice Questions')
+  expect(await width()).toBeGreaterThan(short)
+})

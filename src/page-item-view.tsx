@@ -13,7 +13,8 @@
 
 import type { ReactNode } from 'react'
 import { sectionHeadingStyles } from './export-typography'
-import { Check } from 'lucide-react'
+import { useState } from 'react'
+import { Check, RotateCcw } from 'lucide-react'
 import { DifficultyBadge, TopicBadge } from './badges'
 import { DocView } from './doc-view'
 import {
@@ -356,14 +357,109 @@ export function AnswerKeyEntry({ item }: { item: AnswerKeyEntryItem }) {
 // decisions, so the DOCX adapter prints exactly the same ones. The header
 // variant survives only as a class, because how tall each variant is remains a
 // layout constant that CSS and packing must agree on.
+// What the header line prints left of the ID. A plan recorded before the line
+// was text carries only its fields, which print as ruled blanks as they did.
+function IdentityText({ furniture }: { furniture: PageFurniture }) {
+  if (furniture.identityLine !== undefined) {
+    return <span className="identity-line">{furniture.identityLine}</span>
+  }
+  return (
+    <>
+      {furniture.identityFields.map((field) => (
+        <span className="identity-field" key={field}>
+          {field}:
+          <span className="identity-blank" />
+        </span>
+      ))}
+    </>
+  )
+}
+
+/** Where a header line is reworded: its current text, whether it departs from
+ *  the default, and the change — `null` restoring the default. */
+export type IdentityLineEditor = {
+  text: string
+  edited: boolean
+  disabled: boolean
+  onChange: (text: string | null) => void
+}
+
+// The header line on the sheet, reworded where it prints. It reads exactly as
+// it prints until it is clicked, when the same text in the same place becomes
+// the field, and Enter, Escape or a click elsewhere puts it back. The ID beside
+// it is never part of it.
+function EditableIdentityText({
+  furniture,
+  editor,
+}: {
+  furniture: PageFurniture
+  editor: IdentityLineEditor
+}) {
+  const [editing, setEditing] = useState(false)
+  return (
+    <span className="identity-edit">
+      {editor.edited && (
+        <span className="identity-handles">
+          <button
+            type="button"
+            className="question-handle"
+            aria-label="Restore the default header"
+            title="Restore the default header"
+            disabled={editor.disabled}
+            onClick={() => editor.onChange(null)}
+          >
+            <RotateCcw aria-hidden="true" />
+          </button>
+        </span>
+      )}
+      {editing ? (
+        // Sized by a mirrored copy of its value, like the title's field, so the
+        // underline is as wide as the words and not the page.
+        <span className="identity-input-field" data-value={editor.text || ' '}>
+        <input
+          aria-label="Header printed on the exam"
+          className="identity-input"
+          size={1}
+          autoFocus
+          value={editor.text}
+          disabled={editor.disabled}
+          spellCheck
+          onChange={(event) => editor.onChange(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === 'Escape') {
+              event.preventDefault()
+              event.currentTarget.blur()
+            }
+          }}
+          onBlur={() => setEditing(false)}
+        />
+        </span>
+      ) : (
+        <button
+          type="button"
+          className="identity-display"
+          aria-label="Edit the header"
+          disabled={editor.disabled}
+          onClick={() => setEditing(true)}
+        >
+          <IdentityText furniture={furniture} />
+        </button>
+      )}
+    </span>
+  )
+}
+
 export function PageHeaderContent({
   header,
   furniture,
+  identityEditor,
   onTitleChange,
   titleDisabled = false,
 }: {
   header: PageHeader
   furniture: PageFurniture
+  /** Present only in the editor, on test pages: rewords this page's line. */
+  identityEditor?: IdentityLineEditor
   /** Present only in the editor. The Exam's name is furniture on its own first
    *  page, so it can be typed there as well as in the document bar — one
    *  value, two places to reach it. Every other caller (measurement, print
@@ -375,12 +471,11 @@ export function PageHeaderContent({
   return (
     <header className={`page-header page-header--${header}`}>
       <div className="page-identity">
-        {furniture.identityFields.map((field) => (
-          <span className="identity-field" key={field}>
-            {field}:
-            <span className="identity-blank" />
-          </span>
-        ))}
+        {identityEditor ? (
+          <EditableIdentityText furniture={furniture} editor={identityEditor} />
+        ) : (
+          <IdentityText furniture={furniture} />
+        )}
         <span className="page-id">{furniture.arrangementLabel}</span>
       </div>
       {furniture.title !== null && (

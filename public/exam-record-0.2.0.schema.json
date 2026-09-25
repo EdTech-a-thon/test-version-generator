@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://testparrot.com/formats/exam/0.2.0/schema.json",
   "title": "Test Parrot Exam Record 0.2.0",
-  "description": "The composition of one Exam: its name, how its section headings read and how large they print, and its ordered positions, each referencing a Question in a Question Bank Record travelling in the same Test Parrot Package.",
+  "description": "The composition of one Exam: its name, its test-page header lines, how its section headings read and how large they print, and its ordered positions, each referencing a Question in a Question Bank Record travelling in the same Test Parrot Package.",
   "type": "object",
   "required": [
     "format",
@@ -43,6 +43,19 @@
         "normal",
         "large"
       ]
+    },
+    "header": {
+      "description": "The Exam's own wording for its test-page header lines, where it departs from Test Parrot's default blanks. `first` prints on the first test page and `later` on every other; underscores are the blanks. An empty string prints nothing but the paper's ID, which is never part of the line. Absent means the default.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "first": {
+          "type": "string"
+        },
+        "later": {
+          "type": "string"
+        }
+      }
     },
     "positions": {
       "type": "array",

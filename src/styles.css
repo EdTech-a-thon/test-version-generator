@@ -754,6 +754,40 @@ button { cursor: pointer; }
 .identity-blank { flex: 1 1 auto; min-width: 48px; border-bottom: 1px solid #332a24; }
 .page-id { flex: none; font-weight: 700; white-space: nowrap; }
 .exam-workspace--unsaved .page-id { color: #aaa19a; }
+/* An Exam's own header line: one line, cut short rather than wrapped, so the
+   header keeps the height packing subtracted. */
+.identity-line { flex: 1 1 auto; min-width: 0; white-space: pre; overflow: hidden; }
+/* In the editor the line reads as it prints until clicked; the underline on
+   hover and focus is as wide as the words, like the title's. */
+.identity-edit {
+  position: relative; flex: 1 1 auto; min-width: 0;
+  display: flex; align-items: baseline;
+}
+.identity-display {
+  flex: 0 1 auto; min-width: 0; display: flex; align-items: baseline;
+  padding: 0; margin: 0; border: 0; border-radius: 0; background: transparent;
+  color: inherit; font: inherit; line-height: inherit; text-align: left; cursor: text;
+  box-shadow: 0 1px 0 transparent;
+}
+.identity-display:hover:not(:disabled) { box-shadow: 0 1px 0 #d8cbbb; }
+.identity-display:disabled { cursor: default; }
+.identity-input-field { display: inline-grid; max-width: 100%; min-width: 0; }
+.identity-input-field::after {
+  grid-area: 1 / 1; content: attr(data-value); visibility: hidden;
+  white-space: pre; overflow: hidden; font: inherit;
+}
+.identity-input {
+  grid-area: 1 / 1; width: 100%; min-width: 2ch; padding: 0; margin: 0;
+  border: 0; border-radius: 0; color: inherit; background: transparent;
+  font: inherit; line-height: inherit; outline: none;
+  box-shadow: 0 1px 0 var(--paper-accent);
+}
+.identity-handles {
+  position: absolute; top: -4px; left: -32px; z-index: 2;
+  opacity: 0; transition: opacity 90ms ease-in;
+}
+.page-header:hover .identity-handles,
+.identity-handles:focus-within { opacity: 1; }
 /* Takes whatever the identity line leaves of the first page's header, and sits
    on the bottom of it. */
 .page-header--first .exam-title,
@@ -792,13 +826,15 @@ button { cursor: pointer; }
    heading does and never changes the height the plan packed. The underline is
    a shadow rather than a border for the same reason. */
 .exam-section--editable { position: relative; }
-.section-heading-field { display: grid; }
+/* As wide as its words, like the title's field, up to the page's width; the
+   field inside contributes no width of its own, so the hidden copy decides. */
+.section-heading-field { display: inline-grid; max-width: 100%; vertical-align: top; }
 .section-heading-field::after {
   grid-area: 1 / 1; content: attr(data-value) ' '; visibility: hidden;
   white-space: pre-wrap; overflow-wrap: break-word; font: inherit;
 }
 .section-heading-input {
-  grid-area: 1 / 1; width: 100%; min-width: 0; padding: 0; margin: 0;
+  grid-area: 1 / 1; width: 0; min-width: 100%; padding: 0; margin: 0;
   border: 0; border-radius: 0; resize: none; overflow: hidden;
   color: inherit; background: transparent; font: inherit; line-height: inherit;
   outline: none; box-shadow: 0 1px 0 transparent;

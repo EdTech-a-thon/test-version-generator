@@ -872,18 +872,47 @@ function drawAnswerKeyEntry(context: DrawContext, item: AnswerKeyEntryItem): voi
   }
 }
 
+// An Exam's own header line: its text from the left margin, the ID in bold
+// against the right, as print sets them. It is one line on every output, so
+// text too long for the room the ID leaves is cut short, as print cuts it.
+function drawIdentityLine(context: DrawContext, text: string, label: string): void {
+  const bold = context.fonts.bold
+  const regular = context.fonts.regular
+  const labelWidth = bold.widthOfTextAtSize(label, BODY_SIZE)
+  const y = context.y - BODY_SIZE
+  context.page.drawText(label, {
+    x: context.x + context.width - labelWidth,
+    y,
+    size: BODY_SIZE,
+    font: bold,
+    color: INK,
+  })
+  const room = context.width - labelWidth - 12
+  let shown = text.trimEnd()
+  while (shown && regular.widthOfTextAtSize(shown, BODY_SIZE) > room) {
+    shown = shown.slice(0, -1)
+  }
+  if (shown) {
+    context.page.drawText(shown, { x: context.x, y, size: BODY_SIZE, font: regular, color: INK })
+  }
+}
+
 function drawFurniture(
   context: DrawContext,
   furniture: PageFurniture,
   pageTop: number,
   headerBottom: number,
 ): void {
-  const pieces: InlinePiece[] = []
-  for (const field of furniture.identityFields) {
-    pieces.push({ text: `${field}: __________________  `, font: 'regular', size: SMALL_SIZE })
+  if (furniture.identityLine !== undefined) {
+    drawIdentityLine(context, furniture.identityLine, furniture.arrangementLabel)
+  } else {
+    const pieces: InlinePiece[] = []
+    for (const field of furniture.identityFields) {
+      pieces.push({ text: `${field}: __________________  `, font: 'regular', size: SMALL_SIZE })
+    }
+    pieces.push({ text: furniture.arrangementLabel, font: 'bold', size: SMALL_SIZE })
+    drawInline(context, pieces, { x: context.x, width: context.width, line: 13 })
   }
-  pieces.push({ text: furniture.arrangementLabel, font: 'bold', size: SMALL_SIZE })
-  drawInline(context, pieces, { x: context.x, width: context.width, line: 13 })
   if (furniture.title !== null) {
     const titleContext = { ...context, y: pageTop - 36, bottom: headerBottom }
     drawInline(

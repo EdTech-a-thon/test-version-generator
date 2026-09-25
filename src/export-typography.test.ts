@@ -6,6 +6,7 @@
 // DOCX package and the PDF's drawn text to the single table in
 // `export-typography.ts`.
 
+import { DEFAULT_HEADER } from './page-header'
 import { describe, expect, test } from 'bun:test'
 import JSZip from 'jszip'
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs'
@@ -115,8 +116,8 @@ describe('DOCX sets print’s type rather than Word’s defaults', () => {
     const stops = [...header.matchAll(/<w:tab w:val="(\w+)" w:pos="(\d+)"(?: w:leader="(\w+)")?\/>/g)]
     const last = stops.at(-1)!
     expect([last[1], Number(last[2])]).toEqual(['right', PAGE_CONTENT_WIDTH * 15])
-    // Name, Class and Date each ruled to their own stop, as print's blanks are.
-    expect(stops.filter((stop) => stop[3] === 'underscore')).toHaveLength(3)
+    // The line is its own text, blanks and all, as print sets it.
+    expect(header).toContain(`<w:t xml:space="preserve">${DEFAULT_HEADER.first}</w:t>`)
     // Real tab elements, which Word advances to a stop; a literal tab
     // character inside the text is not one.
     expect(header).not.toMatch(/<w:t[^>]*>[^<]*\t/)
