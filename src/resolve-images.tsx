@@ -3,6 +3,7 @@ import { Crop, ImagePlus, Images, Trash2, Upload } from 'lucide-react'
 import type { PendingImageOccurrence } from './pending-images'
 import {
   cropChoice,
+  hasPages,
   originName,
   pendingName,
   pictureSource,
@@ -17,6 +18,8 @@ import {
 } from './resolved-pictures'
 import type { ImageTag, PageBox } from './source-document'
 import { namedPage, usePictureChoice, type PictureChoice } from './picture-choice'
+
+const SOURCE_FILE_TYPES = 'application/pdf,.pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.docx'
 
 /**
  * Resolve Images: where a teacher confirms or replaces the picture for each
@@ -63,7 +66,7 @@ export function TagChooser({
   return <div className="resolve-image-chooser" role="group" aria-label={`Pictures in ${source.fileName}`}>
     {pages.map((number) => (
       <section key={number}>
-        <h5>Page {number}</h5>
+        {hasPages(source) && <h5>Page {number}</h5>}
         <div>
           {source.tags.filter((tag) => tag.page === number).map((tag) => (
             <button
@@ -224,11 +227,11 @@ export function PictureChoices({
     {!source && onSourceFile && (
       <label className="resolve-images-source">
         <ImagePlus aria-hidden="true" />
-        <span>Drop your original PDF here to take pictures from it, or upload this picture.</span>
+        <span>Drop your original PDF or Word document here to take pictures from it, or upload this picture.</span>
         <input
           type="file"
-          accept="application/pdf,.pdf"
-          aria-label="Your original PDF"
+          accept={SOURCE_FILE_TYPES}
+          aria-label="Your original test"
           onChange={(event) => {
             const file = event.target.files?.[0]
             event.target.value = ''
@@ -251,7 +254,7 @@ export function PictureChoices({
       />
     )}
     <div className="resolve-image-actions">
-      {source && (
+      {source && hasPages(source) && (
         <button
           type="button"
           className="secondary-button"
@@ -317,7 +320,7 @@ export function ResolveImages({
         <h3 id="resolve-images-heading">Resolve Images</h3>
         <p role="status">
           {filling
-            ? 'Taking pictures from your PDF…'
+            ? 'Taking pictures from your test…'
             : `${ready} of ${occurrences.length} ${occurrences.length === 1 ? 'picture' : 'pictures'} ready.`}
           {' '}Any left unresolved stay as “picture needed” and can be added later.
         </p>
@@ -326,11 +329,11 @@ export function ResolveImages({
     {!source && onSourceFile && (
       <label className="resolve-images-source">
         <ImagePlus aria-hidden="true" />
-        <span>Drop your original PDF here to take pictures from it, or upload each picture below.</span>
+        <span>Drop your original PDF or Word document here to take pictures from it, or upload each picture below.</span>
         <input
           type="file"
-          accept="application/pdf,.pdf"
-          aria-label="Your original PDF"
+          accept={SOURCE_FILE_TYPES}
+          aria-label="Your original test"
           onChange={(event) => {
             const file = event.target.files?.[0]
             event.target.value = ''

@@ -39,4 +39,13 @@ describe('the instructions an assistant is given', () => {
   test('say so when a labeled copy has no pictures to tag', () => {
     expect(fillImageTags(instructions, [])).toContain('found no embedded pictures in this document')
   })
+
+  test('list a Word document’s tags without pages, which it does not have', () => {
+    const filled = fillImageTags(instructions, [tag(1, 1), tag(2, 1)], 'word')
+
+    expect(filled).toContain('This is a labeled Word document. Test Parrot put 2 tags in it, each just before its picture:\n\n- IMG 1, IMG 2')
+    expect(filled).toContain('`"pending": { "page": 1 }`')
+    expect(filled).not.toContain('- page 1:')
+    expect(fillImageTags(instructions, [], 'word')).toContain('found no pictures stored in this Word document')
+  })
 })

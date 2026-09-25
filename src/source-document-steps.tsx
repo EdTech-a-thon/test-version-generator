@@ -8,9 +8,9 @@ import type { WaitingImport } from './waiting-import'
  * What to do with the test a teacher just dropped, while its import waits for
  * the AI. Only one of three paths is ever shown, the one the file needs:
  *
- * - a PDF with pictures goes to the AI as a labeled copy, so it can say which
- *   picture goes where by the number printed on it;
- * - a PDF without pictures goes as it is, with the plain instructions;
+ * - a PDF or Word document with pictures goes to the AI as a labeled copy,
+ *   so it can say which picture goes where by the number printed on it;
+ * - one without pictures goes as it is, with the plain instructions;
  * - a photo goes as it is, and each picture in it is cropped after importing.
  *
  * In every path the AI never estimates where a picture is; Test Parrot takes
@@ -47,29 +47,42 @@ export function SourceDocumentSteps({
   }, [copied])
 
   const photo = waiting.kind === 'photo'
+  const word = waiting.kind === 'word'
   const pictures = !photo && waiting.tags.length > 0
   // A photo's page has nothing tagged on it; it gets the instructions for a
   // source with no labeled copy, which name every picture by page 1.
-  const instructions = fillImageTags(extractInstructions, photo ? null : waiting.tags)
+  const instructions = fillImageTags(extractInstructions, photo ? null : waiting.tags, word ? 'word' : 'pdf')
   const copy = () => void navigator.clipboard.writeText(instructions).then(() => setCopied(true))
-  const attach = pictures ? 'the labeled PDF (not your original)' : photo ? 'your photo' : 'your PDF'
+  /** What the teacher calls the file they dropped. */
+  const file = photo ? 'photo' : word ? 'document' : 'PDF'
+  const attach = pictures ? `the labeled ${file} (not your original)` : `your ${file}`
 
   const download = async () => {
     setError(null)
     try {
-      const [{ labelSourceDocument, labeledFilename }, { browserPdfFonts }] = await Promise.all([
-        import('./source-document'),
-        import('./pdf-export'),
-      ])
-      const bytes = await labelSourceDocument(waiting.bytes, waiting.tags, browserPdfFonts)
-      const url = URL.createObjectURL(new Blob([bytes.slice().buffer as ArrayBuffer], { type: 'application/pdf' }))
+      let labeled: { bytes: Uint8Array; type: string; name: string }
+      if (word) {
+        const { labelWordDocument, labeledWordFilename, WORD_MIME_TYPE } = await import('./word-document')
+        labeled = { bytes: await labelWordDocument(waiting.bytes), type: WORD_MIME_TYPE, name: labeledWordFilename(waiting.fileName) }
+      } else {
+        const [{ labelSourceDocument, labeledFilename }, { browserPdfFonts }] = await Promise.all([
+          import('./source-document'),
+          import('./pdf-export'),
+        ])
+        labeled = {
+          bytes: await labelSourceDocument(waiting.bytes, waiting.tags, browserPdfFonts),
+          type: 'application/pdf',
+          name: labeledFilename(waiting.fileName),
+        }
+      }
+      const url = URL.createObjectURL(new Blob([labeled.bytes.slice().buffer as ArrayBuffer], { type: labeled.type }))
       const link = document.createElement('a')
       link.href = url
-      link.download = labeledFilename(waiting.fileName)
+      link.download = labeled.name
       link.click()
       window.setTimeout(() => URL.revokeObjectURL(url), 1000)
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'The labeled PDF could not be made.')
+      setError(reason instanceof Error ? reason.message : `The labeled ${file} could not be made.`)
     }
   }
 
@@ -77,10 +90,12 @@ export function SourceDocumentSteps({
     ...(pictures
       ? [{
           key: 'download',
-          title: 'Download the labeled PDF',
-          text: 'A copy of your test with a small number on each picture.',
+          title: `Download the labeled ${file}`,
+          text: word
+            ? 'A copy of your document with a small number just before each picture.'
+            : 'A copy of your test with a small number on each picture.',
           action: <button type="button" className="secondary-button" disabled={busy} onClick={() => void download()}>
-            <Download aria-hidden="true" />Download labeled PDF
+            <Download aria-hidden="true" />Download labeled {file}
           </button>,
         }]
       : []),
@@ -124,17 +139,17 @@ export function SourceDocumentSteps({
       <div>
         <h2 role="status">
           {pictures
-            ? `Pictures detected in your PDF`
+            ? `Pictures detected in your ${file}`
             : photo
               ? 'A photo of your test'
-              : 'No pictures in your PDF'}
+              : `No pictures in your ${file}`}
         </h2>
         <p>
           {pictures
             ? `Test Parrot found ${plural(waiting.tags.length, 'picture')} in ${waiting.fileName}. Give your AI the labeled copy below, and Test Parrot fills in the real pictures when you import.`
             : photo
               ? `Your AI writes the questions from ${waiting.fileName}. After importing, you crop each picture from the photo.`
-              : `${waiting.fileName} has no pictures to keep track of, so your AI only needs the PDF itself.`}
+              : `${waiting.fileName} has no pictures to keep track of, so your AI only needs the ${file} itself.`}
         </p>
       </div>
     </header>
@@ -173,7 +188,7 @@ export function SourceDocumentSteps({
 
     {error && <p className="home-error" role="alert">{error}</p>}
     <p className="source-steps-foot">
-      <span>Your {photo ? 'photo' : 'PDF'} stays in this browser only until this import finishes, for at most seven days.</span>
+      <span>Your {file} stays in this browser only until this import finishes, for at most seven days.</span>
       <button type="button" className="link-button" disabled={busy} onClick={onStartOver}>Start over with another file</button>
     </p>
   </section>

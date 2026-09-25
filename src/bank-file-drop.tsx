@@ -25,36 +25,39 @@ function bankUnder(target: EventTarget | null): { id: string; name: string } | n
 
 const IMPORTABLE_TYPES = new Set(['application/pdf', 'application/json'])
 
-const isPhoto = (type: string) => type.startsWith('image/')
+/** A test to convert that is not a PDF: a photo of it, or its Word document. */
+const isOtherTest = (type: string) => type.startsWith('image/') || type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
 
-function importable(file: File, photos: boolean): boolean {
-  return IMPORTABLE_TYPES.has(file.type) || /\.(pdf|json)$/i.test(file.name) || (photos && isPhoto(file.type))
+function importable(file: File, tests: boolean): boolean {
+  return IMPORTABLE_TYPES.has(file.type) || /\.(pdf|json)$/i.test(file.name) ||
+    (tests && (isOtherTest(file.type) || /\.docx$/i.test(file.name)))
 }
 
 /** Read from a `dragover`, where the files themselves are not yet readable and
  *  only the declared item types are. A file whose type the OS did not declare
  *  is not claimed, so an unrelated drag keeps its normal behaviour. */
-function carriesImportableFile(transfer: DataTransfer | null, photos: boolean): boolean {
+function carriesImportableFile(transfer: DataTransfer | null, tests: boolean): boolean {
   if (!transfer) return false
   if (!Array.from(transfer.types).includes('Files')) return false
   return Array.from(transfer.items).some(
-    (item) => item.kind === 'file' && (IMPORTABLE_TYPES.has(item.type) || (photos && isPhoto(item.type))),
+    (item) => item.kind === 'file' && (IMPORTABLE_TYPES.has(item.type) || (tests && isOtherTest(item.type))),
   )
 }
 
 export function BankFileDropTarget({
   onFile,
-  photos = false,
+  tests = false,
 }: {
   onFile: (file: File, targetBankId?: string) => void
-  /** Whether a photo of a test is taken too: where a conversion starts. */
-  photos?: boolean
+  /** Whether a test to convert is taken too — a photo of it or its Word
+   *  document: where a conversion starts. */
+  tests?: boolean
 }) {
   const [over, setOver] = useState(false)
   const [target, setTarget] = useState<{ id: string; name: string } | null>(null)
   useEffect(() => {
     const claim = (event: DragEvent) => {
-      if (!carriesImportableFile(event.dataTransfer, photos)) return false
+      if (!carriesImportableFile(event.dataTransfer, tests)) return false
       event.preventDefault()
       event.stopPropagation()
       if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy'
@@ -77,7 +80,7 @@ export function BankFileDropTarget({
         return
       }
       setOver(false)
-      const file = Array.from(event.dataTransfer?.files ?? []).find((candidate) => importable(candidate, photos))
+      const file = Array.from(event.dataTransfer?.files ?? []).find((candidate) => importable(candidate, tests))
       if (file) onFile(file, bankUnder(event.target)?.id)
     }
     const onDragEnd = () => setOver(false)
@@ -91,7 +94,7 @@ export function BankFileDropTarget({
       window.removeEventListener('drop', onDrop, true)
       window.removeEventListener('dragend', onDragEnd, true)
     }
-  }, [onFile, photos])
+  }, [onFile, tests])
   if (!over) return null
   return (
     <div className="bank-drop-overlay" role="presentation">
@@ -100,9 +103,9 @@ export function BankFileDropTarget({
         {target ? <>
           <strong>Drop to add to {target.name || 'this Question Bank'}</strong>
           <span>Its Questions are added to this bank, and any Exams come too</span>
-        </> : photos ? <>
+        </> : tests ? <>
           <strong>Drop your test here</strong>
-          <span>Its PDF or a photo of it, or the file your AI gave back</span>
+          <span>Its PDF or Word document, a photo of it, or the file your AI gave back</span>
         </> : <>
           <strong>Drop to import a Question Bank</strong>
           <span>A Question Bank or Exam PDF, or a JSON file</span>

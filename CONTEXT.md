@@ -37,11 +37,11 @@ A versioned bundle of one or more Question Bank Records and any number of Exam R
 _Avoid_: Import package, bundle, transfer file
 
 **Source Document**:
-The teacher's original PDF, or a photo of their test, that an assistant converts into a Test Parrot Package. It is never authoritative for Question Content; Test Parrot uses it only to supply pictures for Pending Images, and keeps it only while its import is in progress. A photo is kept as a one-page PDF: nothing in it is tagged, so its pictures arrive as Pending Images naming page 1 and are cropped from it. A test the teacher has only as a Word document or pasted text still converts, but has no Source Document; its pictures are resolved by upload.
+The teacher's original PDF or Word document (.docx), or a photo of their test, that an assistant converts into a Test Parrot Package. It is never authoritative for Question Content; Test Parrot uses it only to supply pictures for Pending Images, and keeps it only while its import is in progress. A photo is kept as a one-page PDF: nothing in it is tagged, so its pictures arrive as Pending Images naming page 1 and are cropped from it. A Word document has no fixed pages: its pictures are the image files it keeps, and a picture it does not keep as one, such as a chart or a shape drawn in Word, is resolved by upload. A test the teacher has only as pasted text or an older document format still converts, but has no Source Document; its pictures are resolved by upload.
 _Avoid_: Original PDF, Question Bank File
 
 **Image Tag**:
-The numbered label, such as “IMG 3”, that Test Parrot prints on each picture in a labeled copy of a Source Document, so an assistant can name a picture exactly. A tag names an embedded image, not necessarily a picture: a passage stored as an image is tagged too.
+The numbered label, such as “IMG 3”, that Test Parrot prints on each picture in a labeled copy of a Source Document — inside the picture's corner in a PDF, just before it in a Word document — so an assistant can name a picture exactly. A tag names an embedded image, not necessarily a picture: a passage stored as an image is tagged too.
 _Avoid_: Image number, image ID, label
 
 **Pending Image**:

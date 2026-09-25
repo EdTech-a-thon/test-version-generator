@@ -2862,7 +2862,7 @@ export default function App({
   // Converting starts from the test itself, so on the convert page a drop is
   // the page's to read: only a Test Parrot file goes straight to the import.
   if (route === '/get-started/convert') return <>
-    <BankFileDropTarget photos onFile={(file) => setConvertDrop({ file, id: Date.now() })} />
+    <BankFileDropTarget tests onFile={(file) => setConvertDrop({ file, id: Date.now() })} />
     {importDialog}
     <ConvertPage dropped={convertDrop} importOpen={inspectingBankFile} onOpenImport={(file) => openImport(file)} />
   </>

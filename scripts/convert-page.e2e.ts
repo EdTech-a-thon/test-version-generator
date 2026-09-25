@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { PDFDocument, StandardFonts } from 'pdf-lib'
-import { assistantPackage, picture, sourceDocument } from './pending-images-fixtures'
+import { assistantPackage, picture, sourceDocument, wordSourceDocument } from './pending-images-fixtures'
 
 /**
  * Converting a test starts from one drop zone, and shows only the path the
@@ -62,4 +62,42 @@ test('the convert page asks only for the test, then shows the path it needs', as
   await expect(cropper).toContainText('Page 1 of 1')
   await cropper.getByRole('button', { name: 'Use the whole page' }).click()
   await expect(photoPicture).toContainText('Cropped from page 1')
+})
+
+test('a Word document goes to the AI as a labeled copy, and its pictures come from the document', async ({ page, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+  await page.goto('/get-started/convert')
+  const steps = page.getByRole('region', { name: 'Convert your test' })
+  await page.getByLabel('Your test').setInputFiles({
+    name: 'unit-test.docx',
+    mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    buffer: await wordSourceDocument(),
+  })
+  await expect(steps.getByRole('status')).toHaveText('Pictures detected in your document')
+  await expect(steps).toContainText('Test Parrot found 2 pictures in unit-test.docx.')
+  await expect(steps).toContainText('attach the labeled document (not your original)')
+
+  const download = page.waitForEvent('download')
+  await steps.getByRole('button', { name: 'Download labeled document' }).click()
+  expect((await download).suggestedFilename()).toBe('unit-test (labeled).docx')
+  await steps.getByRole('button', { name: 'Copy instructions' }).click()
+  const instructions = await page.evaluate(() => navigator.clipboard.readText())
+  expect(instructions).toContain('This is a labeled Word document. Test Parrot put 2 tags in it, each just before its picture:\n\n- IMG 1, IMG 2')
+
+  await steps.getByLabel('File from your AI').setInputFiles({ name: 'unit-test.parrot.json', mimeType: 'application/json', buffer: assistantPackage() })
+  const dialog = page.getByRole('dialog', { name: 'Import' })
+  await expect(dialog.getByRole('alert')).toHaveCount(0)
+  const preview = dialog.getByLabel('Test preview')
+  await expect(preview.getByRole('status').filter({ hasText: /picture/ }))
+    .toHaveText('3 of 5 pictures detected from unit-test.docx. Click a picture to change it.', { timeout: 30000 })
+  const map = preview.getByRole('button', { name: /^Question 1: / })
+  await expect(map).toContainText('Detected image · IMG 1')
+
+  // A picture Word does not store as an image is uploaded: there is no page
+  // to crop it from.
+  await preview.getByRole('button', { name: /^Question 4: / }).click()
+  const circuit = dialog.getByRole('complementary', { name: 'Picture for Question 4' })
+  await expect(circuit.getByRole('button', { name: 'Crop from a page' })).toHaveCount(0)
+  await circuit.getByLabel('Upload a picture for Question 4').setInputFiles({ name: 'circuit.png', mimeType: 'image/png', buffer: Buffer.from(picture(90, 60, 4)) })
+  await expect(preview.getByRole('button', { name: /^Question 4: / })).toContainText('Uploaded')
 })

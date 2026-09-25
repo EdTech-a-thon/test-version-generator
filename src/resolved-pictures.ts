@@ -26,11 +26,17 @@ export type Resolutions = ReadonlyMap<string, ResolvedPicture>
 
 /** The Source Document, when the teacher has it here. */
 export type ResolvingSource = {
+  /** A Word document, or a PDF (a photo is kept as one). Absent means PDF. */
+  kind?: 'pdf' | 'photo' | 'word'
   fileName: string
   bytes: Uint8Array
   pageCount: number
   tags: readonly ImageTag[]
 }
+
+/** Whether a Source Document has pages to crop: a Word document has no fixed
+ *  pages, so a picture it does not store as an image is uploaded instead. */
+export const hasPages = (source: ResolvingSource) => source.kind !== 'word'
 
 const shareOf = (box: PageBox) => Math.max(0, Math.min(1, (box.right - box.left) / 1000))
 
@@ -80,6 +86,11 @@ export function tagPicture(source: ResolvingSource, tag: ImageTag): Promise<Medi
   let picture = cache.get(tag.tag)
   if (!picture) {
     picture = (async () => {
+      if (!hasPages(source)) {
+        const { pictureForWordTag } = await import('./word-document')
+        const { bytes, mimeType } = await pictureForWordTag(source.bytes, tag)
+        return mediaAssetOfPicture(new Blob([bytes.slice().buffer as ArrayBuffer], { type: mimeType }))
+      }
       const [{ pictureForTag, browserRaster }, { mediaAssetOf }] = await Promise.all([
         import('./source-document'),
         import('./pending-images'),
@@ -109,18 +120,16 @@ export async function cropChoice(source: ResolvingSource, page: number, box: Pag
 
 const SUPPORTED = new Set(['image/png', 'image/jpeg', 'image/webp'])
 
-/** An uploaded file, as a choice for a Pending Image. It has no page, so it
- *  arrives at the size it fits. */
-export async function uploadChoice(file: File): Promise<ResolvedPicture> {
+/** A picture's bytes as a Media Asset: PNG, JPEG and WebP as they are, and
+ *  any other picture the browser can draw normalized to PNG. */
+async function mediaAssetOfPicture(picture: Blob): Promise<MediaAssetDeclaration> {
   const { mediaAssetOf } = await import('./pending-images')
-  const origin = { kind: 'upload', name: file.name } as const
-  const type = file.type.toLowerCase()
+  const type = picture.type.toLowerCase()
   if (SUPPORTED.has(type)) {
-    return { asset: await mediaAssetOf(new Uint8Array(await file.arrayBuffer()), type as MediaAssetDeclaration['mimeType']), origin }
+    return mediaAssetOf(new Uint8Array(await picture.arrayBuffer()), type as MediaAssetDeclaration['mimeType'])
   }
   if (!type.startsWith('image/') || type === 'image/svg+xml') throw new Error('Choose a PNG, JPEG or WebP picture.')
-  // Any other picture the browser can draw is normalized to PNG.
-  const bitmap = await createImageBitmap(file)
+  const bitmap = await createImageBitmap(picture)
   try {
     const canvas = document.createElement('canvas')
     canvas.width = bitmap.width
@@ -128,10 +137,16 @@ export async function uploadChoice(file: File): Promise<ResolvedPicture> {
     canvas.getContext('2d')?.drawImage(bitmap, 0, 0)
     const png = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'))
     if (!png) throw new Error('This picture could not be read.')
-    return { asset: await mediaAssetOf(new Uint8Array(await png.arrayBuffer()), 'image/png'), origin }
+    return mediaAssetOf(new Uint8Array(await png.arrayBuffer()), 'image/png')
   } finally {
     bitmap.close()
   }
+}
+
+/** An uploaded file, as a choice for a Pending Image. It has no page, so it
+ *  arrives at the size it fits. */
+export async function uploadChoice(file: File): Promise<ResolvedPicture> {
+  return { asset: await mediaAssetOfPicture(file), origin: { kind: 'upload', name: file.name } }
 }
 
 /** Every Pending Image that names a tag the Source Document has, filled with
@@ -199,7 +214,7 @@ export const placeName = (occurrence: PendingImageOccurrence) =>
 export function originName(picture: ResolvedPicture, source: ResolvingSource | null): string {
   switch (picture.origin.kind) {
     case 'tag':
-      return `IMG ${picture.origin.tag} from ${source?.fileName ?? 'your PDF'}`
+      return `IMG ${picture.origin.tag} from ${source?.fileName ?? 'your test'}`
     case 'crop':
       return `Cropped from page ${picture.origin.page}`
     case 'upload':

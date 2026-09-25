@@ -1,4 +1,5 @@
 import { createCanvas } from '@napi-rs/canvas'
+import { Document, ImageRun, Packer, Paragraph, TextRun } from 'docx'
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib'
 
 /** Fixtures for converting a test: a Source Document and what an assistant
@@ -31,6 +32,30 @@ export async function sourceDocument() {
   second.drawRectangle({ x: 60, y: 200, width: 300, height: 180, borderColor: rgb(0, 0, 0), borderWidth: 2 })
   second.drawText('5. Label the parts of the cell drawn below.', { x: 60, y: 160, size: 12, font })
   return Buffer.from(await pdf.save())
+}
+
+/** The same test as a Word document: the map and the graph are pictures in
+ *  it, and the circuit and the cell are not. */
+export async function wordSourceDocument() {
+  const line = (text: string) => new Paragraph({ children: [new TextRun(text)] })
+  const placed = (data: Uint8Array) => new Paragraph({
+    children: [new ImageRun({ type: 'png', data, transformation: { width: 300, height: 200 } })],
+  })
+  const document = new Document({
+    sections: [{
+      properties: { page: { size: { width: 12240, height: 15840 } } },
+      children: [
+        line('1. Use the map to name the trading station farthest east.'),
+        placed(picture(120, 80, 1)),
+        line('2. Which European power held the most stations on the map?'),
+        line('3. Describe the graph of the function shown below.'),
+        placed(picture(120, 80, 2)),
+        line('4. Describe the circuit drawn below.'),
+        line('5. Label the parts of the cell drawn below.'),
+      ],
+    }],
+  })
+  return Buffer.from(await Packer.toBuffer(document))
 }
 
 export const paragraph = (text: string) => ({ type: 'paragraph', content: [{ type: 'text', text }] })

@@ -33,10 +33,8 @@ export function ResolveImagesDialog({
     setError(null)
     setFilling(true)
     try {
-      const bytes = new Uint8Array(await file.arrayBuffer())
-      const { analyzeSourceDocument } = await import('./source-document')
-      const analysis = await analyzeSourceDocument(bytes)
-      const next = { fileName: file.name, bytes, pageCount: analysis.pageCount, tags: analysis.tags }
+      const { readSourceDocument } = await import('./source-file')
+      const next = await readSourceDocument(file)
       setSource(next)
       const filled = await prefilledPictures(occurrences.filter(({ key }) => !resolutions.has(key)), next)
       setResolutions((current) => new Map([...filled, ...current]))

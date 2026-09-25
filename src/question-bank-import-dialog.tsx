@@ -58,7 +58,7 @@ import {
 import { PictureSlotContext, type PictureSlot } from './picture-slot'
 import { discardWaitingImport, readWaitingImport, type WaitingImport } from './waiting-import'
 import { SourceDocumentSteps } from './source-document-steps'
-import { kindOfFile, startWaitingImport } from './source-file'
+import { TEST_FILE_TYPES, kindOfFile, readSourceDocument, startWaitingImport } from './source-file'
 import { useModalScrollLock } from './use-modal-scroll-lock'
 
 function formatBytes(bytes: number): string {
@@ -642,7 +642,8 @@ export function QuestionBankImportDialog({
     setError(null)
     setNeedsConversion(false)
     void (async () => {
-      if (kindOfFile(file) === 'photo') return startConverting(file)
+      const kind = kindOfFile(file)
+      if (kind === 'photo' || kind === 'word') return startConverting(file)
       try {
         const next = await inspectUploadedFile(file)
         // JSON dropped while an import waits is the assistant's answer to
@@ -763,10 +764,7 @@ export function QuestionBankImportDialog({
     setError(null)
     setFilling(true)
     try {
-      const bytes = new Uint8Array(await file.arrayBuffer())
-      const { analyzeSourceDocument } = await import('./source-document')
-      const analysis = await analyzeSourceDocument(bytes)
-      const source = { fileName: file.name, bytes, pageCount: analysis.pageCount, tags: analysis.tags }
+      const source = await readSourceDocument(file)
       setSuppliedSource(source)
       const filled = await prefilledPictures(occurrences.filter(({ key }) => !resolutions.has(key)), source)
       setResolutions((current) => new Map([...filled, ...current]))
@@ -935,7 +933,7 @@ export function QuestionBankImportDialog({
                 ref={input}
                 type="file"
                 aria-label="Your test PDF or a Test Parrot file"
-                accept="application/pdf,.pdf,application/json,.json,image/*"
+                accept={`${TEST_FILE_TYPES},application/json,.json`}
                 disabled={busy}
                 onChange={(event) => {
                   const file = event.target.files?.[0]
@@ -946,8 +944,8 @@ export function QuestionBankImportDialog({
                 }}
               />
               <UploadCloud aria-hidden="true" />
-              <strong>Your test as a PDF, or a Test Parrot file</strong>
-              <span>A test to convert, a Question Bank or Test PDF, or a <code>.parrot.json</code> file</span>
+              <strong>Your test, or a Test Parrot file</strong>
+              <span>A test to convert as a PDF, Word document or photo, a Question Bank or Test PDF, or a <code>.parrot.json</code> file</span>
               <span>Drop it here or click to choose one</span>
             </label>
             <div
@@ -959,15 +957,15 @@ export function QuestionBankImportDialog({
                 {needsConversion ? (
                   <>
                     <strong>That file isn’t a Test Parrot file yet.</strong>{' '}
-                    Drop your test here as a PDF to keep its pictures, or copy
-                    these instructions and give them to an AI along with a scan
-                    or screenshot of it — it will produce a file with your
-                    questions and the test itself, ready to drop here.
+                    Drop your test here as a PDF or Word document to keep its
+                    pictures, or copy these instructions and give them to an AI
+                    along with it — it will produce a file with your questions
+                    and the test itself, ready to drop here.
                   </>
                 ) : (
                   <>
-                    Already have a test? Drop its PDF here to keep its pictures.
-                    For a photo, a Word document or pasted text, copy these
+                    Already have a test? Drop its PDF, Word document or a photo
+                    here to keep its pictures. For pasted text, copy these
                     instructions for an AI to turn it into a file with your
                     questions and the test itself, ready to import here.
                   </>
@@ -992,7 +990,7 @@ export function QuestionBankImportDialog({
           aria-atomic="true"
         >
           {phase === 'inspecting' && <p role="status">Validating file…</p>}
-          {phase === 'analyzing' && <p role="status">Finding the pictures in your PDF…</p>}
+          {phase === 'analyzing' && <p role="status">Finding the pictures in your test…</p>}
           {phase === 'saving' && <p role="status">Importing…</p>}
           {error && !needsConversion && <p className="home-error" role="alert">{error}</p>}
         </div>
@@ -1002,10 +1000,10 @@ export function QuestionBankImportDialog({
             <p>
               <strong>This file seems to come from a different test than {waiting.fileName}.</strong>{' '}
               {paired!.unknownTags.length > 0
-                ? `It names ${paired!.unknownTags.map((tag) => `IMG ${tag}`).join(', ')}, which your PDF does not have. `
+                ? `It names ${paired!.unknownTags.map((tag) => `IMG ${tag}`).join(', ')}, which your test does not have. `
                 : ''}
               {paired!.stemsChecked > 0 && paired!.stemsFound * 2 <= paired!.stemsChecked
-                ? 'Most of its questions are not in your PDF. '
+                ? 'Most of its questions are not in your test. '
                 : ''}
               You can import it anyway, or choose another file.
             </p>
@@ -1069,9 +1067,9 @@ export function QuestionBankImportDialog({
                   <ImageIcon aria-hidden="true" />
                   <span>
                     {filling
-                      ? `Finding your pictures in ${resolvingSource?.fileName ?? 'your PDF'}…`
+                      ? `Finding your pictures in ${resolvingSource?.fileName ?? 'your test'}…`
                       : detected > 0
-                        ? `${detected === occurrences.length ? `All ${plural(detected, 'picture')}` : `${detected} of ${plural(occurrences.length, 'picture')}`} detected from ${resolvingSource?.fileName ?? 'your PDF'}. Click a picture to change it.`
+                        ? `${detected === occurrences.length ? `All ${plural(detected, 'picture')}` : `${detected} of ${plural(occurrences.length, 'picture')}`} detected from ${resolvingSource?.fileName ?? 'your test'}. Click a picture to change it.`
                         : `${plural(occurrences.length, 'picture')} needed. Click one to add it, or add them after importing.`}
                   </span>
                 </p>

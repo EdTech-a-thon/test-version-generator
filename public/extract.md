@@ -598,7 +598,7 @@ If an image is meaningful Question Content—for example, a graph or diagram the
 
 **Do not create Media Assets, and never write base64.** Instead, write a **Pending Image**: an image node that names the picture by its tag. Test Parrot takes the picture from the original file when the teacher imports the JSON.
 
-**The PDF you were given may be a labeled copy**, and the [image tag list](#image-tags-in-this-document) below says whether it is. In a labeled copy, Test Parrot has printed a small red tag, such as **IMG 3**, in the top-left corner of every image embedded in the document. The tags are not part of the source: never copy a tag into Question Content, `alt`, or `caption`, and describe each picture as if its tag were not there.
+**The file you were given may be a labeled copy**, and the [image tag list](#image-tags-in-this-document) below says whether it is. In a labeled PDF, Test Parrot has printed a small red tag, such as **IMG 3**, in the top-left corner of every image embedded in the document. In a labeled Word document, the red tag sits in the text just before its picture: it names the picture that follows it. The tags are not part of the source: never copy a tag into Question Content, `alt`, or `caption`, and describe each picture as if its tag were not there.
 
 ```json
 {
@@ -613,7 +613,7 @@ Rules:
 
 - A Pending Image has a `pending` member and **no `asset` member**.
 - `pending` holds `image`: the number on the tag printed on that picture. Read the number from the tag; do not count images yourself.
-- A picture with no tag, such as a diagram drawn with lines or a picture on a scanned page, gets `"pending": { "page": <n> }` instead, where `n` is the 1-based page of the file as a PDF viewer counts it. Do not add coordinates or any other location.
+- A picture with no tag, such as a diagram drawn with lines or a picture on a scanned page, gets `"pending": { "page": <n> }` instead, where `n` is the 1-based page of the file as a PDF viewer counts it (in a Word document, always `1`). Do not add coordinates or any other location.
 - **Not every tag is a picture.** Test Parrot tags every embedded image, and some documents store a reading passage, a table, an equation, or a caption as an image. Transcribe those as ordinary content—text, a table, or math—exactly as you would if they were typed, and do not write a Pending Image for their tag. A tagged image that holds only words, such as a boxed reading passage with its source line, is text: transcribe every word, including the source line, and repeat a shared passage in every Question that uses it. Write a Pending Image for such a tag only if you cannot read its words reliably, and say so in the conversion report.
 - Put the Pending Image exactly where the picture belongs: in the `stem` when the picture belongs to the question, or in the choice's `content` when the picture is that answer choice.
 - **Write one Pending Image per picture.** Two graphs side by side, such as “Graph of f” and “Graph of g”, are two pictures and need two Pending Images, in reading order. When you cannot tell whether something is one picture or several, write several: an extra Pending Image is easy for the teacher to fill, and a missing one is not.

@@ -4,7 +4,7 @@ import extractInstructions from '../public/extract.md?raw'
 import { fillImageTags } from './image-tag-list'
 import { discardWaitingImport, readWaitingImport, type WaitingImport } from './waiting-import'
 import { SourceDocumentSteps } from './source-document-steps'
-import { kindOfFile, startWaitingImport, unsupportedFileMessage } from './source-file'
+import { TEST_FILE_TYPES, kindOfFile, startWaitingImport, unsupportedFileMessage } from './source-file'
 import { inspectUploadedFile } from './question-bank-upload'
 import { LandingHeader } from './landing-page'
 import { Footer, Link } from './site-chrome'
@@ -144,7 +144,7 @@ export function ConvertPage({
                 <input
                   type="file"
                   aria-label="Your test"
-                  accept="application/pdf,.pdf,image/*,application/json,.json"
+                  accept={`${TEST_FILE_TYPES},application/json,.json`}
                   disabled={reading}
                   onChange={(event) => {
                     const file = event.target.files?.[0]
@@ -154,7 +154,7 @@ export function ConvertPage({
                 />
                 <UploadCloud aria-hidden="true" />
                 <strong>{reading ? 'Reading your test…' : 'Drop your PDF here to get started'}</strong>
-                <span>or click to choose it. A photo of your test works too.</span>
+                <span>or click to choose it. A Word document or a photo of your test works too.</span>
               </label>
               <p className="convert-text-only">
                 Only have it as text?{' '}

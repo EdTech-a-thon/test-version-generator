@@ -1,6 +1,7 @@
 import fontkit from '@pdf-lib/fontkit'
 import { PDFDocument, rgb } from 'pdf-lib'
 import type { PdfFontLoader } from './pdf-export'
+import { isPicture, type PageBox } from './picture-rules'
 
 /**
  * A Source Document is the teacher's own PDF, the test an assistant converts.
@@ -16,9 +17,7 @@ import type { PdfFontLoader } from './pdf-export'
  * right pictures.
  */
 
-/** A region of a page on a 0–1000 scale of its width and height, measured
- *  from the top-left corner the way a reader sees the page. */
-export type PageBox = { left: number; top: number; right: number; bottom: number }
+export type { PageBox } from './picture-rules'
 
 export type ImageTag = {
   /** The number printed on the labeled copy: “IMG 3” is tag 3. */
@@ -66,12 +65,6 @@ export class SourceDocumentError extends Error {
   }
 }
 
-/** An image narrower than this share of the page, or shorter than its height
- *  share, is an equation, a bullet or a caption stored as a picture. */
-const MIN_WIDTH = 60
-const MIN_HEIGHT = 40
-/** An image covering this share of the page or more is a scanned page. */
-const FULL_PAGE = 0.7
 /** Images whose tops are this close share a row of the page. */
 const ROW_TOLERANCE = 40
 /** Crops are rendered for print. */
@@ -195,14 +188,6 @@ function resolveObject(page: PdfPage, object: Placement['object']): Promise<Deco
 async function intrinsicSize(page: PdfPage, object: Placement['object']) {
   const image = await resolveObject(page, object)
   return { width: image?.width ?? 0, height: image?.height ?? 0 }
-}
-
-/** Whether a placement is a picture rather than an equation or a scan. */
-function isPicture(box: PageBox): boolean {
-  const width = box.right - box.left
-  const height = box.bottom - box.top
-  if (width < MIN_WIDTH || height < MIN_HEIGHT) return false
-  return (width * height) / 1_000_000 < FULL_PAGE
 }
 
 /** Rows top to bottom, each read left to right: a row is every picture whose

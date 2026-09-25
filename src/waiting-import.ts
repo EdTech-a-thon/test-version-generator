@@ -2,7 +2,7 @@ import type { ImageTag } from './source-document'
 
 /**
  * The import that is waiting for an assistant: a teacher dropped their own
- * PDF, Test Parrot tagged it, and the JSON the assistant returns has not been
+ * test, Test Parrot tagged it, and the JSON the assistant returns has not been
  * dropped back yet. It holds the Source Document itself, because that is where
  * every Pending Image's picture will come from.
  *
@@ -20,8 +20,9 @@ const KEY = 'current'
 export const WAITING_IMPORT_LIFETIME_MS = 7 * 24 * 60 * 60 * 1000
 
 export type WaitingImport = {
-  /** A PDF, or a photo of a test kept as a one-page PDF. Absent means PDF. */
-  kind?: 'pdf' | 'photo'
+  /** A PDF, a photo of a test kept as a one-page PDF, or a Word document
+   *  (.docx). Absent means PDF. */
+  kind?: 'pdf' | 'photo' | 'word'
   fileName: string
   bytes: Uint8Array
   pageCount: number
