@@ -14,17 +14,19 @@ async function textOnlyPdf() {
   return Buffer.from(await pdf.save())
 }
 
-test('the convert page asks only for the test, then shows the path it needs', async ({ page, context }) => {
+test('the convert page asks only for the test, then opens its import with the path it needs', async ({ page, context }) => {
   await context.grantPermissions(['clipboard-read', 'clipboard-write'])
   await page.goto('/get-started/convert')
   await expect(page.getByText('Drop your PDF here to get started')).toBeVisible()
   const steps = page.getByRole('region', { name: 'Convert your test' })
   await expect(steps).toHaveCount(0)
 
-  // A PDF with pictures goes to the AI as a labeled copy.
+  // A PDF with pictures starts an import, opened in Imports, and goes to the
+  // AI as a labeled copy.
   await page.getByLabel('Your test').setInputFiles({ name: 'unit-test.pdf', mimeType: 'application/pdf', buffer: await sourceDocument() })
+  await expect(page).toHaveURL(/\/import\?id=/)
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Converting unit-test.pdf')
-  await expect(steps.getByRole('status')).toHaveText('2 pictures detected in your PDF')
+  await expect(page.getByLabel('About this import')).toContainText('Pictures detected2')
   await expect(steps.getByRole('button', { name: 'Download the labeled PDF' })).toBeVisible()
   await expect(steps).toContainText('attach the labeled PDF (not your original)')
   await expect(steps).not.toContainText('seven days')
@@ -33,19 +35,20 @@ test('the convert page asks only for the test, then shows the path it needs', as
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Converting unit-test.pdf')
   await expect(page.getByRole('dialog')).toHaveCount(0)
 
-  // Starting over with a PDF that has no pictures needs no labeled copy.
-  await steps.getByRole('button', { name: 'Start over with another file' }).click()
+  // A PDF that has no pictures needs no labeled copy.
+  await page.goto('/get-started/convert')
   await page.getByLabel('Your test').setInputFiles({ name: 'planets.pdf', mimeType: 'application/pdf', buffer: await textOnlyPdf() })
-  await expect(steps.getByRole('status')).toHaveText('No pictures in your PDF')
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Converting planets.pdf')
+  await expect(page.getByLabel('About this import')).toContainText('Pictures detected0')
   await expect(steps.getByRole('button', { name: 'Download the labeled PDF' })).toHaveCount(0)
   await steps.getByRole('button', { name: 'Copy the instructions' }).click()
   await expect(steps.getByRole('button', { name: 'Copied' })).toBeVisible()
   expect(await page.evaluate(() => navigator.clipboard.readText())).toContain('found no embedded pictures in this document')
 
   // A photo is converted as it is, and its pictures are cropped after.
-  await steps.getByRole('button', { name: 'Start over with another file' }).click()
+  await page.goto('/get-started/convert')
   await page.getByLabel('Your test').setInputFiles({ name: 'quiz-photo.png', mimeType: 'image/png', buffer: Buffer.from(picture(600, 800, 3)) })
-  await expect(steps.getByRole('status')).toHaveText('A photo of your test: you crop its pictures after importing')
+  await expect(page.getByLabel('About this import')).toContainText('Pictures detectedCropped after importing')
   await expect(steps).toContainText('attach your photo')
   // The whole step opens the list of assistants.
   await steps.getByRole('button', { name: 'Open your AI' }).click()
@@ -83,7 +86,7 @@ test('a Word document goes to the AI as a labeled copy, and its pictures come fr
     mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     buffer: await wordSourceDocument(),
   })
-  await expect(steps.getByRole('status')).toHaveText('2 pictures detected in your document')
+  await expect(page.getByLabel('About this import')).toContainText('Pictures detected2')
   await expect(steps).toContainText('attach the labeled document (not your original)')
 
   const download = page.waitForEvent('download')

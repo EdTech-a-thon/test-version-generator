@@ -68,6 +68,7 @@ export function SourceDocumentSteps({
   onStartOver,
   busy = false,
   named = false,
+  noted = true,
 }: {
   waiting: WaitingImport
   /** The file the AI gave back, dropped or chosen here. */
@@ -78,6 +79,9 @@ export function SourceDocumentSteps({
   /** Whether to say which file is being converted, where nothing around the
    *  steps does. */
   named?: boolean
+  /** Whether to say what was found in the file, where nothing around the
+   *  steps does. */
+  noted?: boolean
 }) {
   const [copied, setCopied] = useState(false)
   const [choosing, setChoosing] = useState(false)
@@ -165,14 +169,14 @@ export function SourceDocumentSteps({
     {named && <h2 className="source-steps-title" title={waiting.fileName}>
       <span>Converting</span> <span className="source-steps-name">{waiting.fileName}</span>
     </h2>}
-    <p className="source-steps-note" role="status">
+    {noted && <p className="source-steps-note" role="status">
       {pictures && <ImageIcon aria-hidden="true" />}
       {pictures
         ? `${plural(waiting.tags.length, 'picture')} detected in your ${file}`
         : photo
           ? 'A photo of your test: you crop its pictures after importing'
           : `No pictures in your ${file}`}
-    </p>
+    </p>}
 
     <ol className="source-steps-list">
       {pictures && <li>

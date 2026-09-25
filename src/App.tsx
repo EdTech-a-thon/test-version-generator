@@ -2968,7 +2968,7 @@ export default function App({
   if (route === '/get-started/convert') return <>
     <BankFileDropTarget tests onFile={(file) => setConvertDrop({ file, id: Date.now() })} />
     {importDialog}
-    <ConvertPage dropped={convertDrop} importOpen={inspectingBankFile} onOpenImport={(file, waitingImportId) => openImport(file, null, waitingImportId)} />
+    <ConvertPage dropped={convertDrop} onOpenImport={(file) => openImport(file)} />
   </>
   if (route === '/') return <>{globalChrome}<HomePage
     exams={exams}
