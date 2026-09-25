@@ -91,6 +91,37 @@ function candidatesAt(point: { x: number; y: number }): DropCandidate[] | null {
   )
 }
 
+/** How close to the Exam's top or bottom edge the pointer has to be before a
+ *  gesture scrolls it, and how fast it goes at the very edge. */
+const AUTOSCROLL_EDGE = 72
+const AUTOSCROLL_MAX_SPEED = 18
+
+/** What scrolls the Exam: its own lane, or — on a layout narrow enough to
+ *  stack the panes — the page itself. */
+function examScroller(): { element: Element; top: number; bottom: number } | null {
+  const lane = document.querySelector('.editor-output')
+  if (lane && /auto|scroll/.test(getComputedStyle(lane).overflowY)) {
+    const bounds = lane.getBoundingClientRect()
+    return { element: lane, top: bounds.top, bottom: bounds.bottom }
+  }
+  const page = document.scrollingElement
+  return page ? { element: page, top: 0, bottom: window.innerHeight } : null
+}
+
+/** How far to scroll the Exam this frame for a pointer at `y`: nothing in the
+ *  middle, faster the deeper into an edge band it is, and full speed past the
+ *  edge — a pointer over the document bar is still asking to go up. */
+function autoscrollStep(y: number, top: number, bottom: number): number {
+  const edge = Math.min(AUTOSCROLL_EDGE, (bottom - top) / 4)
+  if (y < top + edge) {
+    return -AUTOSCROLL_MAX_SPEED * Math.min(1, (top + edge - y) / edge)
+  }
+  if (y > bottom - edge) {
+    return AUTOSCROLL_MAX_SPEED * Math.min(1, (y - (bottom - edge)) / edge)
+  }
+  return 0
+}
+
 function sameIntent(a: DropIntent | null, b: DropIntent | null): boolean {
   if (a === b) return true
   if (!a || !b || a.kind !== b.kind) return false
@@ -156,6 +187,10 @@ export function useWorkspaceDrag(
     offsetX: number
     offsetY: number
   } | null>(null)
+  // Where the pointer last was, so the Exam can keep scrolling — and what is
+  // under the pointer keep being re-read — while the pointer holds still.
+  const pointer = useRef<{ x: number; y: number } | null>(null)
+  const autoscrollFrame = useRef<number | null>(null)
   const [source, setSource] = useState<DragSource | null>(null)
   const [intent, setIntent] = useState<DropIntent | null>(null)
   const [droppedQuestionIds, setDroppedQuestionIds] = useState<ReadonlySet<string>>(
@@ -163,6 +198,9 @@ export function useWorkspaceDrag(
   )
 
   const clearArtifacts = useCallback(() => {
+    if (autoscrollFrame.current !== null) cancelAnimationFrame(autoscrollFrame.current)
+    autoscrollFrame.current = null
+    pointer.current = null
     preview.current?.element.remove()
     preview.current = null
     const root = document.documentElement
@@ -224,19 +262,49 @@ export function useWorkspaceDrag(
     [clearArtifacts, paint],
   )
 
-  const move = useCallback(
+  /** Re-reads what releasing at `point` would do. */
+  const locate = useCallback(
     (point: { x: number; y: number }) => {
-      const held = preview.current
-      if (held) {
-        held.element.style.left = `${point.x - held.offsetX}px`
-        held.element.style.top = `${point.y - held.offsetY}px`
-      }
       const current = sourceRef.current
       if (!current) return
       const candidates = candidatesAt(point)
       paint(dropIntent(current, candidates ?? [], candidates ? point : null))
     },
     [paint],
+  )
+
+  // Hovering near the Exam's top or bottom edge scrolls it, wherever the drag
+  // started — a bank question bound for page six should not have to be
+  // dropped on page one and dragged again. Scrolling moves the page under a
+  // still pointer, so what is under it is read again whenever the Exam moves.
+  const autoscroll = useCallback(() => {
+    autoscrollFrame.current = null
+    const point = pointer.current
+    if (!point || !sourceRef.current) return
+    const scroller = examScroller()
+    if (scroller) {
+      const step = autoscrollStep(point.y, scroller.top, scroller.bottom)
+      const before = scroller.element.scrollTop
+      if (step !== 0) scroller.element.scrollTop = before + step
+      if (scroller.element.scrollTop !== before) locate(point)
+    }
+    autoscrollFrame.current = requestAnimationFrame(autoscroll)
+  }, [locate])
+
+  const move = useCallback(
+    (point: { x: number; y: number }) => {
+      pointer.current = point
+      if (autoscrollFrame.current === null) {
+        autoscrollFrame.current = requestAnimationFrame(autoscroll)
+      }
+      const held = preview.current
+      if (held) {
+        held.element.style.left = `${point.x - held.offsetX}px`
+        held.element.style.top = `${point.y - held.offsetY}px`
+      }
+      locate(point)
+    },
+    [autoscroll, locate],
   )
 
   const finish = useCallback(() => {

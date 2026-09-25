@@ -658,7 +658,7 @@ button { cursor: pointer; }
 .bank-outline-row > svg { margin-inline: 2.5px; }
 .bank-outline-empty { margin: 0; padding: 0 8px; color: #7a6a5c; font-size: 12.5px; line-height: 1.4; }
 .question-bank-list {
-  flex: 1 1 auto; min-height: 0; overflow-y: auto;
+  flex: 1 1 auto; min-height: 0; overflow-y: auto; scrollbar-gutter: stable;
   display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none;
 }
 .question-bank-row {
@@ -909,6 +909,10 @@ button { cursor: pointer; }
 .question-drag-active[data-drag-intent='none'],
 .question-drag-active[data-drag-intent='none'] * { cursor: no-drop !important; }
 .question-drag-active { user-select: none; }
+/* A gesture scrolls the Exam, not the bank it was lifted from: the browser's
+   own drag autoscroll would otherwise carry the list the press started in.
+   The reserved gutter keeps the rows from widening when its scrollbar goes. */
+.question-drag-active .question-bank-list { overflow-y: hidden; }
 
 /* While a Question Bank question is in flight, every position it could reach
    says so — before the pointer is over any one of them, which is what makes a
