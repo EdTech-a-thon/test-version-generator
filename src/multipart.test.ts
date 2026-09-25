@@ -172,7 +172,7 @@ describe('a Multipart question on the paper', () => {
 
   test('letters its Parts beneath its number, each printed as a question of its kind', () => {
     const question = planned().find(({ id }) => id === 's1')!
-    expect(question.answerBlank).toBe(false)
+    expect(question.marks).toEqual([])
     // Neither kind prints an answer blank: each is set in by its letter alone.
     expect(question.parts?.map((part) => [part.letter, part.type])).toEqual([
       ['a', 'multiple-choice'],

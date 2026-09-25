@@ -341,7 +341,7 @@ describe('questions', () => {
     )
     expect(item!.numbered).toBe(true)
     expect(printsNumberLine(item!)).toBe(false)
-    expect(item!.question.answerBlank).toBe(false)
+    expect(item!.question.marks).toEqual([])
     expect(item!.question.grid).toBeNull()
     expect(item!.question.choices).toEqual([])
     expect(item!.question.stem).toEqual([
@@ -381,15 +381,15 @@ describe('questions', () => {
     ])
   })
 
-  test('multiple choice is prefixed with an answer blank; short answer is not', () => {
+  test('neither multiple choice nor short answer prints anything before its number', () => {
     const exam = examOf([multipleChoice('m1', ['a', 'b']), open('o1')])
     const rendered = plannedQuestions(render(exam))
-    expect(rendered.map((question) => question.answerBlank)).toEqual([true, false])
+    expect(rendered.map((question) => question.marks)).toEqual([[], []])
   })
 
-  test('true/false is prefixed with an answer blank and prints no choice grid', () => {
+  test('true/false prints a T and an F to circle before its number, and no choice grid', () => {
     const [rendered] = plannedQuestions(render(examOf([trueFalse('t1', 'true')])))
-    expect(rendered!.answerBlank).toBe(true)
+    expect(rendered!.marks).toEqual(['T', 'F'])
     // The pair is stated by the section's directions, so the statement stands
     // alone on the page.
     expect(rendered!.grid).toBeNull()
@@ -601,17 +601,18 @@ describe('answer columns', () => {
 // numbers below are chosen against the real content boxes so the assertions
 // stay honest if the page furniture is ever resized.
 describe('page geometry', () => {
-  test('a Short Answer question’s body starts nearer its number, having no blank beside it', () => {
+  test('no question leaves room for an answer blank; a True/False question leaves room for its marks', () => {
     expect(questionIndentOf({ type: 'open' })).toBe(40)
-    expect(questionIndentOf({ type: 'multiple-choice' })).toBe(98)
-    expect(questionIndentOf({ type: 'true-false' })).toBe(98)
+    expect(questionIndentOf({ type: 'multiple-choice' })).toBe(40)
+    expect(questionIndentOf({ type: 'multipart' })).toBe(40)
+    expect(questionIndentOf({ type: 'true-false' })).toBe(70)
   })
 
   test('is US Letter at 96dpi with three-quarter-inch margins', () => {
     expect([PAGE_WIDTH, PAGE_HEIGHT]).toEqual([816, 1056])
     expect(PAGE_MARGIN).toBe(72)
     expect(PAGE_CONTENT_WIDTH).toBe(672)
-    expect(CHOICE_AREA_WIDTH).toBe(574)
+    expect(CHOICE_AREA_WIDTH).toBe(632)
   })
 
   test('subtracts the header and footer from the content box', () => {

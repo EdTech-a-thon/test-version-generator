@@ -17,7 +17,7 @@ import { Check, RotateCcw } from 'lucide-react'
 import { DifficultyBadge, TopicBadge } from './badges'
 import { DocView } from './doc-view'
 import {
-  hasCompactNumber,
+  hasMarks,
   printsNumberLine,
   type AnswerKeyEntryItem,
   type AnswerKeySectionItem,
@@ -242,19 +242,22 @@ export function QuestionContent({
   const numbered = printsNumberLine(item)
   return (
     <>
-      {/* A Short Answer question has no blank to make room for, nor does a
-          Multipart question, which prints none, so its column holds the
-          number alone — `questionIndentOf` in export-plan.ts is the same width
+      {/* The column holds the number alone, and a True/False question's marks
+          before it — `questionIndentOf` in export-plan.ts is the same width
           for the adapters. */}
       <div
         className={
-          hasCompactNumber(item.question.type)
-            ? 'question-number question-number--compact'
+          hasMarks(item.question.type)
+            ? 'question-number question-number--marks'
             : 'question-number'
         }
       >
-        {numbered && item.question.answerBlank && (
-          <span className="answer-blank" aria-label="Answer blank" />
+        {numbered && item.question.marks.length > 0 && (
+          <span className="question-marks" aria-label="Circle one">
+            {item.question.marks.map((mark) => (
+              <span key={mark} className="question-mark">{mark}</span>
+            ))}
+          </span>
         )}
         {numbered && <span className="question-count">{item.question.number}.</span>}
       </div>

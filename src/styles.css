@@ -885,14 +885,15 @@ button { cursor: pointer; }
 .answer-key-metadata .badge { padding: 0 7px; font: 11px/1.55 Arial, Helvetica, sans-serif; }
 .answer-key-metadata .badge svg { width: 11px; height: 11px; }
 .exam-question {
-  position: relative; display: grid; grid-template-columns: 92px 1fr; gap: 6px;
+  position: relative; display: grid; grid-template-columns: 34px 1fr; gap: 6px;
   margin-bottom: 26px; border-radius: 4px; cursor: grab;
   transition: background-color 90ms ease, box-shadow 90ms ease;
 }
-/* A Short Answer question has no answer blank, so its number column is only
-   as wide as a three-digit number. `questionIndentOf` in export-plan.ts holds
-   the same width for the adapters. */
-.exam-question:has(> .question-number--compact) { grid-template-columns: 34px 1fr; }
+/* No question prints an answer blank, so the number column is only as wide as
+   a three-digit number; a True/False question's T and F, which a student
+   circles, sit before its number in a wider one. `questionIndentOf` in
+   export-plan.ts holds the same widths for the adapters. */
+.exam-question:has(> .question-number--marks) { grid-template-columns: 64px 1fr; }
 .exam-question, .exam-question * { -webkit-user-drag: none; }
 .exam-question:active { cursor: grabbing; }
 
@@ -1037,7 +1038,7 @@ button { cursor: pointer; }
 .exam-question[data-drop="after"]::after { bottom: -14px; }
 .question-number { display: flex; align-items: baseline; gap: 8px; font-weight: 700; }
 /* The line a student writes their letter on. */
-.answer-blank { flex: 1; border-bottom: 1px solid #332a24; transform: translateY(-3px); }
+.question-marks { display: flex; gap: 10px; font-weight: 400; }
 .question-count { white-space: nowrap; }
 .doc-content { white-space: pre-wrap; }
 
