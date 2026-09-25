@@ -37,7 +37,7 @@ A versioned bundle of one or more Question Bank Records and any number of Exam R
 _Avoid_: Import package, bundle, transfer file
 
 **Source Document**:
-The teacher's original PDF that an assistant converts into a Test Parrot Package. It is never authoritative for Question Content; Test Parrot uses it only to supply pictures for Pending Images, and keeps it only while its import is in progress. A test the teacher has only as a photo, a Word document or pasted text still converts, but has no Source Document: its pictures arrive as Pending Images naming a page, resolved by upload.
+The teacher's original PDF, or a photo of their test, that an assistant converts into a Test Parrot Package. It is never authoritative for Question Content; Test Parrot uses it only to supply pictures for Pending Images, and keeps it only while its import is in progress. A photo is kept as a one-page PDF: nothing in it is tagged, so its pictures arrive as Pending Images naming page 1 and are cropped from it. A test the teacher has only as a Word document or pasted text still converts, but has no Source Document; its pictures are resolved by upload.
 _Avoid_: Original PDF, Question Bank File
 
 **Image Tag**:

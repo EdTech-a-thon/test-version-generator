@@ -2547,6 +2547,41 @@ button { cursor: pointer; }
 .convert-step-text code { font-size: 12.5px; color: #332a24; }
 .convert-step-action { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
 .convert-step-action svg { width: 15px; height: 15px; }
+.convert-drop { padding: 56px 24px 50px; }
+.convert-drop strong { font-size: 18px; }
+.convert-text-only { margin: 12px 0 0; color: #5f4d40; font-size: 13.5px; text-align: center; }
+
+/* The one path a dropped test needs. */
+.source-steps-head { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 14px; }
+.source-steps-head h2 { margin: 0 0 4px; font-size: 19px; color: #2f2419; }
+.source-steps-head p { margin: 0; color: #5f4d40; font-size: 14px; line-height: 1.5; }
+.source-steps-head > svg { flex: none; width: 26px; height: 26px; margin-top: 2px; color: var(--paper-accent); }
+.source-steps-head[data-pictures] {
+  padding: 12px 14px; border: 1px solid var(--paper-accent); border-radius: 10px; background: var(--paper-accent-wash);
+}
+.source-steps-list { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; counter-reset: step; }
+.source-steps-list > li {
+  display: grid; grid-template-columns: 30px minmax(0, 1fr) auto; align-items: center; gap: 12px;
+  padding: 12px 14px; border: 1px solid var(--paper-outline); border-radius: 10px; background: #fffdf8;
+}
+.source-steps-list > li::before {
+  counter-increment: step; content: counter(step); display: grid; place-items: center;
+  width: 26px; height: 26px; border-radius: 50%; color: var(--paper-accent); background: var(--paper-accent-wash);
+  font-weight: 700; font-size: 13px;
+}
+.source-steps-list > li > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.source-steps-list > li > div strong { font-size: 15px; }
+.source-steps-list > li > div span { color: #5f4d40; font-size: 13.5px; line-height: 1.45; }
+.source-steps-list > li > button, .source-steps-list > li > select { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.source-steps-list > li > button svg { width: 15px; height: 15px; }
+.source-steps-return { grid-template-columns: 30px minmax(0, 1fr) !important; }
+.source-steps-return .bank-import-drop { grid-column: 2; margin: 4px 0 0; padding: 18px; }
+.source-steps-foot { display: flex; justify-content: space-between; gap: 12px; margin: 12px 0 0; color: #5f4d40; font-size: 12.5px; }
+@media (max-width: 640px) {
+  .source-steps-list > li { grid-template-columns: 30px minmax(0, 1fr); }
+  .source-steps-list > li > button, .source-steps-list > li > select { grid-column: 2; justify-self: start; }
+  .source-steps-foot { flex-direction: column; }
+}
 .convert-file { position: relative; cursor: pointer; }
 .convert-file input { position: absolute; inset: 0; width: 100%; opacity: 0; cursor: pointer; }
 .convert-alternative {

@@ -2677,6 +2677,7 @@ export default function App({
   const [deletingBank, setDeletingBank] = useState<{ bank: QuestionBankCollectionItem; impact: QuestionDeletionImpact[] } | null>(null)
   const [inspectingBankFile, setInspectingBankFile] = useState(false)
   const [droppedBankFile, setDroppedBankFile] = useState<File | null>(null)
+  const [convertDrop, setConvertDrop] = useState<{ file: File; id: number } | null>(null)
   const homeError = initialError
   const [bankLibraryRevision, setBankLibraryRevision] = useState(0)
   const [importTargetBankId, setImportTargetBankId] = useState<string | null>(null)
@@ -2856,7 +2857,13 @@ export default function App({
   if (route === '/get-started') return <>{globalChrome}<OnboardingPage onNewBank={newBank} onNewExam={newExam} /></>
   // Its last step is "drop the file anywhere", which the page-wide drop
   // target in the global chrome already is.
-  if (route === '/get-started/convert') return <>{globalChrome}<ConvertPage importOpen={inspectingBankFile} onOpenImport={(file) => openImport(file)} /></>
+  // Converting starts from the test itself, so on the convert page a drop is
+  // the page's to read: only a Test Parrot file goes straight to the import.
+  if (route === '/get-started/convert') return <>
+    <BankFileDropTarget photos onFile={(file) => setConvertDrop({ file, id: Date.now() })} />
+    {importDialog}
+    <ConvertPage dropped={convertDrop} importOpen={inspectingBankFile} onOpenImport={(file) => openImport(file)} />
+  </>
   if (route === '/') return <>{globalChrome}<HomePage
     exams={exams}
     banks={bankCollection}

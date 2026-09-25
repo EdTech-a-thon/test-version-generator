@@ -7,6 +7,7 @@ import {
   cropSourcePage,
   labelSourceDocument,
   labeledFilename,
+  photoSourceDocument,
   pictureForTag,
   type PageBox,
   type Raster,
@@ -222,5 +223,18 @@ describe('cropping a page', () => {
     const png = await cropSourcePage(source, 1, { left: 0, top: 0, right: 500, bottom: 250 }, raster)
     const image = await loadImage(Buffer.from(png))
     expect([image.width, image.height]).toEqual([Math.round((W / 2) * (300 / 72)), Math.round((H / 4) * (300 / 72))])
+  })
+})
+
+describe('a photo of a test', () => {
+  test('becomes a one-page Source Document with nothing to tag, that crops like any page', async () => {
+    const photo = picture(300, 400, 4)
+    const document = await photoSourceDocument(photo.png, 'image/png')
+    const analysis = await analyzeSourceDocument(document)
+    expect(analysis).toMatchObject({ pageCount: 1, tags: [] })
+    const png = await cropSourcePage(document, 1, { left: 0, top: 0, right: 1000, bottom: 500 }, raster)
+    const image = await loadImage(Buffer.from(png))
+    // Letter's longest side, at print resolution.
+    expect([image.width, image.height]).toEqual([Math.round(594 * (300 / 72)), Math.round(396 * (300 / 72))])
   })
 })

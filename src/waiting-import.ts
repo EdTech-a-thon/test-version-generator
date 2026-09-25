@@ -20,6 +20,8 @@ const KEY = 'current'
 export const WAITING_IMPORT_LIFETIME_MS = 7 * 24 * 60 * 60 * 1000
 
 export type WaitingImport = {
+  /** A PDF, or a photo of a test kept as a one-page PDF. Absent means PDF. */
+  kind?: 'pdf' | 'photo'
   fileName: string
   bytes: Uint8Array
   pageCount: number

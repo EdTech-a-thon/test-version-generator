@@ -1,99 +1,11 @@
 import { expect, test } from '@playwright/test'
-import { createCanvas } from '@napi-rs/canvas'
-import { PDFDocument, StandardFonts, rgb } from 'pdf-lib'
+import { assistantPackage, picture, sourceDocument } from './pending-images-fixtures'
 
 /**
  * Importing a converted test's pictures from the teacher's own PDF: drop the
  * PDF, hand the labeled copy and instructions to an assistant, drop back what
  * it wrote, and resolve every Pending Image — the tagged ones already filled.
  */
-
-function picture(width: number, height: number, seed: number) {
-  const canvas = createCanvas(width, height)
-  const context = canvas.getContext('2d')
-  context.fillStyle = `rgb(${(seed * 70) % 256}, ${(seed * 130) % 256}, 180)`
-  context.fillRect(0, 0, width, height)
-  context.fillStyle = '#222'
-  context.fillRect(width / 4, height / 4, width / 2, height / 2)
-  return new Uint8Array(canvas.toBuffer('image/png'))
-}
-
-/** A two-page test with no Test Parrot attachment: a map on page 1, a graph
- *  and a line-drawn diagram (no embedded image, so no tag) on page 2. */
-async function sourceDocument() {
-  const pdf = await PDFDocument.create()
-  const font = await pdf.embedFont(StandardFonts.Helvetica)
-  const [map, graph] = await Promise.all([pdf.embedPng(picture(120, 80, 1)), pdf.embedPng(picture(120, 80, 2))])
-  const first = pdf.addPage([612, 792])
-  first.drawText('1. Use the map to name the trading station farthest east.', { x: 60, y: 730, size: 12, font })
-  first.drawImage(map, { x: 60, y: 480, width: 300, height: 200 })
-  const second = pdf.addPage([612, 792])
-  second.drawText('2. Which European power held the most stations on the map?', { x: 60, y: 730, size: 12, font })
-  second.drawText('3. Describe the graph of the function shown below.', { x: 60, y: 700, size: 12, font })
-  second.drawImage(graph, { x: 60, y: 460, width: 300, height: 200 })
-  second.drawText('4. Describe the circuit drawn below.', { x: 60, y: 420, size: 12, font })
-  second.drawRectangle({ x: 60, y: 200, width: 300, height: 180, borderColor: rgb(0, 0, 0), borderWidth: 2 })
-  second.drawText('5. Label the parts of the cell drawn below.', { x: 60, y: 160, size: 12, font })
-  return Buffer.from(await pdf.save())
-}
-
-const paragraph = (text: string) => ({ type: 'paragraph', content: [{ type: 'text', text }] })
-const doc = (...content: unknown[]) => ({ type: 'document', content })
-const map = { type: 'block-image', pending: { image: 1 }, alt: 'Map of trading stations', caption: 'Trading stations c. 1750' }
-
-/** What an assistant would write back for that test. */
-function assistantPackage() {
-  const questions = [
-    { id: 'q1', type: 'short-answer', stem: doc(paragraph('Use the map to name the trading station farthest east.'), map) },
-    {
-      id: 'q2',
-      type: 'multiple-choice',
-      stem: doc(map, paragraph('Which European power held the most stations on the map?')),
-      choices: [
-        { id: 'q2-c1', content: doc(paragraph('Portugal')), correct: true },
-        { id: 'q2-c2', content: doc(paragraph('Denmark')), correct: false },
-      ],
-    },
-    {
-      id: 'q3',
-      type: 'short-answer',
-      stem: doc(paragraph('Describe the graph of the function shown below.'), { type: 'block-image', pending: { image: 2 }, alt: 'Graph of a function' }),
-    },
-    {
-      id: 'q4',
-      type: 'short-answer',
-      stem: doc(paragraph('Describe the circuit drawn below.'), { type: 'block-image', pending: { page: 2 }, alt: 'Circuit diagram' }),
-    },
-    {
-      id: 'q5',
-      type: 'short-answer',
-      stem: doc(paragraph('Label the parts of the cell drawn below.'), { type: 'block-image', pending: { page: 2 }, alt: 'Cell diagram' }),
-    },
-  ]
-  return Buffer.from(JSON.stringify({
-    format: 'test-parrot/package',
-    formatVersion: '0.1.0',
-    generator: { name: 'Assistant', version: '1' },
-    requiredFeatures: [],
-    questionBanks: [{
-      id: 'history',
-      record: {
-        format: 'test-parrot/question-bank',
-        formatVersion: '0.4.0',
-        generator: { name: 'Assistant', version: '1' },
-        requiredFeatures: [],
-        bank: { name: 'Trading Stations', questions },
-        media: [],
-      },
-    }],
-    exams: [{
-      format: 'test-parrot/exam',
-      formatVersion: '0.1.0',
-      name: 'Trading Stations Quiz',
-      positions: questions.map(({ id }) => ({ question: { bank: 'history', question: id } })),
-    }],
-  }))
-}
 
 test('a converted test gets its pictures from the teacher’s own PDF', async ({ page, context }) => {
   await context.grantPermissions(['clipboard-read', 'clipboard-write'])
@@ -106,7 +18,8 @@ test('a converted test gets its pictures from the teacher’s own PDF', async ({
     mimeType: 'application/pdf',
     buffer: await sourceDocument(),
   })
-  await expect(dialog.getByRole('status').filter({ hasText: 'Found 2 pictures in unit-test.pdf.' })).toBeVisible()
+  await expect(dialog.getByRole('status')).toHaveText('Pictures detected in your PDF')
+  await expect(dialog).toContainText('Test Parrot found 2 pictures in unit-test.pdf.')
 
   await dialog.getByRole('button', { name: 'Copy instructions' }).click()
   await expect(dialog.getByRole('button', { name: 'Copied' })).toBeVisible()
@@ -121,9 +34,9 @@ test('a converted test gets its pictures from the teacher’s own PDF', async ({
   // The import waits while the teacher is in their AI chat, reload and all.
   await page.reload()
   await page.getByRole('button', { name: 'Import', exact: true }).click()
-  await expect(dialog.getByRole('status').filter({ hasText: 'Found 2 pictures in unit-test.pdf.' })).toBeVisible()
+  await expect(dialog.getByRole('status')).toHaveText('Pictures detected in your PDF')
 
-  await dialog.getByLabel('JSON file from your AI assistant').setInputFiles({
+  await dialog.getByLabel('File from your AI').setInputFiles({
     name: 'trading-stations.parrot.json',
     mimeType: 'application/json',
     buffer: assistantPackage(),

@@ -37,6 +37,6 @@ describe('the instructions an assistant is given', () => {
   })
 
   test('say so when a labeled copy has no pictures to tag', () => {
-    expect(fillImageTags(instructions, [])).toContain('found no pictures in it to tag')
+    expect(fillImageTags(instructions, [])).toContain('found no embedded pictures in this document')
   })
 })

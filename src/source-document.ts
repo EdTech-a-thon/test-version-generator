@@ -308,6 +308,33 @@ export async function labelSourceDocument(
   return pdf.save()
 }
 
+/** The longest side a photo's page is given, in points: a Letter page's. */
+const PHOTO_PAGE = 792
+
+/**
+ * A photo of a test, as a one-page Source Document. Nothing in a photo can
+ * be tagged — the whole photo is one picture — so an assistant names each
+ * picture by page 1, and Resolve Images crops it from this page. Keeping the
+ * photo as a PDF lets it be cropped exactly as a PDF's page is.
+ */
+export async function photoSourceDocument(
+  bytes: Uint8Array,
+  mimeType: 'image/png' | 'image/jpeg',
+): Promise<Uint8Array> {
+  const pdf = await PDFDocument.create()
+  let image
+  try {
+    image = mimeType === 'image/png' ? await pdf.embedPng(bytes) : await pdf.embedJpg(bytes)
+  } catch {
+    throw new SourceDocumentError('This picture could not be read.')
+  }
+  const scale = PHOTO_PAGE / Math.max(image.width, image.height)
+  const width = image.width * scale
+  const height = image.height * scale
+  pdf.addPage([width, height]).drawImage(image, { x: 0, y: 0, width, height })
+  return pdf.save()
+}
+
 /** The labeled copy's file name: the original's, saying it is labeled. */
 export function labeledFilename(name: string): string {
   const stem = name.replace(/\.pdf$/i, '') || 'source'

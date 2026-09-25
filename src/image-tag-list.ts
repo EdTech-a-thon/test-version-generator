@@ -8,10 +8,10 @@ export const IMAGE_TAGS_SLOT = '{{IMAGE_TAGS}}'
 /** What the slot says when no Source Document was uploaded first — a photo,
  *  a Word document, pasted text, or an assistant fetching `/extract`. */
 export const NO_LABELED_COPY =
-  'There is no labeled copy of this source: Test Parrot has printed no image tags on it. Write every picture as a Pending Image that names only its page, `"pending": { "page": <n> }`, where `n` is the 1-based page (use 1 for a single photo or a pasted source). The teacher will add each picture in Test Parrot.'
+  'There is no labeled copy of this source: Test Parrot has printed no image tags on it. Write every picture as a Pending Image that names only its page, `"pending": { "page": <n> }`, where `n` is the 1-based page (use 1 for a single photo or a pasted source). Do not estimate where on the page it is: the teacher will crop or add each picture in Test Parrot.'
 
 const NO_TAGS =
-  'This is a labeled copy, but Test Parrot found no pictures in it to tag. Write any picture you do see, such as a diagram drawn with lines or a picture on a scanned page, as a Pending Image that names its page, `"pending": { "page": <n> }`.'
+  'Test Parrot found no embedded pictures in this document, so none carries a tag. Write any picture you do see, such as a diagram drawn with lines or a picture on a scanned page, as a Pending Image that names its page, `"pending": { "page": <n> }`. Do not estimate where on the page it is: the teacher will crop it in Test Parrot.'
 
 /**
  * The instructions an assistant is given, with their image tag list filled
