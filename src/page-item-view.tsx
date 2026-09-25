@@ -11,7 +11,7 @@
 // reads a page's furniture: a header, a footer and a page number belong to the
 // page, not to the items on it.
 
-import type { HTMLAttributes, ReactNode } from 'react'
+import type { ReactNode } from 'react'
 import { sectionHeadingStyles } from './export-typography'
 import { Check } from 'lucide-react'
 import { DifficultyBadge, TopicBadge } from './badges'
@@ -307,18 +307,9 @@ export function AnswerKeySection({ item }: { item: AnswerKeySectionItem }) {
   return <h3 className="answer-key-section">{item.title}</h3>
 }
 
-export function AnswerKeyEntry({
-  item,
-  className,
-  ...row
-}: {
-  item: AnswerKeyEntryItem
-} & HTMLAttributes<HTMLDivElement> & Record<`data-${string}`, string | undefined>) {
-  // The sheet makes an entry a handle on its question — selectable and
-  // draggable — by passing its handlers and state here, onto this same box,
-  // so the markup `dom-measure.ts` measured is exactly the markup on screen.
+export function AnswerKeyEntry({ item }: { item: AnswerKeyEntryItem }) {
   return (
-    <div {...row} className={className ? `answer-key-entry ${className}` : 'answer-key-entry'}>
+    <div className="answer-key-entry">
       <span>{item.number}.</span>
       <span className="answer-key-answer" aria-label={item.letter ?? 'Blank answer'}>
         {item.letter}

@@ -51,10 +51,8 @@ export type WorkspaceDrag = {
 }
 
 /** How a rendered question and an empty Question Section announce themselves to
- *  a gesture. Kept next to the reader so the two cannot drift. A question's
- *  answer-key line is a target too: dropping there moves the question itself. */
-export const DROP_TARGET_SELECTOR =
-  '.exam-question[data-drop-target], .answer-key-row[data-drop-target]'
+ *  a gesture. Kept next to the reader so the two cannot drift. */
+export const DROP_TARGET_SELECTOR = '.exam-question[data-drop-target]'
 export const EMPTY_SECTION_SELECTOR = '[data-empty-section]'
 
 /** What the pointer is over, read out of the real page. */
@@ -72,34 +70,14 @@ function candidateAt(point: { x: number; y: number }): DropCandidate | null {
   const questionId = question?.dataset.questionId
   const type = question?.dataset.dropTarget
   if (!question || !questionId || !type) return null
-  const { top, bottom } = targetBounds(question, questionId)
+  const bounds = question.getBoundingClientRect()
   return {
     kind: 'question',
     questionId,
     type: type as QuestionType,
-    top,
-    height: bottom - top,
+    top: bounds.top,
+    height: bounds.height,
   }
-}
-
-/** The box a target's before and after halves are measured against. A matching
- *  set takes one answer-key line per prompt, and all of them are the one
- *  question: its lines on this page are measured together, so "after" is after
- *  the whole set however far down it the pointer happens to be. */
-function targetBounds(target: HTMLElement, questionId: string): { top: number; bottom: number } {
-  const own = target.getBoundingClientRect()
-  if (!target.classList.contains('answer-key-row')) return own
-  const page = target.closest('.exam-page') ?? document
-  const lines = page.querySelectorAll<HTMLElement>(
-    `.answer-key-row[data-question-id="${CSS.escape(questionId)}"]`,
-  )
-  let { top, bottom } = own
-  for (const line of lines) {
-    const box = line.getBoundingClientRect()
-    top = Math.min(top, box.top)
-    bottom = Math.max(bottom, box.bottom)
-  }
-  return { top, bottom }
 }
 
 function sameIntent(a: DropIntent | null, b: DropIntent | null): boolean {
@@ -132,16 +110,13 @@ function createPreview(gesture: DragGesture, source: DragSource): HTMLElement {
   preview.setAttribute('aria-hidden', 'true')
   preview.setAttribute('inert', '')
   preview.dataset.pane = source.pane
-  preview.dataset.count = String(source.questionIds.length)
+  preview.dataset.count = String(gesture.elements.length)
   for (const element of gesture.elements) {
     const clone = element.cloneNode(true) as HTMLElement
     clone.classList.remove(
       'exam-question--selected',
       'exam-question--dragging',
       'exam-question--dropped',
-      'answer-key-row--selected',
-      'answer-key-row--dragging',
-      'answer-key-row--dropped',
     )
     clone.removeAttribute('data-question-id')
     clone.removeAttribute('data-drop-target')
