@@ -1,18 +1,23 @@
-# Extract a Test Parrot Question Bank
+# Convert questions into a Test Parrot Package
 
-> **Draft for testing Pending Images.** This copy replaces the image rules: every image becomes a Pending Image that points at where the picture is in the source, and Test Parrot fills in the picture later from the original file. Follow this document's image rules wherever they differ from the public schema or examples.
+> **Draft for testing Pending Images.** This copy replaces the image rules: every image becomes a Pending Image that marks where a picture belongs, and Test Parrot fills in the picture later from the original file. Follow this document's image rules wherever they differ from the public schemas or examples.
 
 Use these instructions to convert questions from a PDF, image, scan, screenshot, document, or plain text into a JSON file that a user can import into Test Parrot.
 
 ## Required result
 
-Create one complete UTF-8 JSON file using the **Test Parrot Question Bank Record `0.3.0`** format.
-
-Name the downloaded file:
+Always create one complete UTF-8 JSON file using the **Test Parrot Package `0.1.0`** format. Name the downloaded file:
 
 ```text
-<short-bank-name>.question-bank.json
+<short-name>.parrot.json
 ```
+
+A package always holds exactly one Question Bank Record `0.3.0` with every converted Question. What else goes in it depends on the source, so triage it first:
+
+- **The source is a test** — an exam, quiz, worksheet or any paper a student sits, with its questions in a printed order: also add one Exam Record `0.1.0` that lays the Questions out as the test does (see [Tests](#tests)).
+- **The source is only questions** — a question pool, a study list, a bank exported from elsewhere, anything not laid out as one paper: add no Exam. `exams` is an empty array.
+
+When it is unclear whether the source is a test, ask the user; if you cannot ask, add no Exam and say so in the report. Never invent an Exam the source does not show. Everything below about Questions applies either way: the package's bank is an ordinary Question Bank Record.
 
 When finished:
 
@@ -34,8 +39,11 @@ Use these resources as the source of truth:
 - [Short Answer example](./formats/question-bank/0.3.0/examples/short-answer.json)
 - [Complete rich-text example](./formats/question-bank/0.3.0/examples/complete-rich-text.json)
 - [Provenance and links example](./formats/question-bank/0.3.0/examples/provenance-and-links.json)
+- [Test Parrot Package JSON Schema](./formats/package/0.1.0/schema.json) and [Exam Record JSON Schema](./formats/exam/0.1.0/schema.json)
+- [Package example: a test, with its bank and Exam](./formats/package/0.1.0/examples/bank-and-exam.json)
+- [Package example: questions only, with a bank and no Exam](./formats/package/0.1.0/examples/bank-only.json)
 
-The required top-level shape is:
+The Question Bank Record inside the package has this top-level shape:
 
 ```json
 {
@@ -54,7 +62,50 @@ The required top-level shape is:
 }
 ```
 
-Do not add application database IDs, local paths, Exam data, timestamps, page numbers, layout coordinates, OCR confidence, or conversational notes to the record. The only exception is the source `page` of a Pending Image (see [Images and Pending Images](#images-and-pending-images)).
+Do not add application database IDs, local paths, timestamps, page numbers, layout coordinates, OCR confidence, or conversational notes to the record. The only exception is the source `page` of a Pending Image (see [Images and Pending Images](#images-and-pending-images)). A test's layout belongs in its Exam Record, and only in the members that format defines.
+
+## The package
+
+The file itself is the package, with the Question Bank Record under `questionBanks`. For questions only, `exams` is `[]`. For a test, it holds one Exam:
+
+```json
+{
+  "format": "test-parrot/package",
+  "formatVersion": "0.1.0",
+  "generator": {
+    "name": "Name of the assistant or conversion tool",
+    "version": "Version or model name"
+  },
+  "requiredFeatures": [],
+  "questionBanks": [
+    { "id": "bank", "record": { "format": "test-parrot/question-bank", "formatVersion": "0.3.0", "...": "the complete Question Bank Record" } }
+  ],
+  "exams": [
+    {
+      "format": "test-parrot/exam",
+      "formatVersion": "0.1.0",
+      "name": "The test's title",
+      "positions": [
+        { "question": { "bank": "bank", "question": "q1" }, "columns": 2 },
+        { "question": { "bank": "bank", "question": "q2" } }
+      ]
+    }
+  ]
+}
+```
+
+## Tests
+
+When triage says the source is a test:
+
+- Name the bank after the subject or unit, and name the Exam after the test's own title as printed.
+- Give the Exam one position for every converted Question, in printed order, each naming `"bank": "bank"` and that Question's ID. Use each Question exactly once. An unconverted question gets no position.
+- Write every Question's choices and Word Bank answers into the bank in the order the test prints them. That records the test's answer order, so leave out `answerOrder`: answers print in the order the bank records them, and the answer key's letters stay right.
+- Record `columns` (`1`, `2` or `4`) on a Multiple Choice position only when the source layout makes it clear how many columns its answers are printed in — for example, four answers side by side on one line is `4`. When it is not clear, leave `columns` out. Never put `columns` on any other Question Type.
+- Never add `workSpace`. Room left for writing is not something to guess from a scan; the teacher sets it in Test Parrot.
+- Do not add point values, section headings, instructions, or any other member: the Exam Record has none of these.
+
+Test Parrot always prints Sections in the order Multiple Choice, True/False, Matching, Short Answer. Keep the source's printed order anyway; Test Parrot regroups the Sections itself and keeps the order within each.
 
 ## Completeness is mandatory—but do not force uncertain content
 
@@ -102,7 +153,10 @@ Perform a second pass against the original source and verify all of the followin
 - every picture has its own Pending Image, with side-by-side pictures split rather than merged;
 - every Question covered by shared directions (for example “Use the information above for problems 3 – 5”) repeats the shared pictures in its own stem;
 - every Pending Image names the source page it appears on;
-- `media` is an empty array;
+- the Question Bank Record's `media` is an empty array;
+- for a test, the Exam has one position per converted Question, in printed order, each naming an existing Question ID in the package's bank, and no Question twice;
+- for a test, every `columns` value reflects a layout the source makes clear, sits only on a Multiple Choice position, and no position has `workSpace`;
+- the file is a Test Parrot Package with exactly one Question Bank Record, and it holds an Exam only if the source is a test;
 - the final JSON passes the public schema and semantic rules.
 
 If any check fails, fix the record or disclose the precise limitation. Never say the extraction is complete when it is not.
@@ -563,7 +617,7 @@ Rules:
 - Put caption text printed beside or below the picture in `caption`, even if the source shows the caption as an image.
 - Give every Pending Image useful `alt` text describing what the picture shows. `authoredSize` from `0.05` through `1` is optional.
 - Use `block-image` for a picture that stands on its own line, including a picture that is an answer choice's whole content. Use `inline-image` only for a small picture inside a line of text.
-- Leave the top-level `media` array empty: `"media": []`.
+- Leave the Question Bank Record's `media` array empty: `"media": []`.
 
 **Equations are not images.** Many documents store equations as small pictures. Write every equation as `inline-math` or `display-math` with its source, never as a Pending Image. Likewise, write text that the source shows as a picture, such as a caption or a heading, as text.
 
@@ -586,7 +640,7 @@ Include only information explicitly present in the source or supplied by the use
 
 ## Final validation and delivery
 
-Validate the final record against the [public JSON Schema](./formats/question-bank/0.3.0/schema.json), treating each Pending Image as valid even though the published schema does not describe it yet. Schema validation alone is not sufficient: also verify Question cardinality, unique IDs, that every matching `answer` names an ID in the same Question's `wordBank`, safe links, and that every Pending Image follows the rules above.
+Validate the package against the [package schema](./formats/package/0.1.0/schema.json), its Question Bank Record against the [Question Bank Record schema](./formats/question-bank/0.3.0/schema.json) (treating each Pending Image as valid even though the published schema does not describe it yet), and any Exam against the [Exam Record schema](./formats/exam/0.1.0/schema.json). Schema validation alone is not sufficient: also verify Question cardinality, unique IDs, that every matching `answer` names an ID in the same Question's `wordBank`, safe links, and that every Pending Image follows the rules above.
 
 Relevant import limits include:
 
@@ -599,7 +653,7 @@ Relevant import limits include:
 - rich-text depth of 50;
 - maximum image dimensions of 20,000 by 20,000 pixels.
 
-Deliver exactly one complete `.question-bank.json` file. Then tell the user:
+Deliver exactly one complete `.parrot.json` file. Then tell the user:
 
 > Download the JSON file, open [testparrot.com](https://testparrot.com), and drag the file into Test Parrot to import it.
 
@@ -610,6 +664,7 @@ Deliver exactly one complete `.question-bank.json` file. Then tell the user:
 Also include a concise conversion report containing:
 
 - source pages/images inspected;
+- whether triage treated the source as a test (the package has an Exam) or as questions only (no Exam), and for a test which Multiple Choice positions were given `columns`;
 - total Questions converted;
 - counts by Question Type (a matching set is one Question; also give its item count);
 - whether answer correctness was supplied or left incomplete;
