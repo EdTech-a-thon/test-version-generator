@@ -31,7 +31,7 @@ const firstHeader = (page: Page) =>
   page.locator('.exam-workspace .exam-page').first().locator('.page-identity')
 const field = (page: Page) => page.getByRole('textbox', { name: 'Header printed on the exam' })
 
-test('the header line is reworded where it prints, and the ID stays beside it', async ({ page }) => {
+test('the header line is reworded where it prints, with no Version label unshuffled', async ({ page }) => {
   await openExam(page)
   const header = firstHeader(page)
   await expect(field(page)).toHaveValue(/^Name: _+ {2}Class: _+ {2}Date: _+$/)
@@ -40,14 +40,14 @@ test('the header line is reworded where it prints, and the ID stays beside it', 
   await field(page).press('Enter')
   await expect(field(page)).not.toBeFocused()
   await expect(field(page)).toHaveValue('Student: ________  Period: ____')
-  await expect(header.locator('.page-id')).toHaveText(/^ID: /)
+  await expect(header.locator('.page-id')).toHaveText('')
 
   await page.getByRole('button', { name: 'Export', exact: true }).click()
   const preview = page.getByRole('dialog', { name: 'Export' }).getByLabel('Export Preview')
   const printed = preview.locator('.exam-page').first().locator('.page-identity')
   await expect(printed).toContainText('Student: ________  Period: ____')
   await expect(printed).not.toContainText('Class:')
-  await expect(printed).toContainText('ID: ')
+  await expect(printed).not.toContainText('ID:')
 })
 
 test('one click puts the caret where it lands, as the title does', async ({ page }) => {
@@ -66,12 +66,12 @@ test('one click puts the caret where it lands, as the title does', async ({ page
   expect(await caret()).toBeLessThanOrEqual(1)
 })
 
-test('the field is as wide as its words, hides none of them, and clears the ID', async ({ page }) => {
+test('the field is as wide as its words, hides none of them, and stays inside its line', async ({ page }) => {
   await openExam(page)
   const header = firstHeader(page)
   const box = (await field(page).boundingBox())!
-  const id = (await header.locator('.page-id').boundingBox())!
-  expect(box.x + box.width).toBeLessThan(id.x)
+  const line = (await header.boundingBox())!
+  expect(box.x + box.width).toBeLessThanOrEqual(line.x + line.width)
   const fit = await field(page).evaluate((element) => {
     const input = element as HTMLInputElement
     const style = getComputedStyle(input)
@@ -93,7 +93,7 @@ test('the margin restores the default header', async ({ page }) => {
   await field(page).fill('')
   await field(page).press('Escape')
   await expect(field(page)).toHaveValue('')
-  await expect(header.locator('.page-id')).toBeVisible()
+  await expect(header.locator('.page-id')).toHaveText('')
 
   await header.hover()
   await page.getByRole('button', { name: 'Restore the default header' }).click()

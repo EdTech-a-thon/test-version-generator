@@ -24,6 +24,7 @@ import {
 import { SECTION_ORDER } from './exam'
 import {
   buildExportDocument,
+  planExport,
   unmeasured,
   STUDENT_TEST,
   type LayoutPlan,
@@ -136,16 +137,34 @@ describe('the DOCX Export Adapter carries the planned document', () => {
     expect(fingerprint.arrangement).toBe(fixture.arrangement.letter)
   })
 
-  test('gives every page its stable output ID, keys included', async () => {
+  test('names a shuffled Version on every page, keys included, in both adapters', async () => {
+    const fixture = FIXTURES.find(
+      (item) => item.name === 'a realistic composite exam',
+    )!
+    const plans = [STUDENT_TEST, { test: false, answerKey: true }].map((selection) =>
+      planExport({
+        exam: fixture.exam,
+        arrangement: fixture.arrangement,
+        selection,
+        measure: fixture.measure,
+        version: 'Curly Fox',
+      }),
+    )
+    const docx = await docxFingerprint(
+      await (await createExamDocx(plans, fixture.images ? pixel : noImages)).arrayBuffer(),
+    )
+    expect(docx.pages.length).toBeGreaterThan(1)
+    expect(docx.pages.every((page) => page.header.join(' ').includes('Curly Fox'))).toBe(true)
+    expectSameDocument(layoutFingerprint(plans), docx)
+    expectSameDocument(layoutFingerprint(plans), printFingerprint(plans))
+  })
+
+  test('prints no label on the Working Copy’s own arrangement', async () => {
     const fixture = FIXTURES.find(
       (item) => item.name === 'a realistic composite exam',
     )!
     const fingerprint = await docxOf(fixture)
-    expect(
-      fingerprint.pages.every((page) =>
-        page.header.join(' ').includes(`ID: ${fixture.arrangement.letter}`),
-      ),
-    ).toBe(true)
+    expect(fingerprint.pages.some((page) => page.header.join(' ').includes('ID:'))).toBe(false)
   })
 })
 

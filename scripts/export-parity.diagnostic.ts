@@ -294,7 +294,7 @@ for (const fixture of fixtures) {
 
       await page.getByRole('button', { name: 'Export History' }).click()
       const history = page.getByLabel('Export History')
-      await history.locator('.arrangement-history-item').first().click()
+      await history.locator('.export-history-item').first().click()
       const [historicalDownload] = await Promise.all([
         page.waitForEvent('download'),
         page.getByRole('button', { name: 'Re-export DOCX', exact: true }).click(),

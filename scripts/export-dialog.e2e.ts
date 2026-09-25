@@ -111,7 +111,7 @@ test('identical exports append distinct records without saving the Working Copy'
   await expect(page.getByLabel('Working Copy status')).toContainText('Unsaved changes')
 })
 
-test('Export History is newest-first, read-only, and fixed-format re-export appends an event', async ({ page }) => {
+test('Export History is newest-first, and its frozen Re-export appends an event', async ({ page }) => {
   await open(page)
   await download(page, 'PDF')
   await download(page, 'DOCX')
@@ -122,18 +122,20 @@ test('Export History is newest-first, read-only, and fixed-format re-export appe
   await expect(history.locator('.export-history-item').first()).toContainText('DOCX')
   await history.locator('.export-history-item').first().click()
 
-  const historical = page.getByRole('region', { name: 'Biology Quiz Export Record' })
-  await expect(historical).toContainText('Viewing immutable Export Record')
-  await expect(historical.getByRole('button', { name: 'Re-export DOCX' })).toBeVisible()
-  await expect(historical.getByRole('button', { name: /Use as draft/i })).toHaveCount(0)
-  await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeDisabled()
+  const reExport = page.getByRole('dialog', { name: 'Re-export' })
+  await expect(reExport).toContainText('Export Record, Immutable')
+  await expect(reExport).toContainText('#2')
+  // Every setting is frozen as it was exported.
+  await expect(reExport.getByRole('radio', { name: 'DOCX' })).toBeChecked()
+  await expect(reExport.getByRole('radio', { name: 'DOCX' })).toBeDisabled()
+  await expect(reExport.getByRole('checkbox', { name: 'Student test' })).toBeDisabled()
+  await expect(reExport.getByRole('button', { name: /Use as draft/i })).toHaveCount(0)
 
   const file = page.waitForEvent('download')
-  await historical.getByRole('button', { name: 'Re-export DOCX' }).click()
+  await reExport.getByRole('button', { name: 'Re-export DOCX' }).click()
   expect((await file).suggestedFilename()).toBe('Biology Quiz.docx')
-  await expect(historical).toBeVisible()
+  await expect(reExport).toBeHidden()
   await expect.poll(async () => (await historyOf(page)).records.length).toBe(3)
-  await historical.getByRole('button', { name: 'Back to Exam' }).click()
   await expect(page.locator('.exam-page').first()).toBeVisible()
 })
 

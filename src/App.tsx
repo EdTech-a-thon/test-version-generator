@@ -77,12 +77,15 @@ import {
   prepareExport,
   prepareHistoricalExport,
   readExportPreferences,
+  readShufflePreferences,
   writeExportPreferences,
+  writeShufflePreferences,
   type ExportConfiguration,
   type PreparationProgress,
   type PreparedExport,
 } from './export-preparation'
-import { ExportDialog } from './export-dialog'
+import { ExportDialog, ReExportDialog } from './export-dialog'
+import { DEFAULT_VERSION_COUNT, maxVersionCount, NO_SHUFFLE, seededRandom } from './export-versions'
 import { domMeasure } from './dom-measure'
 import { ownDocumentMedia, saveImage } from './local-images'
 import { configurePastedImages, settlePendingMedia } from './pasted-images'
@@ -150,7 +153,6 @@ import {
 } from './question-bank-workspaces'
 import {
   ExportHistoryDrawer,
-  HistoricalExportRecord,
 } from './export-history'
 import { AppShell } from './app-shell'
 import { AboutPage, PrivacyPage } from './site-pages'
@@ -1814,6 +1816,9 @@ function ExamEditor({
   const [exportDialog, setExportDialog] = useState<{
     configuration: ExportConfiguration
     error: string | null
+    /** Drawn once per opening, so the Export Preview and the export shuffle
+     *  alike: what the teacher sees is what downloads. */
+    seed: number
   } | null>(null)
   const exportButton = useRef<HTMLButtonElement>(null)
   // Export can be opened by its visible button or Cmd/Ctrl+P. Remember the
@@ -1821,19 +1826,17 @@ function ExamEditor({
   // they started, rather than always moving them to the toolbar.
   const exportTrigger = useRef<HTMLElement | null>(null)
   const historyButton = useRef<HTMLButtonElement>(null)
-  // Browsing an Export Record hides the mounted Exam and puts its immutable
-  // stored Layout Plans in the center lane. Current authoring is never rebuilt.
+  // Opening an Export Record from History shows it in the Re-export dialog,
+  // from its stored Layout Plans alone. Current authoring is never rebuilt.
   const [historyOpen, setHistoryOpen] = useState(false)
-  const [viewingRecordId, setViewingRecordId] = useState<string | null>(null)
-  const [historicalFocusKey, setHistoricalFocusKey] = useState(0)
+  const [reExporting, setReExporting] = useState<{ recordId: string; number: number } | null>(null)
+  const reExportTrigger = useRef<HTMLElement | null>(null)
   const [confirmingQuestionDeletion, setConfirmingQuestionDeletion] = useState(false)
-  const priorDraftFocus = useRef<HTMLElement | null>(null)
-  const reExportButton = useRef<HTMLButtonElement>(null)
   const exportHistory = store.exportHistory()
-  const viewingRecord = exportHistory.records.find(
-    (candidate) => candidate.id === viewingRecordId,
+  const reExportRecord = exportHistory.records.find(
+    (candidate) => candidate.id === reExporting?.recordId,
   ) ?? null
-  const isHistoricalBrowsing = historyOpen || viewingRecord !== null
+  const isHistoricalBrowsing = historyOpen
   const [storageNotice, setStorageNotice] = useState<string | null>(null)
   const [choosingExam, setChoosingExam] = useState(false)
   const [documentMenu, setDocumentMenu] = useState<{
@@ -1844,12 +1847,12 @@ function ExamEditor({
     setHistoryOpen(false)
     requestAnimationFrame(() => historyButton.current?.focus())
   }, [])
-  const returnToExam = useCallback(() => {
-    setViewingRecordId(null)
+  const closeReExport = useCallback(() => {
+    const trigger = reExportTrigger.current
+    reExportTrigger.current = null
+    setReExporting(null)
     requestAnimationFrame(() => {
-      if (priorDraftFocus.current?.isConnected) {
-        priorDraftFocus.current.focus()
-      }
+      if (trigger?.isConnected) trigger.focus()
     })
   }, [])
   // Selection lives here, alongside the store, so page interactions and
@@ -1874,22 +1877,6 @@ function ExamEditor({
   // The outcome of the latest Vary command stays visible and is announced to
   // assistive technology. It is transient UI feedback, not authoring state.
   const [varySummary, setVarySummary] = useState<string | null>(null)
-  // Remember the actual authoring control that last held focus. History owns
-  // focus while it is open, so it must not replace this restoration target.
-  useEffect(() => {
-    const remember = (event: FocusEvent) => {
-      const target = event.target
-      if (
-        viewingRecord === null
-        && target instanceof HTMLElement
-        && target.closest('.draft-document, .document-identity')
-      ) {
-        priorDraftFocus.current = target
-      }
-    }
-    document.addEventListener('focusin', remember)
-    return () => document.removeEventListener('focusin', remember)
-  }, [viewingRecord])
   useEffect(() => {
     if (!varySummary) return
     const timer = window.setTimeout(() => setVarySummary(null), 4_000)
@@ -1976,10 +1963,11 @@ function ExamEditor({
         ? active
         : exportButton.current
     setExportDialog({
-      configuration: readExportPreferences(),
+      configuration: { ...readExportPreferences(), ...readShufflePreferences(examId) },
       error: null,
+      seed: Math.floor(Math.random() * 2 ** 32),
     })
-  }, [])
+  }, [examId])
 
   useEffect(() => {
     const onSaveShortcut = (event: KeyboardEvent) => {
@@ -2040,7 +2028,7 @@ function ExamEditor({
   }, [editing, exam.questions.length, exportDialog, isHistoricalBrowsing, openExport])
 
   useEffect(() => {
-    if (editing || exportDialog) return
+    if (editing || exportDialog || reExporting) return
     const onKeyDown = (event: KeyboardEvent) => {
       const authoringShortcut =
         (event.key.toLowerCase() === 'z' && (event.ctrlKey || event.metaKey) && !event.altKey)
@@ -2084,16 +2072,11 @@ function ExamEditor({
         closeExportHistory()
         return
       }
-      if (viewingRecord) {
-        event.preventDefault()
-        returnToExam()
-        return
-      }
       clearSelection()
     }
     document.addEventListener('keydown', onKeyDown)
     return () => document.removeEventListener('keydown', onKeyDown)
-  }, [clearSelection, closeExportHistory, editing, exportDialog, historyOpen, isHistoricalBrowsing, returnToExam, selection.selectedIds, store, viewingRecord])
+  }, [clearSelection, closeExportHistory, editing, exportDialog, historyOpen, isHistoricalBrowsing, reExporting, selection.selectedIds, store])
 
   const closeExportDialog = () => {
     const trigger = exportTrigger.current
@@ -2118,6 +2101,7 @@ function ExamEditor({
     history: exportHistory,
     measure: domMeasure,
     createdAt: new Date().toISOString(),
+    random: seededRandom(exportDialog?.seed ?? 0),
     onProgress,
   })
 
@@ -2318,13 +2302,6 @@ function ExamEditor({
             title="Export History"
             aria-expanded={historyOpen}
             aria-controls="export-history"
-            onPointerDown={() => {
-              // Reopening History while inspecting a record retains the
-              // original target for Back to Exam.
-              if (viewingRecord !== null) return
-              const active = document.activeElement
-              priorDraftFocus.current = active instanceof HTMLElement ? active : null
-            }}
             onClick={() => setHistoryOpen((open) => !open)}
           >
             <History aria-hidden="true" />
@@ -2425,13 +2402,7 @@ function ExamEditor({
             kind: 'action',
             label: 'Export History',
             icon: <History />,
-            onSelect: () => {
-              if (viewingRecord === null) {
-                const active = document.activeElement
-                priorDraftFocus.current = active instanceof HTMLElement ? active : null
-              }
-              setHistoryOpen(true)
-            },
+            onSelect: () => setHistoryOpen(true),
           },
         ] : [
           {
@@ -2471,9 +2442,14 @@ function ExamEditor({
         <ExportDialog
           configuration={exportDialog.configuration}
           onConfigurationChange={(configuration) => {
-            writeExportPreferences(configuration)
+            writeExportPreferences({ format: configuration.format, selection: configuration.selection })
+            writeShufflePreferences(examId, {
+              shuffle: configuration.shuffle ?? NO_SHUFFLE,
+              versionCount: configuration.versionCount ?? DEFAULT_VERSION_COUNT,
+            })
             setExportDialog((current) => (current ? { ...current, configuration } : current))
           }}
+          maxVersions={maxVersionCount(exam, arrangement, exportDialog.configuration.shuffle ?? NO_SHUFFLE)}
           previewPlans={exportPreview?.documents ?? []}
           empty={exam.questions.length === 0}
           blocked={exportBlocked}
@@ -2493,18 +2469,44 @@ function ExamEditor({
 
       <ExportHistoryDrawer
         records={exportHistory.records}
-        selectedRecordId={viewingRecord?.id ?? null}
+        selectedRecordId={reExporting?.recordId ?? null}
         open={historyOpen}
         onOpenChange={(open) => {
           if (open) setHistoryOpen(true)
           else closeExportHistory()
         }}
-        onSelect={(selectedRecord) => {
-          setViewingRecordId(selectedRecord.id)
-          setHistoricalFocusKey((key) => key + 1)
-          setHistoryOpen(false)
+        onSelect={(selectedRecord, number) => {
+          const active = document.activeElement
+          reExportTrigger.current = active instanceof HTMLElement ? active : null
+          setReExporting({ recordId: selectedRecord.id, number })
         }}
       />
+
+      {reExportRecord && reExporting && (
+        <ReExportDialog
+          key={reExportRecord.id}
+          number={reExporting.number}
+          name={reExportRecord.capturedName}
+          createdAt={reExportRecord.createdAt}
+          configuration={{
+            format: reExportRecord.format,
+            selection: reExportRecord.selection,
+            ...(reExportRecord.versions
+              ? { shuffle: reExportRecord.shuffle ?? NO_SHUFFLE, versionCount: reExportRecord.versions.length }
+              : { shuffle: NO_SHUFFLE, versionCount: 1 }),
+          }}
+          plans={reExportRecord.plans}
+          onSubmit={async (versions) => {
+            await runPreparedExport(prepareHistoricalExport({
+              record: reExportRecord,
+              ...(versions ? { versions } : {}),
+              createdAt: new Date().toISOString(),
+            }))
+            closeReExport()
+          }}
+          onCancel={closeReExport}
+        />
+      )}
 
       {/* The split authoring workspace: the Question Bank beside the rendered
           Working Copy. The bank opens as the narrower pane — it is picked from
@@ -2551,7 +2553,6 @@ function ExamEditor({
           <>
             <div
               className="draft-document"
-              hidden={viewingRecord !== null}
               // The drawer is itself historical browsing, so the exposed part
               // of the draft cannot receive pointer authoring gestures either.
               inert={isHistoricalBrowsing || undefined}
@@ -2613,20 +2614,6 @@ function ExamEditor({
                 unsavedDraft={!store.hasSavedExam()}
               />
             </div>
-            {viewingRecord && (
-              <HistoricalExportRecord
-                record={viewingRecord}
-                focusKey={historicalFocusKey}
-                reExportButton={reExportButton}
-                onBack={returnToExam}
-                onReExport={() => {
-                  void runPreparedExport(prepareHistoricalExport({
-                    record: viewingRecord,
-                    createdAt: new Date().toISOString(),
-                  }))
-                }}
-              />
-            )}
             <Footer />
           </>
         }

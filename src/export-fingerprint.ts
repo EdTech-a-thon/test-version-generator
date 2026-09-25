@@ -622,7 +622,8 @@ function furnitureLines(furniture: PageFurniture): {
   ].filter(Boolean).join(' ')
   return {
     header: [
-      `para ${identity}`,
+      // An unlabeled answer key page's identity line holds nothing at all.
+      identity ? `para ${identity}` : 'para',
       ...(furniture.title === null ? [] : [`heading:title ${furniture.title}`]),
     ],
     footer: [`para ${furniture.pageNumber}`],

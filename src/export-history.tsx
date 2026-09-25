@@ -1,15 +1,11 @@
 import { useLayoutEffect, useRef } from 'react'
-import { ExportPreview } from './exam-page'
+import { exportTime } from './export-time'
 import type { ExportRecord } from './export-preparation'
 
-function creationTime(createdAt: string): string {
-  const date = new Date(createdAt)
-  return Number.isNaN(date.getTime())
-    ? createdAt
-    : new Intl.DateTimeFormat(undefined, {
-        dateStyle: 'medium',
-        timeStyle: 'short',
-      }).format(date)
+// A few names, then how many more, so a long batch keeps its card short.
+function versionsLabel(versions: readonly string[]): string {
+  const shown = versions.slice(0, 2).join(', ')
+  return versions.length > 2 ? `${shown} +${versions.length - 2}` : shown
 }
 
 function selectionLabel(record: ExportRecord): string {
@@ -30,7 +26,7 @@ export function ExportHistoryDrawer({
   selectedRecordId: string | null
   open: boolean
   onOpenChange: (open: boolean) => void
-  onSelect: (record: ExportRecord) => void
+  onSelect: (record: ExportRecord, number: number) => void
 }) {
   const drawer = useRef<HTMLElement>(null)
 
@@ -52,7 +48,7 @@ export function ExportHistoryDrawer({
       <header className="export-history-header">
         <div>
           <h2>Export History</h2>
-          <p>Immutable output events stored in this browser.</p>
+          <p>Everything exported from this Exam, kept in this browser.</p>
         </div>
         <button
           type="button"
@@ -67,17 +63,23 @@ export function ExportHistoryDrawer({
         <p className="export-history-empty">Export this Exam to keep a record here.</p>
       ) : (
         <ol className="export-history-list">
-          {[...records].reverse().map((record) => (
+          {records.map((record, index) => ({ record, number: index + 1 })).reverse().map(({ record, number }) => (
             <li key={record.id}>
               <button
                 type="button"
                 className="export-history-item export-history-item"
                 aria-current={selectedRecordId === record.id ? 'page' : undefined}
-                onClick={() => onSelect(record)}
+                onClick={() => onSelect(record, number)}
               >
                 <strong>{record.capturedName}</strong>
-                <time dateTime={record.createdAt}>{creationTime(record.createdAt)}</time>
+                <span>Export #{number}</span>
+                <time dateTime={record.createdAt}>{exportTime(record.createdAt)}</time>
                 <span>{record.format.toUpperCase()} · {selectionLabel(record)}</span>
+                {record.versions && (
+                  <span className="export-history-versions">
+                    {record.versions.length === 1 ? 'Version' : `${record.versions.length} Versions`}: {versionsLabel(record.versions)}
+                  </span>
+                )}
                 <span>
                   {record.questionCount} {record.questionCount === 1 ? 'question' : 'questions'}
                 </span>
@@ -87,53 +89,5 @@ export function ExportHistoryDrawer({
         </ol>
       )}
     </aside>
-  )
-}
-
-export function HistoricalExportRecord({
-  record,
-  onBack,
-  onReExport,
-  reExportButton,
-  focusKey,
-}: {
-  record: ExportRecord
-  onBack: () => void
-  onReExport: () => void
-  reExportButton: React.RefObject<HTMLButtonElement | null>
-  focusKey: number
-}) {
-  const back = useRef<HTMLButtonElement>(null)
-
-  useLayoutEffect(() => {
-    back.current?.focus()
-  }, [focusKey, record.id])
-
-  return (
-    <section className="historical-document" aria-label={`${record.capturedName} Export Record`}>
-      <header className="historical-document-bar">
-        <div>
-          <p>Viewing immutable Export Record</p>
-          <h2>{record.capturedName}</h2>
-          <p>{record.format.toUpperCase()} · {selectionLabel(record)} · {creationTime(record.createdAt)}</p>
-        </div>
-        <div className="historical-document-actions">
-          <button ref={back} type="button" className="secondary-button" onClick={onBack}>
-            Back to Exam
-          </button>
-          <button ref={reExportButton} type="button" className="primary-button" onClick={onReExport}>
-            Re-export {record.format.toUpperCase()}
-          </button>
-        </div>
-      </header>
-      <div className="historical-document-pages">
-        {record.plans.map((plan, index) => (
-          <ExportPreview
-            key={`${plan.arrangement.id}-${plan.pages[0]?.stream}-${index}`}
-            plan={plan}
-          />
-        ))}
-      </div>
-    </section>
   )
 }

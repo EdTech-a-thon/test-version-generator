@@ -322,7 +322,7 @@ describe('one combined package for a Export Artifact', () => {
     )
   })
 
-  test('restarts page numbering and carries the output ID on both documents', async () => {
+  test('restarts page numbering on both documents', async () => {
     const fingerprint = await docxFingerprint(
       await (await createExamDocx(preparedPlans(), async () => null)).arrayBuffer(),
     )
@@ -332,9 +332,6 @@ describe('one combined package for a Export Artifact', () => {
       ['para 1'],
       ['para 1'],
     ])
-    expect(fingerprint.pages.every((page) =>
-      page.header.join(' ').includes('ID: A'),
-    )).toBe(true)
     expect(fingerprint.arrangement).toBe('A')
   })
 

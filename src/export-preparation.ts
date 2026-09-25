@@ -4,7 +4,7 @@
 // Those plans are the self-contained historical presentation: later viewing
 // and re-export never consult canonical Questions or run the layout engine.
 
-import type { Exam, Arrangement } from './exam'
+import type { Exam, Arrangement, RandomSource } from './exam'
 import {
   numberLabelOf,
   planExport,
@@ -13,6 +13,16 @@ import {
   type Measure,
 } from './export-plan'
 import { imageSourcesOf } from './export-media'
+import {
+  DEFAULT_VERSION_COUNT,
+  NO_SHUFFLE,
+  maxVersionCount,
+  shuffledArrangements,
+  shufflesAnything,
+  versionCountError,
+  versionNames,
+  type ShuffleOptions,
+} from './export-versions'
 import { pendingImageOf, type ProseMirrorJSON } from './question-doc'
 
 export type ExportFormat = 'pdf' | 'docx'
@@ -20,6 +30,11 @@ export type ExportFormat = 'pdf' | 'docx'
 export type ExportConfiguration = {
   format: ExportFormat
   selection: ExportContentSelection
+  /** What to shuffle into Versions. Absent, or nothing on, prints the
+   *  Working Copy's own arrangement. */
+  shuffle?: ShuffleOptions
+  /** How many shuffled Versions to print; read only when shuffling. */
+  versionCount?: number
 }
 
 export const DEFAULT_EXPORT_CONFIGURATION: ExportConfiguration = {
@@ -53,6 +68,47 @@ export function writeExportPreferences(configuration: ExportConfiguration): void
   localStorage.setItem(EXPORT_PREFERENCES_KEY, JSON.stringify(configuration))
 }
 
+export type ShufflePreferences = { shuffle: ShuffleOptions; versionCount: number }
+
+const DEFAULT_SHUFFLE_PREFERENCES: ShufflePreferences = {
+  shuffle: NO_SHUFFLE,
+  versionCount: DEFAULT_VERSION_COUNT,
+}
+
+const SHUFFLE_PREFERENCES_KEY = 'test-parrot-export-shuffle-v1'
+
+function storedShufflePreferences(): Record<string, unknown> {
+  try {
+    const value: unknown = JSON.parse(localStorage.getItem(SHUFFLE_PREFERENCES_KEY) ?? '')
+    return typeof value === 'object' && value !== null ? value as Record<string, unknown> : {}
+  } catch {
+    return {}
+  }
+}
+
+/** How an Exam was last shuffled for export. A UI preference kept per Exam,
+ *  never authoring state: it neither dirties nor saves the Exam. */
+export function readShufflePreferences(examId: string): ShufflePreferences {
+  if (typeof localStorage === 'undefined') return DEFAULT_SHUFFLE_PREFERENCES
+  const value = storedShufflePreferences()[examId] as Partial<ShufflePreferences> | undefined
+  // Each half stands alone, so a count box left empty keeps the checkboxes.
+  const shuffle = typeof value?.shuffle?.questions === 'boolean' && typeof value.shuffle.answers === 'boolean'
+    ? { questions: value.shuffle.questions, answers: value.shuffle.answers }
+    : DEFAULT_SHUFFLE_PREFERENCES.shuffle
+  const versionCount = Number.isInteger(value?.versionCount) && value!.versionCount! >= 1
+    ? value!.versionCount!
+    : DEFAULT_SHUFFLE_PREFERENCES.versionCount
+  return { shuffle, versionCount }
+}
+
+export function writeShufflePreferences(examId: string, preferences: ShufflePreferences): void {
+  if (typeof localStorage === 'undefined') return
+  localStorage.setItem(
+    SHUFFLE_PREFERENCES_KEY,
+    JSON.stringify({ ...storedShufflePreferences(), [examId]: preferences }),
+  )
+}
+
 export type ExportRecord = {
   id: string
   examId: string
@@ -69,6 +125,13 @@ export type ExportRecord = {
    *  the answer key has one. It sits beside the plans, not in them: nothing
    *  about the pages depends on it. */
   examPackage?: string
+  /** The names of the shuffled Versions this export printed, in order. Absent
+   *  when it shuffled nothing, as on every record made before Versions
+   *  existed. Each plan names its Version in `arrangement.version`. */
+  versions?: string[]
+  /** What the export shuffled to make its Versions; present exactly when
+   *  `versions` is. */
+  shuffle?: ShuffleOptions
 }
 
 export type ExportHistory = { records: ExportRecord[] }
@@ -96,6 +159,10 @@ export type PreparationRequest = {
   measure: Measure
   createdAt: string
   createId?: () => string
+  /** What shuffled Versions are drawn from. The same source reproduces the
+   *  same Versions and names, which is how the Export Preview and the export
+   *  it previews agree. */
+  random?: RandomSource
   onProgress?: (progress: PreparationProgress) => void
 }
 
@@ -131,17 +198,6 @@ export function arrangementRange(labels: readonly string[]): string {
   return labels.length > 1 ? `${first}-${last}` : first
 }
 
-function selectedPlans(
-  test: LayoutPlan,
-  answerKey: LayoutPlan,
-  selection: ExportContentSelection,
-): LayoutPlan[] {
-  return [
-    ...(selection.test ? [test] : []),
-    ...(selection.answerKey ? [answerKey] : []),
-  ]
-}
-
 function mediaHashesOf(plans: readonly LayoutPlan[]): string[] {
   return [...new Set(imageSourcesOf(plans).map((source) => {
     const hash = OWNED_MEDIA.exec(source)?.[1]
@@ -167,22 +223,74 @@ function historicalRecord(
   }
 }
 
-/** Select a historical artifact without current authoring or layout input. */
+/** A record narrowed to some of its Versions: only stored plans are kept, in
+ *  their recorded order, and nothing is planned, shuffled or named. Its format
+ *  and Content Selection are frozen as they were exported. */
+function withVersions(record: ExportRecord, versions: readonly string[]): ExportRecord {
+  const names = (record.versions ?? []).filter((name) => versions.includes(name))
+  if (names.length === 0) {
+    throw new Error('Choose at least one Version this export printed.')
+  }
+  const plans = record.plans.filter((plan) => names.includes(plan.arrangement.version ?? ''))
+  return { ...record, plans, mediaHashes: mediaHashesOf(plans), versions: names }
+}
+
+/**
+ * Select a historical artifact without current authoring or layout input:
+ * all of it, or — for a shuffled export — some of its Versions. Either way it
+ * is a new Export Record of stored plans, and never a new Version.
+ */
 export function prepareHistoricalExport({
   record,
+  versions,
   createdAt,
   createId = () => crypto.randomUUID(),
 }: {
   record: ExportRecord
+  /** The Versions to print again; every one the record printed when absent. */
+  versions?: readonly string[]
   createdAt: string
   createId?: () => string
 }): PreparedExport {
-  const copied = historicalRecord(record, createdAt, createId)
+  const source = versions === undefined ? record : withVersions(record, versions)
+  const copied = historicalRecord(source, createdAt, createId)
   return {
     documents: copied.plans,
     filename: exportFilename(copied.capturedName, copied.format),
     record: copied,
   }
+}
+
+/** Every Version name an Exam's Export History has already printed. */
+function usedVersionNames(history: ExportHistory): Set<string> {
+  return new Set(history.records.flatMap((record) => record.versions ?? []))
+}
+
+/** The papers one export prints: the Working Copy's own arrangement, unnamed,
+ *  or — when it shuffles — only shuffled Versions, each newly named. */
+function versionsToPrint({
+  exam,
+  arrangement,
+  configuration,
+  history,
+  random,
+  createId,
+}: {
+  exam: Exam
+  arrangement: Arrangement
+  configuration: ExportConfiguration
+  history: ExportHistory
+  random: RandomSource
+  createId: () => string
+}): { arrangement: Arrangement; name?: string }[] {
+  const { shuffle } = configuration
+  if (!shuffle || !shufflesAnything(shuffle)) return [{ arrangement }]
+  const count = configuration.versionCount ?? DEFAULT_VERSION_COUNT
+  const refusal = versionCountError(count, maxVersionCount(exam, arrangement, shuffle))
+  if (refusal) throw new Error(refusal)
+  const arrangements = shuffledArrangements({ exam, arrangement, shuffle, count, random, createId })
+  const names = versionNames(count, usedVersionNames(history), random)
+  return arrangements.map((paper, index) => ({ arrangement: paper, name: names[index]! }))
 }
 
 /**
@@ -211,7 +319,7 @@ function hasPendingImage(value: unknown): boolean {
   return pendingImageOf(node) !== undefined || hasPendingImage(node.content)
 }
 
-function refusePendingImages(exam: Exam, test: LayoutPlan): void {
+function refusePendingImages(exam: Exam, testOf: () => LayoutPlan): void {
   const needing = new Set(
     exam.questions
       .filter((question) => hasPendingImage(question.doc) || hasPendingImage(question.suggestedAnswer))
@@ -219,7 +327,7 @@ function refusePendingImages(exam: Exam, test: LayoutPlan): void {
   )
   if (needing.size === 0) return
   const numbers = new Map<string, string>()
-  for (const page of test.pages) {
+  for (const page of testOf().pages) {
     for (const item of page.items) {
       if (item.kind === 'question' && needing.has(item.question.id)) {
         numbers.set(item.question.id, numberLabelOf(item.question))
@@ -235,9 +343,11 @@ export function prepareExport({
   exam,
   arrangement,
   configuration,
+  history,
   measure,
   createdAt,
   createId = () => crypto.randomUUID(),
+  random = Math.random,
   onProgress,
 }: PreparationRequest): PreparedExport {
   if (exam.questions.length === 0) {
@@ -247,13 +357,34 @@ export function prepareExport({
     throw new Error('Choose the student test, the answer key, or both.')
   }
 
-  const test = planExport({ exam, arrangement, selection: TEST_ONLY, measure })
-  refusePendingImages(exam, test)
-  onProgress?.({ stage: 'planning', completed: 1, total: 2 })
-  const answerKey = planExport({ exam, arrangement, selection: KEY_ONLY, measure })
-  onProgress?.({ stage: 'planning', completed: 2, total: 2 })
-  const documents = selectedPlans(test, answerKey, configuration.selection)
+  // Named by the numbers the teacher sees in the Working Copy, not a
+  // shuffled Version's, so the refusal points at the sheet being edited.
+  refusePendingImages(exam, () => planExport({ exam, arrangement, selection: TEST_ONLY, measure }))
+  const papers = versionsToPrint({ exam, arrangement, configuration, history, random, createId })
+  const total = papers.length * 2
+  let completed = 0
+  const planned = papers.map(({ arrangement: paper, name }) => {
+    const plan = (selection: ExportContentSelection) => {
+      const result = planExport({
+        exam,
+        arrangement: paper,
+        selection,
+        measure,
+        ...(name !== undefined ? { version: name } : {}),
+      })
+      onProgress?.({ stage: 'planning', completed: ++completed, total })
+      return result
+    }
+    return { test: plan(TEST_ONLY), answerKey: plan(KEY_ONLY) }
+  })
+  // Every Version's test, then every Version's key: tests go out in stacks,
+  // and the keys stay with the teacher.
+  const documents = [
+    ...(configuration.selection.test ? planned.map(({ test }) => test) : []),
+    ...(configuration.selection.answerKey ? planned.map(({ answerKey }) => answerKey) : []),
+  ]
   onProgress?.({ stage: 'resolving', completed: 1, total: 1 })
+  const versions = papers.flatMap(({ name }) => (name !== undefined ? [name] : []))
 
   const record: ExportRecord = {
     id: createId(),
@@ -265,6 +396,7 @@ export function prepareExport({
     questionCount: exam.questions.length,
     plans: structuredClone(documents),
     mediaHashes: mediaHashesOf(documents),
+    ...(versions.length > 0 ? { versions, shuffle: { ...configuration.shuffle! } } : {}),
   }
   return {
     documents,

@@ -8,7 +8,7 @@ import {
   type PdfFontLoader,
 } from './pdf-export'
 import { FIXTURES, PIXEL_PNG } from './export-fixtures'
-import { SECTION_INSTRUCTIONS, questionIndentOf } from './export-plan'
+import { SECTION_INSTRUCTIONS, planExport, questionIndentOf } from './export-plan'
 import {
   DEFAULT_EXPORT_CONFIGURATION,
   EMPTY_EXPORT_HISTORY,
@@ -26,6 +26,21 @@ const fontFiles = {
 const fonts: PdfFontLoader = async (style) => Bun.file(fontFiles[style]).arrayBuffer()
 const noImages = async () => null
 const pixel = async () => PIXEL_PNG
+
+/** A fixture's test and key as one shuffled Version would print them. */
+function versionPlansOf(fixtureName: string, version: string) {
+  const fixture = FIXTURES.find((candidate) => candidate.name === fixtureName)!
+  return [
+    { test: true, answerKey: false },
+    { test: false, answerKey: true },
+  ].map((selection) => planExport({
+    exam: fixture.exam,
+    arrangement: fixture.arrangement,
+    selection,
+    measure: fixture.measure,
+    version,
+  }))
+}
 
 function plansOf(fixtureName: string) {
   const fixture = FIXTURES.find((candidate) => candidate.name === fixtureName)!
@@ -226,9 +241,10 @@ describe('PDF Export Adapter', () => {
     expect(drawn).toContain('Short Answer')
   })
 
-  // An Exam's own header line replaces the blanks, and the ID still prints.
-  test('draws a reworded header line beside the ID', async () => {
-    const { plans } = plansOf('a reworded header line')
+  // An Exam's own header line replaces the blanks, and a Version's name
+  // still prints beside it.
+  test('draws a reworded header line beside the Version name', async () => {
+    const plans = versionPlansOf('a reworded header line', 'Curly Fox')
     const bytes = await createPublicationPdf(plans, noImages, fonts)
     const document = await getDocument({ data: bytes, disableWorker: true }).promise
     const drawn = (await (await document.getPage(1)).getTextContent()).items
@@ -237,13 +253,24 @@ describe('PDF Export Adapter', () => {
       .replace(/\s+/g, ' ')
     expect(drawn).toContain('Student: __________ Period: ____')
     expect(drawn).not.toContain('Class:')
-    expect(drawn).toContain('ID: ')
+    expect(drawn).toContain('Curly Fox')
+  })
+
+  test('prints no label on the Working Copy’s own arrangement', async () => {
+    const { plans } = plansOf('a reworded header line')
+    const bytes = await createPublicationPdf(plans, noImages, fonts)
+    const document = await getDocument({ data: bytes, disableWorker: true }).promise
+    const drawn = (await (await document.getPage(1)).getTextContent()).items
+      .map((item) => ('str' in item ? item.str : ''))
+      .join(' ')
+    expect(drawn).toContain('Student:')
+    expect(drawn).not.toContain('ID:')
   })
 
   // The text size scales the questions, the heading size the title, and the
   // header line stays at the sheet's own type.
   test('draws the Exam’s text and title at the sizes it chose', async () => {
-    const { plans } = plansOf('large text under small headings')
+    const plans = versionPlansOf('large text under small headings', 'Brave Otter')
     const bytes = await createPublicationPdf(plans, noImages, fonts)
     const document = await getDocument({ data: bytes, disableWorker: true }).promise
     const items = (await (await document.getPage(1)).getTextContent()).items as {
@@ -253,7 +280,7 @@ describe('PDF Export Adapter', () => {
     const sizeOf = (text: string) => items.find((item) => item.str.includes(text))?.transform[0]
     expect(sizeOf('Which particle is neutral?')).toBeCloseTo(bodyPoints('large'), 2)
     expect(sizeOf('Sized type')).toBeCloseTo(titlePoints('small'), 2)
-    expect(sizeOf('ID:')).toBeCloseTo(pointsOf('body'), 2)
+    expect(sizeOf('Brave Otter')).toBeCloseTo(pointsOf('body'), 2)
   })
 
   // A matching question once printed its stem and nothing else: no prompts, no

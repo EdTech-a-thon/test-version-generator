@@ -399,7 +399,9 @@ export type PageFurniture = {
   /** The heading size the title prints at, when the Exam chose one other than
    *  normal. The heading size sets every heading, the title included. */
   titleSize?: HeadingSize
-  /** Which arrangement's paper this is — printed on every page, both streams. */
+  /** Which Version's paper this is — printed on every page, both streams, and
+   *  empty for the Working Copy's own arrangement. Plans recorded before
+   *  Versions existed carry the `ID: A` they printed. */
   arrangementLabel: string
   /** What the footer prints. The same number as the page, named separately
    *  because a footer is furniture rather than an item that packs. */
@@ -435,7 +437,7 @@ const HEADER_LINE: Record<PageHeader, HeaderLine | null> = {
 function furnitureOf(
   page: { header: PageHeader; number: number },
   title: string,
-  arrangementLetter: string,
+  version: string | undefined,
   header: ExamHeader | undefined,
   titleSize: HeadingSize | undefined,
 ): PageFurniture {
@@ -446,7 +448,7 @@ function furnitureOf(
     ...(identityLine !== undefined ? { identityLine } : {}),
     title: REPEATS_TITLE[page.header] ? title : null,
     ...(REPEATS_TITLE[page.header] && titleSize ? { titleSize } : {}),
-    arrangementLabel: `ID: ${arrangementLetter}`,
+    arrangementLabel: version ?? '',
     pageNumber: page.number,
   }
 }
@@ -1192,9 +1194,13 @@ export type ExportContentSelection = {
 /** The selection DOCX export uses: the student's paper, without the key. */
 export const STUDENT_TEST: ExportContentSelection = { test: true, answerKey: false }
 
+/** Which paper a plan is. `version` is the shuffled Version's name, present
+ *  only when the export shuffled; it is what the page's label prints. */
+export type PlannedArrangement = { id: string; letter: string; version?: string }
+
 export type ExportDocument = {
   title: string
-  arrangement: { id: string; letter: string }
+  arrangement: PlannedArrangement
   selection: ExportContentSelection
   /** The student test's content items, in order, before page assignment. */
   test: PageItem[]
@@ -1214,11 +1220,16 @@ export function buildExportDocument(
   exam: Exam,
   arrangement: Arrangement,
   selection: ExportContentSelection,
+  version?: string,
 ): ExportDocument {
   const test = deriveItems(exam, arrangement)
   return {
     title: exam.title,
-    arrangement: { id: arrangement.id, letter: arrangement.letter },
+    arrangement: {
+      id: arrangement.id,
+      letter: arrangement.letter,
+      ...(version !== undefined ? { version } : {}),
+    },
     selection,
     test,
     answerKey: deriveAnswerKey(test),
@@ -1253,7 +1264,7 @@ export const US_LETTER: PageSize = {
 
 export type LayoutPlan = {
   title: string
-  arrangement: { id: string; letter: string }
+  arrangement: PlannedArrangement
   selection: ExportContentSelection
   pageSize: PageSize
   /** How large the pages' content prints, when not normal. Every adapter sets
@@ -1267,6 +1278,9 @@ export type PlanRequest = {
   arrangement: Arrangement
   selection: ExportContentSelection
   measure: Measure
+  /** The shuffled Version this paper is, named on every page; absent for the
+   *  Working Copy's own arrangement, which prints no label. */
+  version?: string
 }
 
 /** Layout resolution, on its own: an Export Document onto sheets. Keeping the
@@ -1308,7 +1322,7 @@ function resolveLayout(
       furniture: furnitureOf(
         page,
         document.title,
-        document.arrangement.letter,
+        document.arrangement.version,
         document.header,
         document.headingSize,
       ),
@@ -1327,6 +1341,7 @@ export function planExport({
   arrangement,
   selection,
   measure,
+  version,
 }: PlanRequest): LayoutPlan {
-  return resolveLayout(buildExportDocument(exam, arrangement, selection), measure)
+  return resolveLayout(buildExportDocument(exam, arrangement, selection, version), measure)
 }

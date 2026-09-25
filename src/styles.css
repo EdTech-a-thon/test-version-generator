@@ -216,6 +216,24 @@ button { cursor: pointer; }
 .export-arrangement-state { display: grid; gap: 4px; margin: 0; color: #6e5b4d; }
 .export-arrangement-state strong { color: #332a24; font-size: 20px; }
 .export-durability-note { margin: 0; color: #6e5b4d; font-size: 13px; line-height: 1.45; }
+.export-dialog-eyebrow { margin: 0; color: #6e5b4d; font-size: 13px; }
+/* A recorded export's identity, above its frozen settings. */
+.export-record-identity { display: grid; gap: 6px; margin: 0; font-size: 14px; }
+.export-record-identity div { display: flex; gap: 8px; }
+.export-record-identity dt { flex: none; width: 64px; color: #6e5b4d; }
+.export-record-identity dd { margin: 0; min-width: 0; overflow-wrap: anywhere; font-weight: 600; }
+/* The Versions a preview holds, under a rule: each name snaps the preview. */
+.export-version-line { display: grid; gap: 6px; padding-top: 14px; border-top: 1px solid #e0d3c5; }
+.export-version-line h3 { margin: 0 0 2px; font-size: 15px; }
+.export-version-line ul { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; }
+.export-version-line li { display: flex; align-items: center; gap: 7px; }
+.export-version-line input { margin: 0; accent-color: #9f5037; }
+.export-version-name {
+  flex: 1; min-width: 0; padding: 5px 8px; border: 1px solid transparent; border-radius: 6px;
+  background: none; color: #332a24; font: inherit; text-align: left; cursor: pointer;
+}
+.export-version-name:hover, .export-version-name:focus-visible { border-color: #cdb9a6; background: #f7eee3; }
+.export-version-name[aria-current='true'] { border-color: #9f5037; background: #f7eee3; font-weight: 700; }
 .storage-notice {
   position: fixed; z-index: 40; left: 50%; bottom: 22px; transform: translateX(-50%);
   display: flex; align-items: flex-start; gap: 8px; width: min(520px, calc(100vw - 32px));
@@ -285,14 +303,6 @@ button { cursor: pointer; }
 .export-history-item:hover, .export-history-item:focus-visible { border-color: #9f5037; background: #f7eee3; }
 .export-history-item[aria-current='page'] { border-color: #9f5037; box-shadow: inset 0 0 0 1px #9f5037; }
 .export-history-item time, .export-history-item span { color: #6e5b4d; font-size: 13px; }
-.historical-document { min-height: calc(100vh - 58px); }
-.historical-document-bar {
-  position: sticky; top: 58px; z-index: 2; display: flex; align-items: center; justify-content: space-between;
-  gap: 16px; padding: 12px 24px; border-bottom: 1px solid #d5c1ac; background: #f2e6d8;
-}
-.historical-document-bar p { margin: 0 0 2px; color: #6e5b4d; font-size: 13px; }
-.historical-document-bar h2 { margin: 0; font-size: 18px; }
-.historical-document-actions { display: flex; align-items: center; gap: 10px; }
 .use-as-draft-dialog { width: min(460px, calc(100vw - 32px)); background: #fffaf3; border: 1px solid #e0d3c2; border-radius: 10px; box-shadow: 0 16px 48px rgb(55 42 33 / 26%); }
 .use-as-draft-body { padding: 18px; color: #4e3b2f; line-height: 1.5; }
 .use-as-draft-body p { margin: 0; }
@@ -310,7 +320,6 @@ button { cursor: pointer; }
 .historical-comparison dt { color: #6e5b4d; font-weight: 600; }
 .historical-comparison dd { margin: 4px 0 0; overflow-wrap: anywhere; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
-.historical-document-pages .exam-workspace { min-height: 0; }
 
 /* The rendered test. Everything below the document bar is a view of what the
    printer will produce; nothing in it is typeable.

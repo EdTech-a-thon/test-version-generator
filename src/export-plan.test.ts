@@ -1227,13 +1227,30 @@ describe('the Layout Plan', () => {
       identityFields: ['Name', 'Class', 'Date'],
       identityLine: DEFAULT_HEADER.first,
       title: 'Chemistry Unit 3',
-      arrangementLabel: 'ID: C',
+      arrangementLabel: '',
       pageNumber: 1,
     })
     // The key is the teacher's copy: nothing for a student to fill in.
     expect(keyPage!.furniture.identityFields).toEqual([])
     expect(keyPage!.furniture.identityLine).toBeUndefined()
-    expect(keyPage!.furniture.arrangementLabel).toBe('ID: C')
+    expect(keyPage!.furniture.arrangementLabel).toBe('')
+  })
+
+  test('names a shuffled Version on every page of the test and the key', () => {
+    const tall: Measure = {
+      itemHeight: (item) => (item.kind === 'question' ? 600 : 0),
+    }
+    const plan = planExport({
+      exam,
+      arrangement,
+      selection: WHOLE_DOCUMENT,
+      measure: tall,
+      version: 'Curly Fox',
+    })
+    expect(plan.arrangement.version).toBe('Curly Fox')
+    expect(new Set(plan.pages.map((page) => page.stream))).toEqual(new Set(['test', 'answer-key']))
+    expect(plan.pages.length).toBeGreaterThan(2)
+    expect(plan.pages.every((page) => page.furniture.arrangementLabel === 'Curly Fox')).toBe(true)
   })
 
   test('drops the title on a continuation page but never the arrangement', () => {
@@ -1251,7 +1268,7 @@ describe('the Layout Plan', () => {
       identityFields: ['Name'],
       identityLine: DEFAULT_HEADER.later,
       title: null,
-      arrangementLabel: 'ID: C',
+      arrangementLabel: '',
       pageNumber: 2,
     })
   })

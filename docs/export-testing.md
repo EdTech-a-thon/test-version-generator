@@ -27,17 +27,20 @@ Exam Working Copy + Content Selection
 ```
 
 `prepareExport({ examId, exam, arrangement, configuration, history, measure,
-createdAt })` is the application-level pure seam. It resolves the selected
+createdAt, random })` is the application-level pure seam. It resolves the selected
 student-test and/or answer-key Layout Plans from the visible Working Copy and
-returns a new immutable Export Record plus the selected artifact. Every
+returns a new immutable Export Record plus the selected artifact. When the
+configuration shuffles, it resolves them for each shuffled Version instead —
+every Version's test, then every Version's key — drawing from `random`, so a
+seeded source reproduces the same Versions and names. Every
 successful export is a separate event; fingerprints remain diagnostics only
 and never deduplicate records or name output.
 
 Each Export Record is attached to its Exam UUID and retains the captured Exam
 name, exact format and Content Selection, question count, required media hashes,
 and complete resolved Layout Plans. Historical view and fixed-format re-export
-consume only that stored record. They never consult current Questions, restore
-an Exam, or invoke the current layout engine.
+consume only that stored record, or a chosen subset of its Versions. They never consult current Questions, restore an Exam, or invoke the
+current layout engine.
 
 The print adapter remains an internal preview/reference path (`ExportPreview`
 in `src/exam-page.tsx`). PDF and DOCX are explicit product artifacts. All three
@@ -68,8 +71,8 @@ package metadata, and raster appearance are not compared. Authored line breaks
 remain semantic; explicit page breaks remain structural.
 
 Parity covers the selected plans in order and restarts page numbering per
-stream. Each page carries the output ID resolved from the Working Copy's
-arrangement; it is page furniture, not a persistent identity or history key.
+stream. A shuffled Version's page carries its Version name as page furniture;
+an unshuffled page carries no label.
 
 ## Shared fingerprint
 
@@ -115,7 +118,8 @@ The implementations are:
 `bun test` is dependency-free and covers:
 
 - `src/export-preparation.test.ts` — selected-plan retention, stream order,
-  distinct repeated events, exact historical replay, validation, and filenames.
+  distinct repeated events, exact historical replay, validation, filenames,
+  shuffled Versions (distinctness, what moves, names), and partial reprints.
 - `src/export-plan.test.ts` — semantic derivation, numbering, grids, geometry,
   packing, splitting, furniture, streams, and breaks.
 - `src/export-parity.test.ts` — each fixture through the plan, print-reference,
