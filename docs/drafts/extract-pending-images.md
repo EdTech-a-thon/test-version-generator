@@ -54,7 +54,7 @@ The required top-level shape is:
 }
 ```
 
-Do not add application database IDs, local paths, Exam data, timestamps, page numbers, layout coordinates, OCR confidence, or conversational notes to the record. The only exception is the `pending` location of a Pending Image (see [Images and Pending Images](#images-and-pending-images)).
+Do not add application database IDs, local paths, Exam data, timestamps, page numbers, layout coordinates, OCR confidence, or conversational notes to the record. The only exception is the source `page` of a Pending Image (see [Images and Pending Images](#images-and-pending-images)).
 
 ## Completeness is mandatory—but do not force uncertain content
 
@@ -99,7 +99,9 @@ Perform a second pass against the original source and verify all of the followin
 - every image, caption, table, list, equation, hard break, and safe link was preserved;
 - all Question, choice, item and word bank IDs are unique and sequential;
 - every meaningful image, including an image used as an answer choice, matching item or word bank answer, is a Pending Image;
-- every Pending Image names the correct source page and a tight box around the picture alone;
+- every picture has its own Pending Image, with side-by-side pictures split rather than merged;
+- every Question covered by shared directions (for example “Use the information above for problems 3 – 5”) repeats the shared pictures in its own stem;
+- every Pending Image names the source page it appears on;
 - `media` is an empty array;
 - the final JSON passes the public schema and semantic rules.
 
@@ -540,18 +542,12 @@ Reject or report `javascript:`, `data:`, `file:`, relative, and custom-scheme li
 
 If an image is meaningful Question Content—for example, a graph or diagram the Question asks about, or a picture used as an answer choice—preserve it. Do not replace it with an invented description.
 
-**Do not create Media Assets, and never write base64.** Instead, write a **Pending Image**: an image node that says where the picture is in the source. Test Parrot takes the picture from the original file when the teacher imports the JSON.
+**Do not create Media Assets, and never write base64.** Instead, write a **Pending Image**: an image node that marks where a picture belongs in the Question. Test Parrot finds the picture in the original file when the teacher imports the JSON, using the question's own text and answer letters, so a Pending Image's place in the record matters more than anything it says.
 
 ```json
 {
   "type": "block-image",
-  "pending": {
-    "page": 2,
-    "top": 120,
-    "left": 80,
-    "bottom": 410,
-    "right": 520
-  },
+  "pending": { "page": 2 },
   "alt": "Diagram of a right triangle with legs labeled a and b",
   "caption": "Figure 1"
 }
@@ -560,13 +556,13 @@ If an image is meaningful Question Content—for example, a graph or diagram the
 Rules:
 
 - A Pending Image has a `pending` member and **no `asset` member**.
-- `page` is the 1-based page of the source file as a PDF viewer counts it, not a page number printed on the page. For a single photo or screenshot, `page` is `1`.
-- `top`, `left`, `bottom`, and `right` are integers from `0` through `1000`, measured on the page as displayed, with the origin at the top-left corner: `left` and `right` are fractions of the page width, `top` and `bottom` are fractions of the page height, times 1000.
-- Draw the box tightly around the picture alone. Include its axes, axis labels, and any labels drawn inside the picture. Exclude the question text, the answer letter such as `(A)`, and any caption printed outside the picture.
+- `pending` holds only `page`: the 1-based page of the source file where the picture appears, as a PDF viewer counts pages, not a page number printed on the page. For a single photo or screenshot, `page` is `1`. Do not add coordinates or any other location.
+- Put the Pending Image exactly where the picture belongs: in the `stem` when the picture belongs to the question, or in the choice's `content` when the picture is that answer choice.
+- **Write one Pending Image per picture.** Two graphs side by side, such as “Graph of f” and “Graph of g”, are two pictures and need two Pending Images, in reading order. When you cannot tell whether something is one picture or several, write several: an extra Pending Image is easy for the teacher to fill, and a missing one is not.
+- **Repeat shared pictures.** When one picture serves several Questions, every one of those Questions gets its own copy of the Pending Image. Directions such as “Use the information above for problems 3 – 5” mean that Questions 3, 4, and 5 each start their stem with the pictures that directions refer to, even though the source prints them once.
 - Put caption text printed beside or below the picture in `caption`, even if the source shows the caption as an image.
 - Give every Pending Image useful `alt` text describing what the picture shows. `authoredSize` from `0.05` through `1` is optional.
 - Use `block-image` for a picture that stands on its own line, including a picture that is an answer choice's whole content. Use `inline-image` only for a small picture inside a line of text.
-- When one picture is used by several Questions, such as a graph shared by a set of questions, repeat the same Pending Image in each Question that shows it.
 - Leave the top-level `media` array empty: `"media": []`.
 
 **Equations are not images.** Many documents store equations as small pictures. Write every equation as `inline-math` or `display-math` with its source, never as a Pending Image. Likewise, write text that the source shows as a picture, such as a caption or a heading, as text.
