@@ -5,6 +5,7 @@
 // then each Part, each with its own layout; the Question travels whole.
 
 import { useLayoutEffect, useRef, type DragEvent, type MouseEvent, type ReactNode } from 'react'
+import { ColumnLayoutIcon } from './column-layout-icon'
 import { DifficultyBadge } from './badges'
 import { DocView } from './doc-view'
 import { SECTION_LABELS, choicesOf, partsOf, promptsOf, type ColumnSetting, type Question } from './exam'
@@ -85,26 +86,76 @@ function Blank() {
   return <span className="pop-over-blank" aria-hidden="true">_____</span>
 }
 
+/** Answer columns as three icons — one, two and four columns — the way a
+ *  toolbar offers alignment. Using it neither selects nor drags the card. */
+function ColumnToggle({
+  label,
+  value,
+  onChange,
+}: {
+  label: string
+  value: ColumnSetting
+  onChange: (value: ColumnSetting) => void
+}) {
+  return <span
+    className="pop-over-columns"
+    role="radiogroup"
+    aria-label={label}
+    onClick={(event) => event.stopPropagation()}
+    onPointerDown={(event) => event.stopPropagation()}
+  >
+    {COLUMN_OPTIONS.map(({ value: columns, label: name }) => (
+      <button
+        key={columns}
+        type="button"
+        role="radio"
+        aria-checked={value === columns}
+        aria-label={name}
+        title={name}
+        draggable={false}
+        onClick={() => onChange(columns)}
+      ><ColumnLayoutIcon columns={columns} withDataAttribute={false} /></button>
+    ))}
+  </span>
+}
+
+/** One half of a card, cut off after a few lines and faded only when it is:
+ *  a short stem or a short answer list ends where it ends. */
+function Clipped({ className, children }: { className: string; children: ReactNode }) {
+  const clip = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    const element = clip.current
+    if (!element) return
+    if (element.scrollHeight > element.clientHeight + 1) element.dataset.cut = 'true'
+    else delete element.dataset.cut
+  })
+  return <div className={className} ref={clip}>{children}</div>
+}
+
+/** What a card shows: the controls for its layout, the stem, and the answers
+ *  laid out as they will land — two halves with a dashed rule between. */
 function body(question: Question, format: CopyFormat, onFormat: (format: CopyFormat) => void): {
   controls: ReactNode
-  content: ReactNode
+  stem: ReactNode
+  answers: ReactNode
 } {
-  const stem = stemNodesOf(question.doc)
+  const stem = <DocView className="pop-over-stem" content={stemNodesOf(question.doc)} />
   switch (question.type) {
     case 'multiple-choice': {
       const columns = format.columns ?? question.columns
       return {
-        controls: <FormatSelect label="Answer columns" value={columns} options={COLUMN_OPTIONS} onChange={(value) => onFormat({ ...format, columns: value })} />,
-        content: <>
-          <DocView className="pop-over-stem" content={stem} />
-          <Answers answers={choicesOf(question).map(({ node }) => childrenOf(node))} columns={columns} />
-        </>,
+        controls: <ColumnToggle label="Answer columns" value={columns} onChange={(value) => onFormat({ ...format, columns: value })} />,
+        stem,
+        answers: <Answers answers={choicesOf(question).map(({ node }) => childrenOf(node))} columns={columns} />,
       }
     }
     case 'true-false':
+      // The pair is never printed, so there is no answer half: the blank is
+      // the answer, and it leads the stem.
       return {
         controls: null,
-        content: <div className="pop-over-led"><Blank /><DocView className="pop-over-stem" content={stem} /></div>,
+        stem: <div className="pop-over-led"><Blank />{stem}</div>,
+        answers: null,
       }
     case 'matching': {
       const wordBank = format.wordBank ?? defaultWordBank(question)
@@ -121,47 +172,47 @@ function body(question: Question, format: CopyFormat, onFormat: (format: CopyFor
           options={[{ value: 'beside', label: 'Word Bank beside' }, { value: 'above', label: 'Word Bank above' }]}
           onChange={(value) => onFormat({ ...format, wordBank: value })}
         />,
-        content: <>
-          <DocView className="pop-over-stem" content={stem} />
-          {wordBank === 'beside'
-            ? <div className="pop-over-beside">{items}{bank}</div>
-            : <>{bank}{items}</>}
-        </>,
+        stem,
+        answers: wordBank === 'beside'
+          ? <div className="pop-over-beside">{items}{bank}</div>
+          : <>{bank}{items}</>,
       }
     }
     case 'open':
       return {
         controls: <FormatSelect label="Answer lines" value={format.lines ?? 0} options={LINE_OPTIONS} onChange={(value) => onFormat({ ...format, lines: value })} />,
-        content: <>
-          <DocView className="pop-over-stem" content={stem} />
-          <Rules count={format.lines ?? 0} />
-        </>,
+        stem,
+        answers: (format.lines ?? 0) > 0 ? <Rules count={format.lines ?? 0} /> : null,
       }
     case 'multipart':
+      // The shared stem, then each Part split the same way as a whole card:
+      // its own stem, a dashed rule, its own answers.
       return {
         controls: null,
-        content: <>
-          <DocView className="pop-over-stem" content={stem} />
-          <ol className="pop-over-parts">
-            {partsOf(question).map((part, index) => {
-              const partFormat: CopyPartFormat = format.parts?.[part.id] ?? {}
-              const setPart = (next: CopyPartFormat) => onFormat({ ...format, parts: { ...format.parts, [part.id]: next } })
-              return <li key={part.id} className="pop-over-part">
-                <div className="pop-over-part-head">
-                  <span className="pop-over-part-letter">{bankLetter(index).toLowerCase()}.</span>
-                  <span className="pop-over-part-type">{SECTION_LABELS[part.type]}</span>
+        stem,
+        answers: <ol className="pop-over-parts">
+          {partsOf(question).map((part, index) => {
+            const letter = bankLetter(index).toLowerCase()
+            const partFormat: CopyPartFormat = format.parts?.[part.id] ?? {}
+            const setPart = (next: CopyPartFormat) => onFormat({ ...format, parts: { ...format.parts, [part.id]: next } })
+            const answers = part.type === 'multiple-choice'
+              ? <Answers answers={part.choices.map(({ node }) => childrenOf(node))} columns={partFormat.columns ?? part.columns} />
+              : (partFormat.lines ?? 0) > 0 ? <Rules count={partFormat.lines ?? 0} /> : null
+            return <li key={part.id} className="pop-over-part">
+              <div className="pop-over-part-head">
+                <span className="pop-over-part-letter">{letter}.</span>
+                <span className="pop-over-part-type">{SECTION_LABELS[part.type]}</span>
+                <span className="pop-over-card-controls">
                   {part.type === 'multiple-choice'
-                    ? <FormatSelect label={`Part ${bankLetter(index).toLowerCase()} answer columns`} value={partFormat.columns ?? part.columns} options={COLUMN_OPTIONS} onChange={(value) => setPart({ ...partFormat, columns: value })} />
-                    : <FormatSelect label={`Part ${bankLetter(index).toLowerCase()} answer lines`} value={partFormat.lines ?? 0} options={LINE_OPTIONS} onChange={(value) => setPart({ ...partFormat, lines: value })} />}
-                </div>
-                <DocView className="pop-over-stem" content={part.stem} />
-                {part.type === 'multiple-choice'
-                  ? <Answers answers={part.choices.map(({ node }) => childrenOf(node))} columns={partFormat.columns ?? part.columns} />
-                  : <Rules count={partFormat.lines ?? 0} />}
-              </li>
-            })}
-          </ol>
-        </>,
+                    ? <ColumnToggle label={`Part ${letter} answer columns`} value={partFormat.columns ?? part.columns} onChange={(value) => setPart({ ...partFormat, columns: value })} />
+                    : <FormatSelect label={`Part ${letter} answer lines`} value={partFormat.lines ?? 0} options={LINE_OPTIONS} onChange={(value) => setPart({ ...partFormat, lines: value })} />}
+                </span>
+              </div>
+              <DocView className="pop-over-stem" content={part.stem} />
+              {answers && <div className="pop-over-answer-half">{answers}</div>}
+            </li>
+          })}
+        </ol>,
       }
   }
 }
@@ -184,15 +235,8 @@ export function PopOverCard({
   onSelect: (modifiers: { shiftKey: boolean; metaKey: boolean; ctrlKey: boolean }) => void
   onDragStart: (event: DragEvent<HTMLLIElement>) => void
 }) {
-  const { controls, content } = body(question, format, onFormat)
-  // Faded only when it is cut off: a short Question ends where it ends.
-  const clip = useRef<HTMLDivElement>(null)
-  useLayoutEffect(() => {
-    const element = clip.current
-    if (!element) return
-    if (element.scrollHeight > element.clientHeight + 1) element.dataset.cut = 'true'
-    else delete element.dataset.cut
-  })
+  const { controls, stem, answers } = body(question, format, onFormat)
+  const whole = question.type === 'multipart'
   return <li
     className="pop-over-card"
     role="option"
@@ -210,7 +254,7 @@ export function PopOverCard({
     }}
     onDragStart={(event) => {
       // A drag that began on a layout control is that control's.
-      if ((event.target as HTMLElement).closest?.('select')) {
+      if ((event.target as HTMLElement).closest?.('select, .pop-over-columns')) {
         event.preventDefault()
         return
       }
@@ -222,6 +266,13 @@ export function PopOverCard({
       {question.difficulty && <DifficultyBadge difficulty={question.difficulty} />}
       <span className="pop-over-card-controls">{controls}</span>
     </div>
-    <div className="pop-over-card-content" ref={clip}>{content}</div>
+    {/* A Multipart question shows every Part whole, since each has its own
+        layout; any other card cuts each half off at a few lines. */}
+    {whole
+      ? <div className="pop-over-stem-half">{stem}</div>
+      : <Clipped className="pop-over-stem-half">{stem}</Clipped>}
+    {answers && (whole
+      ? <div className="pop-over-answer-half">{answers}</div>
+      : <Clipped className="pop-over-answer-half">{answers}</Clipped>)}
   </li>
 }

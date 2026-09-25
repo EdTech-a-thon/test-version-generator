@@ -3187,14 +3187,32 @@ button.pop-over-chip-option[aria-pressed='true'] svg { visibility: visible; }
 .pop-over-format:hover { border-color: #cdb9a6; background: #f7ede0; }
 /* A few lines of the Question, fading out rather than stopping at a hard
    edge. A Multipart question shows every Part, since each has its own layout. */
-.pop-over-card-content { max-height: 150px; overflow: hidden; }
-.pop-over-card-content[data-cut] { mask-image: linear-gradient(to bottom, #000 76%, transparent); }
-.pop-over-card[data-type='multipart'] .pop-over-card-content { max-height: none; mask-image: none; }
+/* A card in two halves: the stem, then — past a dashed rule — the answers as
+   they will land. Each is cut off at a few lines and faded only when it is. */
+.pop-over-stem-half { max-height: 84px; overflow: hidden; }
+.pop-over-answer-half {
+  max-height: 96px; overflow: hidden; margin-top: 6px; padding-top: 6px;
+  border-top: 1px dashed #d8c7b1;
+}
+.pop-over-card[data-type='multipart'] > :is(.pop-over-stem-half, .pop-over-answer-half) { max-height: none; }
+:is(.pop-over-stem-half, .pop-over-answer-half)[data-cut] { mask-image: linear-gradient(to bottom, #000 70%, transparent); }
+.pop-over-part .pop-over-answer-half { margin-top: 4px; padding-top: 4px; }
+/* One, two or four columns, as three icons. */
+.pop-over-columns {
+  display: inline-flex; padding: 1px; border: 1px solid #ddcdb9; border-radius: 6px; background: #fffdf8;
+}
+.pop-over-columns button {
+  display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 18px;
+  padding: 0; border: 0; border-radius: 4px; color: #8a7868; background: transparent; cursor: pointer;
+}
+.pop-over-columns button:hover { color: #3d3027; background: #f3e9dc; }
+.pop-over-columns button[aria-checked='true'] { color: #fffdf8; background: #8a6a4c; }
+.pop-over-columns svg { width: 16px; height: 12px; }
 .pop-over-stem { line-height: 1.35; }
 .pop-over-stem p { margin: 0 0 3px; }
 .pop-over-card img { max-height: 70px; width: auto; }
 .pop-over-answers {
-  display: grid; grid-auto-flow: column; gap: 1px 10px; margin: 3px 0 0; padding: 0; list-style: none;
+  display: grid; grid-auto-flow: column; gap: 1px 10px; margin: 0; padding: 0; list-style: none;
 }
 .pop-over-answers li { display: flex; gap: 4px; min-width: 0; color: var(--paper-ink-soft); }
 .pop-over-answers li > span { flex: none; font-weight: 600; }
@@ -3212,7 +3230,7 @@ button.pop-over-chip-option[aria-pressed='true'] svg { visibility: visible; }
 .pop-over-part-head { display: flex; align-items: center; gap: 5px; margin-bottom: 2px; }
 .pop-over-part-letter { font-weight: 700; }
 .pop-over-part-type { color: #8a7868; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
-.pop-over-part-head .pop-over-format { margin-left: auto; }
+.pop-over-part-head .pop-over-card-controls { margin-left: auto; }
 
 .pop-over-footer {
   position: relative; flex: none; display: flex; align-items: center; gap: 8px; min-height: 36px;
