@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs'
-import type { Question } from './exam'
+import { partsOf, type Question } from './exam'
 import { mark, paragraph, text } from './export-fixtures'
 import type { QuestionBankResource } from './question-bank-workspaces'
 import {
@@ -10,6 +10,10 @@ import {
   questionBankFilename,
   type QuestionBankRecord,
 } from './question-bank-export'
+import {
+  importedQuestionsFromRecord,
+  inspectQuestionBankRecord,
+} from './question-bank-import'
 import {
   createQuestionBankPdf,
   type QuestionBankPdfFontLoader,
@@ -188,6 +192,75 @@ const matching: Question = {
   },
 }
 
+// A Multipart question with one Multiple Choice Part and one Short Answer Part. The
+// Short Answer Part's Suggested Answer stays inside the document, and the
+// Multiple Choice Part's answer columns are presentation the record omits.
+const multipart: Question = {
+  id: 'local-multipart-id',
+  type: 'multipart',
+  columns: 2,
+  difficulty: 'medium',
+  topics: ['Ottoman Empire'],
+  doc: {
+    type: 'doc',
+    content: [
+      paragraph(text('The power of the [Ottoman] Empire was waning by 1683 …')),
+      paragraph(text('Source: “Ottoman Empire (1301–1922),” BBC online, 2009 (adapted)')),
+      {
+        type: 'multipartParts',
+        content: [
+          {
+            type: 'multipartPart',
+            attrs: { id: 'local-part-a', columns: 4 },
+            content: [
+              {
+                type: 'multipartPartStem',
+                content: [paragraph(text('Which region was controlled by the Ottoman Empire in 1683?'))],
+              },
+              {
+                type: 'multipleChoice',
+                content: [
+                  choice('local-part-a-1', false, 'Central America'),
+                  choice('local-part-a-2', false, 'South Asia'),
+                  choice('local-part-a-3', false, 'East Asia'),
+                  choice('local-part-a-4', true, 'Middle East'),
+                ],
+              },
+            ],
+          },
+          {
+            type: 'multipartPart',
+            attrs: { id: 'local-part-b', columns: 2 },
+            content: [
+              {
+                type: 'multipartPartStem',
+                content: [paragraph(text('Identify an issue faced by the Ottoman Empire in the 1600s.'))],
+              },
+              {
+                type: 'suggestedAnswer',
+                content: [paragraph(text('Global trade routes shifted.'))],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  },
+}
+
+const emptyMultipart: Question = {
+  id: 'local-empty-multipart-id',
+  type: 'multipart',
+  columns: 2,
+  doc: {
+    type: 'doc',
+    content: [
+      paragraph(text('Study the map of the Silk Road.')),
+      { type: 'multipartParts', content: [] },
+    ],
+  },
+}
+
 describe('Question Bank exchange export seam', () => {
   test('builds the authoritative semantic record in canonical stored order', async () => {
     const prepared = await prepareQuestionBankExport(
@@ -328,6 +401,109 @@ describe('Question Bank exchange export seam', () => {
     }
     await expect(prepareQuestionBankExport(bank([thin]))).rejects.toThrow(
       /at least two Word Bank answers/,
+    )
+  })
+
+  test('writes a Multipart question as its material and lettered Parts, each under a package-local id', async () => {
+    const { record } = await prepareQuestionBankExport(bank([multipart, emptyMultipart]))
+
+    expect(record.formatVersion).toBe('0.4.0')
+    expect(record.bank.questions[0]).toEqual({
+      id: 'q1',
+      type: 'multipart',
+      stem: {
+        type: 'document',
+        content: [
+          {
+            type: 'paragraph',
+            content: [{ type: 'text', text: 'The power of the [Ottoman] Empire was waning by 1683 …' }],
+          },
+          {
+            type: 'paragraph',
+            content: [{ type: 'text', text: 'Source: “Ottoman Empire (1301–1922),” BBC online, 2009 (adapted)' }],
+          },
+        ],
+      },
+      difficulty: 'medium',
+      topics: ['Ottoman Empire'],
+      parts: [
+        {
+          id: 'q1-s1',
+          type: 'multiple-choice',
+          stem: expect.objectContaining({ type: 'document' }),
+          choices: [
+            { id: 'q1-s1-c1', content: expect.anything(), correct: false },
+            { id: 'q1-s1-c2', content: expect.anything(), correct: false },
+            { id: 'q1-s1-c3', content: expect.anything(), correct: false },
+            { id: 'q1-s1-c4', content: expect.anything(), correct: true },
+          ],
+        },
+        {
+          id: 'q1-s2',
+          type: 'short-answer',
+          stem: expect.objectContaining({ type: 'document' }),
+          suggestedAnswer: {
+            type: 'document',
+            content: [
+              { type: 'paragraph', content: [{ type: 'text', text: 'Global trade routes shifted.' }] },
+            ],
+          },
+        },
+      ],
+    })
+    // A Multipart question with no Parts yet is incomplete, not unexportable.
+    expect(record.bank.questions[1]).toMatchObject({ id: 'q2', type: 'multipart', parts: [] })
+    const encoded = JSON.stringify(record)
+    expect(encoded).not.toContain('local-')
+    expect(encoded).not.toContain('multipartPart')
+    expect(encoded).not.toContain('columns')
+  })
+
+  test('a Multipart question round-trips through the record with its Parts, answers and Suggested Answer intact', async () => {
+    const first = await prepareQuestionBankExport(bank([multipart, emptyMultipart]))
+    const inspected = await inspectQuestionBankRecord(first.recordBytes)
+    const imported = importedQuestionsFromRecord(inspected.record)
+
+    expect(imported.map((question) => question.type)).toEqual(['multipart', 'multipart'])
+    const parts = partsOf(imported[0]!)
+    expect(parts.map((part) => part.type)).toEqual(['multiple-choice', 'open'])
+    expect(parts[0]!.choices.map((choice) => choice.correct)).toEqual([false, false, false, true])
+    expect(parts[0]!.id).not.toBe('local-part-a')
+    expect(partsOf(imported[1]!)).toEqual([])
+
+    const second = await prepareQuestionBankExport(bank(imported))
+    expect(second.record.bank).toEqual(first.record.bank)
+  })
+
+  test('collects images inside Part stems, choices and Suggested Answers into media', async () => {
+    const withImages = structuredClone(multipart)
+    const [partA, partB] = (withImages.doc.content as Record<string, unknown>[]).at(-1)!
+      .content as { content: Record<string, unknown>[] }[]
+    const image = (name: string) => ({ type: 'image-block', attrs: { src: `/local-images/${name}` } })
+    partA!.content[0]!.content = [image('stem')]
+    ;(partA!.content[1]!.content as { content: unknown[] }[])[0]!.content = [paragraph(text('Map')), image('choice')]
+    partB!.content[1]!.content = [image('answer')]
+    const loaded: string[] = []
+    const { record } = await prepareQuestionBankExport(bank([withImages]), async (source) => {
+      loaded.push(source)
+      return { data: new TextEncoder().encode(source), mimeType: 'image/png', width: 1, height: 1 }
+    })
+
+    expect(loaded).toEqual(['/local-images/stem', '/local-images/choice', '/local-images/answer'])
+    expect(record.media).toHaveLength(3)
+    const parts = record.bank.questions[0]!.parts!
+    for (const document of [parts[0]!.stem, parts[0]!.choices![0]!.content, parts[1]!.suggestedAnswer!]) {
+      expect(JSON.stringify(document)).toContain('sha256:')
+    }
+  })
+
+  test('refuses a Multiple Choice Part with fewer than two choices', async () => {
+    const thin = structuredClone(multipart)
+    const [partA] = (thin.doc.content as Record<string, unknown>[]).at(-1)!
+      .content as { content: { content: unknown[] }[] }[]
+    partA!.content[1]!.content.splice(1)
+    await expect(prepareQuestionBankExport(bank([thin]))).rejects.toThrow(
+      'Question 1, Part a must have at least two choices.',
     )
   })
 
@@ -505,6 +681,38 @@ describe('Question Bank exchange export seam', () => {
     expect(preview).not.toContain('Answer Section')
     expect(preview).not.toContain('Version A')
     expect(source).toContain('/AFRelationship /Source')
+  })
+
+  test('previews a Multipart question as its material, then its lettered Parts with their answers', async () => {
+    const prepared = await prepareQuestionBankExport(bank([multipart, emptyMultipart]))
+    const bytes = await createQuestionBankPdf(prepared, fonts)
+    const reader = await getDocument({ data: bytes.slice(), disableWorker: true }).promise
+    const preview = (
+      await Promise.all(
+        Array.from({ length: reader.numPages }, async (_, index) =>
+          (await (await reader.getPage(index + 1)).getTextContent()).items
+            .map((item) => ('str' in item ? item.str : ''))
+            .join(' '),
+        ),
+      )
+    ).join(' ')
+
+    expect(preview).toMatch(/Question Type:\s+Multipart/)
+    const order = [
+      'The power of the [Ottoman] Empire',
+      'Source:',
+      'a.',
+      'Which region was controlled',
+      'Middle East',
+      'Correct answer',
+      'b.',
+      'Identify an issue',
+      'Suggested Answer',
+      'Global trade routes shifted.',
+      'No Parts yet.',
+    ].map((fragment) => preview.indexOf(fragment))
+    expect(order.every((position) => position >= 0)).toBe(true)
+    expect(order).toEqual([...order].sort((left, right) => left - right))
   })
 
   test('paginates long Question Content instead of overflowing', async () => {

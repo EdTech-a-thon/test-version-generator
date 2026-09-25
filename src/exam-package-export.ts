@@ -9,10 +9,12 @@ import {
   type Arrangement,
   type Exam,
   type Question,
+  type QuestionType,
 } from './exam'
 import type { PreparedExport } from './export-preparation'
 import {
   QUESTION_BANK_FORMAT_VERSION,
+  RECORD_TYPES,
   prepareQuestionBankExport,
   type QuestionBankMediaLoader,
 } from './question-bank-export'
@@ -106,6 +108,10 @@ export async function examPackage({
     return { id: bankId, record: prepared.record }
   }))
 
+  // A Multipart question travels as a bare position. Its Parts' answer order, answer
+  // columns and Work Space are not carried yet — Exam Record 0.1.0 keys
+  // presentation by Question and has nowhere to put a Part's — so the
+  // imported Exam gives each Part its defaults.
   const positions = printed.map((question): ExamRecordPosition => {
     const ids = recordIds.get(question.id)!
     const space = workSpaceOf(exam, question.id)
@@ -118,10 +124,22 @@ export async function examPackage({
       ...(takesWorkSpace(question.type) && hasWorkSpace(space) ? { workSpace: { ...space } } : {}),
     }
   })
+  // Section wording travels in the record's own vocabulary, where a Short
+  // Answer section is `'short-answer'`.
+  const sectionHeadings = Object.fromEntries(
+    Object.entries(exam.sectionHeadings ?? {}).map(([type, heading]) => [
+      RECORD_TYPES[type as QuestionType],
+      { ...heading },
+    ]),
+  )
   const examRecord: ExamRecord = {
     format: EXAM_FORMAT,
     formatVersion: EXAM_FORMAT_VERSION,
     name: exam.title,
+    ...(Object.keys(sectionHeadings).length > 0 ? { sectionHeadings } : {}),
+    ...(exam.headingSize && exam.headingSize !== 'normal' ? { headingSize: exam.headingSize } : {}),
+    ...(exam.textSize && exam.textSize !== 'normal' ? { textSize: exam.textSize } : {}),
+    ...(exam.header ? { header: { ...exam.header } } : {}),
     positions,
   }
   return {

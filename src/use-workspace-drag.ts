@@ -50,34 +50,45 @@ export type WorkspaceDrag = {
   cancel: () => void
 }
 
-/** How a rendered question and an empty Question Section announce themselves to
- *  a gesture. Kept next to the reader so the two cannot drift. */
-export const DROP_TARGET_SELECTOR = '.exam-question[data-drop-target]'
-export const EMPTY_SECTION_SELECTOR = '[data-empty-section]'
+/** The Working Copy pane, and the questions rendered in it. A release anywhere
+ *  inside the pane lands; one anywhere else is abandoned. Kept next to the
+ *  reader so the markup and the reader cannot drift. */
+export const DROP_ZONE_SELECTOR = '[data-drop-zone]'
+const QUESTION_PIECE_SELECTOR = '.exam-question[data-question-id]'
 
-/** What the pointer is over, read out of the real page. */
-function candidateAt(point: { x: number; y: number }): DropCandidate | null {
-  const element = document.elementFromPoint(point.x, point.y)
-  if (!element) return null
-  const emptySection = element.closest<HTMLElement>(EMPTY_SECTION_SELECTOR)
-  if (emptySection?.dataset.emptySection) {
-    return {
-      kind: 'empty-section',
-      section: emptySection.dataset.emptySection as QuestionType,
+/** Every rendered question in the Working Copy, read out of the real page — or
+ *  `null` when the pointer is not over the Working Copy at all. */
+function candidatesAt(point: { x: number; y: number }): DropCandidate[] | null {
+  const zone = document
+    .elementFromPoint(point.x, point.y)
+    ?.closest<HTMLElement>(DROP_ZONE_SELECTOR)
+  if (!zone) return null
+  // A question split across sheets renders one piece per sheet, in page order,
+  // and only its numbered piece names its type. Its line above is on the first
+  // piece and its line below on the last.
+  const byId = new Map<string, { type?: QuestionType; first: DOMRect; last: DOMRect }>()
+  for (const piece of zone.querySelectorAll<HTMLElement>(QUESTION_PIECE_SELECTOR)) {
+    const questionId = piece.dataset.questionId!
+    const bounds = piece.getBoundingClientRect()
+    const type = piece.dataset.dropTarget as QuestionType | undefined
+    const seen = byId.get(questionId)
+    if (seen) {
+      seen.last = bounds
+      seen.type ??= type
+    } else {
+      byId.set(questionId, { type, first: bounds, last: bounds })
     }
   }
-  const question = element.closest<HTMLElement>(DROP_TARGET_SELECTOR)
-  const questionId = question?.dataset.questionId
-  const type = question?.dataset.dropTarget
-  if (!question || !questionId || !type) return null
-  const bounds = question.getBoundingClientRect()
-  return {
-    kind: 'question',
-    questionId,
-    type: type as QuestionType,
-    top: bounds.top,
-    height: bounds.height,
-  }
+  return [...byId].flatMap(([questionId, { type, first, last }]) =>
+    type
+      ? [{
+          questionId,
+          type,
+          before: { y: first.top, left: first.left, right: first.right },
+          after: { y: last.bottom, left: last.left, right: last.right },
+        }]
+      : [],
+  )
 }
 
 function sameIntent(a: DropIntent | null, b: DropIntent | null): boolean {
@@ -86,19 +97,13 @@ function sameIntent(a: DropIntent | null, b: DropIntent | null): boolean {
   if (a.kind === 'insert' && b.kind === 'insert') {
     return a.targetQuestionId === b.targetQuestionId && a.placement === b.placement
   }
-  if (a.kind === 'replace' && b.kind === 'replace') {
-    return a.outgoingQuestionId === b.outgoingQuestionId
-  }
   return true
 }
 
-/** What the preview says it would do, in the teacher's words. An invalid
- *  target says nothing: the cursor already says it, and a label reading "no"
- *  over every incompatible question would be noise. */
+/** What the preview says it would do, in the teacher's words. A release that
+ *  would change nothing says nothing: the cursor already says it. */
 function intentLabel(intent: DropIntent | null): string {
-  if (!intent) return ''
-  if (intent.kind === 'replace') return 'Replace'
-  return 'Insert'
+  return intent ? 'Insert' : ''
 }
 
 /** The page-owned counterpart to the browser's drag image: the real markup,
@@ -228,7 +233,8 @@ export function useWorkspaceDrag(
       }
       const current = sourceRef.current
       if (!current) return
-      paint(dropIntent(current, candidateAt(point), point.y))
+      const candidates = candidatesAt(point)
+      paint(dropIntent(current, candidates ?? [], candidates ? point : null))
     },
     [paint],
   )

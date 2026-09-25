@@ -24,14 +24,32 @@ import {
   snapWorkSpaceHeight,
   takesWorkSpace,
   orderedChoices,
+  orderedPartChoices,
   orderedQuestions,
+  partsOf,
   shuffleSelectedAnswers,
   shuffleSelectedQuestions,
+  type Arrangement,
   type ColumnSetting,
+  type Part,
   type Question,
   type QuestionPlacement,
+  type QuestionType,
   type WorkSpace,
 } from './exam'
+import {
+  DEFAULT_HEADING_SIZE,
+  isHeadingSize,
+  isSectionHeadings,
+  sameSectionHeadings,
+  withSectionHeading,
+  type HeadingSize,
+  type SectionHeadingChange,
+  DEFAULT_TEXT_SIZE,
+  isTextSize,
+  type TextSize,
+} from './section-headings'
+import { isExamHeader, sameExamHeader, withHeaderLine, type HeaderLine } from './page-header'
 import {
   bankQuestionById,
   createWorkingCopy,
@@ -48,6 +66,7 @@ import {
 import { selectedExam, type SelectedExam } from './selected-exam'
 import { withCanonicalQuestionProjection } from './canonical-question-projection'
 import { withoutQuestions } from './question-deletion'
+import { upgradeStoredQuestion } from './stored-upgrade'
 import {
   EMPTY_EXPORT_HISTORY,
   type ExportHistory,
@@ -163,7 +182,11 @@ function isWorkingCopy(value: unknown): value is ExamWorkingCopy {
     draft.questionIds.every((id) => typeof id === 'string') &&
     (draft.columns === undefined || isColumnSettings(draft.columns)) &&
     (draft.workSpace === undefined || isWorkSpaceSettings(draft.workSpace)) &&
-    (draft.choiceOrder === undefined || isChoiceOrder(draft.choiceOrder))
+    (draft.choiceOrder === undefined || isChoiceOrder(draft.choiceOrder)) &&
+    (draft.sectionHeadings === undefined || isSectionHeadings(draft.sectionHeadings)) &&
+    (draft.headingSize === undefined || isHeadingSize(draft.headingSize)) &&
+    (draft.header === undefined || isExamHeader(draft.header)) &&
+    (draft.textSize === undefined || isTextSize(draft.textSize))
   )
 }
 
@@ -179,6 +202,51 @@ function isAuthoringState(value: unknown): value is AuthoringState {
     isQuestionBank(state.questionBank) &&
     isWorkingCopy(state.workingCopy)
   )
+}
+
+// The Exam settings a Working Copy may carry, each with the guard it is read
+// through.
+const WORKING_COPY_SETTINGS: Readonly<Record<string, (value: unknown) => boolean>> = {
+  columns: isColumnSettings,
+  workSpace: isWorkSpaceSettings,
+  choiceOrder: isChoiceOrder,
+  sectionHeadings: isSectionHeadings,
+  headingSize: isHeadingSize,
+  header: isExamHeader,
+  textSize: isTextSize,
+}
+
+// A draft an earlier build stored, in the current shape. Its questions are
+// upgraded (see `stored-upgrade.ts`), and a setting this build cannot read —
+// the withdrawn rich-text page header, say — is dropped so its default
+// applies. Refusing the draft over one setting would load a blank Exam, and
+// the first edit would then write that blank over the teacher's work.
+function upgradedStoredState(value: unknown): unknown {
+  if (typeof value !== 'object' || value === null) return value
+  const state = value as Record<string, unknown>
+  const upgraded: Record<string, unknown> = { ...state }
+  const bank = state.questionBank as Record<string, unknown> | null | undefined
+  if (typeof bank === 'object' && bank !== null && Array.isArray(bank.questions)) {
+    upgraded.questionBank = {
+      ...bank,
+      questions: bank.questions.map((question: unknown) =>
+        typeof question === 'object' && question !== null
+          ? upgradeStoredQuestion(question as Question)
+          : question,
+      ),
+    }
+  }
+  const draft = state.workingCopy
+  if (typeof draft === 'object' && draft !== null && !Array.isArray(draft)) {
+    const workingCopy: Record<string, unknown> = { ...draft }
+    for (const [setting, readable] of Object.entries(WORKING_COPY_SETTINGS)) {
+      if (workingCopy[setting] !== undefined && !readable(workingCopy[setting])) {
+        delete workingCopy[setting]
+      }
+    }
+    upgraded.workingCopy = workingCopy
+  }
+  return upgraded
 }
 
 function isSavedState(value: unknown): value is SavedState {
@@ -203,6 +271,14 @@ export type ExamStore = {
   backupStatus(): BackupStatus
 
   setTitle(title: string): void
+  /** Rewords one Question Section's heading on this Exam. `null` sets a part
+   *  back to its default; an empty string clears it from the printed page. */
+  setSectionHeading(section: QuestionType, change: SectionHeadingChange): void
+  /** How large every section heading prints on this Exam. */
+  setHeadingSize(size: HeadingSize): void
+  setTextSize(size: TextSize): void
+  /** Rewords one test-page header line; `null` restores its default. */
+  setHeaderLine(line: HeaderLine, text: string | null): void
   /** Refreshes the canonical Questions projected from open Question Banks.
    * Workspace browsing is not an Exam command and creates no Undo step. */
   syncCanonicalQuestions(questions: readonly Question[]): void
@@ -326,8 +402,8 @@ function withResolvedColumns(state: AuthoringState): ExamWorkingCopy {
 
 /** Savedness is a composition comparison. Canonical Question Content is live,
  * so it intentionally does not participate: only the Exam name, membership,
- * question order, answer order, column layout and work space are explicitly
- * saved. */
+ * question order, answer order, column layout, work space and section
+ * headings are explicitly saved. */
 function sameExamWorkingCopy(left: ExamWorkingCopy, right: ExamWorkingCopy): boolean {
   const sameEntries = <T>(first: Record<string, T> | undefined, second: Record<string, T> | undefined, equal: (left: T, right: T) => boolean) => {
     const firstEntries = Object.entries(first ?? {})
@@ -345,6 +421,58 @@ function sameExamWorkingCopy(left: ExamWorkingCopy, right: ExamWorkingCopy): boo
     && sameEntries(left.choiceOrder, right.choiceOrder, (first, second) =>
       first.length === second.length && first.every((id, index) => id === second[index]),
     )
+    && sameSectionHeadings(left.sectionHeadings, right.sectionHeadings)
+    && (left.headingSize ?? DEFAULT_HEADING_SIZE) === (right.headingSize ?? DEFAULT_HEADING_SIZE)
+    && sameExamHeader(left.header, right.header)
+    && (left.textSize ?? DEFAULT_TEXT_SIZE) === (right.textSize ?? DEFAULT_TEXT_SIZE)
+}
+
+/** The Part with this id, when it belongs to a Multipart question this Exam references.
+ *  Part ids and question ids never collide — both are fresh UUIDs — so a
+ *  presentation setting addressed to one can tell which it is by looking. */
+function referencedPartOf(state: AuthoringState, id: string): Part | undefined {
+  for (const questionId of state.workingCopy.questionIds) {
+    const question = bankQuestionById(state.questionBank, questionId)
+    const part = question ? partsOf(question).find((candidate) => candidate.id === id) : undefined
+    if (part) return part
+  }
+  return undefined
+}
+
+/** A duplicate Multipart question looks like its original on the sheet: each of its
+ *  Parts takes the answer order, columns and work space its original Part had
+ *  here, under the copy's fresh Part and choice ids. */
+function withPartPresentationCopied(
+  workingCopy: ExamWorkingCopy,
+  original: Question,
+  copy: Question,
+  arrangement: Arrangement,
+): ExamWorkingCopy {
+  const originalParts = partsOf(original)
+  const copiedParts = partsOf(copy)
+  if (originalParts.length === 0) return workingCopy
+  const columns = { ...(workingCopy.columns ?? {}) }
+  const workSpace = { ...(workingCopy.workSpace ?? {}) }
+  const choiceOrder = { ...(workingCopy.choiceOrder ?? {}) }
+  originalParts.forEach((part, index) => {
+    const copied = copiedParts[index]
+    if (!copied) return
+    const partColumns = workingCopy.columns?.[part.id]
+    if (partColumns !== undefined) columns[copied.id] = partColumns
+    const space = workingCopy.workSpace?.[part.id]
+    if (space !== undefined) workSpace[copied.id] = space
+    if (arrangement.choiceOrder[part.id]) {
+      choiceOrder[copied.id] = orderedPartChoices(part, arrangement).map(
+        (choice) => copied.choices[part.choices.findIndex(({ id }) => id === choice.id)]!.id,
+      )
+    }
+  })
+  return {
+    ...workingCopy,
+    columns,
+    choiceOrder,
+    ...(Object.keys(workSpace).length > 0 ? { workSpace } : {}),
+  }
 }
 
 /** Make a referenced Question's current effective layout explicit before an
@@ -558,6 +686,45 @@ export function createExamStore(options: {
           : { ...current, workingCopy: { ...current.workingCopy, title } },
       ),
 
+    setSectionHeading: (section, headingChange) =>
+      change((current) => {
+        const sectionHeadings = withSectionHeading(
+          current.workingCopy.sectionHeadings,
+          section,
+          headingChange,
+        )
+        if (sameSectionHeadings(sectionHeadings, current.workingCopy.sectionHeadings)) return current
+        const workingCopy: ExamWorkingCopy = { ...current.workingCopy, sectionHeadings }
+        if (!sectionHeadings) delete workingCopy.sectionHeadings
+        return { ...current, workingCopy }
+      }),
+
+    setHeadingSize: (size) =>
+      change((current) => {
+        if ((current.workingCopy.headingSize ?? DEFAULT_HEADING_SIZE) === size) return current
+        // The default is stored as its absence, like every other default here.
+        const workingCopy: ExamWorkingCopy = { ...current.workingCopy, headingSize: size }
+        if (size === DEFAULT_HEADING_SIZE) delete workingCopy.headingSize
+        return { ...current, workingCopy }
+      }),
+
+    setTextSize: (size) =>
+      change((current) => {
+        if ((current.workingCopy.textSize ?? DEFAULT_TEXT_SIZE) === size) return current
+        const workingCopy: ExamWorkingCopy = { ...current.workingCopy, textSize: size }
+        if (size === DEFAULT_TEXT_SIZE) delete workingCopy.textSize
+        return { ...current, workingCopy }
+      }),
+
+    setHeaderLine: (line, text) =>
+      change((current) => {
+        const header = withHeaderLine(current.workingCopy.header, line, text)
+        if (sameExamHeader(header, current.workingCopy.header)) return current
+        const workingCopy: ExamWorkingCopy = { ...current.workingCopy, header }
+        if (!header) delete workingCopy.header
+        return { ...current, workingCopy }
+      }),
+
     syncCanonicalQuestions: (questions) => {
       let working = state
       let nextSaved = saved
@@ -631,8 +798,13 @@ export function createExamStore(options: {
         let changed = false
         const nextColumns = { ...currentColumns }
         for (const questionId of targeted) {
-          if (!current.workingCopy.questionIds.includes(questionId)) continue
+          // A Multiple Choice Part of a Multipart question on this Exam lays its answers
+          // out under its own id, as a question does under its.
+          const part = referencedPartOf(current, questionId)
+          if (part && part.type !== 'multiple-choice') continue
+          if (!part && !current.workingCopy.questionIds.includes(questionId)) continue
           const effectiveColumns = nextColumns[questionId]
+            ?? part?.columns
             ?? bankQuestionById(current.questionBank, questionId)?.columns
           if (effectiveColumns === columns) continue
           nextColumns[questionId] = columns
@@ -651,9 +823,16 @@ export function createExamStore(options: {
         let changed = false
         const nextSpaces = { ...currentSpaces }
         for (const questionId of targeted) {
-          if (!current.workingCopy.questionIds.includes(questionId)) continue
-          const question = bankQuestionById(current.questionBank, questionId)
-          if (!question || !takesWorkSpace(question.type)) continue
+          // A Short Answer Part of a Multipart question on this Exam leaves room under
+          // its own id, as a Short Answer question does under its.
+          const part = referencedPartOf(current, questionId)
+          if (part) {
+            if (part.type !== 'open') continue
+          } else {
+            if (!current.workingCopy.questionIds.includes(questionId)) continue
+            const question = bankQuestionById(current.questionBank, questionId)
+            if (!question || !takesWorkSpace(question.type)) continue
+          }
           const prior = currentSpaces[questionId] ?? NO_WORK_SPACE
           const next: WorkSpace = {
             height: snapWorkSpaceHeight(patch.height ?? prior.height),
@@ -690,7 +869,12 @@ export function createExamStore(options: {
         const copiedChoiceOrder = orderedChoices(original, selected.arrangement).map((choice) =>
           copiedChoices[originalChoices.findIndex(({ id }) => id === choice.id)]!.id,
         )
-        const workingCopy = withReferenceAdded(current.workingCopy, copy.id, questionId)
+        const workingCopy = withPartPresentationCopied(
+          withReferenceAdded(current.workingCopy, copy.id, questionId),
+          original,
+          copy,
+          selected.arrangement,
+        )
         return {
           ...current,
           questionBank: withQuestionBanked(current.questionBank, copy),
@@ -761,7 +945,15 @@ export function createExamStore(options: {
           || current.workingCopy.questionIds.includes(incomingQuestionId)
         ) return current
         const workingCopy = withColumnResolved({ ...current, questionBank: bank }, outgoingQuestionId)
-        const replaced = withReferenceReplaced(workingCopy, outgoingQuestionId, incomingQuestionId)
+        const outgoingParts = partsOf(outgoing)
+        const incomingParts = partsOf(incoming)
+        const replaced = withReferenceReplaced(workingCopy, outgoingQuestionId, incomingQuestionId, {
+          outgoing: outgoingParts.map((part) => part.id),
+          pairs: incomingParts.flatMap((part, index) => {
+            const standIn = outgoingParts[index]
+            return standIn && standIn.type === part.type ? [[standIn.id, part.id] as const] : []
+          }),
+        })
         return replaced === current.workingCopy && bank === current.questionBank
           ? current
           : { ...current, questionBank: bank, workingCopy: replaced }
@@ -806,7 +998,17 @@ export function createExamStore(options: {
 
     removeFromWorkingCopy: (questionIds) =>
       change((current) =>
-        withExamWorkingCopy(current, withReferencesRemoved(current.workingCopy, questionIds)),
+        withExamWorkingCopy(
+          current,
+          withReferencesRemoved(
+            current.workingCopy,
+            questionIds,
+            questionIds.flatMap((id) => {
+              const question = bankQuestionById(current.questionBank, id)
+              return question ? partsOf(question).map((part) => part.id) : []
+            }),
+          ),
+        ),
       ),
 
     hasSavedExam: () => saved !== null,
@@ -914,14 +1116,14 @@ export async function loadExamStore(
   let saved: SavedState | null = null
   let exportHistory: ExportHistory = EMPTY_EXPORT_HISTORY
   try {
-    stored = await backend.read()
+    stored = upgradedStoredState(await backend.read()) as AuthoringState | null
   } catch (error) {
     console.error('Could not read the authoring state', error)
   }
   try {
-    const storedSaved = 'readSaved' in backend
+    const storedSaved = upgradedStoredState('readSaved' in backend
       ? await (backend as DurableAuthoringBackend).readSaved()
-      : (await savedBackend?.read()) ?? null
+      : (await savedBackend?.read()) ?? null)
     saved = isSavedState(storedSaved) ? storedSaved : null
   } catch (error) {
     console.error('Could not read the saved exam', error)

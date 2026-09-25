@@ -216,10 +216,15 @@ export const multipleChoiceKeymap = $useKeymap('multipleChoiceKeymap', {
   },
 })
 
-// The nodes that carry a stable id: a choice, and a matching set's prompts and
-// Word Bank answers, which ProseMirror matches node views by and an
-// arrangement's `choiceOrder` is keyed by.
-const ID_BEARING = new Set(['multipleChoiceChoice', 'matchingPrompt', 'matchingAnswer'])
+// The nodes that carry a stable id: a choice, a matching set's prompts and
+// Word Bank answers, and a Multipart question's Parts — which ProseMirror matches node
+// views by and an arrangement's `choiceOrder` is keyed by.
+const ID_BEARING = new Set([
+  'multipleChoiceChoice',
+  'matchingPrompt',
+  'matchingAnswer',
+  'multipartPart',
+])
 
 // Guarantee every choice carries a unique id. New choices (Enter-split, paste,
 // or legacy docs) arrive with an empty id; give those a fresh one. Duplicate

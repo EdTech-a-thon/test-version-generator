@@ -2,8 +2,8 @@
 //
 // The one place a bank's Question is drawn whole rather than as a row: its
 // type and classification, the stem, the answers with the correct one
-// marked, a matching set's items and Word Bank, and a Short Answer's suggested
-// answer. The import dialog reads a file's banks this way before anything is
+// marked, a matching set's items and Word Bank, a Short Answer's suggested
+// answer, and a Multipart question's lettered Parts. The import dialog reads a file's banks this way before anything is
 // imported, and the Question Bank page reads its own bank this way, so a bank
 // looks the same on the way in as it does once it is here.
 //
@@ -76,6 +76,35 @@ export function QuestionReading({
         <h4>Suggested Answer</h4>
         <DocView content={content.suggestedAnswer} />
       </section>
+    )}
+    {content.parts && (
+      // The Multipart question is the stem above; its Parts follow, lettered as the
+      // test prints them, each drawn the way a question of its kind is.
+      <ol type="a" className="record-multipart-parts question-reading-parts">
+        {content.parts.map((part) => (
+          <li key={part.id} aria-label={`Part ${part.letter}, ${part.typeLabel}`}>
+            <DocView className="question-reading-stem" content={part.stem} />
+            {part.choices && (
+              <ol type="A" className="question-reading-choices">
+                {part.choices.map((choice) => (
+                  <li key={choice.id} className={choice.correct ? 'is-correct' : undefined}>
+                    <DocView content={choice.content} />
+                    {choice.correct && (
+                      <Check className="question-reading-correct" role="img" aria-label="Correct answer" />
+                    )}
+                  </li>
+                ))}
+              </ol>
+            )}
+            {part.suggestedAnswer && (
+              <section className="question-reading-answer">
+                <h4>Suggested Answer</h4>
+                <DocView content={part.suggestedAnswer} />
+              </section>
+            )}
+          </li>
+        ))}
+      </ol>
     )}
   </>
 }

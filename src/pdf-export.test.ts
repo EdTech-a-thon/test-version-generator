@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { bodyPoints, pointsOf, titlePoints } from './export-typography'
 import { PDFDocument } from 'pdf-lib'
 import { getDocument, OPS } from 'pdfjs-dist/legacy/build/pdf.mjs'
 import {
@@ -7,7 +8,7 @@ import {
   type PdfFontLoader,
 } from './pdf-export'
 import { FIXTURES, PIXEL_PNG } from './export-fixtures'
-import { questionIndentOf } from './export-plan'
+import { SECTION_INSTRUCTIONS, questionIndentOf } from './export-plan'
 import {
   DEFAULT_EXPORT_CONFIGURATION,
   EMPTY_EXPORT_HISTORY,
@@ -202,6 +203,57 @@ describe('PDF Export Adapter', () => {
     await expect(createPublicationPdf(changed, noImages, fonts)).rejects.toThrow(
       'does not fit its planned page',
     )
+  })
+
+  // An Exam's own section wording reaches the PDF, and a part it cleared does
+  // not — neither the words nor the default they replaced.
+  test('draws reworded section headings and nothing for a cleared one', async () => {
+    const { plans } = plansOf('reworded, cleared and large section headings')
+    const bytes = await createPublicationPdf(plans, noImages, fonts)
+    const document = await getDocument({ data: bytes, disableWorker: true }).promise
+    let drawn = ''
+    for (let index = 1; index <= document.numPages; index += 1) {
+      drawn += ' ' + (await (await document.getPage(index)).getTextContent()).items
+        .map((item) => ('str' in item ? item.str : ''))
+        .join(' ')
+    }
+    drawn = drawn.replace(/\s+/g, ' ')
+    expect(drawn).toContain('Choose One')
+    expect(drawn).toContain('Write the letter of the matching definition.')
+    expect(drawn).not.toContain(SECTION_INSTRUCTIONS['multiple-choice'])
+    expect(drawn).not.toContain(SECTION_INSTRUCTIONS.open)
+    // Cleared from the test, the Short Answer group is still named in the key.
+    expect(drawn).toContain('Short Answer')
+  })
+
+  // An Exam's own header line replaces the blanks, and the ID still prints.
+  test('draws a reworded header line beside the ID', async () => {
+    const { plans } = plansOf('a reworded header line')
+    const bytes = await createPublicationPdf(plans, noImages, fonts)
+    const document = await getDocument({ data: bytes, disableWorker: true }).promise
+    const drawn = (await (await document.getPage(1)).getTextContent()).items
+      .map((item) => ('str' in item ? item.str : ''))
+      .join(' ')
+      .replace(/\s+/g, ' ')
+    expect(drawn).toContain('Student: __________ Period: ____')
+    expect(drawn).not.toContain('Class:')
+    expect(drawn).toContain('ID: ')
+  })
+
+  // The text size scales the questions, the heading size the title, and the
+  // header line stays at the sheet's own type.
+  test('draws the Exam’s text and title at the sizes it chose', async () => {
+    const { plans } = plansOf('large text under small headings')
+    const bytes = await createPublicationPdf(plans, noImages, fonts)
+    const document = await getDocument({ data: bytes, disableWorker: true }).promise
+    const items = (await (await document.getPage(1)).getTextContent()).items as {
+      str: string
+      transform: number[]
+    }[]
+    const sizeOf = (text: string) => items.find((item) => item.str.includes(text))?.transform[0]
+    expect(sizeOf('Which particle is neutral?')).toBeCloseTo(bodyPoints('large'), 2)
+    expect(sizeOf('Sized type')).toBeCloseTo(titlePoints('small'), 2)
+    expect(sizeOf('ID:')).toBeCloseTo(pointsOf('body'), 2)
   })
 
   // A matching question once printed its stem and nothing else: no prompts, no

@@ -11,10 +11,10 @@ import { unmeasured } from './export-plan'
 import { prepareExport, prepareHistoricalExport, EMPTY_EXPORT_HISTORY, type ExportConfiguration } from './export-preparation'
 import { printFingerprint } from './print-fingerprint'
 import { createPublicationPdf, type PdfFontLoader } from './pdf-export'
-import { withExamPackage } from './exam-package-export'
+import { examPackage, withExamPackage } from './exam-package-export'
 import { initialSelection } from './import-selection'
 import { planImport } from './package-commit'
-import { inspectImportFile } from './package-import'
+import { inspectImportFile, inspectImportRecord } from './package-import'
 import { selectedExam } from './selected-exam'
 import type { QuestionBankResource } from './question-bank-workspaces'
 
@@ -203,5 +203,98 @@ describe('an Exam PDF carrying its Exam', () => {
       createId: () => 'record-2',
     })
     expect(again.record.examPackage).toBe(original.record.examPackage)
+  })
+})
+
+describe('a Multipart question in an Exam package', () => {
+  test('travels as one whole position, its Parts in its bank record, and imports again', async () => {
+    const reading: Question = {
+      id: 'reading-1',
+      type: 'multipart',
+      columns: 2,
+      doc: {
+        type: 'doc',
+        content: [paragraph('The power of the Empire was waning by 1683.'), {
+          type: 'multipartParts',
+          content: [{
+            type: 'multipartPart',
+            attrs: { id: 'reading-1-part-a', columns: 4 },
+            content: [
+              { type: 'multipartPartStem', content: [paragraph('Which region?')] },
+              {
+                type: 'multipleChoice',
+                content: ['Middle East', 'East Asia'].map((answer, index) => ({
+                  type: 'multipleChoiceChoice',
+                  attrs: { id: `reading-1-choice-${index}`, correct: index === 0 },
+                  content: [paragraph(answer)],
+                })),
+              },
+            ],
+          }],
+        }],
+      },
+    }
+    const sheet: Exam = { title: 'Reading', questions: [reading] }
+    const order: Arrangement = {
+      id: 'exam-draft',
+      letter: 'A',
+      questionOrder: ['reading-1'],
+      choiceOrder: { 'reading-1-part-a': ['reading-1-choice-1', 'reading-1-choice-0'] },
+    }
+    const carried = await examPackage({ exam: sheet, arrangement: order, ownerOf: async () => null, loadMedia: noImages })
+
+    // Per-Part answer order and columns are not carried yet: the position is bare.
+    expect(carried.exams[0]!.positions).toEqual([{ question: { bank: 'bank-1', question: 'q1' } }])
+    const proposal = await inspectImportRecord(new TextEncoder().encode(JSON.stringify(carried)))
+    expect(proposal.banks[0]!.record.bank.questions[0]).toMatchObject({
+      type: 'multipart',
+      parts: [{ id: 'q1-s1', type: 'multiple-choice', choices: [{ correct: true }, { correct: false }] }],
+    })
+    expect(proposal.exams[0]!.positions).toHaveLength(1)
+  })
+
+  test('carries the Exam’s section wording, heading size and header lines, in the record’s vocabulary, and imports them again', async () => {
+    const worded: Exam = {
+      ...exam,
+      sectionHeadings: {
+        open: { title: 'Essays', instructions: '' },
+        matching: { title: 'Vocabulary' },
+      },
+      headingSize: 'small',
+      header: { first: 'Student: ____  Period: __', later: '' },
+      textSize: 'large',
+    }
+    const carried = await examPackage({ exam: worded, arrangement, ownerOf, loadMedia: noImages })
+    // A Short Answer section is `short-answer` in the record, `open` in the app.
+    expect(carried.exams[0]).toMatchObject({
+      formatVersion: '0.2.0',
+      sectionHeadings: {
+        'short-answer': { title: 'Essays', instructions: '' },
+        matching: { title: 'Vocabulary' },
+      },
+      headingSize: 'small',
+      header: { first: 'Student: ____  Period: __', later: '' },
+      textSize: 'large',
+    })
+
+    const proposal = await inspectImportRecord(new TextEncoder().encode(JSON.stringify(carried)))
+    let next = 0
+    const plan = planImport(proposal, initialSelection(proposal), () => `local-${next++}`)
+    const { exam: imported } = selectedExam(
+      plan.exams[0]!.saved.questionBank,
+      plan.exams[0]!.saved.workingCopy,
+    )
+    expect(imported.sectionHeadings).toEqual(worded.sectionHeadings)
+    expect(imported.headingSize).toBe('small')
+    expect(imported.header).toEqual(worded.header)
+    expect(imported.textSize).toBe('large')
+  })
+
+  test('an Exam that keeps the default headings writes nothing about them', async () => {
+    const carried = await examPackage({ exam, arrangement, ownerOf, loadMedia: noImages })
+    expect(carried.exams[0]).not.toHaveProperty('sectionHeadings')
+    expect(carried.exams[0]).not.toHaveProperty('headingSize')
+    expect(carried.exams[0]).not.toHaveProperty('header')
+    expect(carried.exams[0]).not.toHaveProperty('textSize')
   })
 })

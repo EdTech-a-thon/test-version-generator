@@ -92,7 +92,7 @@ describe('a fresh installation', () => {
     expect(store.getState().dirty).toBe(false)
   })
 
-  test('rejects stored answer arrangements whose choices are not arrays of strings', async () => {
+  test('drops a stored answer arrangement whose choices are not arrays of strings, keeping the draft', async () => {
     const question = createQuestion('multiple-choice')
     for (const choiceOrder of [
       { [question.id]: 5 },
@@ -110,8 +110,13 @@ describe('a fresh installation', () => {
 
       const store = await loadExamStore(memory(corrupt as unknown as AuthoringState))
 
-      expect(store.getState()).toEqual(createAuthoringState())
-      expect(store.selectedExam().exam.questions).toEqual([])
+      // One unreadable setting costs that setting, not the teacher's work: the
+      // authored answer order applies.
+      expect(store.getState().workingCopy).toEqual({
+        title: 'Corrupt answer order',
+        questionIds: [question.id],
+      })
+      expect(store.selectedExam().exam.questions.map(({ id }) => id)).toEqual([question.id])
     }
   })
 })
@@ -815,6 +820,62 @@ describe('the dirty flag and persistence', () => {
     expect(store.getState().dirty).toBe(true)
   })
 
+  test('section wording and heading size are saved Exam presentation that reaches the rendered Exam', async () => {
+    const { store } = await withExamWorkingCopy(1)
+    await store.save()
+
+    store.setSectionHeading('multiple-choice', { title: 'Choose One', instructions: '' })
+    expect(store.getState().dirty).toBe(true)
+    expect(store.selectedExam().exam.sectionHeadings).toEqual({
+      'multiple-choice': { title: 'Choose One', instructions: '' },
+    })
+    store.setHeadingSize('small')
+    expect(store.selectedExam().exam.headingSize).toBe('small')
+
+    // Set back to the defaults, the Working Copy stores nothing and matches
+    // the saved Exam again.
+    store.setSectionHeading('multiple-choice', { title: null, instructions: null })
+    store.setHeadingSize('normal')
+    expect(store.getState().workingCopy.sectionHeadings).toBeUndefined()
+    expect(store.getState().workingCopy.headingSize).toBeUndefined()
+    expect(store.selectedExam().exam.headingSize).toBeUndefined()
+    expect(store.getState().dirty).toBe(false)
+
+    store.undo()
+    expect(store.selectedExam().exam.headingSize).toBe('small')
+  })
+
+  test('text size is saved Exam presentation, and normal stores nothing', async () => {
+    const { store } = await withExamWorkingCopy(1)
+    await store.save()
+
+    store.setTextSize('large')
+    expect(store.getState().dirty).toBe(true)
+    expect(store.selectedExam().exam.textSize).toBe('large')
+
+    store.setTextSize('normal')
+    expect(store.getState().workingCopy.textSize).toBeUndefined()
+    expect(store.selectedExam().exam.textSize).toBeUndefined()
+    expect(store.getState().dirty).toBe(false)
+  })
+
+  test('header lines are saved Exam presentation, and the default stores nothing', async () => {
+    const { store } = await withExamWorkingCopy(1)
+    await store.save()
+
+    store.setHeaderLine('first', 'Student: ____')
+    expect(store.getState().dirty).toBe(true)
+    expect(store.selectedExam().exam.header).toEqual({ first: 'Student: ____' })
+
+    store.setHeaderLine('first', null)
+    expect(store.getState().workingCopy.header).toBeUndefined()
+    expect(store.selectedExam().exam.header).toBeUndefined()
+    expect(store.getState().dirty).toBe(false)
+
+    store.undo()
+    expect(store.selectedExam().exam.header).toEqual({ first: 'Student: ____' })
+  })
+
   test('a change that changes nothing costs no undo step, dirty flag, or write', async () => {
     // The store's one-action invariant cuts both ways: an action that leaves
     // the state exactly as it found it is not an action. Setting the title it
@@ -823,6 +884,10 @@ describe('the dirty flag and persistence', () => {
     const cases: Array<(store: ExamStore, question: Question) => void> = [
       (store) => store.setTitle('Chem Unit 3'),
       (store, question) => store.setQuestionColumns([question.id], 4),
+      (store) => store.setSectionHeading('open', { title: 'Essays' }),
+      (store) => store.setHeadingSize('large'),
+      (store) => store.setHeaderLine('later', ''),
+      (store) => store.setTextSize('small'),
     ]
     for (const act of cases) {
       const { backend, store, questions } = await withExamWorkingCopy(1)

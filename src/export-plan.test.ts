@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { DEFAULT_HEADER } from './page-header'
 import {
   CHOICE_AREA_WIDTH,
   FOOTER_HEIGHT,
@@ -1224,12 +1225,14 @@ describe('the Layout Plan', () => {
     const [testPage, keyPage] = planOf().pages
     expect(testPage!.furniture).toEqual({
       identityFields: ['Name', 'Class', 'Date'],
+      identityLine: DEFAULT_HEADER.first,
       title: 'Chemistry Unit 3',
       arrangementLabel: 'ID: C',
       pageNumber: 1,
     })
     // The key is the teacher's copy: nothing for a student to fill in.
     expect(keyPage!.furniture.identityFields).toEqual([])
+    expect(keyPage!.furniture.identityLine).toBeUndefined()
     expect(keyPage!.furniture.arrangementLabel).toBe('ID: C')
   })
 
@@ -1246,6 +1249,7 @@ describe('the Layout Plan', () => {
     expect(pages.length).toBe(2)
     expect(pages[1]!.furniture).toEqual({
       identityFields: ['Name'],
+      identityLine: DEFAULT_HEADER.later,
       title: null,
       arrangementLabel: 'ID: C',
       pageNumber: 2,
@@ -1439,5 +1443,59 @@ describe('work space', () => {
     expect(itemsOf(key).map((item) => item.kind)).toEqual([
       'answer-key-heading', 'answer-key-section', 'answer-key-entry',
     ])
+  })
+})
+
+describe('section headings as the Exam words them', () => {
+  const headingsOf = (exam: Exam) =>
+    itemsOf(render(exam)).filter((item) => item.kind === 'section-heading')
+
+  test('print the defaults, at no stated size, on an Exam that changed nothing', () => {
+    expect(headingsOf(examOf([open('o1')]))).toEqual([{
+      kind: 'section-heading',
+      section: 'open',
+      title: 'Short Answer',
+      instructions: 'Answer the following questions in the space provided. Show all work.',
+      keepWithNext: true,
+    }])
+  })
+
+  test('print the Exam’s own wording and size', () => {
+    const exam: Exam = {
+      ...examOf([open('o1')]),
+      sectionHeadings: { open: { title: 'Essays', instructions: '' } },
+      headingSize: 'large',
+    }
+    expect(headingsOf(exam)).toEqual([{
+      kind: 'section-heading',
+      section: 'open',
+      title: 'Essays',
+      instructions: '',
+      keepWithNext: true,
+      size: 'large',
+    }])
+  })
+
+  test('keep a heading cleared of both in the plan, so the sheet can restore it', () => {
+    const exam: Exam = {
+      ...examOf([open('o1')]),
+      sectionHeadings: { open: { title: '', instructions: '' } },
+    }
+    expect(headingsOf(exam)).toHaveLength(1)
+  })
+
+  test('name the answer key’s groups as the test does, or by default when cleared', () => {
+    const exam: Exam = {
+      ...examOf([open('o1'), multipleChoice('m1', ['a', 'b'], 'a')]),
+      sectionHeadings: {
+        open: { title: '' },
+        'multiple-choice': { title: 'Choose One' },
+      },
+    }
+    const titles = planPages(exam, arrangementOf(), unmeasured)
+      .filter((page) => isAnswerKeyHeader(page.header))
+      .flatMap((page) => page.items)
+      .flatMap((item) => (item.kind === 'answer-key-section' ? [item.title] : []))
+    expect(titles).toEqual(['Choose One', 'Short Answer'])
   })
 })

@@ -4,6 +4,7 @@ import { collectUnusedMediaAssets } from './local-images'
 import { NO_FILTER, type QuestionBankFilter } from './question-bank-view'
 import { examDatabaseName } from './exam-workspaces'
 import { createIndexedDBAuthoringBackend } from './indexeddb-authoring'
+import { upgradeStoredQuestion } from './stored-upgrade'
 import {
   CANONICAL_QUESTION_STORE,
   EDITOR_WORKSPACE_STORE,
@@ -161,7 +162,8 @@ function questionOf(stored: StoredQuestion): Question {
   }
   if (stored.difficulty) question.difficulty = stored.difficulty
   if (stored.topics) question.topics = [...stored.topics]
-  return question
+  // Written by an earlier build, perhaps: see `stored-upgrade.ts`.
+  return upgradeStoredQuestion(question)
 }
 
 export function isPristineQuestionBank(bank: QuestionBankResource | null): boolean {

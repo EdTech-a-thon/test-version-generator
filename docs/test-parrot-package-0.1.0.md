@@ -19,7 +19,7 @@ A **Test Parrot Package** carries one or more Question Bank Records and any numb
 | `formatVersion`    | Exactly `0.1.0`. |
 | `generator`        | `{ name, version }` of the software that wrote the package. Informational. |
 | `requiredFeatures` | Features a reader must understand. Test Parrot 0.1.0 defines none, so a non-empty list is rejected. |
-| `questionBanks`    | At least one `{ "id", "record" }`. `id` is a package-local bank id, unique within the package. `record` is a complete [Question Bank Record](question-bank-record-0.3.0.md) of any version Test Parrot reads, validated by that version's own schema and rules. |
+| `questionBanks`    | At least one `{ "id", "record" }`. `id` is a package-local bank id, unique within the package. `record` is a complete [Question Bank Record](question-bank-record-0.4.0.md) of any version Test Parrot reads, validated by that version's own schema and rules. |
 | `exams`            | Zero or more complete Exam Records, each validated by its own version's schema and rules. |
 
 A bare Question Bank Record file remains importable and reads as a package with one bank and no Exams. An Exam Record on its own is not importable.

@@ -72,6 +72,32 @@ describe('the Question Bank a teacher browses', () => {
     ])
   })
 
+  test('shows the oldest Question Bank record first when sorted by Oldest', () => {
+    const [first, second, third] = [
+      question('Written first'),
+      question('Written second'),
+      question('Written third'),
+    ]
+
+    expect(idsOf(browseQuestionBank(banked(first, second, third), filter({ sort: 'oldest' })))).toEqual([
+      first.id,
+      second.id,
+      third.id,
+    ])
+  })
+
+  test('keeps oldest-first order among the questions a filter leaves', () => {
+    const [first, second, third] = [
+      question('Photosynthesis in leaves'),
+      question('Mitosis'),
+      question('Photosynthesis at night'),
+    ]
+
+    expect(
+      idsOf(browseQuestionBank(banked(first, second, third), filter({ search: 'photo', sort: 'oldest' }))),
+    ).toEqual([first.id, third.id])
+  })
+
   test('keeps that order while filtering, rather than rewriting it', () => {
     const [first, second, third] = [
       question('Photosynthesis in leaves'),

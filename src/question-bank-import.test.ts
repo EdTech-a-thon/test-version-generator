@@ -1,13 +1,14 @@
 import { describe, expect, test } from 'bun:test'
 import { PDFDocument } from 'pdf-lib'
 import { PIXEL_PNG } from './export-fixtures'
-import { choicesOf, promptsOf } from './exam'
+import { choicesOf, partsOf, promptsOf } from './exam'
 import {
   QUESTION_BANK_ATTACHMENT_DESCRIPTION,
   QUESTION_BANK_ATTACHMENT_NAME,
   QUESTION_BANK_FORMAT,
   QUESTION_BANK_FORMAT_VERSION,
   type QuestionBankRecord,
+  type QuestionBankRecordQuestion,
 } from './question-bank-export'
 import {
   DEFAULT_QUESTION_BANK_IMPORT_LIMITS,
@@ -50,6 +51,39 @@ function baseRecord(): QuestionBankRecord {
     },
     media: [],
   }
+}
+
+function multipartQuestion(): QuestionBankRecordQuestion {
+  return {
+    id: 'q1',
+    type: 'multipart',
+    stem: paragraph('The power of the [Ottoman] Empire was waning by 1683 …'),
+    difficulty: 'medium',
+    topics: ['Ottoman Empire'],
+    parts: [
+      {
+        id: 'q1-s1',
+        type: 'multiple-choice',
+        stem: paragraph('Which region was controlled by the Ottoman Empire in 1683?'),
+        choices: [
+          { id: 'q1-s1-c1', content: paragraph('East Asia'), correct: false },
+          { id: 'q1-s1-c2', content: paragraph('Middle East'), correct: true },
+        ],
+      },
+      {
+        id: 'q1-s2',
+        type: 'short-answer',
+        stem: paragraph('Identify an issue the empire faced.'),
+        suggestedAnswer: paragraph('Trade routes moved to the sea.'),
+      },
+    ],
+  }
+}
+
+function multipartRecord(): QuestionBankRecord {
+  const record = baseRecord()
+  record.bank.questions = [multipartQuestion()]
+  return record
 }
 
 function bytesOf(record: QuestionBankRecord & Record<string, unknown>) {
@@ -122,7 +156,12 @@ describe('Question Bank import mapping', () => {
 
 describe('hostile Question Bank File inspection', () => {
   test('publishes exact compatibility and production resource limits', () => {
-    expect(Object.keys(SUPPORTED_QUESTION_BANK_VERSIONS)).toEqual(['0.1.0', '0.2.0', '0.3.0'])
+    expect(Object.keys(SUPPORTED_QUESTION_BANK_VERSIONS)).toEqual([
+      '0.1.0',
+      '0.2.0',
+      '0.3.0',
+      '0.4.0',
+    ])
     expect(DEFAULT_QUESTION_BANK_IMPORT_LIMITS).toEqual({
       pdfBytes: 100 * 1024 * 1024,
       recordBytes: 75 * 1024 * 1024,
@@ -155,17 +194,17 @@ describe('hostile Question Bank File inspection', () => {
 
   test('reports the file version and exact supported versions before semantic validation', async () => {
     const source = baseRecord() as QuestionBankRecord & Record<string, unknown>
-    source.formatVersion = '0.4.0'
+    source.formatVersion = '0.5.0'
     source.requiredFeatures = ['also-unknown']
     await rejected(
       inspectQuestionBankRecord(bytesOf(source)),
       'unsupported-version',
-      '0.4.0',
+      '0.5.0',
     )
     await rejected(
       inspectQuestionBankRecord(bytesOf(source)),
       'unsupported-version',
-      '0.1.0, 0.2.0, 0.3.0',
+      '0.1.0, 0.2.0, 0.3.0, 0.4.0',
     )
   })
 
@@ -327,6 +366,145 @@ describe('hostile Question Bank File inspection', () => {
       inspectQuestionBankRecord(bytesOf(source)),
       'invalid-question',
       'Word Bank',
+    )
+  })
+
+  test('refuses a Multipart Question in a 0.3.0 record', async () => {
+    const source = multipartRecord() as QuestionBankRecord & Record<string, unknown>
+    source.formatVersion = '0.3.0'
+    await rejected(
+      inspectQuestionBankRecord(bytesOf(source)),
+      'invalid-structure',
+      'schema',
+    )
+  })
+
+  test('reads a 0.3.0 record and reports the version the file actually declared', async () => {
+    const source = baseRecord() as QuestionBankRecord & Record<string, unknown>
+    source.formatVersion = '0.3.0'
+    const proposal = await inspectQuestionBankRecord(bytesOf(source))
+
+    expect(proposal.record.formatVersion).toBe(QUESTION_BANK_FORMAT_VERSION)
+    expect(proposal.summary.formatVersion).toBe('0.3.0')
+    expect(proposal.summary.questionCounts.multipart).toBe(0)
+  })
+
+  test('reads a Multipart question and imports it whole, every Part and choice under a fresh id', async () => {
+    const proposal = await inspectQuestionBankRecord(bytesOf(multipartRecord()))
+
+    expect(proposal.summary.questionCounts.multipart).toBe(1)
+    expect(proposal.summary.questionsWithoutCorrectAnswer).toBe(0)
+    const [imported] = importedQuestionsFromRecord(proposal.record)
+    expect(imported).toMatchObject({ type: 'multipart', difficulty: 'medium', topics: ['Ottoman Empire'] })
+    // The Short Answer Part's Suggested Answer stays in the document, beside
+    // its stem, rather than becoming the Multipart question's own.
+    expect(imported!.suggestedAnswer).toBeUndefined()
+    const parts = partsOf(imported!)
+    expect(parts.map((part) => part.type)).toEqual(['multiple-choice', 'open'])
+    expect(parts[0]!.choices.map((choice) => choice.correct)).toEqual([false, true])
+    expect(JSON.stringify(parts[1]!.suggestedAnswer)).toContain('Trade routes moved to the sea.')
+    // Package-local ids never survive import.
+    expect(JSON.stringify(imported)).not.toContain('q1-s')
+    const ids = [imported!.id, ...parts.map((part) => part.id), ...parts[0]!.choices.map((choice) => choice.id)]
+    expect(new Set(ids).size).toBe(ids.length)
+    expect(JSON.stringify(imported!.doc)).toContain('The power of the [Ottoman] Empire was waning by 1683')
+  })
+
+  test('reads a Multipart question with no Parts as incomplete rather than invalid', async () => {
+    const source = multipartRecord()
+    source.bank.questions[0]!.parts = []
+    const proposal = await inspectQuestionBankRecord(bytesOf(source))
+
+    expect(proposal.summary.questionsWithoutCorrectAnswer).toBe(1)
+    const [imported] = importedQuestionsFromRecord(proposal.record)
+    expect(imported!.type).toBe('multipart')
+    expect(partsOf(imported!)).toEqual([])
+  })
+
+  test('refuses a Multiple Choice Part with fewer than two choices', async () => {
+    const source = multipartRecord()
+    source.bank.questions[0]!.parts![0]!.choices!.splice(1)
+    await rejected(
+      inspectQuestionBankRecord(bytesOf(source)),
+      'invalid-structure',
+      '/bank/questions/0/parts/0/choices',
+    )
+    delete source.bank.questions[0]!.parts![0]!.choices
+    await rejected(
+      inspectQuestionBankRecord(bytesOf(source)),
+      'invalid-structure',
+      '/bank/questions/0/parts/0',
+    )
+  })
+
+  test('refuses a Short Answer Part that carries choices', async () => {
+    const source = multipartRecord()
+    source.bank.questions[0]!.parts![1]!.choices = [
+      { id: 'q1-s2-c1', content: paragraph('One'), correct: false },
+      { id: 'q1-s2-c2', content: paragraph('Two'), correct: true },
+    ]
+    await rejected(
+      inspectQuestionBankRecord(bytesOf(source)),
+      'invalid-question',
+      'Part b (“q1-s2”) of Multipart Question “q1” is Short Answer and cannot contain choices.',
+    )
+  })
+
+  test('refuses a Part of any type but Multiple Choice or Short Answer', async () => {
+    const source = multipartRecord()
+    ;(source.bank.questions[0]!.parts![0] as { type: string }).type = 'true-false'
+    await rejected(
+      inspectQuestionBankRecord(bytesOf(source)),
+      'invalid-structure',
+      '/bank/questions/0/parts/0/type',
+    )
+  })
+
+  test('refuses a Multiple Choice Part with two correct choices, or a Suggested Answer', async () => {
+    const source = multipartRecord()
+    const part = source.bank.questions[0]!.parts![0]!
+    part.choices![0]!.correct = true
+    await rejected(
+      inspectQuestionBankRecord(bytesOf(source)),
+      'invalid-question',
+      'at most one correct choice',
+    )
+    part.choices![0]!.correct = false
+    part.suggestedAnswer = paragraph('Middle East')
+    await rejected(
+      inspectQuestionBankRecord(bytesOf(source)),
+      'invalid-question',
+      'cannot contain a Suggested Answer',
+    )
+  })
+
+  test('refuses Parts on a Question that is not a Multipart question, and choices on a Multipart question itself', async () => {
+    const onMultipleChoice = baseRecord()
+    onMultipleChoice.bank.questions[0]!.parts = []
+    await rejected(
+      inspectQuestionBankRecord(bytesOf(onMultipleChoice)),
+      'invalid-question',
+      'cannot contain Multipart Parts',
+    )
+    const withChoices = multipartRecord()
+    withChoices.bank.questions[0]!.choices = [
+      { id: 'q1-c1', content: paragraph('One'), correct: false },
+      { id: 'q1-c2', content: paragraph('Two'), correct: true },
+    ]
+    await rejected(
+      inspectQuestionBankRecord(bytesOf(withChoices)),
+      'invalid-question',
+      'each Part carries its own',
+    )
+  })
+
+  test('refuses a Part id used twice', async () => {
+    const source = multipartRecord()
+    source.bank.questions[0]!.parts![1]!.id = 'q1-s1'
+    await rejected(
+      inspectQuestionBankRecord(bytesOf(source)),
+      'duplicate-id',
+      'q1-s1',
     )
   })
 

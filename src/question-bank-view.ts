@@ -14,14 +14,14 @@ import {
   type QuestionType,
 } from './exam'
 import type { QuestionBank } from './question-bank'
-import { stemPreview } from './stem-preview'
+import { searchableText } from './stem-preview'
 
 /** A Difficulty filter value. `'unspecified'` is the questions nobody has
  *  classified: optional Difficulty must never make a question unreachable. */
 export type DifficultyFilter = Difficulty | 'unspecified'
 
 /** The ordering applied after search and filters have chosen the visible rows. */
-export type QuestionBankSort = 'newest' | 'type' | 'difficulty' | 'topic'
+export type QuestionBankSort = 'newest' | 'oldest' | 'type' | 'difficulty' | 'topic'
 
 /**
  * What the teacher has narrowed the Question Bank to.
@@ -76,10 +76,11 @@ export function topicOptions(bank: QuestionBank): string[] {
 function matchesSearch(question: Question, search: string): boolean {
   const wanted = search.trim().toLowerCase()
   if (wanted === '') return true
-  // The projection the row showed, so what can be found is what was on screen:
-  // answer choices, correctness and everything else behind the popup are out of
-  // reach of search by construction rather than by a second rule.
-  return stemPreview(question).text.toLowerCase().includes(wanted)
+  // The projection the row showed, so what can be found is what was on screen —
+  // and, for a Multipart question, the stems of the Parts the row counts: answer choices,
+  // correctness and everything else behind the popup are out of reach of search
+  // by construction rather than by a second rule.
+  return searchableText(question).toLowerCase().includes(wanted)
 }
 
 function matchesDifficulty(
@@ -110,6 +111,7 @@ const TYPE_RANK: Record<QuestionType, number> = {
   'true-false': 1,
   matching: 2,
   open: 3,
+  multipart: 4,
 }
 
 const DIFFICULTY_RANK: Record<DifficultyFilter, number> = {
@@ -160,5 +162,7 @@ export function browseQuestionBank(
       })
     case 'newest':
       return shown
+    case 'oldest':
+      return shown.reverse()
   }
 }
