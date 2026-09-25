@@ -2769,7 +2769,7 @@ button { cursor: pointer; }
 .source-steps-note svg { width: 14px; height: 14px; color: var(--paper-accent); }
 .source-steps-list { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
 .source-steps-list > li { position: relative; }
-.source-step, .source-steps-return {
+.source-step {
   display: grid; grid-template-columns: 30px minmax(0, 1fr) auto; align-items: center; gap: 12px;
   width: 100%; padding: 12px 14px; border: 1px solid var(--paper-outline); border-radius: 10px;
   background: #fffdf8; color: inherit; font: inherit; text-align: left; box-sizing: border-box;
@@ -2782,9 +2782,9 @@ button { cursor: pointer; }
   display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%;
   color: var(--paper-accent); background: var(--paper-accent-wash); font-weight: 700; font-size: 13px;
 }
-.source-step-text, .source-steps-return > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.source-step-text strong, .source-steps-return > div strong { font-size: 15px; }
-.source-step-text span, .source-steps-return > div span { color: #5f4d40; font-size: 13.5px; line-height: 1.45; }
+.source-step-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.source-step-text strong { font-size: 15px; }
+.source-step-text span { color: #5f4d40; font-size: 13.5px; line-height: 1.45; }
 .source-step-icon { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 8px; color: var(--paper-accent); background: var(--paper-accent-wash); }
 .source-step-icon svg { width: 17px; height: 17px; }
 .source-step:hover:not(:disabled) .source-step-icon { color: #fff; background: var(--paper-accent); }
@@ -2797,8 +2797,7 @@ button { cursor: pointer; }
   text-align: left; cursor: pointer;
 }
 .source-step-menu button:hover, .source-step-menu button:focus-visible { background: var(--paper-accent-wash); outline: none; }
-.source-steps-return { grid-template-columns: 30px minmax(0, 1fr); }
-.source-steps-return .bank-import-drop { grid-column: 2; margin: 4px 0 0; padding: 18px; }
+.source-steps-drop { margin: 10px 0 0; padding: 22px 18px; }
 .source-steps-foot { margin: 12px 0 0; font-size: 12.5px; }
 @media (max-width: 640px) {
   .source-step { grid-template-columns: 30px minmax(0, 1fr) auto; gap: 10px; }
@@ -3017,9 +3016,7 @@ a.import-card-main:hover .exam-sheet, a.import-card-main:focus-visible .exam-she
 /* The steps end where the preview's details do: the drop for the file the AI
    gives back takes the height left. */
 .import-page > .source-steps { display: flex; flex-direction: column; align-self: stretch; }
-.import-page .source-steps-list { flex: 1; grid-template-rows: auto auto auto 1fr; }
-.import-page .source-steps-return { grid-template-rows: auto 1fr; align-items: start; }
-.import-page .source-steps-return .bank-import-drop { align-self: stretch; justify-content: center; }
+.import-page .source-steps-drop { flex: 1; justify-content: center; }
 .import-page-title {
   grid-column: 1 / -1; display: flex; align-items: baseline; gap: 0.3em; min-width: 0; margin: 0 0 12px;
   color: #2f2419; font-size: 24px;

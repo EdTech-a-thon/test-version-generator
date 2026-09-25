@@ -87,6 +87,7 @@ export function SourceDocumentSteps({
   const [choosing, setChoosing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const menu = useRef<HTMLDivElement>(null)
+  const returned = useRef<HTMLInputElement>(null)
   useEffect(() => {
     if (!copied) return
     const timer = window.setTimeout(() => setCopied(false), 2000)
@@ -217,30 +218,35 @@ export function SourceDocumentSteps({
           ))}
         </div>}
       </li>
-      <li className="source-steps-return">
-        <span className="source-step-number" aria-hidden="true">{++number}</span>
-        <div>
-          <strong>Drop the file it gives back</strong>
-          <span>A <code>.parrot.json</code> file. You check every question{pictures || photo ? ' and picture' : ''} before anything is imported.</span>
-        </div>
-        <label className="bank-import-drop">
-          <input
-            type="file"
-            aria-label="File from your AI"
-            accept="application/json,.json"
-            disabled={busy}
-            onChange={(event) => {
-              const chosen = event.target.files?.[0]
-              event.target.value = ''
-              if (chosen) onReturnedFile(chosen)
-            }}
-          />
-          <UploadCloud aria-hidden="true" />
-          <strong>Drop the .parrot.json here</strong>
-          <span>or click to choose it</span>
-        </label>
+      <li>
+        <StepButton
+          number={++number}
+          title="Drop the file it gives back"
+          text={`A .parrot.json file. You check every question${pictures || photo ? ' and picture' : ''} before anything is imported.`}
+          icon={<UploadCloud />}
+          disabled={busy}
+          onClick={() => returned.current?.click()}
+        />
       </li>
     </ol>
+
+    <label className="bank-import-drop source-steps-drop">
+      <input
+        ref={returned}
+        type="file"
+        aria-label="File from your AI"
+        accept="application/json,.json"
+        disabled={busy}
+        onChange={(event) => {
+          const chosen = event.target.files?.[0]
+          event.target.value = ''
+          if (chosen) onReturnedFile(chosen)
+        }}
+      />
+      <UploadCloud aria-hidden="true" />
+      <strong>Drop the .parrot.json here</strong>
+      <span>or click to choose it</span>
+    </label>
 
     {error && <p className="home-error" role="alert">{error}</p>}
     {onStartOver && <p className="source-steps-foot">

@@ -65,6 +65,10 @@ test('the convert page asks only for the test, then opens its import with the pa
     stem: { type: 'document', content: [questions[0].stem.content[0], { type: 'block-image', pending: { page: 1 }, alt: 'Map' }] },
   }]
   photoPackage.exams[0].positions = [{ question: { bank: 'history', question: 'q1' } }]
+  // The step itself chooses the file, as the drop below it does.
+  const chooser = page.waitForEvent('filechooser')
+  await steps.getByRole('button', { name: 'Drop the file it gives back' }).click()
+  expect((await chooser).isMultiple()).toBe(false)
   await steps.getByLabel('File from your AI').setInputFiles({ name: 'quiz.parrot.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(photoPackage)) })
   const dialog = page.getByRole('dialog', { name: 'Import' })
   const photoPicture = dialog.getByLabel('Test preview').getByRole('button', { name: /^Question 1: / })
