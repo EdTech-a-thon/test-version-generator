@@ -95,7 +95,7 @@ import {
   type MenuPoint,
   type MenuSide,
 } from './context-menu'
-import { domMeasure } from './dom-measure'
+import { domMeasure, imageSourcesOfDocuments } from './dom-measure'
 
 /** Every question id across every page, in on-page (number) order. */
 function orderedQuestionIds(pages: readonly PlannedPage[]): string[] {
@@ -1233,23 +1233,50 @@ function usePaginatedExam(
   // Keyed on `exam`, it is what it was always meant to be: one re-measurement
   // per edit — enough to settle, and bounded, so a measurement can never chase
   // its own result round in a loop.
+  //
+  // It waits for every picture in the exam, not the first to arrive: a test of
+  // maps re-measured when its first map loaded went on planning the rest as
+  // nothing, and printed its questions off the foot of the page.
+  //
+  // A picture can also arrive later than that wait — one imported a moment ago
+  // may not be servable yet — so a picture the page has not seen load before
+  // re-measures it too, once per picture, which keeps it bounded.
   useEffect(() => {
     let live = true
-    let done = false
+    let timer: ReturnType<typeof setTimeout> | undefined
     const settle = () => {
-      if (!live || done) return
-      done = true
-      // Before the re-measure, never after: the whole point is that this same
-      // markup measures differently now.
-      domMeasure.invalidate()
-      setSettled((count) => count + 1)
+      if (!live) return
+      clearTimeout(timer)
+      timer = setTimeout(() => {
+        if (!live) return
+        // Before the re-measure, never after: the whole point is that this
+        // same markup measures differently now.
+        domMeasure.invalidate()
+        setSettled((count) => count + 1)
+      }, 0)
     }
-    document.fonts?.ready.then(settle, () => {})
+    const sources = imageSourcesOfDocuments(
+      exam.questions.flatMap((question) => [question.doc, question.suggestedAnswer]),
+    )
+    Promise.all([
+      document.fonts?.ready.catch(() => {}),
+      domMeasure.loadImages(sources),
+    ]).then(settle)
+    const seen = new Set<string>()
+    const onLoad = (event: Event) => {
+      const target = event.target
+      if (!(target instanceof HTMLImageElement)) return
+      const source = target.currentSrc || target.src
+      if (seen.has(source)) return
+      seen.add(source)
+      settle()
+    }
     const element = workspace.current
-    element?.addEventListener('load', settle, true)
+    element?.addEventListener('load', onLoad, true)
     return () => {
       live = false
-      element?.removeEventListener('load', settle, true)
+      clearTimeout(timer)
+      element?.removeEventListener('load', onLoad, true)
     }
   }, [exam, workspace])
 
