@@ -747,9 +747,9 @@ function QuestionView({
  *  controls where they were, through each pass of repagination. */
 const MOVE_ANCHOR_MS = 1200
 
-/** How far above its heading a Section's dashed rule is drawn — `top` on
- *  `.exam-section--editable::before` in styles.css. A Section's highlight runs
- *  from its own rule to the next Section's, so the two always meet. */
+/** How far above its heading a Section's band — its dashed rule, and its
+ *  highlight — begins. A band runs from there to where the next Section's
+ *  begins, so the rules of neighbouring Sections fall on the same line. */
 const SECTION_RULE_OFFSET = 9
 
 /** How far a Section's highlight reaches below the last piece on a sheet when
@@ -1724,6 +1724,24 @@ export function ExamPage({
                 aria-hidden="true"
               />
             ))}
+          {/* The Section the pointer is in is marked off by a dashed rule above
+              and below its stretch of each sheet, while its controls show. */}
+          {pointedBand && !drag.source && sectionBands
+            .filter((band) => band.pageIndex === index && band.sectionId === pointedBand.sectionId)
+            .flatMap((band) => [
+              <div
+                key={`${band.sectionId}-top`}
+                className="section-rule"
+                style={{ top: band.topInPage }}
+                aria-hidden="true"
+              />,
+              <div
+                key={`${band.sectionId}-bottom`}
+                className="section-rule"
+                style={{ top: band.topInPage + band.height }}
+                aria-hidden="true"
+              />,
+            ])}
           <PageHeaderContent
             header={page.header}
             furniture={page.furniture}

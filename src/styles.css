@@ -987,7 +987,11 @@ button { cursor: pointer; }
   border: 1px solid #9f5037; border-radius: 6px;
   color: #9f5037; background: #f7e2d5;
   font: 600 13px/1.4 Arial, Helvetica, sans-serif;
-  animation: new-section-open 180ms ease-out;
+  animation: empty-section-open 180ms ease-out;
+}
+@keyframes empty-section-open {
+  from { height: 0; margin-bottom: 0; opacity: 0; }
+  to { height: 56px; margin-bottom: 26px; opacity: 1; }
 }
 
 /* The target that makes a new Question Section, opened beneath the foot of a
@@ -999,21 +1003,23 @@ button { cursor: pointer; }
 .new-section-target {
   position: relative;
   display: flex; align-items: center; justify-content: center;
-  height: 56px; margin: 0 0 26px; overflow: hidden;
+  /* 40px above: its top margin meets the foot question's 26px, and the drop
+     line, 14px below that question, needs clear room above the new rule. */
+  height: 56px; margin: 40px 0 26px; overflow: visible;
   border: 1px dashed #9f5037; border-radius: 6px;
   color: #9f5037; background: #fffaf3;
   font: 600 13px/1.4 Arial, Helvetica, sans-serif;
   animation: new-section-open 180ms ease-out;
 }
 .new-section-target::before {
-  content: ''; position: absolute; top: -14px;
+  content: ''; position: absolute; top: -13px;
   left: calc(-1 * var(--page-margin)); right: calc(-1 * var(--page-margin));
   border-top: 1px dashed #ddd0c2; pointer-events: none;
 }
 .new-section-target[data-active] { border-style: solid; background: #f7e2d5; }
 @keyframes new-section-open {
-  from { height: 0; margin-bottom: 0; opacity: 0; }
-  to { height: 56px; margin-bottom: 26px; opacity: 1; }
+  from { height: 0; margin-top: 0; margin-bottom: 0; opacity: 0; }
+  to { height: 56px; margin-top: 40px; margin-bottom: 26px; opacity: 1; }
 }
 @media (prefers-reduced-motion: reduce) {
   .new-section-target, .exam-section-empty-drop { animation: none; }
@@ -1033,14 +1039,12 @@ button { cursor: pointer; }
 .section-rail .question-handle { width: 24px; height: 24px; }
 .section-rail .question-handle:disabled { opacity: 0.35; cursor: default; background: transparent; }
 
-/* Where each Section begins, on the sheet only: a dashed rule just above its
-   heading, across the paper's whole width, margins included — drawn outside
-   the flow so the page is laid out exactly as it prints. Its 9px offset is
-   `SECTION_RULE_OFFSET` in exam-page.tsx, where a Section's highlight starts. */
-.exam-section--editable::before,
-.exam-section-hidden::before {
-  content: ''; position: absolute; top: -9px;
-  left: calc(-1 * var(--page-margin)); right: calc(-1 * var(--page-margin));
+/* The Section the pointer is in, on the sheet only: a dashed rule at the top
+   and the bottom of its stretch of the sheet, across the paper's whole width,
+   margins included, shown while its controls are. Drawn over the sheet, never
+   in its flow, so the page is laid out exactly as it prints. */
+.section-rule {
+  position: absolute; z-index: 1; left: 0; right: 0; height: 0;
   border-top: 1px dashed #ddd0c2; pointer-events: none;
 }
 
