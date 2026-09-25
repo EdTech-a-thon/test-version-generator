@@ -2976,3 +2976,44 @@ button { cursor: pointer; }
 .bank-import-picture .resolve-image-actions { margin-top: 8px; }
 .bank-import-picture-done { align-self: flex-start; }
 .resolve-image-chooser button[aria-pressed='true'] { border: 2px solid var(--paper-accent); padding: 5px; }
+
+/* Imports: what is still waiting first, then what each import brought in. */
+.import-section { margin-top: 28px; }
+.import-section h2 { margin: 0 0 10px; font-size: 13px; letter-spacing: 0.04em; text-transform: uppercase; color: #6e5b4d; }
+.import-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.import-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 14px 16px; border: 1px solid var(--paper-outline); border-radius: 10px; background: #fffdf8;
+}
+.import-row-main { display: grid; gap: 4px; min-width: 0; }
+.import-row-name { overflow: hidden; font-size: 15px; text-overflow: ellipsis; white-space: nowrap; }
+.import-row-facts { color: #6e5b4d; font-size: 13px; }
+.import-row-links { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
+.import-row-link {
+  display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border: 1px solid var(--paper-outline);
+  border-radius: 999px; color: #3b2d22; font-size: 13px; font-weight: 600; text-decoration: none; background: #fff;
+}
+.import-row-link:hover { border-color: var(--paper-accent); }
+.import-row-link svg { width: 13px; height: 13px; }
+.import-row-actions { display: flex; flex: none; align-items: center; gap: 8px; font-size: 13px; }
+.import-row-actions a { text-decoration: none; }
+.import-stage {
+  display: inline-flex; align-items: center; gap: 5px; justify-self: start; padding: 2px 9px; border-radius: 999px;
+  font-size: 12px; font-weight: 700;
+}
+.import-stage svg { width: 13px; height: 13px; }
+.import-stage[data-stage='waiting'] { color: #7a4a12; background: #fbecd3; }
+.import-stage[data-stage='imported'] { color: var(--easy-ink); background: var(--easy-wash); }
+.import-stage[data-stage='expired'] { color: #6e5b4d; background: #efe6da; }
+.import-pictures-needed {
+  display: inline-flex; flex: none; align-items: center; gap: 5px; padding: 3px 10px; border-radius: 999px;
+  color: var(--paper-accent); background: var(--paper-accent-wash); font-size: 12.5px; font-weight: 700;
+}
+.import-pictures-needed svg { width: 14px; height: 14px; }
+.import-list-status { color: #6e5b4d; }
+.import-page { max-width: 720px; }
+@media (max-width: 640px) {
+  .import-row { flex-direction: column; align-items: stretch; }
+  .import-row-actions { justify-content: flex-end; }
+}
+.collection-actions a { text-decoration: none; }

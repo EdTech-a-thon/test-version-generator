@@ -33,11 +33,23 @@ test('a converted test gets its pictures from the teacher’s own PDF', async ({
   expect((await download).suggestedFilename()).toBe('unit-test (AI-ready).pdf')
 
   // The import waits while the teacher is in their AI chat, reload and all.
+  // Import again is a new import: it does not pick the waiting one up.
   await page.reload()
   await page.getByRole('button', { name: 'Import', exact: true }).click()
-  await expect(dialog.getByRole('status')).toHaveText('2 pictures detected in your PDF')
+  await expect(dialog.getByLabel('Your test PDF or a Test Parrot file')).toBeVisible()
+  await expect(dialog.getByRole('region', { name: 'Convert your test' })).toHaveCount(0)
+  await dialog.getByRole('button', { name: 'Cancel' }).click()
 
-  await dialog.getByLabel('File from your AI').setInputFiles({
+  // It waits in Imports, and is continued from there.
+  await page.getByRole('navigation', { name: 'Sections' }).getByRole('link', { name: 'Imports' }).click()
+  const waitingRow = page.getByRole('region', { name: 'In progress' }).getByRole('listitem', { name: 'unit-test.pdf' })
+  await expect(waitingRow).toContainText('Waiting for the file from your AI')
+  await expect(waitingRow).toContainText('2 pictures detected')
+  await waitingRow.getByRole('link', { name: 'Continue' }).click()
+  await expect(page.getByRole('heading', { name: 'Converting unit-test.pdf' })).toBeVisible()
+  await expect(page.getByRole('status').filter({ hasText: 'pictures detected' })).toHaveText('2 pictures detected in your PDF')
+
+  await page.getByLabel('File from your AI').setInputFiles({
     name: 'trading-stations.parrot.json',
     mimeType: 'application/json',
     buffer: assistantPackage(),
@@ -95,6 +107,18 @@ test('a converted test gets its pictures from the teacher’s own PDF', async ({
   await dialog.getByRole('button', { name: 'Import', exact: true }).click()
   await expect(page).toHaveURL(/\/editor\?exam=/)
 
+  // Imports now lists it as imported, with what it brought in and the
+  // picture it still needs; its Test opens from there.
+  await page.goto('/imports')
+  await expect(page.getByRole('region', { name: 'In progress' })).toHaveCount(0)
+  const importedRow = page.getByRole('region', { name: 'History' }).getByRole('listitem', { name: 'unit-test.pdf' })
+  await expect(importedRow).toContainText('Imported')
+  await expect(importedRow).toContainText('5 Questions')
+  await expect(importedRow).toContainText('1 picture still needed')
+  await expect(importedRow.getByRole('link', { name: 'Trading Stations', exact: true })).toBeVisible()
+  await importedRow.getByRole('link', { name: 'Trading Stations Quiz' }).click()
+  await expect(page).toHaveURL(/\/editor\?exam=/)
+
   // Four pictures arrived; the cell diagram is still needed.
   const sheet = page.locator('.exam-question')
   await expect(sheet).toHaveCount(5)
@@ -148,4 +172,10 @@ test('a converted test gets its pictures from the teacher’s own PDF', async ({
   await expect(page.getByRole('img', { name: /^Picture needed/ })).toHaveCount(0)
   await page.getByRole('button', { name: 'Export', exact: true }).click()
   await expect(exporting.getByRole('button', { name: /^Download / })).toBeEnabled()
+  await exporting.getByRole('button', { name: 'Cancel' }).click()
+
+  // With its last picture added, the import needs nothing more.
+  await page.goto('/imports')
+  await expect(page.getByRole('listitem', { name: 'unit-test.pdf' })).toContainText('Imported')
+  await expect(page.getByRole('listitem', { name: 'unit-test.pdf' })).not.toContainText('still needed')
 })

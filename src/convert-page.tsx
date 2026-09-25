@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { ClipboardCheck, UploadCloud } from 'lucide-react'
 import extractInstructions from '../public/extract.md?raw'
 import { fillImageTags } from './image-tag-list'
-import { discardWaitingImport, readWaitingImport, type WaitingImport } from './waiting-import'
+import { discardWaitingImport, readWaitingImport, type WaitingImport } from './import-history'
 import { SourceDocumentSteps } from './source-document-steps'
 import { TEST_FILE_TYPES, kindOfFile, startWaitingImport, unsupportedFileMessage } from './source-file'
 import { inspectUploadedFile } from './question-bank-upload'
@@ -15,7 +15,21 @@ import { Footer, Link } from './site-chrome'
  * dropped, so the page shows nothing else until it knows — then, in place,
  * the one path that file needs (see `SourceDocumentSteps`). A Test Parrot
  * file, or the file the AI gives back, goes straight to the import.
+ *
+ * Every visit starts a new import. The one this page started is named in its
+ * address (`?import=`), so a reload while the teacher is in their AI chat
+ * comes back to it; any other import part-way through waits in Imports.
  */
+
+const IMPORT_PARAMETER = 'import'
+
+/** Name the import this page is converting in its address, or none. */
+function rememberImport(id: string | null) {
+  const url = new URL(window.location.href)
+  if (id) url.searchParams.set(IMPORT_PARAMETER, id)
+  else url.searchParams.delete(IMPORT_PARAMETER)
+  window.history.replaceState(window.history.state, '', url)
+}
 export function ConvertPage({
   dropped,
   importOpen,
@@ -26,11 +40,12 @@ export function ConvertPage({
   /** Whether the import dialog is showing, so the page looks again for the
    *  waiting import once it closes: importing finishes it. */
   importOpen: boolean
-  onOpenImport: (file: File) => void
+  /** Open the import, for the file the AI gave back to the import it
+   *  answers when there is one. */
+  onOpenImport: (file: File, waitingImportId?: string) => void
 }) {
   const [waiting, setWaiting] = useState<WaitingImport | null>(null)
   const [reading, setReading] = useState(false)
-  const [replacing, setReplacing] = useState<File | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [justCopied, setJustCopied] = useState(false)
   useEffect(() => {
@@ -38,19 +53,27 @@ export function ConvertPage({
     const timer = window.setTimeout(() => setJustCopied(false), 2000)
     return () => window.clearTimeout(timer)
   }, [justCopied])
+  // Looked for again whenever the import closes: importing finishes it.
   useEffect(() => {
     if (importOpen) return
+    const id = new URLSearchParams(window.location.search).get(IMPORT_PARAMETER)
+    if (!id) return
     let current = true
-    void readWaitingImport().then((found) => { if (current) setWaiting(found) }, () => undefined)
+    void readWaitingImport(id).then((found) => {
+      if (!current) return
+      setWaiting(found)
+      if (!found) rememberImport(null)
+    }, () => undefined)
     return () => { current = false }
   }, [importOpen])
 
   const start = async (file: File) => {
-    setReplacing(null)
     setReading(true)
     setError(null)
     try {
-      setWaiting(await startWaitingImport(file))
+      const started = await startWaitingImport(file)
+      setWaiting(started)
+      rememberImport(started.id)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'This file could not be read.')
     } finally {
@@ -61,7 +84,7 @@ export function ConvertPage({
   const take = async (file: File) => {
     setError(null)
     const kind = kindOfFile(file)
-    if (kind === 'record') return onOpenImport(file)
+    if (kind === 'record') return onOpenImport(file, waiting?.id)
     if (kind === 'other') return setError(unsupportedFileMessage(file))
     if (kind === 'pdf') {
       // A Question Bank File or an Exam PDF already is a Test Parrot file.
@@ -78,7 +101,6 @@ export function ConvertPage({
         }
       }
     }
-    if (waiting) return setReplacing(file)
     await start(file)
   }
 
@@ -90,8 +112,9 @@ export function ConvertPage({
   })
 
   const startOver = async () => {
-    await discardWaitingImport().catch(() => undefined)
+    if (waiting) await discardWaitingImport(waiting.id).catch(() => undefined)
     setWaiting(null)
+    rememberImport(null)
     setError(null)
   }
 
@@ -123,18 +146,6 @@ export function ConvertPage({
 
         <div className="convert-body">
           {error && <p className="home-error" role="alert">{error}</p>}
-          {replacing && waiting && (
-            <div className="bank-import-assist" data-emphasis="true" role="alert">
-              <span>
-                <strong>You already started with {waiting.fileName}.</strong>{' '}
-                Start again with {replacing.name} instead?
-              </span>
-              <span className="bank-import-assist-actions">
-                <button type="button" className="secondary-button" onClick={() => setReplacing(null)}>Keep {waiting.fileName}</button>
-                <button type="button" className="primary-button" onClick={() => void start(replacing)}>Start again</button>
-              </span>
-            </div>
-          )}
           {waiting ? (
             <SourceDocumentSteps
               waiting={waiting}

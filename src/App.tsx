@@ -158,6 +158,7 @@ import { SettingsPage } from './settings-page'
 import { persistentStorageStatus, requestPersistentStorage, type PersistentStorageStatus } from './durable-storage'
 import { ResourceCollectionPage } from './resource-collection-page'
 import { BankFileDropTarget } from './bank-file-drop'
+import { ImportsPage, WaitingImportPage } from './imports-page'
 import { questionBankCollection, type QuestionBankCollectionItem } from './resource-collections'
 import { QuestionBankExportDialog } from './question-bank-export-dialog'
 import { QuestionBankImportDialog } from './question-bank-import-dialog'
@@ -2754,15 +2755,22 @@ export default function App({
   const homeError = initialError
   const [bankLibraryRevision, setBankLibraryRevision] = useState(0)
   const [importTargetBankId, setImportTargetBankId] = useState<string | null>(null)
-  const openImport = useCallback((file?: File | null, targetBankId?: string | null) => {
+  /** The waiting import the dialog finishes, when it was opened on one. */
+  const [importWaitingId, setImportWaitingId] = useState<string | null>(null)
+  /** Bumped whenever an import may have finished, for the Imports pages. */
+  const [importRevision, setImportRevision] = useState(0)
+  const openImport = useCallback((file?: File | null, targetBankId?: string | null, waitingImportId?: string | null) => {
     setDroppedBankFile(file ?? null)
     setImportTargetBankId(targetBankId ?? null)
+    setImportWaitingId(waitingImportId ?? null)
     setInspectingBankFile(true)
   }, [])
   const closeImport = useCallback(() => {
     setInspectingBankFile(false)
     setDroppedBankFile(null)
     setImportTargetBankId(null)
+    setImportWaitingId(null)
+    setImportRevision((revision) => revision + 1)
   }, [])
   const loadImportBanks = useCallback(
     async () => (await bankWorkspaces.recent()).map(({ id, name }) => ({ id, name })),
@@ -2773,7 +2781,7 @@ export default function App({
     selection: import('./import-selection').ImportSelection,
     options: {
       resolution: import('./pending-images').PendingImageResolution
-      finishesWaitingImport: boolean
+      history: { fileName: string; kind: import('./import-history').ImportFileKind; waitingImportId?: string }
     },
   ) => {
     const result = await bankWorkspaces.commitImport(proposal, selection, options)
@@ -2819,6 +2827,10 @@ export default function App({
     )
     window.location.assign(`/question-bank?id=${firstBankId}`)
   }, [bankWorkspaces, closeImport, editorId, route, workspaces])
+  const picturesNeededIn = useCallback(async (bankIds: readonly string[]) => {
+    const banks = await Promise.all(bankIds.map((id) => bankWorkspaces.read(id)))
+    return banks.reduce((total, bank) => total + (bank ? pendingImagesOfQuestions(bank.questions).length : 0), 0)
+  }, [bankWorkspaces])
   const requestBankDeletion = useCallback((bank: QuestionBankCollectionItem) => {
     void bankWorkspaces.read(bank.id).then(async (resource) => {
       const impact = await workspaces.deletionImpact(resource?.questions.map(({ id }) => id) ?? [])
@@ -2887,9 +2899,10 @@ export default function App({
   const openExam = (id: string) => window.location.assign(`/editor?exam=${id}`)
   const openBank = (id: string) => window.location.assign(`/question-bank?id=${id}`)
   const importDialog = inspectingBankFile && <QuestionBankImportDialog
-    key={`${droppedBankFile ? `${droppedBankFile.name}:${droppedBankFile.lastModified}` : 'chosen'}:${importTargetBankId ?? ''}`}
+    key={`${droppedBankFile ? `${droppedBankFile.name}:${droppedBankFile.lastModified}` : 'chosen'}:${importTargetBankId ?? ''}:${importWaitingId ?? ''}`}
     initialFile={droppedBankFile ?? undefined}
     targetBankId={importTargetBankId ?? undefined}
+    waitingImportId={importWaitingId ?? undefined}
     loadBanks={loadImportBanks}
     onClose={closeImport}
     onImport={importBank}
@@ -2900,6 +2913,26 @@ export default function App({
     <BankFileDropTarget onFile={openImport} />
     {importDialog}
   </>
+  if (route === '/imports') return <>{globalChrome}<ImportsPage
+    persistentStorage={storageStatus}
+    revision={importRevision}
+    onImport={() => openImport()}
+    picturesNeededIn={picturesNeededIn}
+  /></>
+  if (route === '/import') {
+    const waitingId = new URLSearchParams(window.location.search).get('id') ?? ''
+    // A file dropped on a waiting import's page is the AI's answer to it.
+    return <>
+      <BankFileDropTarget onFile={(file) => openImport(file, null, waitingId)} />
+      {importDialog}
+      <WaitingImportPage
+        id={waitingId}
+        persistentStorage={storageStatus}
+        revision={importRevision}
+        onReturnedFile={(file) => openImport(file, null, waitingId)}
+      />
+    </>
+  }
   if (route === '/about') return <>{globalChrome}<AboutPage persistentStorage={storageStatus} /></>
   if (route === '/privacy') return <>{globalChrome}<PrivacyPage persistentStorage={storageStatus} /></>
   if (route === '/settings') return <>{globalChrome}<SettingsPage persistentStorage={storageStatus} /></>
@@ -2935,7 +2968,7 @@ export default function App({
   if (route === '/get-started/convert') return <>
     <BankFileDropTarget tests onFile={(file) => setConvertDrop({ file, id: Date.now() })} />
     {importDialog}
-    <ConvertPage dropped={convertDrop} importOpen={inspectingBankFile} onOpenImport={(file) => openImport(file)} />
+    <ConvertPage dropped={convertDrop} importOpen={inspectingBankFile} onOpenImport={(file, waitingImportId) => openImport(file, null, waitingImportId)} />
   </>
   if (route === '/') return <>{globalChrome}<HomePage
     exams={exams}

@@ -57,7 +57,7 @@ import {
   type ResolvingSource,
 } from './resolved-pictures'
 import { PictureSlotContext, type PictureSlot } from './picture-slot'
-import { discardWaitingImport, readWaitingImport, type WaitingImport } from './waiting-import'
+import { discardWaitingImport, readWaitingImport, waitingImports, type ImportFileKind, type WaitingImport } from './import-history'
 import { SourceDocumentSteps } from './source-document-steps'
 import { TEST_FILE_TYPES, kindOfFile, readSourceDocument, startWaitingImport } from './source-file'
 import { useModalScrollLock } from './use-modal-scroll-lock'
@@ -475,12 +475,16 @@ export function QuestionBankImportDialog({
   initialFile,
   targetBankId,
   loadBanks,
+  waitingImportId,
 }: {
   onClose: () => void
   onImport: (
     proposal: ImportProposal,
     selection: ImportSelection,
-    options: { resolution: PendingImageResolution; finishesWaitingImport: boolean },
+    options: {
+      resolution: PendingImageResolution
+      history: { fileName: string; kind: ImportFileKind; waitingImportId?: string }
+    },
   ) => Promise<void>
   /** A file already chosen elsewhere — dropped onto the page — inspected as
    *  soon as the dialog opens rather than asked for again. */
@@ -490,6 +494,9 @@ export function QuestionBankImportDialog({
   targetBankId?: string
   /** The banks on this device, for “Add to an existing one”. */
   loadBanks: () => Promise<readonly { id: string; name: string }[]>
+  /** The waiting import the file is the assistant's answer to, when the
+   *  dialog was opened from that import's own page. */
+  waitingImportId?: string
 }) {
   const titleId = useId()
   const listId = useId()
@@ -509,14 +516,15 @@ export function QuestionBankImportDialog({
   // it rather than with a reading of what went wrong.
   const [needsConversion, setNeedsConversion] = useState(false)
   const [phase, setPhase] = useState<'choose' | 'inspecting' | 'analyzing' | 'saving'>('choose')
-  /** The import waiting for an assistant, resumed whenever the dialog opens. */
+  /** The import this dialog is converting: one it started, or the one it
+   *  was opened for. Every dialog is a new import otherwise — it never picks
+   *  up another import that is part-way through. */
   const [waiting, setWaiting] = useState<WaitingImport | null>(null)
-  /** A new Source Document dropped while another import waits, held until
-   *  the teacher says whether it replaces that one. */
-  const [replacing, setReplacing] = useState<File | null>(null)
-  /** Set when the file under review was paired with the waiting import: how
+  /** Set when the file under review was paired with a waiting import: how
    *  well it matches the Source Document. */
   const [paired, setPaired] = useState<SourceDocumentCheck | null>(null)
+  /** The file under review, as the import history will name it. */
+  const [inspected, setInspected] = useState<{ fileName: string; kind: ImportFileKind } | null>(null)
   const [filling, setFilling] = useState(false)
   /** The Pending Image whose choices the rail shows, picked in the preview,
    *  and whether its page is being cropped in the preview's place. */
@@ -550,11 +558,6 @@ export function QuestionBankImportDialog({
     return () => { current = false }
   }, [loadBanks])
 
-  useEffect(() => {
-    let current = true
-    void readWaitingImport().then((found) => { if (current && found) setWaiting(found) }, () => undefined)
-    return () => { current = false }
-  }, [])
 
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null
@@ -622,7 +625,6 @@ export function QuestionBankImportDialog({
   /** A PDF that is not a Test Parrot file is a Source Document: its pictures
    *  are found and tagged, and the import waits for the assistant. */
   const startSourceDocument = async (file: File) => {
-    setReplacing(null)
     setPhase('analyzing')
     setError(null)
     setNeedsConversion(false)
@@ -635,19 +637,26 @@ export function QuestionBankImportDialog({
     }
   }
 
-  /** A test to convert rather than a file to import: a photo, or a PDF with
-   *  no Test Parrot file inside. Asks first if another import is waiting. */
-  const startConverting = async (file: File) => {
-    const existing = await readWaitingImport().catch(() => null)
-    if (existing) {
-      setWaiting(existing)
-      setReplacing(file)
-      setPhase('choose')
-      return
-    }
-    await startSourceDocument(file)
-  }
+  /** A test to convert rather than a file to import — a photo, a Word
+   *  document, or a PDF with no Test Parrot file inside — starts a new
+   *  import. Any other import already waiting keeps waiting. */
+  const startConverting = startSourceDocument
 
+  /**
+   * The waiting import a returned file answers, and how well it matches. The
+   * one this dialog is converting is paired whatever the check says, since
+   * the teacher dropped the file on it; otherwise the file is paired only
+   * with a waiting import it clearly came from, the best match if several.
+   */
+  const pairingFor = async (next: ImportProposal) => {
+    const own = waiting ?? (waitingImportId ? await readWaitingImport(waitingImportId).catch(() => null) : null)
+    if (own) return { source: own, check: checkAgainstSourceDocument(next, own) }
+    const candidates = (await waitingImports().catch(() => []))
+      .map((source) => ({ source, check: checkAgainstSourceDocument(next, source) }))
+      .filter(({ check }) => check.matches && check.stemsFound > 0)
+      .sort((a, b) => b.check.stemsFound - a.check.stemsFound)
+    return candidates[0] ?? null
+  }
   const inspect = (file: File) => {
     setPhase('inspecting')
     setProposal(null)
@@ -658,23 +667,23 @@ export function QuestionBankImportDialog({
     setSuppliedSource(null)
     setError(null)
     setNeedsConversion(false)
+    setInspected({ fileName: file.name, kind: 'record' })
     void (async () => {
       const kind = kindOfFile(file)
       if (kind === 'photo' || kind === 'word') return startConverting(file)
       try {
         const next = await inspectUploadedFile(file)
-        // JSON dropped while an import waits is the assistant's answer to
-        // it: the two are paired with nothing but that.
-        const source = isRecordFile(file) ? await readWaitingImport().catch(() => null) : null
+        // JSON is an assistant's answer to a test being converted.
+        const pairing = isRecordFile(file) ? await pairingFor(next) : null
         setProposal(next)
         setSelection(initialSelection(next, targetBankId ? { targetBankId } : {}))
         setNames(Object.fromEntries(next.banks.map((bank) => [bank.id, bank.record.bank.name])))
         // A Test is what a teacher converting a test came for, so it is what
         // the preview opens on when there is one.
         setFocus(next.exams[0] ? { kind: 'exam', key: next.exams[0].key } : { kind: 'bank', id: next.banks[0]!.id })
-        if (source) {
-          setWaiting(source)
-          setPaired(checkAgainstSourceDocument(next, source))
+        if (pairing) {
+          setWaiting(pairing.source)
+          setPaired(pairing.check)
         }
         setPhase('choose')
       } catch (reason) {
@@ -687,9 +696,8 @@ export function QuestionBankImportDialog({
   }
 
   const discard = async () => {
-    await discardWaitingImport().catch(() => undefined)
+    if (waiting) await discardWaitingImport(waiting.id).catch(() => undefined)
     setWaiting(null)
-    setReplacing(null)
   }
 
   const copyInstructions = () => {
@@ -799,7 +807,10 @@ export function QuestionBankImportDialog({
     try {
       await onImport(proposal, selection, {
         resolution: resolutionOf(resolutions, occurrences),
-        finishesWaitingImport: paired !== null,
+        history: {
+          ...(inspected ?? { fileName: 'Test Parrot file', kind: 'record' }),
+          ...(paired && waiting ? { waitingImportId: waiting.id } : {}),
+        },
       })
     } catch (reason) {
       setError(
@@ -909,27 +920,7 @@ export function QuestionBankImportDialog({
           <h2 id={titleId}>Import</h2>
         </header>
 
-        {!proposal && replacing && waiting && (
-          <div className="bank-import-choose">
-            <div className="bank-import-assist" data-emphasis="true" role="alert">
-              <span>
-                <strong>An import is already waiting for {waiting.fileName}.</strong>{' '}
-                Start a new one from {replacing.name} instead? The waiting import
-                and its PDF will be removed from this browser.
-              </span>
-              <span className="bank-import-assist-actions">
-                <button type="button" className="secondary-button" disabled={busy} onClick={() => setReplacing(null)}>
-                  Keep waiting import
-                </button>
-                <button type="button" className="primary-button" disabled={busy} onClick={() => void startSourceDocument(replacing)}>
-                  Replace it
-                </button>
-              </span>
-            </div>
-          </div>
-        )}
-
-        {!proposal && !replacing && waiting && (
+        {!proposal && waiting && (
           <div className="bank-import-choose">
             <SourceDocumentSteps
               waiting={waiting}

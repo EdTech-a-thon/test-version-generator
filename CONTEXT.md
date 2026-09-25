@@ -52,6 +52,10 @@ _Avoid_: Placeholder image, dummy image
 The step where a teacher confirms or replaces the Media Asset for each Pending Image, choosing from the Source Document's images, a crop of one of its pages, or an uploaded file. In an import it happens in the preview itself: every tagged picture is already in place, marked as detected, and clicking any picture offers the others. It can be reopened later while any remain by supplying the Source Document again.
 _Avoid_: Image doctor, image review
 
+**Import History**:
+Every import this browser has started, newest first: each test still waiting for the file its assistant makes, with its Source Document, and each finished import with what it brought in and the Pending Images it still has. Every import is its own entry — starting one never replaces or resumes another — and a waiting import that is not finished within seven days expires, its Source Document removed. It is kept outside Account Backups, like the Source Documents it holds.
+_Avoid_: Import log, upload history
+
 **Account Backup**:
 One file holding everything Test Parrot keeps in a browser: every Exam, Question Bank, Working Copy, Export History, Media Asset and preference. Restoring one replaces the browser's whole account rather than merging into it; it is refused when it comes from a storage generation this version cannot read.
 _Avoid_: Export, Question Bank File, archive

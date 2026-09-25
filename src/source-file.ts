@@ -1,4 +1,4 @@
-import { saveWaitingImport, type WaitingImport } from './waiting-import'
+import { saveWaitingImport, type WaitingImport } from './import-history'
 
 /**
  * What a teacher dropped to start converting a test, and the import that
@@ -61,7 +61,7 @@ async function embeddablePhoto(file: File): Promise<{ bytes: Uint8Array; type: '
 
 /** A dropped test read as a Source Document: its bytes and the pictures in
  *  it, found the same way every time. */
-export type SourceFile = Omit<WaitingImport, 'createdAt'>
+export type SourceFile = Omit<WaitingImport, 'createdAt' | 'id'>
 
 export async function readSourceDocument(file: File): Promise<SourceFile> {
   const kind = kindOfFile(file)
@@ -82,10 +82,8 @@ export async function readSourceDocument(file: File): Promise<SourceFile> {
   return { kind, fileName: file.name, bytes, ...(await analyzeSourceDocument(bytes)) }
 }
 
-/** Find the pictures in a dropped test and start waiting on it, replacing
- *  any import already waiting — the caller asks first. */
+/** Find the pictures in a dropped test and start a new import waiting on
+ *  it. Any other import already waiting keeps waiting. */
 export async function startWaitingImport(file: File): Promise<WaitingImport> {
-  const waiting: WaitingImport = { ...(await readSourceDocument(file)), createdAt: new Date().toISOString() }
-  await saveWaitingImport(waiting)
-  return waiting
+  return saveWaitingImport({ ...(await readSourceDocument(file)), createdAt: new Date().toISOString() })
 }

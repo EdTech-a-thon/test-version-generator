@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { CircleQuestionMark, FileText, House, Library, Settings, X } from 'lucide-react'
+import { CircleQuestionMark, FileText, House, Import, Library, Settings, X } from 'lucide-react'
 import { AccountBadge, SETTINGS_PATH } from './account-menu'
 import type { PersistentStorageStatus } from './durable-storage'
 import { Footer, Link } from './site-chrome'
@@ -20,6 +20,7 @@ const NAV = [
   { href: '/', label: 'Home', Icon: House },
   { href: '/exams', label: 'Exams', Icon: FileText },
   { href: '/question-banks', label: 'Question Banks', Icon: Library },
+  { href: '/imports', label: 'Imports', Icon: Import },
 ] as const
 
 const SUPPORT_EMAIL = 'support@teacher.dev'
@@ -134,7 +135,7 @@ export function AppShell({
                 <Link
                   href={href}
                   className="app-nav-link"
-                  {...(route === href ? { 'aria-current': 'page' } : {})}
+                  {...(route === href || (href === '/imports' && route === '/import') ? { 'aria-current': 'page' } : {})}
                 >
                   <Icon aria-hidden="true" />
                   {label}

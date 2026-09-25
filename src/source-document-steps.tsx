@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Check, ChevronDown, Copy, Download, ImageIcon, UploadCloud } from 'lucide-react'
 import extractInstructions from '../public/extract.md?raw'
 import { fillImageTags } from './image-tag-list'
-import type { WaitingImport } from './waiting-import'
+import type { WaitingImport } from './import-history'
 
 /**
  * What to do with the test a teacher just dropped, while its import waits for

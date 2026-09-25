@@ -28,6 +28,9 @@ test('the convert page asks only for the test, then shows the path it needs', as
   await expect(steps.getByRole('button', { name: 'Download the AI-ready PDF' })).toBeVisible()
   await expect(steps).toContainText('attach the AI-ready PDF (not your original)')
   await expect(steps).not.toContainText('seven days')
+  // A reload, while the teacher is in their AI chat, comes back to it.
+  await page.reload()
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Converting unit-test.pdf')
   await expect(page.getByRole('dialog')).toHaveCount(0)
 
   // Starting over with a PDF that has no pictures needs no labeled copy.
