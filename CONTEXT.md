@@ -21,11 +21,11 @@ An independently reusable, named collection of canonical Questions whose confirm
 _Avoid_: Question library
 
 **Question Bank Pop-over**:
-A compact, read-only, always-on-top window of Question Banks, kept beside another document so a teacher can find a Question and Copy it across. It opens from a bank, holds that bank as one of its own tabs with their own filters, and belongs to no Exam; nothing in it edits, adds to an Exam, or deletes.
+A compact, read-only, always-on-top window of Question Banks, kept beside another document so a teacher can select Questions and drag or Copy them across. It opens from a bank, holds that bank as one of its own tabs with their own filters, and belongs to no Exam; nothing in it edits, adds to an Exam, or deletes. How each Question is laid out for copying — its answer columns, Word Bank placement, answer lines — is set there for that window only and forgotten when it closes.
 _Avoid_: Popup, mini mode, floating bank
 
 **Copy**:
-To put a Question's student-facing Question Content on the clipboard, ready to paste into another document: its stem, answer choices, Items and Word Bank or Parts, lettered as a test prints them and unnumbered, with pictures and mathematics as images. It never carries correctness, a Suggested Answer, Question Metadata or Work Space, and it changes nothing; Duplicate is what creates a new Question.
+To put Questions' student-facing Question Content on the clipboard, or drag it, ready for another document: stems, answer choices, Items and Word Bank or Parts, lettered and laid out as a test prints them and unnumbered, with pictures embedded and mathematics as pictures or, for Microsoft Word, as MathML. It never carries correctness, a Suggested Answer, Question Metadata or Work Space, and it changes nothing; Duplicate is what creates a new Question.
 _Avoid_: Duplicate (for putting a Question on the clipboard), export
 
 **Question Bank File**:

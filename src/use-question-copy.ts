@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Question } from './exam'
-import { copyQuestion } from './question-copy'
+import { copyMathMode } from './copy-settings'
+import { copyQuestions } from './question-copy'
 
 /** How long "Copied" stays before the control goes back to rest. */
 export const COPY_FEEDBACK_MS = 1_500
@@ -23,7 +24,9 @@ export function useQuestionCopy(): {
       setOutcome({ id: question.id, state })
       timer.current = setTimeout(() => setOutcome(null), COPY_FEEDBACK_MS * (state === 'failed' ? 2 : 1))
     }
-    copyQuestion(question, view).then(() => settle('copied'), () => settle('failed'))
+    // Laid out as the Question itself is, with mathematics as the Copy
+    // settings say.
+    copyQuestions([{ question }], copyMathMode(), view).then(() => settle('copied'), () => settle('failed'))
   }, [])
   const state = useCallback(
     (questionId: string) => (outcome?.id === questionId ? outcome.state : 'idle'),

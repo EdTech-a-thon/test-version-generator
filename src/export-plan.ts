@@ -577,7 +577,7 @@ function letterAt(index: number): string {
 
 // Column-major: `rows = ceil(n / columns)`, and the items fill down the first
 // column before starting the second.
-function layOutColumns<T>(
+export function layOutColumns<T>(
   items: T[],
   columns: number,
 ): { rows: number; cells: (T | null)[][] } {

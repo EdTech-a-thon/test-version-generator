@@ -1,6 +1,7 @@
 // The Question Bank Pop-over: a compact, read-only view of Question Banks that
-// stays on top of the document a teacher is writing, so a Question can be
-// found and Copied across (see CONTEXT.md and ADR-0029).
+// stays on top of the document a teacher is writing. Questions are selected as
+// in the Exam editor's bank pane — a click, Shift for a range, Cmd for one more
+// — and dragged into the document, or Copied (see CONTEXT.md and ADR-0029).
 //
 // It is a Document Picture-in-Picture window. That window has no page of its
 // own: this document renders into it through a portal, which is why the
@@ -13,16 +14,25 @@ import {
   useMemo,
   useRef,
   useState,
+  type DragEvent,
   type ReactNode,
 } from 'react'
 import { createPortal } from 'react-dom'
-import { Check, ChevronDown, CircleAlert, Copy, Plus, Search, SlidersHorizontal, X } from 'lucide-react'
+import { Check, ChevronDown, Copy, Plus, Search, Settings, SlidersHorizontal, X } from 'lucide-react'
 import type { Question } from './exam'
 import type { ProseMirrorJSON } from './question-doc'
-import { QuestionReading } from './question-reading'
-import { readingOfQuestion } from './question-reading-content'
 import { stemPreview } from './stem-preview'
-import { COPY_FAILED_MESSAGE, useQuestionCopy } from './use-question-copy'
+import { PopOverCard } from './pop-over-card'
+import { setCopyMathMode, useCopyMathMode } from './copy-settings'
+import { useSelection } from './use-selection'
+import {
+  copyBlocksOf,
+  copyContentOf,
+  copyQuestions,
+  prepareCopyMedia,
+  type CopyFormat,
+  type CopyMathMode,
+} from './question-copy'
 import { DIFFICULTY_OPTIONS, SORT_OPTIONS, TYPE_OPTIONS } from './question-bank-filter-options'
 import { PopOverContext } from './pop-over-context'
 import {
@@ -204,6 +214,9 @@ function QuestionBankPopOver({
   const [banks, setBanks] = useState<Record<string, QuestionBankResource>>({})
   const [picker, setPicker] = useState<QuestionBankSummary[] | null>(null)
   const workspaceRef = useRef<QuestionBankTabsWorkspace | null>(null)
+  // How each Question is laid out for copying. This window's alone: nothing
+  // keeps it, so it is gone when the window closes.
+  const [formats, setFormats] = useState<Readonly<Record<string, CopyFormat>>>({})
 
   const commit = useCallback((next: QuestionBankTabsWorkspace) => {
     workspaceRef.current = next
@@ -289,6 +302,7 @@ function QuestionBankPopOver({
         aria-pressed={picker !== null}
         onClick={() => void (picker ? setPicker(null) : openPicker())}
       ><Plus /></button>
+      <CopySettings />
     </div>
     {showingPicker
       ? <BankPicker
@@ -303,6 +317,8 @@ function QuestionBankPopOver({
           view={view}
           filter={workspace.filters[active.id] ?? NO_FILTER}
           onFilterChange={(filter) => commit(updateBankTabFilter(workspace, active.id, filter))}
+          formats={formats}
+          onFormat={(questionId, format) => setFormats((current) => ({ ...current, [questionId]: format }))}
         />}
   </div>
 }
@@ -432,24 +448,171 @@ function ChoiceChip<T extends string>({
   </FilterChip>
 }
 
+const MATH_MODES: readonly { value: CopyMathMode; label: string; detail: string }[] = [
+  { value: 'picture', label: 'Pictures', detail: 'For Google Docs, and anywhere else.' },
+  { value: 'word', label: 'Word equations', detail: 'Native, editable equations in Microsoft Word.' },
+]
+
+/** How Questions leave the Pop-over: for now, how their mathematics travels.
+ *  Google Docs takes no equation from outside itself, so pictures are its
+ *  choice; Word turns MathML into its own. */
+function CopySettings() {
+  const [open, setOpen] = useState(false)
+  const mode = useCopyMathMode()
+  const container = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const element = container.current
+    if (!open || !element) return
+    const document = element.ownerDocument
+    const onPointerDown = (event: PointerEvent) => {
+      if (!element.contains(event.target as Node)) setOpen(false)
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [open])
+  return <div className="pop-over-settings" ref={container}>
+    <button
+      type="button"
+      className="pop-over-add"
+      aria-label="Copy settings"
+      title="Copy settings"
+      aria-expanded={open}
+      onClick={() => setOpen((current) => !current)}
+    ><Settings /></button>
+    {open && <div className="pop-over-settings-menu" role="group" aria-label="Copy settings">
+      <h2>Copy settings</h2>
+      <fieldset>
+        <legend>Mathematics</legend>
+        {MATH_MODES.map((option) => (
+          <label key={option.value}>
+            <input
+              type="radio"
+              name="copy-math"
+              checked={mode === option.value}
+              onChange={() => setCopyMathMode(option.value)}
+            />
+            <span><strong>{option.label}</strong><small>{option.detail}</small></span>
+          </label>
+        ))}
+      </fieldset>
+    </div>}
+  </div>
+}
+
 function PopOverBank({
   bank,
   view,
   filter,
   onFilterChange,
+  formats,
+  onFormat,
 }: {
   bank: QuestionBankResource
   view: Window
   filter: QuestionBankFilter
   onFilterChange: (filter: QuestionBankFilter) => void
+  formats: Readonly<Record<string, CopyFormat>>
+  onFormat: (questionId: string, format: CopyFormat) => void
 }) {
   // Open from the start when something is already filtered, so a filter
   // is never in force out of sight.
   const [filtersOpen, setFiltersOpen] = useState(() => isFilterActive(filter) || (filter.sort ?? 'newest') !== 'newest')
-  const copying = useQuestionCopy()
+  const [announcement, setAnnouncement] = useState<string | null>(null)
+  const selection = useSelection()
+  const mathMode = useCopyMathMode()
   const questions = browseQuestionBank(bank, filter)
+  const orderedIds = questions.map(({ id }) => id)
   const shown = usePictureSources(bank.questions)
   const activeFilters = filter.types.length + filter.difficulties.length + filter.topics.length
+
+  // A drag hands over its content the moment it starts, so every picture
+  // and formula the visible Questions need is made ahead of it.
+  const visibleKey = `${mathMode}|${orderedIds.join(',')}`
+  useEffect(() => {
+    for (const question of bank.questions) {
+      if (visibleKey.includes(question.id)) void prepareCopyMedia(copyBlocksOf(question), mathMode)
+    }
+  }, [bank.questions, mathMode, visibleKey])
+
+  /** The selected Questions in the order they are shown, with their layouts. */
+  const chosen = (ids: ReadonlySet<string>) => questions
+    .filter(({ id }) => ids.has(id))
+    .map((question) => ({ question, format: formats[question.id] }))
+
+  const announce = (message: string) => {
+    setAnnouncement(message)
+    view.setTimeout(() => setAnnouncement((current) => (current === message ? null : current)), 1_800)
+  }
+  const describe = (count: number) => `${count} ${count === 1 ? 'Question' : 'Questions'}`
+
+  const copySelection = () => {
+    const items = chosen(selection.selectedIds)
+    if (items.length === 0) return
+    copyQuestions(items, mathMode, view).then(
+      () => announce(`Copied ${describe(items.length)}`),
+      () => announce('Could not copy — this browser refused the clipboard.'),
+    )
+  }
+
+  // Cmd-C copies the selection, Cmd-A selects every Question shown, and
+  // Escape lets go — anywhere but in a field, where they are the field's.
+  useEffect(() => {
+    const document = view.document
+    const inField = () => (document.activeElement as HTMLElement | null)?.closest?.('input, select, textarea') != null
+    const onCopy = (event: ClipboardEvent) => {
+      if (inField() || selection.selectedIds.size === 0 || !event.clipboardData) return
+      const items = chosen(selection.selectedIds)
+      const content = copyContentOf(items, mathMode)
+      event.clipboardData.setData('text/html', content.html)
+      event.clipboardData.setData('text/plain', content.text)
+      event.preventDefault()
+      announce(`Copied ${describe(items.length)}`)
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (inField()) return
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'a') {
+        event.preventDefault()
+        orderedIds.forEach((id, index) => (index === 0 ? selection.select(id) : selection.toggle(id)))
+      } else if (event.key === 'Escape') {
+        selection.clear()
+      }
+    }
+    document.addEventListener('copy', onCopy)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('copy', onCopy)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  })
+
+  const startDrag = (questionId: string, event: DragEvent<HTMLLIElement>) => {
+    // Dragging a selected Question takes the whole selection; dragging any
+    // other takes that one, and selects it.
+    const ids = selection.selectedIds.has(questionId) ? selection.selectedIds : new Set([questionId])
+    if (!selection.selectedIds.has(questionId)) selection.select(questionId)
+    const items = chosen(ids)
+    const content = copyContentOf(items, mathMode)
+    event.dataTransfer.effectAllowed = 'copy'
+    event.dataTransfer.setData('text/html', content.html)
+    event.dataTransfer.setData('text/plain', content.text)
+    if (items.length > 1) {
+      const badge = view.document.createElement('div')
+      badge.className = 'pop-over-drag-badge'
+      badge.textContent = describe(items.length)
+      view.document.body.append(badge)
+      event.dataTransfer.setDragImage(badge, 12, 12)
+      view.setTimeout(() => badge.remove(), 0)
+    }
+  }
+
+  const selectedCount = questions.filter(({ id }) => selection.selectedIds.has(id)).length
   return <section className="pop-over-bank" aria-label={bank.name}>
     <div className="pop-over-controls">
       <div className="bank-search">
@@ -520,41 +683,42 @@ function PopOverBank({
         onClick={() => onFilterChange({ ...NO_FILTER, sort: filter.sort ?? 'newest' })}
       >Clear</button>}
     </div>}
-    <p className="pop-over-hint">Click a Question to copy it.</p>
     {questions.length === 0
       ? <p className="pop-over-empty">
           {isFilterActive(filter) ? 'No questions match this search and these filters.' : 'No questions in this bank yet.'}
         </p>
-      : <ul className="pop-over-cards" aria-label="Questions">
-          {questions.map((question) => {
-            const name = stemPreview(question).text || 'Untitled question'
-            const state = copying.state(question.id)
-            const copy = () => copying.copy(question, view)
-            return <li
+      : <ul
+          className="pop-over-cards"
+          role="listbox"
+          aria-multiselectable="true"
+          aria-label="Questions"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) selection.clear()
+          }}
+        >
+          {questions.map((question) => (
+            <PopOverCard
               key={question.id}
-              className="question-reading pop-over-card"
-              role="button"
-              tabIndex={0}
-              aria-label={state === 'copied' ? `Copied ${name}` : state === 'failed' ? COPY_FAILED_MESSAGE : `Copy ${name}`}
-              data-copy-state={state === 'idle' ? undefined : state}
-              onClick={copy}
-              onKeyDown={(event) => {
-                if (event.target !== event.currentTarget || (event.key !== 'Enter' && event.key !== ' ')) return
-                event.preventDefault()
-                copy()
-              }}
-            >
-              <div className="pop-over-card-content">
-                <QuestionReading
-                  content={readingOfQuestion(shown(question))}
-                  aside={<span className="pop-over-card-state" aria-hidden="true">
-                    {state === 'copied' ? <><Check /> Copied</> : state === 'failed' ? <><CircleAlert /> Not copied</> : <Copy />}
-                  </span>}
-                />
-              </div>
-              <span className="sr-only" role="status">{state === 'idle' ? '' : state === 'copied' ? 'Copied' : COPY_FAILED_MESSAGE}</span>
-            </li>
-          })}
+              question={shown(question)}
+              name={stemPreview(question).text || 'Untitled question'}
+              format={formats[question.id] ?? {}}
+              onFormat={(format) => onFormat(question.id, format)}
+              selected={selection.selectedIds.has(question.id)}
+              onSelect={(modifiers) => selection.selectOne(question.id, orderedIds, modifiers)}
+              onDragStart={(event) => startDrag(question.id, event)}
+            />
+          ))}
         </ul>}
+    <footer className="pop-over-footer" data-selected={selectedCount > 0 ? 'true' : undefined}>
+      {selectedCount > 0
+        ? <>
+            <span>{describe(selectedCount)} selected</span>
+            <button type="button" className="pop-over-footer-copy" onClick={copySelection}><Copy aria-hidden="true" />Copy</button>
+            <button type="button" className="bank-filter-clear" onClick={selection.clear}>Clear</button>
+          </>
+        : <span className="pop-over-footer-hint">Select Questions, then drag them into your document.</span>}
+      <span className="sr-only" role="status">{announcement ?? ''}</span>
+      {announcement && <span className="pop-over-toast" aria-hidden="true"><Check />{announcement}</span>}
+    </footer>
   </section>
 }

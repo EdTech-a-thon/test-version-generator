@@ -1,39 +1,83 @@
-// Copy: a Question on the clipboard, ready to paste into another document.
+// Copy: Questions on the clipboard, or dragged, ready to land in another
+// document.
 //
-// What is copied is what a student reads — the stem, lettered answers, a Word
+// What travels is what a student reads — the stem, lettered answers, a Word
 // Bank and blank-led Items, lettered Parts — unnumbered, so the document it
 // lands in numbers it. Correctness, a Suggested Answer, Question Metadata and
 // Work Space never travel (see CONTEXT.md, "Copy", and ADR-0029).
 //
-// Three steps, the first two pure. `copyLinesOf` lays a Question out as lines;
-// `copyHtmlOf` and `copyTextOf` write those lines as rich and plain text,
-// given the pictures `copyMediaOf` names already turned into bytes. Only
-// `copyQuestion` touches a browser: it fetches pictures, rasterises
-// mathematics and writes the clipboard.
+// Three steps, the first two pure. `copyBlocksOf` lays a Question out as
+// blocks under a `CopyFormat` — the answer columns and answer lines chosen for
+// this copy only; `copyHtmlOf` and `copyTextOf` write those blocks as rich and
+// plain text, given the pictures and formulas `copyMediaOf` names. Only the
+// last part touches a browser: it fetches pictures, renders mathematics, and
+// keeps what it made, so a drag — which must hand over its content the moment
+// it starts — can be written from what is already here.
 
 import { bankLetter } from './matching'
 import { authoredImageRatio, authoredImageWidth } from './export-media'
-import { pendingImageOf, type ProseMirrorJSON } from './question-doc'
-import { readingOfQuestion } from './question-reading-content'
-import type { Question } from './exam'
+import { layOutColumns, MATCHING_BESIDE_LIMIT } from './export-plan'
+import { pendingImageOf, stemNodesOf, type ProseMirrorJSON } from './question-doc'
+import { choicesOf, partsOf, promptsOf, type ColumnSetting, type Question } from './exam'
 
-/** One line of a copied Question: blocks of Question Content, led by a label
- *  such as "A. " or "_____ ", and indented under a Part when it belongs to one. */
+/** One paragraph's worth of a copied Question: blocks of Question Content,
+ *  led by a label such as "A. " or "_____ ", and indented under a Part when it
+ *  belongs to one. */
 export type CopyLine = {
+  kind: 'line'
   lead?: string
   indent?: number
   content: readonly ProseMirrorJSON[]
 }
 
+/** Answers in columns, column-major as the test prints them: reading down a
+ *  column gives consecutive letters. `null` where the last column runs out. */
+export type CopyGrid = { kind: 'grid'; indent?: number; cells: (CopyLine | null)[][] }
+
+/** A short Word Bank printed beside the Items it is matched against. */
+export type CopyBeside = { kind: 'beside'; left: CopyLine[]; right: CopyLine[] }
+
+/** Ruled lines left for a written answer. */
+export type CopyRules = { kind: 'rules'; count: number; indent?: number }
+
+export type CopyBlock = CopyLine | CopyGrid | CopyBeside | CopyRules
+
+/** How one Part of a Multipart question is laid out for this copy. */
+export type CopyPartFormat = { columns?: ColumnSetting; lines?: number }
+
+/**
+ * How a Question is laid out for this copy only: its answer columns, where a
+ * Word Bank goes, how many lines a written answer is left. Anything unset
+ * follows the Question itself, or the test's own rule. Never saved.
+ */
+export type CopyFormat = {
+  columns?: ColumnSetting
+  wordBank?: 'beside' | 'above'
+  lines?: number
+  parts?: Readonly<Record<string, CopyPartFormat>>
+}
+
+/** How mathematics travels: as a picture of itself, which every editor
+ *  shows, or as MathML, which Microsoft Word turns into its own equation. */
+export type CopyMathMode = 'picture' | 'word'
+
 /** A picture, as bytes the destination can keep, at the size it pastes at. */
 export type CopyPicture = { src: string; width: number; height: number }
 
-/** Every picture and formula a copy needs, already resolved. Keyed by the
- *  image's `src`, and by `mathKey` for mathematics. */
-export type CopyMedia = ReadonlyMap<string, CopyPicture>
+/** Every picture and formula a copy needs, already resolved: pictures by
+ *  `src` or `mathKey`, and MathML by `mathKey`. */
+export type CopyMedia = {
+  pictures: ReadonlyMap<string, CopyPicture>
+  mathml: ReadonlyMap<string, string>
+}
+
+export const NO_MEDIA: CopyMedia = { pictures: new Map(), mathml: new Map() }
 
 /** The blank a True/False question, or a Matching Item, is answered in. */
 export const ANSWER_BLANK = '_____ '
+
+/** One ruled line for a written answer. */
+export const ANSWER_RULE = '_'.repeat(64)
 
 /** The column a picture is sized against: a US Letter page with one-inch
  *  margins, at CSS pixels. Google Docs' default page is exactly this. */
@@ -49,34 +93,81 @@ const attrsOf = (node: ProseMirrorJSON): Record<string, unknown> =>
 
 const stringOf = (value: unknown): string => (typeof value === 'string' ? value : '')
 
-/** A Question, as the lines a student would read. */
-export function copyLinesOf(question: Question): CopyLine[] {
-  const reading = readingOfQuestion(question)
-  const lines: CopyLine[] = []
-  if (question.type === 'true-false') {
-    // The pair is never printed; the blank asks for a T or an F.
-    lines.push({ lead: ANSWER_BLANK, content: reading.stem })
-    return lines
-  }
-  if (reading.stem.length > 0) lines.push({ content: reading.stem })
-  for (const [index, choice] of (reading.choices ?? []).entries()) {
-    lines.push({ lead: `${bankLetter(index)}. `, content: choice.content })
-  }
-  if (reading.matching) {
-    for (const [index, answer] of reading.matching.wordBank.entries()) {
-      lines.push({ lead: `${bankLetter(index)}. `, content: answer.content })
+const line = (content: readonly ProseMirrorJSON[], lead?: string, indent?: number): CopyLine => ({
+  kind: 'line',
+  content,
+  ...(lead ? { lead } : {}),
+  ...(indent ? { indent } : {}),
+})
+
+/** Lettered answers, in columns when there is more than one. */
+function answersOf(answers: readonly ProseMirrorJSON[][], columns: ColumnSetting, indent = 0): CopyBlock[] {
+  const lettered = answers.map((content, index) => line(content, `${bankLetter(index)}. `))
+  if (lettered.length === 0) return []
+  if (columns === 1 || lettered.length === 1) return lettered.map((answer) => ({ ...answer, ...(indent ? { indent } : {}) }))
+  return [{ kind: 'grid', ...(indent ? { indent } : {}), cells: layOutColumns(lettered, columns).cells }]
+}
+
+function rulesOf(count: number | undefined, indent = 0): CopyBlock[] {
+  return count && count > 0 ? [{ kind: 'rules', count, ...(indent ? { indent } : {}) }] : []
+}
+
+/** The layout a Question's Word Bank takes when nothing is chosen: beside a
+ *  short one, above a long one, as the test prints it. */
+export function defaultWordBank(question: Question): 'beside' | 'above' {
+  return choicesOf(question).length > MATCHING_BESIDE_LIMIT ? 'above' : 'beside'
+}
+
+/** A Question, as the blocks a student would read, laid out as `format` says. */
+export function copyBlocksOf(question: Question, format: CopyFormat = {}): CopyBlock[] {
+  const stem = stemNodesOf(question.doc)
+  const content = (node: ProseMirrorJSON) => childrenOf(node)
+  switch (question.type) {
+    case 'true-false':
+      // The pair is never printed; the blank asks for a T or an F.
+      return [line(stem, ANSWER_BLANK)]
+    case 'multiple-choice':
+      return [
+        ...(stem.length > 0 ? [line(stem)] : []),
+        ...answersOf(choicesOf(question).map(({ node }) => content(node)), format.columns ?? question.columns),
+      ]
+    case 'matching': {
+      const bank = choicesOf(question).map(({ node }, index) => line(content(node), `${bankLetter(index)}. `))
+      const items = promptsOf(question).map(({ node }) => line(content(node), ANSWER_BLANK))
+      const directions = stem.length > 0 ? [line(stem)] : []
+      if ((format.wordBank ?? defaultWordBank(question)) === 'beside' && bank.length > 0 && items.length > 0) {
+        return [...directions, { kind: 'beside', left: items, right: bank }]
+      }
+      return [...directions, ...bank, ...items]
     }
-    for (const prompt of reading.matching.prompts) {
-      lines.push({ lead: ANSWER_BLANK, content: prompt.content })
-    }
+    case 'multipart':
+      return [
+        ...(stem.length > 0 ? [line(stem)] : []),
+        ...partsOf(question).flatMap((part, index) => {
+          const partFormat = format.parts?.[part.id] ?? {}
+          return [
+            line(part.stem, `${bankLetter(index).toLowerCase()}. `),
+            ...(part.type === 'multiple-choice'
+              ? answersOf(part.choices.map(({ node }) => content(node)), partFormat.columns ?? part.columns, 1)
+              : rulesOf(partFormat.lines, 1)),
+          ]
+        }),
+      ]
+    case 'open':
+      return [...(stem.length > 0 ? [line(stem)] : []), ...rulesOf(format.lines)]
   }
-  for (const part of reading.parts ?? []) {
-    lines.push({ lead: `${part.letter}. `, content: part.stem })
-    for (const [index, choice] of (part.choices ?? []).entries()) {
-      lines.push({ lead: `${bankLetter(index)}. `, indent: 1, content: choice.content })
+}
+
+/** Every line of these blocks, wherever it sits. */
+function linesOf(blocks: readonly CopyBlock[]): CopyLine[] {
+  return blocks.flatMap((block) => {
+    switch (block.kind) {
+      case 'line': return [block]
+      case 'grid': return block.cells.flat().filter((cell): cell is CopyLine => cell !== null)
+      case 'beside': return [...block.left, ...block.right]
+      case 'rules': return []
     }
-  }
-  return lines
+  })
 }
 
 function isDisplayMath(node: ProseMirrorJSON): boolean {
@@ -87,7 +178,7 @@ function sourceOf(node: ProseMirrorJSON): string {
   return childrenOf(node).map((child) => stringOf(child.text)).join('')
 }
 
-/** The key a formula's picture is stored under in `CopyMedia`. */
+/** The key a formula is stored under in `CopyMedia`. */
 export function mathKey(source: string, display: boolean): string {
   return `${display ? 'display' : 'inline'}:${source}`
 }
@@ -97,8 +188,8 @@ export type CopyMediaRequest =
   | { kind: 'image'; src: string; ratio: number; block: boolean }
   | { kind: 'math'; source: string; display: boolean }
 
-/** Every picture and formula in these lines, once each. */
-export function copyMediaOf(lines: readonly CopyLine[]): CopyMediaRequest[] {
+/** Every picture and formula in these blocks, once each. */
+export function copyMediaOf(blocks: readonly CopyBlock[]): CopyMediaRequest[] {
   const found = new Map<string, CopyMediaRequest>()
   const visit = (node: ProseMirrorJSON) => {
     if (node.type === 'math_inline') {
@@ -123,7 +214,7 @@ export function copyMediaOf(lines: readonly CopyLine[]): CopyMediaRequest[] {
     }
     childrenOf(node).forEach(visit)
   }
-  lines.forEach((line) => line.content.forEach(visit))
+  linesOf(blocks).forEach((copied) => copied.content.forEach(visit))
   return [...found.values()]
 }
 
@@ -137,9 +228,23 @@ export function copyImageWidth(naturalWidth: number, ratio: number): number {
 const escapeHtml = (value: string): string =>
   value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 
+type Writer = { media: CopyMedia; math: CopyMathMode }
+
 function pictureHtml(picture: CopyPicture | undefined, alt: string): string {
   if (!picture) return escapeHtml(alt ? `[${alt}]` : '[Picture]')
   return `<img src="${escapeHtml(picture.src)}" width="${picture.width}" height="${picture.height}" alt="${escapeHtml(alt)}">`
+}
+
+/** A formula as the chosen mode has it, or its own source when that has not
+ *  been made. The picture's alt text is always the LaTeX it was drawn from. */
+function mathHtml(source: string, display: boolean, writer: Writer): string {
+  const key = mathKey(source, display)
+  if (writer.math === 'word') {
+    const mathml = writer.media.mathml.get(key)
+    if (mathml) return mathml
+  }
+  const picture = writer.media.pictures.get(key)
+  return picture ? pictureHtml(picture, source) : escapeHtml(source)
 }
 
 function marksHtml(node: ProseMirrorJSON, inner: string): string {
@@ -158,23 +263,20 @@ function marksHtml(node: ProseMirrorJSON, inner: string): string {
   }, inner)
 }
 
-function inlineHtml(node: ProseMirrorJSON, media: CopyMedia): string {
+function inlineHtml(node: ProseMirrorJSON, writer: Writer): string {
   switch (node.type) {
     case 'text':
       return marksHtml(node, escapeHtml(stringOf(node.text)))
     case 'hardbreak':
       return '<br>'
-    case 'math_inline': {
-      const source = stringOf(attrsOf(node).value)
-      const picture = media.get(mathKey(source, false))
-      return picture ? pictureHtml(picture, source) : escapeHtml(source)
-    }
+    case 'math_inline':
+      return mathHtml(stringOf(attrsOf(node).value), false, writer)
     case 'image':
       return pendingImageOf(node)
         ? '[Picture needed]'
-        : pictureHtml(media.get(stringOf(attrsOf(node).src)), stringOf(attrsOf(node).alt))
+        : pictureHtml(writer.media.pictures.get(stringOf(attrsOf(node).src)), stringOf(attrsOf(node).alt))
     default:
-      return childrenOf(node).map((child) => inlineHtml(child, media)).join('')
+      return childrenOf(node).map((child) => inlineHtml(child, writer)).join('')
   }
 }
 
@@ -183,25 +285,26 @@ const paragraphStyle = (indent: number): string =>
   // reaches the clipboard.
   `margin:0 0 0 ${indent * 0.5}in`
 
-function blockHtml(node: ProseMirrorJSON, media: CopyMedia, lead: string, indent: number): string {
+// Tables that only arrange things carry no lines, in every editor.
+const LAYOUT_TABLE = 'border="0" cellpadding="0" cellspacing="0" style="width:100%;border:none;border-collapse:collapse;table-layout:fixed"'
+const LAYOUT_CELL = 'style="border:none;padding:0 6pt 0 0;vertical-align:top"'
+
+function nodeHtml(node: ProseMirrorJSON, writer: Writer, lead: string, indent: number): string {
   const open = `<p style="${paragraphStyle(indent)}">${escapeHtml(lead)}`
   switch (node.type) {
     case 'paragraph':
     case 'heading':
-      return `${open}${childrenOf(node).map((child) => inlineHtml(child, media)).join('')}</p>`
+      return `${open}${childrenOf(node).map((child) => inlineHtml(child, writer)).join('')}</p>`
     case 'image-block': {
       const caption = stringOf(attrsOf(node).caption)
       const picture = pendingImageOf(node)
         ? '[Picture needed]'
-        : pictureHtml(media.get(stringOf(attrsOf(node).src)), caption)
+        : pictureHtml(writer.media.pictures.get(stringOf(attrsOf(node).src)), caption)
       return `${open}${picture}</p>${caption ? `<p style="${paragraphStyle(indent)}"><i>${escapeHtml(caption)}</i></p>` : ''}`
     }
     case 'code_block': {
       const source = sourceOf(node)
-      if (isDisplayMath(node)) {
-        const picture = media.get(mathKey(source, true))
-        return `${open}${picture ? pictureHtml(picture, source) : escapeHtml(source)}</p>`
-      }
+      if (isDisplayMath(node)) return `${open}${mathHtml(source, true, writer)}</p>`
       return `${open}<code>${escapeHtml(source).replace(/\n/g, '<br>')}</code></p>`
     }
     case 'hr':
@@ -211,8 +314,8 @@ function blockHtml(node: ProseMirrorJSON, media: CopyMedia, lead: string, indent
       const tag = node.type === 'bullet_list' ? 'ul' : 'ol'
       const items = childrenOf(node).map((item) =>
         `<li>${childrenOf(item).map((child) => child.type === 'paragraph'
-          ? childrenOf(child).map((inline) => inlineHtml(inline, media)).join('')
-          : blockHtml(child, media, '', 0)).join('<br>')}</li>`,
+          ? childrenOf(child).map((inline) => inlineHtml(inline, writer)).join('')
+          : nodeHtml(child, writer, '', 0)).join('<br>')}</li>`,
       ).join('')
       return `${lead ? `${open}</p>` : ''}<${tag} style="margin:0 0 0 ${indent * 0.5 + 0.25}in">${items}</${tag}>`
     }
@@ -220,7 +323,7 @@ function blockHtml(node: ProseMirrorJSON, media: CopyMedia, lead: string, indent
       const rows = childrenOf(node).map((row) =>
         `<tr>${childrenOf(row).map((cell) => {
           const tag = cell.type === 'table_header' ? 'th' : 'td'
-          return `<${tag} style="border:1px solid #000;padding:2pt 4pt">${childrenOf(cell).map((child) => blockHtml(child, media, '', 0)).join('')}</${tag}>`
+          return `<${tag} style="border:1px solid #000;padding:2pt 4pt">${childrenOf(cell).map((child) => nodeHtml(child, writer, '', 0)).join('')}</${tag}>`
         }).join('')}</tr>`,
       ).join('')
       return `${lead ? `${open}</p>` : ''}<table style="width:100%;border-collapse:collapse;table-layout:fixed"><tbody>${rows}</tbody></table>`
@@ -228,21 +331,51 @@ function blockHtml(node: ProseMirrorJSON, media: CopyMedia, lead: string, indent
     default:
       // Anything unrecognised gives up its children rather than disappearing,
       // as it does on the exam page.
-      return childrenOf(node).map((child, index) => blockHtml(child, media, index === 0 ? lead : '', indent)).join('')
+      return childrenOf(node).map((child, index) => nodeHtml(child, writer, index === 0 ? lead : '', indent)).join('')
         || (lead ? `${open}</p>` : '')
   }
 }
 
-function lineHtml(line: CopyLine, media: CopyMedia): string {
-  const indent = line.indent ?? 0
-  const lead = line.lead ?? ''
-  if (line.content.length === 0) return lead ? `<p style="${paragraphStyle(indent)}">${escapeHtml(lead)}</p>` : ''
-  return line.content.map((node, index) => blockHtml(node, media, index === 0 ? lead : '', indent)).join('')
+function lineHtml(copied: CopyLine, writer: Writer): string {
+  const indent = copied.indent ?? 0
+  const lead = copied.lead ?? ''
+  if (copied.content.length === 0) return lead ? `<p style="${paragraphStyle(indent)}">${escapeHtml(lead)}</p>` : ''
+  return copied.content.map((node, index) => nodeHtml(node, writer, index === 0 ? lead : '', indent)).join('')
 }
 
-/** The lines as rich text, for a word processor to paste. */
-export function copyHtmlOf(lines: readonly CopyLine[], media: CopyMedia = new Map()): string {
-  return `<meta charset="utf-8"><div>${lines.map((line) => lineHtml(line, media)).join('')}</div>`
+function layoutTable(rows: string[][], indent: number): string {
+  const margin = indent ? ` style="margin-left:${indent * 0.5}in"` : ''
+  return `<div${margin}><table ${LAYOUT_TABLE}><tbody>${rows.map((cells) =>
+    `<tr>${cells.map((cell) => `<td ${LAYOUT_CELL}>${cell}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`
+}
+
+function blockHtml(block: CopyBlock, writer: Writer): string {
+  switch (block.kind) {
+    case 'line':
+      return lineHtml(block, writer)
+    case 'grid':
+      return layoutTable(block.cells.map((row) => row.map((cell) => (cell ? lineHtml({ ...cell, indent: 0 }, writer) : ''))), block.indent ?? 0)
+    case 'beside':
+      return layoutTable([[
+        block.left.map((item) => lineHtml(item, writer)).join(''),
+        block.right.map((answer) => lineHtml(answer, writer)).join(''),
+      ]], 0)
+    case 'rules':
+      return Array.from({ length: block.count }, () =>
+        `<p style="${paragraphStyle(block.indent ?? 0)};line-height:2">${ANSWER_RULE}</p>`).join('')
+  }
+}
+
+/** Several Questions' blocks as rich text, an empty line between each. */
+export function copyHtmlOf(
+  questions: readonly (readonly CopyBlock[])[],
+  media: CopyMedia = NO_MEDIA,
+  math: CopyMathMode = 'picture',
+): string {
+  const writer = { media, math }
+  return `<meta charset="utf-8"><div>${questions
+    .map((blocks) => blocks.map((block) => blockHtml(block, writer)).join(''))
+    .join('<p style="margin:0">&nbsp;</p>')}</div>`
 }
 
 // ---- Plain text -----------------------------------------------------------
@@ -257,7 +390,7 @@ function inlineText(node: ProseMirrorJSON): string {
   }
 }
 
-function blockText(node: ProseMirrorJSON): string[] {
+function nodeText(node: ProseMirrorJSON): string[] {
   switch (node.type) {
     case 'paragraph':
     case 'heading':
@@ -272,27 +405,46 @@ function blockText(node: ProseMirrorJSON): string[] {
     case 'ordered_list':
       return childrenOf(node).flatMap((item, index) => {
         const marker = node.type === 'bullet_list' ? '- ' : `${index + 1}. `
-        return childrenOf(item).flatMap(blockText).map((text, line) => `${line === 0 ? marker : '   '}${text}`)
+        return childrenOf(item).flatMap(nodeText).map((text, row) => `${row === 0 ? marker : '   '}${text}`)
       })
     case 'table':
       return childrenOf(node).map((row) =>
-        childrenOf(row).map((cell) => childrenOf(cell).flatMap(blockText).join(' ')).join('\t'))
+        childrenOf(row).map((cell) => childrenOf(cell).flatMap(nodeText).join(' ')).join('\t'))
     default:
-      return childrenOf(node).flatMap(blockText)
+      return childrenOf(node).flatMap(nodeText)
   }
 }
 
-/** The lines as plain text, for anywhere that takes no formatting. */
-export function copyTextOf(lines: readonly CopyLine[]): string {
-  return lines.flatMap((line) => {
-    const pad = '    '.repeat(line.indent ?? 0)
-    const texts = line.content.flatMap(blockText)
-    if (texts.length === 0) texts.push('')
-    return texts.map((text, index) => `${pad}${index === 0 ? line.lead ?? '' : ''}${text}`)
-  }).join('\n')
+function lineText(copied: CopyLine, indent = copied.indent ?? 0): string[] {
+  const pad = '    '.repeat(indent)
+  const texts = copied.content.flatMap(nodeText)
+  if (texts.length === 0) texts.push('')
+  return texts.map((text, index) => `${pad}${index === 0 ? copied.lead ?? '' : ''}${text}`)
 }
 
-// ---- The clipboard --------------------------------------------------------
+function blockText(block: CopyBlock): string[] {
+  switch (block.kind) {
+    case 'line':
+      return lineText(block)
+    case 'grid':
+      // Plain text has no columns; the answers read in letter order.
+      return block.cells[0]!
+        .flatMap((_unused, column) => block.cells.map((row) => row[column]))
+        .filter((cell): cell is CopyLine => cell !== null)
+        .flatMap((cell) => lineText(cell, block.indent ?? 0))
+    case 'beside':
+      return [...block.right, ...block.left].flatMap((copied) => lineText(copied))
+    case 'rules':
+      return Array.from({ length: block.count }, () => `${'    '.repeat(block.indent ?? 0)}${ANSWER_RULE}`)
+  }
+}
+
+/** Several Questions' blocks as plain text, an empty line between each. */
+export function copyTextOf(questions: readonly (readonly CopyBlock[])[]): string {
+  return questions.map((blocks) => blocks.flatMap(blockText).join('\n')).join('\n\n')
+}
+
+// ---- Pictures and formulas ------------------------------------------------
 
 /** How many CSS pixels a MathJax `ex` is at a document's default 11pt. */
 const EX_PX = 7.5
@@ -300,18 +452,28 @@ const EX_PX = 7.5
  *  sharp when the destination is zoomed or printed. */
 const MATH_SCALE = 3
 
-let mathJax: Promise<(source: string, display: boolean) => string> | null = null
+type MathJaxTools = {
+  svg: (source: string, display: boolean) => string
+  mathml: (source: string, display: boolean) => string
+}
 
-/** MathJax's TeX-to-SVG, loaded the first time a formula is copied. */
-function texToSvg(): Promise<(source: string, display: boolean) => string> {
+let mathJax: Promise<MathJaxTools> | null = null
+
+/** MathJax's TeX to SVG and to MathML, loaded the first time it is needed. */
+function mathJaxTools(): Promise<MathJaxTools> {
   mathJax ??= (async () => {
-    const [{ mathjax }, { TeX }, { SVG }, { liteAdaptor }, { RegisterHTMLHandler }, { AllPackages }] = await Promise.all([
+    const [
+      { mathjax }, { TeX }, { SVG }, { liteAdaptor }, { RegisterHTMLHandler },
+      { AllPackages }, { SerializedMmlVisitor }, { STATE },
+    ] = await Promise.all([
       import('mathjax-full/js/mathjax.js'),
       import('mathjax-full/js/input/tex.js'),
       import('mathjax-full/js/output/svg.js'),
       import('mathjax-full/js/adaptors/liteAdaptor.js'),
       import('mathjax-full/js/handlers/html.js'),
       import('mathjax-full/js/input/tex/AllPackages.js'),
+      import('mathjax-full/js/core/MmlTree/SerializedMmlVisitor.js'),
+      import('mathjax-full/js/core/MathItem.js'),
     ])
     const adaptor = liteAdaptor()
     RegisterHTMLHandler(adaptor)
@@ -319,8 +481,15 @@ function texToSvg(): Promise<(source: string, display: boolean) => string> {
       InputJax: new TeX({ packages: AllPackages }),
       OutputJax: new SVG({ fontCache: 'none' }),
     })
-    return (source: string, display: boolean) =>
-      adaptor.innerHTML(document.convert(source, { display }))
+    const visitor = new SerializedMmlVisitor()
+    return {
+      svg: (source, display) => adaptor.innerHTML(document.convert(source, { display })),
+      mathml: (source, display) => {
+        const serialized = visitor.visitTree(document.convert(source, { display, end: STATE.CONVERT }))
+        // One line: some editors read the whitespace between elements as text.
+        return serialized.replace(/>\s+</g, '><')
+      },
+    }
   })()
   return mathJax
 }
@@ -350,7 +519,7 @@ async function loadImage(src: string): Promise<HTMLImageElement> {
 }
 
 async function mathPicture(source: string, display: boolean): Promise<CopyPicture | null> {
-  const sized = sizedMathSvg((await texToSvg())(source, display))
+  const sized = sizedMathSvg((await mathJaxTools()).svg(source, display))
   if (!sized) return null
   const url = URL.createObjectURL(new Blob([sized.svg], { type: 'image/svg+xml' }))
   try {
@@ -385,34 +554,79 @@ async function imagePicture(src: string, ratio: number): Promise<CopyPicture | n
   return { src: await dataUrlOf(blob), width, height }
 }
 
-/** Every picture and formula these lines need, as bytes. One that cannot be
- *  resolved is left out, and pastes as a bracketed placeholder or its source. */
-export async function resolveCopyMedia(lines: readonly CopyLine[]): Promise<CopyMedia> {
-  const resolved = await Promise.all(copyMediaOf(lines).map(async (request) => {
-    try {
-      return request.kind === 'math'
-        ? [mathKey(request.source, request.display), await mathPicture(request.source, request.display)] as const
-        : [request.src, await imagePicture(request.src, request.ratio)] as const
-    } catch {
-      return [request.kind === 'math' ? mathKey(request.source, request.display) : request.src, null] as const
+// What has been made, kept for the page's life: a Media Asset never changes,
+// and neither does what a formula renders to.
+const madePictures = new Map<string, CopyPicture>()
+const madeMathml = new Map<string, string>()
+const making = new Map<string, Promise<void>>()
+
+function make(key: string, work: () => Promise<void>): Promise<void> {
+  let pending = making.get(key)
+  if (!pending) {
+    // One that cannot be made is left out, and pastes as a bracketed
+    // placeholder or its own source; it is tried again next time.
+    pending = work().catch(() => undefined).finally(() => making.delete(key))
+    making.set(key, pending)
+  }
+  return pending
+}
+
+/** Make every picture and formula these blocks need, once, and keep them. */
+export async function prepareCopyMedia(blocks: readonly CopyBlock[], math: CopyMathMode): Promise<void> {
+  await Promise.all(copyMediaOf(blocks).map((request) => {
+    if (request.kind === 'image') {
+      if (madePictures.has(request.src)) return undefined
+      return make(`image:${request.src}`, async () => {
+        const picture = await imagePicture(request.src, request.ratio)
+        if (picture) madePictures.set(request.src, picture)
+      })
     }
+    const key = mathKey(request.source, request.display)
+    if (math === 'word') {
+      if (madeMathml.has(key)) return undefined
+      return make(`mathml:${key}`, async () => {
+        madeMathml.set(key, (await mathJaxTools()).mathml(request.source, request.display))
+      })
+    }
+    if (madePictures.has(key)) return undefined
+    return make(`math:${key}`, async () => {
+      const picture = await mathPicture(request.source, request.display)
+      if (picture) madePictures.set(key, picture)
+    })
   }))
-  return new Map(resolved.filter((entry): entry is readonly [string, CopyPicture] => entry[1] !== null))
+}
+
+/** What has been made so far, for writing a copy at once. */
+export function preparedCopyMedia(): CopyMedia {
+  return { pictures: madePictures, mathml: madeMathml }
+}
+
+/** The rich and plain text for these Questions, as far as it is made. */
+export function copyContentOf(
+  questions: readonly { question: Question; format?: CopyFormat }[],
+  math: CopyMathMode,
+): { html: string; text: string } {
+  const blocks = questions.map(({ question, format }) => copyBlocksOf(question, format))
+  return { html: copyHtmlOf(blocks, preparedCopyMedia(), math), text: copyTextOf(blocks) }
 }
 
 /**
- * Put a Question on the clipboard of `view` — the window the teacher clicked
- * in, which in the Question Bank Pop-over is not the one this script runs in.
+ * Put Questions on the clipboard of `view` — the window the teacher acted in,
+ * which in the Question Bank Pop-over is not the one this script runs in.
  *
- * The clipboard item is written at once with promises for its contents, so
- * the click that asked for it still counts while pictures are fetched and
- * formulas drawn.
+ * The clipboard item is written at once with a promise for its rich text, so
+ * the gesture that asked for it still counts while pictures are fetched and
+ * formulas made.
  */
-export async function copyQuestion(question: Question, view: Window = window): Promise<void> {
-  const lines = copyLinesOf(question)
-  const text = copyTextOf(lines)
-  const html = resolveCopyMedia(lines).then((media) =>
-    new Blob([copyHtmlOf(lines, media)], { type: 'text/html' }))
+export async function copyQuestions(
+  questions: readonly { question: Question; format?: CopyFormat }[],
+  math: CopyMathMode,
+  view: Window = window,
+): Promise<void> {
+  const blocks = questions.map(({ question, format }) => copyBlocksOf(question, format))
+  const text = copyTextOf(blocks)
+  const html = Promise.all(blocks.map((each) => prepareCopyMedia(each, math))).then(() =>
+    new Blob([copyHtmlOf(blocks, preparedCopyMedia(), math)], { type: 'text/html' }))
   const Item = (view as Window & typeof globalThis).ClipboardItem ?? ClipboardItem
   await view.navigator.clipboard.write([new Item({
     'text/html': html,

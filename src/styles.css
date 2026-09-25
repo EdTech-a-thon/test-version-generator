@@ -1287,7 +1287,7 @@ button { cursor: pointer; }
 /* Read in full on the Question Bank page and in the Pop-over, a table spans
    its lane with equal columns, as the Question editor and the DOCX export lay
    it out; left to size itself it shrinks to its shortest content. */
-.question-reading .doc-table { width: 100%; table-layout: fixed; }
+:is(.question-reading, .pop-over-card) .doc-table { width: 100%; table-layout: fixed; }
 .doc-math--block { display: block; margin: 6px 0; text-align: center; }
 
 .dialog-backdrop {
@@ -3162,42 +3162,94 @@ a.import-card-main:hover .exam-sheet, a.import-card-main:focus-visible .exam-she
 button.pop-over-chip-option svg { width: 12px; height: 12px; visibility: hidden; }
 button.pop-over-chip-option[aria-pressed='true'] svg { visibility: visible; }
 .pop-over-filters .bank-filter-clear { padding: 3px 6px; font-size: 12px; }
-.pop-over-hint { flex: none; margin: 6px 10px 4px; color: #8a7868; font-size: 11px; }
-
 .pop-over-cards {
   flex: 1; min-height: 0; overflow-y: auto; display: grid; align-content: start; gap: 6px;
-  margin: 0; padding: 2px 8px 12px; list-style: none;
+  margin: 0; padding: 8px 8px 12px; list-style: none;
 }
-.question-reading.pop-over-card {
-  position: relative; padding: 8px 10px; border: 1px solid var(--paper-outline); border-radius: 8px;
-  background: #fffdf8; cursor: pointer; font-size: 12px;
-  transition: border-color .12s ease, box-shadow .12s ease;
+/* Selected as the Exam editor's bank rows are: a click, Shift for a range,
+   Cmd for one more. A selected card is what a drag or Copy takes. */
+.pop-over-card {
+  position: relative; padding: 7px 10px 8px; border: 1px solid var(--paper-outline); border-radius: 8px;
+  background: #fffdf8; cursor: pointer; font-size: 12px; user-select: none;
+  transition: border-color .12s ease, box-shadow .12s ease, background-color .12s ease;
 }
-.pop-over-card:hover, .pop-over-card:focus-visible { border-color: #cdb9a6; box-shadow: 0 2px 6px rgb(91 68 47 / 12%); }
+.pop-over-card:hover { border-color: #cdb9a6; box-shadow: 0 2px 6px rgb(91 68 47 / 12%); }
 .pop-over-card:focus-visible { outline: 2px solid #8a6a4c; outline-offset: 1px; }
-.pop-over-card[data-copy-state='copied'] { border-color: #7fae88; background: #f3faf2; }
-.pop-over-card[data-copy-state='failed'] { border-color: var(--paper-danger-line); background: var(--paper-danger-wash); }
-/* A few lines of the Question, fading out rather than stopping at a hard edge. */
-.pop-over-card-content {
-  max-height: 124px; overflow: hidden;
-  mask-image: linear-gradient(to bottom, #000 72%, transparent);
+.pop-over-card[aria-selected='true'] { border-color: #8a6a4c; background: #f6ebdc; box-shadow: 0 0 0 1px #8a6a4c; }
+.pop-over-card-head { display: flex; align-items: center; gap: 5px; min-height: 22px; margin-bottom: 3px; }
+.pop-over-card-head .question-reading-type { font-size: 10px; }
+.pop-over-card-head .badge { font-size: 10px; }
+.pop-over-card-controls { display: flex; gap: 4px; margin-left: auto; }
+.pop-over-format {
+  max-width: 130px; padding: 1px 2px; border: 1px solid #ddcdb9; border-radius: 5px;
+  color: #5b4839; background: #fffdf8; font-size: 11px; cursor: pointer;
 }
-.pop-over-card .question-reading-head { gap: 5px; margin-bottom: 4px; }
-.pop-over-card .question-reading-type { font-size: 10px; }
-.pop-over-card .badge { font-size: 10px; }
-.pop-over-card .question-reading-stem { line-height: 1.35; }
-.pop-over-card .question-reading-stem p { margin: 0 0 3px; }
-.pop-over-card .question-reading-choices { gap: 1px; margin-top: 3px; padding-left: 18px; }
+.pop-over-format:hover { border-color: #cdb9a6; background: #f7ede0; }
+/* A few lines of the Question, fading out rather than stopping at a hard
+   edge. A Multipart question shows every Part, since each has its own layout. */
+.pop-over-card-content { max-height: 150px; overflow: hidden; }
+.pop-over-card-content[data-cut] { mask-image: linear-gradient(to bottom, #000 76%, transparent); }
+.pop-over-card[data-type='multipart'] .pop-over-card-content { max-height: none; mask-image: none; }
+.pop-over-stem { line-height: 1.35; }
+.pop-over-stem p { margin: 0 0 3px; }
 .pop-over-card img { max-height: 70px; width: auto; }
-.pop-over-card-state {
-  display: inline-flex; align-items: center; gap: 3px; margin-left: auto;
-  color: #9c8977; font-size: 11px; font-weight: 600;
+.pop-over-answers {
+  display: grid; grid-auto-flow: column; gap: 1px 10px; margin: 3px 0 0; padding: 0; list-style: none;
 }
-.pop-over-card-state svg { width: 13px; height: 13px; }
-.pop-over-card:not([data-copy-state]) .pop-over-card-state { opacity: 0; }
-.pop-over-card:hover .pop-over-card-state, .pop-over-card:focus-visible .pop-over-card-state { opacity: 1; }
-.pop-over-card[data-copy-state='copied'] .pop-over-card-state { color: #2f6b3a; }
-.pop-over-card[data-copy-state='failed'] .pop-over-card-state { color: var(--paper-danger); }
+.pop-over-answers li { display: flex; gap: 4px; min-width: 0; color: var(--paper-ink-soft); }
+.pop-over-answers li > span { flex: none; font-weight: 600; }
+.pop-over-answers .doc-content p { margin: 0; }
+.pop-over-led { display: flex; gap: 5px; align-items: baseline; }
+.pop-over-blank { flex: none; color: #9c8977; letter-spacing: -1px; }
+.pop-over-items { display: grid; gap: 1px; margin: 3px 0 0; padding: 0; list-style: none; }
+.pop-over-items li { display: flex; gap: 5px; align-items: baseline; }
+.pop-over-items .doc-content p { margin: 0; }
+.pop-over-beside { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+.pop-over-rules { display: grid; gap: 9px; margin: 8px 0 2px; }
+.pop-over-rules span { height: 1px; background: #cdb9a6; }
+.pop-over-parts { display: grid; gap: 5px; margin: 5px 0 0; padding: 0; list-style: none; }
+.pop-over-part { padding: 5px 7px; border: 1px solid var(--paper-outline); border-radius: 6px; background: #fffaf3; }
+.pop-over-part-head { display: flex; align-items: center; gap: 5px; margin-bottom: 2px; }
+.pop-over-part-letter { font-weight: 700; }
+.pop-over-part-type { color: #8a7868; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
+.pop-over-part-head .pop-over-format { margin-left: auto; }
+
+.pop-over-footer {
+  position: relative; flex: none; display: flex; align-items: center; gap: 8px; min-height: 36px;
+  padding: 5px 10px; border-top: 1px solid var(--bank-frame-line); background: var(--bank-chrome); font-size: 12px;
+}
+.pop-over-footer-hint { color: #7a6a5c; }
+.pop-over-footer[data-selected] > span:first-child { font-weight: 600; }
+.pop-over-footer-copy {
+  display: inline-flex; align-items: center; gap: 4px; margin-left: auto; padding: 4px 9px;
+  border: 1px solid #b99a78; border-radius: 6px; color: #fffdf8; background: #8a6a4c; font-size: 12px; font-weight: 600; cursor: pointer;
+}
+.pop-over-footer-copy:hover { background: #74563e; }
+.pop-over-footer-copy svg { width: 13px; height: 13px; }
+.pop-over-toast {
+  position: absolute; left: 50%; bottom: calc(100% + 8px); transform: translateX(-50%);
+  display: inline-flex; align-items: center; gap: 5px; padding: 5px 10px; border-radius: 999px;
+  color: #fffdf8; background: #3d3027; font-size: 12px; white-space: nowrap; box-shadow: 0 4px 12px rgb(0 0 0 / 20%);
+}
+.pop-over-toast svg { width: 13px; height: 13px; }
+/* What a drag of several Questions shows under the pointer. */
+.pop-over-drag-badge {
+  position: fixed; top: -100px; left: 0; padding: 4px 10px; border-radius: 999px;
+  color: #fffdf8; background: #8a6a4c; font: 600 12px Arial, sans-serif;
+}
+
+.pop-over-settings { position: relative; margin-left: auto; align-self: center; }
+.pop-over-settings .pop-over-add { margin: 0 2px 4px 0; }
+.pop-over-settings-menu {
+  position: absolute; top: calc(100% + 2px); right: 0; z-index: 20; width: 240px; padding: 10px 12px;
+  border: 1px solid var(--paper-outline); border-radius: 8px; background: #fffdf8; box-shadow: 0 8px 24px rgb(91 68 47 / 18%);
+}
+.pop-over-settings-menu h2 { margin: 0 0 8px; font-size: 13px; }
+.pop-over-settings-menu fieldset { display: grid; gap: 6px; margin: 0; padding: 0; border: 0; }
+.pop-over-settings-menu legend { padding: 0 0 4px; color: var(--paper-ink-soft); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
+.pop-over-settings-menu label { display: flex; align-items: flex-start; gap: 7px; font-size: 12px; cursor: pointer; }
+.pop-over-settings-menu label span { display: grid; gap: 1px; }
+.pop-over-settings-menu small { color: #7a6a5c; }
 
 .pop-over-picker { padding: 10px 8px; overflow-y: auto; }
 .pop-over-picker h2 { margin: 0 4px 8px; font-size: 13px; }
