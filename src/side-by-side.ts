@@ -19,11 +19,11 @@ import { multipleChoiceEditableCtx } from './multiple-choice'
 
 export const MAX_PANELS = 3
 
-/** The slash menu's "Side by side" icon: Lucide's "columns 2". */
+/** The slash menu's "Side by side" icon: two columns in a frame, filled as the
+ *  menu fills its own icons. */
 export const sideBySideIcon = `
-  <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-    <rect width="18" height="18" x="3" y="3" rx="2" />
-    <path d="M12 3v18" />
+  <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
+    <path fill-rule="evenodd" d="M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Zm0 2v14h6V5H5Zm8 0v14h6V5h-6Z" />
   </svg>`
 
 type Editing = Pick<EditorView, 'state' | 'dispatch'>

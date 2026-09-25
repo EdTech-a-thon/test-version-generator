@@ -3106,7 +3106,7 @@ a.import-card-main:hover .exam-sheet, a.import-card-main:focus-visible .exam-she
 .milkdown .side-by-side-panel-content > .milkdown-image-block,
 .milkdown .side-by-side-panel-content > [data-type="image-block"] { margin-inline: auto; }
 .milkdown .side-by-side-controls {
-  position: absolute; top: -14px; right: 4px; z-index: 2; display: flex; gap: 4px;
+  position: absolute; top: -14px; left: 4px; z-index: 2; display: flex; gap: 4px;
   opacity: 0; transition: opacity 120ms;
 }
 .milkdown .side-by-side:hover > .side-by-side-controls,
