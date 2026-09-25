@@ -765,6 +765,9 @@ const SECTION_BAND_BLEED = 12
 type SectionBand = {
   sectionId: string
   pageIndex: number
+  /** Whether a new-Section target open beneath it is where it ends — whose
+   *  own rule then marks its foot, so it draws none of its own there. */
+  endsAtNewSection: boolean
   topInPage: number
   height: number
   top: number
@@ -776,6 +779,7 @@ function sameBand(left: SectionBand, right: SectionBand): boolean {
   return (
     left.sectionId === right.sectionId
     && left.pageIndex === right.pageIndex
+    && left.endsAtNewSection === right.endsAtNewSection
     && left.top === right.top
     && left.bottom === right.bottom
     && left.pageLeft === right.pageLeft
@@ -1533,6 +1537,7 @@ export function ExamPage({
         bands.push({
           sectionId,
           pageIndex,
+          endsAtNewSection: next?.[0] === NEW_SECTION_BAND,
           topInPage: top - sheet.top,
           height: bottom - top,
           top: top - origin.top,
@@ -1760,12 +1765,16 @@ export function ExamPage({
                 style={{ top: band.topInPage }}
                 aria-hidden="true"
               />,
-              <div
-                key={`${band.sectionId}-bottom`}
-                className="section-rule"
-                style={{ top: band.topInPage + band.height }}
-                aria-hidden="true"
-              />,
+              ...(band.endsAtNewSection
+                ? []
+                : [
+                    <div
+                      key={`${band.sectionId}-bottom`}
+                      className="section-rule"
+                      style={{ top: band.topInPage + band.height }}
+                      aria-hidden="true"
+                    />,
+                  ]),
             ])}
           <PageHeaderContent
             header={page.header}
