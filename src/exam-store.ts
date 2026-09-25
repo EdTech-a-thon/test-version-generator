@@ -66,6 +66,7 @@ import {
 import { selectedExam, type SelectedExam } from './selected-exam'
 import { withCanonicalQuestionProjection } from './canonical-question-projection'
 import { withoutQuestions } from './question-deletion'
+import { upgradeStoredQuestion } from './stored-upgrade'
 import {
   EMPTY_EXPORT_HISTORY,
   type ExportHistory,
@@ -201,6 +202,51 @@ function isAuthoringState(value: unknown): value is AuthoringState {
     isQuestionBank(state.questionBank) &&
     isWorkingCopy(state.workingCopy)
   )
+}
+
+// The Exam settings a Working Copy may carry, each with the guard it is read
+// through.
+const WORKING_COPY_SETTINGS: Readonly<Record<string, (value: unknown) => boolean>> = {
+  columns: isColumnSettings,
+  workSpace: isWorkSpaceSettings,
+  choiceOrder: isChoiceOrder,
+  sectionHeadings: isSectionHeadings,
+  headingSize: isHeadingSize,
+  header: isExamHeader,
+  textSize: isTextSize,
+}
+
+// A draft an earlier build stored, in the current shape. Its questions are
+// upgraded (see `stored-upgrade.ts`), and a setting this build cannot read —
+// the withdrawn rich-text page header, say — is dropped so its default
+// applies. Refusing the draft over one setting would load a blank Exam, and
+// the first edit would then write that blank over the teacher's work.
+function upgradedStoredState(value: unknown): unknown {
+  if (typeof value !== 'object' || value === null) return value
+  const state = value as Record<string, unknown>
+  const upgraded: Record<string, unknown> = { ...state }
+  const bank = state.questionBank as Record<string, unknown> | null | undefined
+  if (typeof bank === 'object' && bank !== null && Array.isArray(bank.questions)) {
+    upgraded.questionBank = {
+      ...bank,
+      questions: bank.questions.map((question: unknown) =>
+        typeof question === 'object' && question !== null
+          ? upgradeStoredQuestion(question as Question)
+          : question,
+      ),
+    }
+  }
+  const draft = state.workingCopy
+  if (typeof draft === 'object' && draft !== null && !Array.isArray(draft)) {
+    const workingCopy: Record<string, unknown> = { ...draft }
+    for (const [setting, readable] of Object.entries(WORKING_COPY_SETTINGS)) {
+      if (workingCopy[setting] !== undefined && !readable(workingCopy[setting])) {
+        delete workingCopy[setting]
+      }
+    }
+    upgraded.workingCopy = workingCopy
+  }
+  return upgraded
 }
 
 function isSavedState(value: unknown): value is SavedState {
@@ -1070,14 +1116,14 @@ export async function loadExamStore(
   let saved: SavedState | null = null
   let exportHistory: ExportHistory = EMPTY_EXPORT_HISTORY
   try {
-    stored = await backend.read()
+    stored = upgradedStoredState(await backend.read()) as AuthoringState | null
   } catch (error) {
     console.error('Could not read the authoring state', error)
   }
   try {
-    const storedSaved = 'readSaved' in backend
+    const storedSaved = upgradedStoredState('readSaved' in backend
       ? await (backend as DurableAuthoringBackend).readSaved()
-      : (await savedBackend?.read()) ?? null
+      : (await savedBackend?.read()) ?? null)
     saved = isSavedState(storedSaved) ? storedSaved : null
   } catch (error) {
     console.error('Could not read the saved exam', error)

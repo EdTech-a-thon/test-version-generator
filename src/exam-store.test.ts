@@ -92,7 +92,7 @@ describe('a fresh installation', () => {
     expect(store.getState().dirty).toBe(false)
   })
 
-  test('rejects stored answer arrangements whose choices are not arrays of strings', async () => {
+  test('drops a stored answer arrangement whose choices are not arrays of strings, keeping the draft', async () => {
     const question = createQuestion('multiple-choice')
     for (const choiceOrder of [
       { [question.id]: 5 },
@@ -110,8 +110,13 @@ describe('a fresh installation', () => {
 
       const store = await loadExamStore(memory(corrupt as unknown as AuthoringState))
 
-      expect(store.getState()).toEqual(createAuthoringState())
-      expect(store.selectedExam().exam.questions).toEqual([])
+      // One unreadable setting costs that setting, not the teacher's work: the
+      // authored answer order applies.
+      expect(store.getState().workingCopy).toEqual({
+        title: 'Corrupt answer order',
+        questionIds: [question.id],
+      })
+      expect(store.selectedExam().exam.questions.map(({ id }) => id)).toEqual([question.id])
     }
   })
 })
