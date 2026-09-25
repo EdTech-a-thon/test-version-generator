@@ -743,6 +743,10 @@ function QuestionView({
   )
 }
 
+/** The band an open new-Section target takes, which bounds the Section above
+ *  it but is never drawn as a Section of its own. */
+const NEW_SECTION_BAND = '\u0000new-section'
+
 /** How long after a Section is moved from its controls the sheet keeps its
  *  controls where they were, through each pass of repagination. */
 const MOVE_ANCHOR_MS = 1200
@@ -1507,9 +1511,11 @@ export function ExamPage({
       const sheet = page.getBoundingClientRect()
       const spans = new Map<string, { top: number; bottom: number }>()
       for (const piece of page.querySelectorAll<HTMLElement>(
-        '.page-content [data-section-id]',
+        '.page-content [data-section-id], .page-content [data-new-section-after]',
       )) {
-        const id = piece.dataset.sectionId!
+        // An open new-Section target is a Section in the making: the Section
+        // above it ends where it begins.
+        const id = piece.dataset.sectionId ?? NEW_SECTION_BAND
         const box = piece.getBoundingClientRect()
         const span = spans.get(id)
         if (span) {
@@ -1544,8 +1550,15 @@ export function ExamPage({
   }, [])
   useLayoutEffect(measureSectionBands, [measureSectionBands, plan, drag.intent])
   useEffect(() => {
+    // A target that opens in the sheet's flow grows into place, so the bands
+    // are read again once it has.
+    const root = workspace.current
     window.addEventListener('resize', measureSectionBands)
-    return () => window.removeEventListener('resize', measureSectionBands)
+    root?.addEventListener('animationend', measureSectionBands)
+    return () => {
+      window.removeEventListener('resize', measureSectionBands)
+      root?.removeEventListener('animationend', measureSectionBands)
+    }
   }, [measureSectionBands])
   // The Section band the pointer is in, anywhere across its rows — never while
   // a gesture is in flight, which has its own feedback to give.
@@ -1601,6 +1614,17 @@ export function ExamPage({
   // its heading highlights nothing.
   const [hoveredSectionId, setHoveredSectionId] = useState<string | null>(null)
   const highlightedSectionId = drag.source ? null : hoveredSectionId
+  // The Section ruled off above and below: the one the pointer is in, or,
+  // mid-gesture, the one it would land in. An armed new-Section target rules
+  // itself off instead.
+  const intent = drag.intent
+  const ruledSectionId = drag.source
+    ? intent?.kind === 'insert'
+      ? sectionOfQuestion.get(intent.targetQuestionId) ?? null
+      : intent?.kind === 'section-end'
+        ? intent.sectionId
+        : null
+    : pointedBand?.sectionId ?? null
   // A cleared heading its controls asked to open, until its field has focus.
   const [revealTitleOf, setRevealTitleOf] = useState<string | null>(null)
   const sectionControls =
@@ -1724,10 +1748,11 @@ export function ExamPage({
                 aria-hidden="true"
               />
             ))}
-          {/* The Section the pointer is in is marked off by a dashed rule above
-              and below its stretch of each sheet, while its controls show. */}
-          {pointedBand && !drag.source && sectionBands
-            .filter((band) => band.pageIndex === index && band.sectionId === pointedBand.sectionId)
+          {/* The Section the pointer is in — or, mid-gesture, the Section the
+              gesture would land in — is marked off by a dashed rule above and
+              below its stretch of each sheet. */}
+          {ruledSectionId && sectionBands
+            .filter((band) => band.pageIndex === index && band.sectionId === ruledSectionId)
             .flatMap((band) => [
               <div
                 key={`${band.sectionId}-top`}

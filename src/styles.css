@@ -1004,7 +1004,9 @@ button { cursor: pointer; }
   position: relative;
   display: flex; align-items: center; justify-content: center;
   /* 40px above: its top margin meets the foot question's 26px, and the drop
-     line, 14px below that question, needs clear room above the new rule. */
+     line, 14px below that question, needs clear room above the new rule —
+     which is 9px above the target, `SECTION_RULE_OFFSET` in exam-page.tsx, so
+     the Section above it ends exactly on it. */
   height: 56px; margin: 40px 0 26px; overflow: visible;
   border: 1px dashed #9f5037; border-radius: 6px;
   color: #9f5037; background: #fffaf3;
@@ -1020,7 +1022,7 @@ button { cursor: pointer; }
   left: calc(-1 * var(--page-margin)); right: calc(-1 * var(--page-margin));
   border-top: 1px dashed #ddd0c2; pointer-events: none;
 }
-.new-section-target::before { top: -13px; }
+.new-section-target::before { top: -9px; }
 .new-section-target::after { bottom: -14px; }
 .new-section-target[data-active] { border-style: solid; background: #f7e2d5; }
 @keyframes new-section-open {
