@@ -319,7 +319,7 @@ function WaitingPreview({ waiting }: { waiting: WaitingImport }) {
 function WaitingFacts({ waiting }: { waiting: WaitingImport }) {
   const kind = waiting.kind ?? 'pdf'
   return <dl className="import-facts" aria-label="About this import">
-    <div><dt>File</dt><dd>{waiting.fileName}</dd></div>
+    <div><dt>File</dt><dd title={waiting.fileName}>{waiting.fileName}</dd></div>
     <div><dt>Type</dt><dd>{KIND_LABELS[kind]}</dd></div>
     {kind !== 'word' && <div><dt>Pages</dt><dd>{waiting.pageCount}</dd></div>}
     <div><dt>Pictures detected</dt><dd>{kind === 'photo' ? 'Cropped after importing' : waiting.tags.length}</dd></div>
