@@ -3125,7 +3125,7 @@ a.import-card-main:hover .exam-sheet, a.import-card-main:focus-visible .exam-she
 .new-import-lede { margin: 0 0 18px; color: #5f4d40; font-size: 15px; line-height: 1.5; }
 
 /* ---- The Question Bank Pop-over -------------------------------------------
-   A narrow window kept on top of another document (ADR-0029). Everything is a
+   A narrow window kept on top of another document (ADR-0030). Everything is a
    size smaller than the bank page: the cards are for recognising a Question,
    not reading it, so each is cut off at a few lines and fades out. */
 .pop-over-body { margin: 0; background: var(--app-ground); }

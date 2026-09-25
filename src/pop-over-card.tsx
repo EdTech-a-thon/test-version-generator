@@ -1,7 +1,7 @@
 // One Question in the Question Bank Pop-over: drawn small, laid out as it will
 // land in the document — its answer columns, where its Word Bank goes, the
 // lines a written answer is left — with the controls that change that layout
-// for this copy only (ADR-0029). A Multipart question shows its shared stem and
+// for this copy only (ADR-0030). A Multipart question shows its shared stem and
 // then each Part, each with its own layout; the Question travels whole.
 
 import { useLayoutEffect, useRef, type DragEvent, type MouseEvent, type ReactNode } from 'react'

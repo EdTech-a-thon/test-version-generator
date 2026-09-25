@@ -1,7 +1,7 @@
 // The Question Bank Pop-over: a compact, read-only view of Question Banks that
 // stays on top of the document a teacher is writing. Questions are selected as
 // in the Exam editor's bank pane — a click, Shift for a range, Cmd for one more
-// — and dragged into the document, or Copied (see CONTEXT.md and ADR-0029).
+// — and dragged into the document, or Copied (see CONTEXT.md and ADR-0030).
 //
 // It is a Document Picture-in-Picture window. That window has no page of its
 // own: this document renders into it through a portal, which is why the

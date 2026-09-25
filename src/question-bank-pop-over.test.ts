@@ -1,6 +1,6 @@
 // The Question Bank Pop-over's tabs are remembered on their own: they belong to
 // no Exam, opening one never changes which Exam the editor restores, and a
-// deleted bank leaves them as it leaves every Exam's (ADR-0029).
+// deleted bank leaves them as it leaves every Exam's (ADR-0030).
 
 import 'fake-indexeddb/auto'
 import { IDBFactory } from 'fake-indexeddb'

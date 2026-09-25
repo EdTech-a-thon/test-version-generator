@@ -54,7 +54,7 @@ export function replaceRoute(to: string): void {
 /**
  * Move to another screen without loading a document. Every screen is reached
  * this way, the editor included, because the Question Bank Pop-over is a view
- * of this document and closes with it (ADR-0029).
+ * of this document and closes with it (ADR-0030).
  */
 export function navigate(to: string): void {
   if (`${window.location.pathname}${window.location.search}` === to) return

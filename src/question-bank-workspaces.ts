@@ -80,7 +80,7 @@ type StoredTabsWorkspace = QuestionBankTabsWorkspace & {
 }
 
 /** The Question Bank Pop-over's tabs belong to no Exam: there is one set,
- *  kept under a key of its own beside every Exam's (ADR-0029). */
+ *  kept under a key of its own beside every Exam's (ADR-0030). */
 const POP_OVER_KEY = 'pop-over'
 type StoredPopOverWorkspace = QuestionBankTabsWorkspace & { key: typeof POP_OVER_KEY }
 

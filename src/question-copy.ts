@@ -4,7 +4,7 @@
 // What travels is what a student reads — the stem, lettered answers, a Word
 // Bank and blank-led Items, lettered Parts — unnumbered, so the document it
 // lands in numbers it. Correctness, a Suggested Answer, Question Metadata and
-// Work Space never travel (see CONTEXT.md, "Copy", and ADR-0029).
+// Work Space never travel (see CONTEXT.md, "Copy", and ADR-0030).
 //
 // Three steps, the first two pure. `copyBlocksOf` lays a Question out as
 // blocks under a `CopyFormat` — the answer columns and answer lines chosen for
