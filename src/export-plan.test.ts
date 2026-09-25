@@ -202,12 +202,13 @@ describe('pages', () => {
 })
 
 describe('sections', () => {
-  test('are derived from question type in fixed order, whatever the ordering says', () => {
+  test('on an Exam that stores none, are derived from question type in fixed order, whatever the ordering says', () => {
     const exam = examOf([open('q1'), multipleChoice('q2', ['a', 'b'])])
     const pages = render(exam, arrangementOf(['q1', 'q2']))
     expect(headings(pages)).toEqual([
       {
         kind: 'section-heading',
+        sectionId: 'multiple-choice',
         section: 'multiple-choice',
         title: 'Multiple Choice',
         instructions: SECTION_INSTRUCTIONS['multiple-choice'],
@@ -215,6 +216,7 @@ describe('sections', () => {
       },
       {
         kind: 'section-heading',
+        sectionId: 'open',
         section: 'open',
         title: 'Short Answer',
         instructions: SECTION_INSTRUCTIONS.open,
@@ -676,7 +678,7 @@ describe('answer key', () => {
     )
     expect(items).toEqual([
       { kind: 'answer-key-heading' },
-      { kind: 'answer-key-section', section: 'true-false', title: 'True/False' },
+      { kind: 'answer-key-section', sectionId: 'true-false', section: 'true-false', title: 'True/False' },
       { kind: 'answer-key-entry', number: 1, letter: 'T' },
       { kind: 'answer-key-entry', number: 2, letter: 'F' },
     ])
@@ -698,9 +700,9 @@ describe('answer key', () => {
     const items = keyItems(exam, arrangementOf(['m1', 'x1'], { x1: ['b', 'a'] }))
     expect(items).toEqual([
       { kind: 'answer-key-heading' },
-      { kind: 'answer-key-section', section: 'multiple-choice', title: 'Multiple Choice' },
+      { kind: 'answer-key-section', sectionId: 'multiple-choice', section: 'multiple-choice', title: 'Multiple Choice' },
       { kind: 'answer-key-entry', number: 1, letter: 'B' },
-      { kind: 'answer-key-section', section: 'matching', title: 'Matching' },
+      { kind: 'answer-key-section', sectionId: 'matching', section: 'matching', title: 'Matching' },
       { kind: 'answer-key-entry', number: 2, letter: 'A' },
       { kind: 'answer-key-entry', number: 3, letter: null },
     ])
@@ -746,9 +748,9 @@ describe('answer key', () => {
     expect(keyPages.every((page) => isAnswerKeyHeader(page.header))).toBe(true)
     expect(keyPages[0]!.items).toEqual([
       { kind: 'answer-key-heading' },
-      { kind: 'answer-key-section', section: 'multiple-choice', title: 'Multiple Choice' },
+      { kind: 'answer-key-section', sectionId: 'multiple-choice', section: 'multiple-choice', title: 'Multiple Choice' },
       { kind: 'answer-key-entry', number: 1, letter: 'A' },
-      { kind: 'answer-key-section', section: 'open', title: 'Short Answer' },
+      { kind: 'answer-key-section', sectionId: 'open', section: 'open', title: 'Short Answer' },
       { kind: 'answer-key-entry', number: 2, letter: null },
     ])
   })
@@ -1304,11 +1306,12 @@ describe('the Export Document', () => {
       { kind: 'answer-key-heading' },
       {
         kind: 'answer-key-section',
+        sectionId: 'multiple-choice',
         section: 'multiple-choice',
         title: SECTION_TITLE['multiple-choice'],
       },
       { kind: 'answer-key-entry', number: 1, letter: 'B' },
-      { kind: 'answer-key-section', section: 'open', title: SECTION_TITLE.open },
+      { kind: 'answer-key-section', sectionId: 'open', section: 'open', title: SECTION_TITLE.open },
       { kind: 'answer-key-entry', number: 2, letter: null },
     ])
   })
@@ -1471,6 +1474,7 @@ describe('section headings as the Exam words them', () => {
   test('print the defaults, at no stated size, on an Exam that changed nothing', () => {
     expect(headingsOf(examOf([open('o1')]))).toEqual([{
       kind: 'section-heading',
+      sectionId: 'open',
       section: 'open',
       title: 'Short Answer',
       instructions: 'Answer the following questions in the space provided. Show all work.',
@@ -1486,6 +1490,7 @@ describe('section headings as the Exam words them', () => {
     }
     expect(headingsOf(exam)).toEqual([{
       kind: 'section-heading',
+      sectionId: 'open',
       section: 'open',
       title: 'Essays',
       instructions: '',
@@ -1515,5 +1520,104 @@ describe('section headings as the Exam words them', () => {
       .flatMap((page) => page.items)
       .flatMap((item) => (item.kind === 'answer-key-section' ? [item.title] : []))
     expect(titles).toEqual(['Choose One', 'Short Answer'])
+  })
+})
+
+describe('stored Question Sections', () => {
+  // Two Multiple Choice Sections around a Short Answer one, and an emptied
+  // True/False Section after them all.
+  const exam: Exam = {
+    ...examOf([
+      multipleChoice('m1', ['a', 'b'], 'a'),
+      open('o1'),
+      multipleChoice('m2', ['a', 'b'], 'b'),
+    ]),
+    sections: [
+      { id: 'A', type: 'multiple-choice', title: 'Warm Up' },
+      { id: 'B', type: 'open' },
+      { id: 'C', type: 'multiple-choice', title: '' },
+      { id: 'D', type: 'true-false' },
+    ],
+    sectionOf: { m1: 'A', o1: 'B', m2: 'C' },
+  }
+  const arrangement = arrangementOf(['m1', 'o1', 'm2'])
+
+  test('print in the Exam’s own order, numbered straight through, each under its own wording', () => {
+    const pages = render(exam, arrangement)
+    expect(
+      headings(pages).map((item) =>
+        item.kind === 'section-heading' ? [item.sectionId, item.section, item.title] : [],
+      ),
+    ).toEqual([
+      ['A', 'multiple-choice', 'Warm Up'],
+      ['B', 'open', 'Short Answer'],
+      ['C', 'multiple-choice', ''],
+    ])
+    expect(plannedQuestions(pages).map(({ id, number }) => [id, number])).toEqual([
+      ['m1', 1],
+      ['o1', 2],
+      ['m2', 3],
+    ])
+  })
+
+  test('an empty Section is omitted from exported output', () => {
+    const document = buildExportDocument(exam, arrangement, WHOLE_DOCUMENT)
+    expect(
+      document.test.some((item) => item.kind === 'section-heading' && item.sectionId === 'D'),
+    ).toBe(false)
+    expect(
+      document.answerKey.some((item) => item.kind === 'answer-key-section' && item.sectionId === 'D'),
+    ).toBe(false)
+  })
+
+  test('the exam sheet asks for an empty Section too, marked as empty', () => {
+    const sheet = planExport({
+      exam,
+      arrangement,
+      selection: STUDENT_TEST,
+      measure: unmeasured,
+      emptySections: true,
+    })
+    const planned = sheet.pages
+      .flatMap((page) => page.items)
+      .flatMap((item) => (item.kind === 'section-heading' ? [item] : []))
+    expect(planned.map(({ sectionId }) => sectionId)).toEqual(['A', 'B', 'C', 'D'])
+    expect(planned.filter(({ empty }) => empty).map(({ sectionId }) => sectionId)).toEqual(['D'])
+    expect(planned.at(-1)).toMatchObject({
+      section: 'true-false',
+      title: 'True/False',
+      instructions: 'Circle T if the statement is true and F if it is false.',
+    })
+  })
+
+  test('the answer key groups by Section, even two of the same type, under the test’s titles or the default when cleared', () => {
+    const document = buildExportDocument(exam, arrangement, WHOLE_DOCUMENT)
+    expect(document.answerKey).toEqual([
+      { kind: 'answer-key-heading' },
+      { kind: 'answer-key-section', sectionId: 'A', section: 'multiple-choice', title: 'Warm Up' },
+      { kind: 'answer-key-entry', number: 1, letter: 'A' },
+      { kind: 'answer-key-section', sectionId: 'B', section: 'open', title: 'Short Answer' },
+      { kind: 'answer-key-entry', number: 2, letter: null },
+      { kind: 'answer-key-section', sectionId: 'C', section: 'multiple-choice', title: 'Multiple Choice' },
+      { kind: 'answer-key-entry', number: 3, letter: 'B' },
+    ])
+  })
+
+  test('two adjacent Sections of one type are still two groups in the key', () => {
+    const adjacent: Exam = {
+      ...exam,
+      sections: [
+        { id: 'A', type: 'multiple-choice' },
+        { id: 'C', type: 'multiple-choice', title: 'Bonus' },
+        { id: 'B', type: 'open' },
+      ],
+    }
+    const groups = buildExportDocument(adjacent, arrangement, WHOLE_DOCUMENT).answerKey
+      .flatMap((item) => (item.kind === 'answer-key-section' ? [[item.sectionId, item.title]] : []))
+    expect(groups).toEqual([
+      ['A', 'Multiple Choice'],
+      ['C', 'Bonus'],
+      ['B', 'Short Answer'],
+    ])
   })
 })

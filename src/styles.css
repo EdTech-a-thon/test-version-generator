@@ -996,36 +996,56 @@ button { cursor: pointer; }
    pointer — so the row you lifted stays findable underneath. */
 .exam-question--dragging { opacity: 0.4; }
 
-/* The first question of a Question Section that has none.
-
-   An empty section is not drawn on the sheet — a section is derived from the
-   questions in it — so a composition gesture would have nothing to aim at.
-   The whole Working Copy pane is the target instead, and it says so: a dashed
-   frame while a compatible gesture is in flight, filled in once the pointer is
-   over it. The frame is painted on an inset pseudo-element pinned to the
-   scrolling lane, so it stays in view however far the exam has been scrolled
-   and never takes a pixel from the paper's own geometry. */
-.exam-workspace[data-empty-section]::before {
-  content: ''; position: fixed; z-index: 890; pointer-events: none;
-  top: 58px; left: 0; right: calc(var(--bank-column) + var(--bank-divider)); bottom: 0;
-  margin: 12px;
-  border: 2px dashed #c9b49b; border-radius: 10px;
-  background: rgb(255 250 243 / 35%);
+/* An empty Question Section on the sheet: a box its own type drops into. It
+   is planned for the sheet only, and measured with its heading, so it takes
+   the room it is drawn in; exported output never has one. */
+.exam-section-empty {
+  display: flex; align-items: center; justify-content: center;
+  height: 56px; margin: 0 0 26px; border: 1.5px dashed #cdb9a6; border-radius: 6px;
+  color: #8a7564; font: 600 13px/1.4 Arial, Helvetica, sans-serif;
 }
-.exam-workspace[data-empty-section][data-active]::before {
-  border-color: #9f5037; border-style: solid; background: rgb(247 226 213 / 45%);
+.exam-section-empty[data-active] {
+  border-style: solid; border-color: #9f5037; color: #9f5037; background: #f7e2d5;
 }
+.exam-section-empty-wrap { position: relative; }
 
-/* The caption to that frame: a label sitting inside its bottom edge, not a
-   second box, centred on the pane's lane the same way the frame is. */
-.exam-draft-empty-section {
-  position: fixed; z-index: 900; pointer-events: none;
-  left: 0; right: calc(var(--bank-column) + var(--bank-divider)); bottom: 28px;
-  width: max-content; margin: 0 auto; padding: 7px 14px; border-radius: 999px;
-  color: #6d5a45; background: #fffaf3; box-shadow: 0 2px 8px rgb(55 42 33 / 14%);
+/* The target that makes a new Question Section, opened beneath the foot of a
+   Section while a gesture's nearest line is there. It slides open so the
+   teacher sees it coming, and is drawn over the sheet rather than in its flow,
+   so nothing on the paper moves under the pointer. */
+.new-section-target {
+  position: absolute; z-index: 3; left: 0; right: 0; top: calc(100% + 6px);
+  display: flex; align-items: center; justify-content: center;
+  height: 52px; overflow: hidden;
+  border: 1.5px dashed #9f5037; border-radius: 6px;
+  color: #9f5037; background: #fffaf3; box-shadow: 0 4px 14px rgb(55 42 33 / 12%);
   font: 600 13px/1.4 Arial, Helvetica, sans-serif;
+  animation: new-section-open 160ms ease-out;
 }
-.exam-draft-empty-section[data-active] { color: #9f5037; background: #f7e2d5; }
+.new-section-target[data-active] { border-style: solid; background: #f7e2d5; }
+@keyframes new-section-open {
+  from { height: 0; opacity: 0; }
+  to { height: 52px; opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .new-section-target { animation: none; }
+}
+
+/* A Section's own controls — move it up, move it down, delete it — sit in the
+   right-hand page margin beside its heading, as a question's handles sit in
+   the left one, so they take nothing from the heading's printed width. */
+.section-controls {
+  position: absolute; top: -1px; left: calc(100% + 4px); z-index: 2;
+  display: flex; align-items: center; gap: 0;
+  opacity: 0; transition: opacity 90ms ease-in;
+}
+.section-controls .question-handle { width: 22px; height: 24px; }
+.section-controls .question-handle:disabled { opacity: 0.35; cursor: default; background: transparent; }
+.exam-section--editable:hover .section-controls,
+.section-controls:focus-within { opacity: 1; }
+.exam-section-hidden .section-controls { top: -12px; opacity: 0.55; }
+.exam-section-hidden .section-controls:hover { opacity: 1; }
+.question-drag-preview .section-controls { display: none; }
 
 /* The drop line: where the question would land if it were let go now. It sits
    in the 26px gap between questions, so it never covers what it is pointing
@@ -1037,7 +1057,7 @@ button { cursor: pointer; }
 .exam-question[data-drop="before"]::after { top: -14px; }
 .exam-question[data-drop="after"]::after { bottom: -14px; }
 .question-number { display: flex; align-items: baseline; gap: 8px; font-weight: 700; }
-/* The line a student writes their letter on. */
+/* The T and F a student circles before a True/False question's number. */
 .question-marks { display: flex; gap: 10px; font-weight: 400; }
 .question-count { white-space: nowrap; }
 .doc-content { white-space: pre-wrap; }
@@ -1755,8 +1775,6 @@ button { cursor: pointer; }
     border-width: 1px 0 0; border-radius: 0;
   }
   .workspace-resizer { display: none; }
-  .exam-draft-empty-section,
-  .exam-workspace[data-empty-section]::before { right: 0; }
   .exam-workspace { padding: 16px 0; }
   .dialog-backdrop { padding: 0; }
   /* Keep the output-faithful paper available: the dialog stacks rather than

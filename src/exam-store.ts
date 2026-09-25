@@ -9,7 +9,7 @@
 // can take on the Question Bank or the Working Copy is a single method here:
 // creating canonical Question Content with or without putting it on the exam,
 // adding a reference, editing a banked question's content and metadata, moving
-// a reference, Replacing one, and Removing one. Callers never assemble an
+// a reference, arranging Sections, and Removing a reference. Callers never assemble an
 // action out of smaller ones — that is what makes each of them atomic, one undo
 // step, and one mirrored write.
 
@@ -18,9 +18,21 @@ import {
   columnsOf,
   duplicateQuestion,
   hasWorkSpace,
+  isExamSection,
   isWorkSpace,
-  moveQuestions,
+  moveSection,
+  deleteSection,
   NO_WORK_SPACE,
+  placeQuestions,
+  questionById,
+  rewordSection,
+  sameSectionOf,
+  sameSections,
+  SECTION_ORDER,
+  sectionById,
+  sectionIdOf,
+  sectionLayoutOf,
+  sectionsOf,
   snapWorkSpaceHeight,
   takesWorkSpace,
   orderedChoices,
@@ -31,10 +43,11 @@ import {
   shuffleSelectedQuestions,
   type Arrangement,
   type ColumnSetting,
+  type Exam,
   type Part,
   type Question,
-  type QuestionPlacement,
   type QuestionType,
+  type SectionTarget,
   type WorkSpace,
 } from './exam'
 import {
@@ -42,7 +55,6 @@ import {
   isHeadingSize,
   isSectionHeadings,
   sameSectionHeadings,
-  withSectionHeading,
   type HeadingSize,
   type SectionHeadingChange,
   DEFAULT_TEXT_SIZE,
@@ -58,8 +70,8 @@ import {
   withQuestionBanked,
   withReferenceAdded,
   withReferenceOrder,
-  withReferenceReplaced,
   withReferencesRemoved,
+  withSectionLayout,
   type ExamWorkingCopy,
   type QuestionBank,
 } from './question-bank'
@@ -163,6 +175,19 @@ function isColumnSettings(value: unknown): value is Record<string, ColumnSetting
   )
 }
 
+function isSectionList(value: unknown): value is ExamWorkingCopy['sections'] {
+  return Array.isArray(value) && value.every(isExamSection)
+}
+
+function isSectionPlacement(value: unknown): value is Record<string, string> {
+  return (
+    typeof value === 'object'
+    && value !== null
+    && !Array.isArray(value)
+    && Object.values(value).every((section) => typeof section === 'string')
+  )
+}
+
 function isWorkSpaceSettings(value: unknown): value is Record<string, WorkSpace> {
   return (
     typeof value === 'object'
@@ -183,6 +208,8 @@ function isWorkingCopy(value: unknown): value is ExamWorkingCopy {
     (draft.columns === undefined || isColumnSettings(draft.columns)) &&
     (draft.workSpace === undefined || isWorkSpaceSettings(draft.workSpace)) &&
     (draft.choiceOrder === undefined || isChoiceOrder(draft.choiceOrder)) &&
+    (draft.sections === undefined || isSectionList(draft.sections)) &&
+    (draft.sectionOf === undefined || isSectionPlacement(draft.sectionOf)) &&
     (draft.sectionHeadings === undefined || isSectionHeadings(draft.sectionHeadings)) &&
     (draft.headingSize === undefined || isHeadingSize(draft.headingSize)) &&
     (draft.header === undefined || isExamHeader(draft.header)) &&
@@ -210,6 +237,8 @@ const WORKING_COPY_SETTINGS: Readonly<Record<string, (value: unknown) => boolean
   columns: isColumnSettings,
   workSpace: isWorkSpaceSettings,
   choiceOrder: isChoiceOrder,
+  sections: isSectionList,
+  sectionOf: isSectionPlacement,
   sectionHeadings: isSectionHeadings,
   headingSize: isHeadingSize,
   header: isExamHeader,
@@ -273,7 +302,12 @@ export type ExamStore = {
   setTitle(title: string): void
   /** Rewords one Question Section's heading on this Exam. `null` sets a part
    *  back to its default; an empty string clears it from the printed page. */
-  setSectionHeading(section: QuestionType, change: SectionHeadingChange): void
+  setSectionHeading(sectionId: string, change: SectionHeadingChange): void
+  /** Moves one Section past its neighbour, up (`-1`) or down (`1`). */
+  moveSection(sectionId: string, direction: -1 | 1): void
+  /** Deletes one Section and Removes the questions it holds. Undoable, like
+   *  every other action here, so it asks nothing. */
+  deleteSection(sectionId: string): void
   /** How large every section heading prints on this Exam. */
   setHeadingSize(size: HeadingSize): void
   setTextSize(size: TextSize): void
@@ -306,39 +340,24 @@ export type ExamStore = {
    * preserving the original's visible Exam presentation. The caller may supply
    * a copy already committed to the owning Question Bank. */
   duplicateInWorkingCopy(questionId: string, duplicate?: Question): void
-  /** References an unused Question Bank record from the Working Copy — at the end,
-   *  or immediately before or after `targetQuestionId`. `'before'` is what names
-   *  the first position in a Question Section, which no `'after'` can. A
-   *  question already referenced is left where it is: a reference occurs at most
-   *  once. An insertion beside a question in another Question Section is
-   *  refused: composing never moves a question across the Multiple Choice /
-   *  Short Answer boundary. */
-  addToWorkingCopy(
-    question: string | Question,
-    targetQuestionId?: string | null,
-    placement?: QuestionPlacement,
-  ): void
+  /** References an unused Question Bank record from the Working Copy. With no
+   *  target it goes to the end of the last Section of its type, or a new
+   *  Section at the end of the Exam; with one, it goes there. A question
+   *  already referenced is left where it is: a reference occurs at most once.
+   *  A target in a Section of another type is refused: a Section holds one
+   *  type. */
+  addToWorkingCopy(question: string | Question, target?: SectionTarget | null): void
   /** Adds several unused records in the supplied order as one undoable
-   *  composition. Used by filtered Add all and multi-row bank drags. */
+   *  composition. Used by filtered Add all and multi-row bank drags; a question
+   *  the target cannot take is not added. */
   addManyToWorkingCopy(
     questions: readonly (string | Question)[],
-    targetQuestionId?: string | null,
-    placement?: QuestionPlacement,
+    target?: SectionTarget | null,
   ): void
-  /** Replaces one Working Copy reference with an unused Question Bank record of
-   *  the same Question Type, in the outgoing question's exact position. Nothing
-   *  is copied and nothing is deleted: the outgoing question keeps its Question
-   *  Bank record and is available to compose with again. Refused when either
-   *  question is unbanked, when their Question Sections differ, or when the
-   *  incoming question is already on the Working Copy. */
-  replaceInWorkingCopy(outgoingQuestionId: string, incoming: string | Question): void
-  /** Moves references within their Question Section. A target in another
-   *  section is refused: composing never changes a question's type. */
-  moveInWorkingCopy(
-    questionIds: readonly string[],
-    targetId: string,
-    placement: QuestionPlacement,
-  ): void
+  /** Moves references to a target: beside a question or at the end of a
+   *  Section, where only the questions of its type move, or into new Sections
+   *  directly below one. A Section a move empties stays. */
+  moveInWorkingCopy(questionIds: readonly string[], target: SectionTarget): void
   /** Shuffles selected references only among their current positions, within
    *  each Question Section. Every eligible section changes order in this one
    *  authoring action. */
@@ -421,6 +440,8 @@ function sameExamWorkingCopy(left: ExamWorkingCopy, right: ExamWorkingCopy): boo
     && sameEntries(left.choiceOrder, right.choiceOrder, (first, second) =>
       first.length === second.length && first.every((id, index) => id === second[index]),
     )
+    && sameSections(left.sections, right.sections)
+    && sameSectionOf(left.sectionOf, right.sectionOf)
     && sameSectionHeadings(left.sectionHeadings, right.sectionHeadings)
     && (left.headingSize ?? DEFAULT_HEADING_SIZE) === (right.headingSize ?? DEFAULT_HEADING_SIZE)
     && sameExamHeader(left.header, right.header)
@@ -475,74 +496,117 @@ function withPartPresentationCopied(
   }
 }
 
-/** Make a referenced Question's current effective layout explicit before an
- * operation transfers its position to another Question. */
-function withColumnResolved(
-  state: AuthoringState,
-  questionId: string,
-): ExamWorkingCopy {
-  if (state.workingCopy.columns?.[questionId] !== undefined) return state.workingCopy
-  const question = bankQuestionById(state.questionBank, questionId)
-  if (!question) return state.workingCopy
-  return {
-    ...state.workingCopy,
-    columns: { ...(state.workingCopy.columns ?? {}), [questionId]: question.columns },
-  }
-}
-
 function withDirtyFlag(current: AuthoringState, saved: SavedState | null): AuthoringState {
   const dirty = !saved || !sameExamWorkingCopy(current.workingCopy, saved.workingCopy)
   return current.dirty === dirty ? current : { ...current, dirty }
 }
 
-/** Adds one canonical reference without crossing the history boundary. Keeping
- * this transformation separate lets a bulk composition apply it repeatedly
- * while the public store still records exactly one action. */
-function withQuestionAdded(
+/** The Section type a target can take, or `null` when it takes any — a new
+ *  Section is made for whatever arrives. `undefined` when the target is not on
+ *  this Exam at all. */
+function targetTypeOf(
+  exam: Exam,
+  target: SectionTarget,
+): QuestionType | null | undefined {
+  if (target.kind === 'new-section') return null
+  if (target.kind === 'section-end') return sectionById(exam, target.sectionId)?.type
+  return questionById(exam, target.questionId)?.type
+}
+
+/**
+ * Adds canonical references and puts them in their Sections, without crossing
+ * the history boundary.
+ *
+ * With a target, every question the target can take lands there, in the order
+ * given, and a question of another type is not added at all. Without one — Add
+ * and Add all — each question goes to the end of the last Section of its type,
+ * and a type with no Section gets a new one at the end of the Exam; those new
+ * Sections are made in `SECTION_ORDER`. A question already referenced is left
+ * where it is: a reference occurs at most once, so adding one twice is not a
+ * move.
+ */
+function withQuestionsAdded(
   current: AuthoringState,
-  questionOrId: string | Question,
-  targetQuestionId: string | null,
-  placement: QuestionPlacement,
+  questionsOrIds: readonly (string | Question)[],
+  target: SectionTarget | null,
 ): AuthoringState {
-  const supplied = typeof questionOrId === 'string' ? null : questionOrId
-  const questionId = typeof questionOrId === 'string' ? questionOrId : questionOrId.id
-  const question = supplied ?? bankQuestionById(current.questionBank, questionId)
-  if (!question) return current
-  const target = targetQuestionId
-    ? bankQuestionById(current.questionBank, targetQuestionId)
-    : null
-  if (target && target.type !== question.type) return current
-  const bank = supplied
-    ? withQuestionBanked(current.questionBank, supplied)
-    : current.questionBank
-  let workingCopy = withReferenceAdded(
-    current.workingCopy,
-    questionId,
-    targetQuestionId,
-    placement,
-  )
-  if (workingCopy === current.workingCopy) return current
-  if (question.type === 'multiple-choice') {
-    const selected = selectedExam(bank, current.workingCopy)
-    const rendered = orderedQuestions(selected.exam, selected.arrangement)
-      .filter(({ type }) => type === question.type)
-    const targetIndex = targetQuestionId
-      ? rendered.findIndex(({ id }) => id === targetQuestionId)
-      : -1
-    const neighbor = targetIndex < 0
-      ? rendered.at(-1)
-      : placement === 'before'
-        ? rendered[targetIndex - 1] ?? rendered[targetIndex]
-        : rendered[targetIndex]
-    workingCopy = {
-      ...workingCopy,
-      columns: {
-        ...(workingCopy.columns ?? {}),
-        [questionId]: neighbor ? columnsOf(neighbor) : 1,
-      },
+  const before = selectedExam(current.questionBank, current.workingCopy)
+  const accepts = target ? targetTypeOf(before.exam, target) : null
+  if (accepts === undefined) return current
+
+  let bank = current.questionBank
+  let workingCopy = current.workingCopy
+  const added: Question[] = []
+  for (const item of questionsOrIds) {
+    const supplied = typeof item === 'string' ? null : item
+    const questionId = typeof item === 'string' ? item : item.id
+    const question = supplied ?? bankQuestionById(bank, questionId)
+    if (!question || (accepts !== null && question.type !== accepts)) continue
+    const referenced = withReferenceAdded(workingCopy, questionId)
+    if (referenced === workingCopy) continue
+    if (supplied) bank = withQuestionBanked(bank, supplied)
+    workingCopy = referenced
+    added.push(question)
+  }
+  if (added.length === 0) return current
+
+  const place = (
+    draft: ExamWorkingCopy,
+    ids: readonly string[],
+    to: SectionTarget,
+  ): ExamWorkingCopy => {
+    // Stored even when the question already landed where it was put, so a
+    // Section made later can never draw an unplaced question into itself.
+    const { exam, arrangement } = selectedExam(bank, draft)
+    const layout = placeQuestions(exam, arrangement, ids, to) ?? sectionLayoutOf(exam, arrangement)
+    return withSectionLayout(draft, layout)
+  }
+  if (target) {
+    workingCopy = place(workingCopy, added.map(({ id }) => id), target)
+  } else {
+    // Placed one at a time, in `SECTION_ORDER`, so that a type's second
+    // question joins the Section its first one just made. A question on the
+    // Exam always belongs to a Section of its type — the last stored one, or a
+    // new one at the end — so the last of them is where Add puts it.
+    const byType = SECTION_ORDER.flatMap((type) => added.filter((question) => question.type === type))
+    for (const question of byType) {
+      const { exam } = selectedExam(bank, workingCopy)
+      const last = sectionsOf(exam).filter(({ type }) => type === question.type).at(-1)!
+      workingCopy = place(workingCopy, [question.id], { kind: 'section-end', sectionId: last.id })
     }
   }
-  return { ...current, questionBank: bank, workingCopy }
+  return {
+    ...current,
+    questionBank: bank,
+    workingCopy: withInsertedColumns(bank, workingCopy, added),
+  }
+}
+
+/** An inserted Multiple Choice question starts with the answer columns of the
+ *  question printed immediately above it, or immediately below when none is
+ *  above, or with one column when it has no neighbour of its type. */
+function withInsertedColumns(
+  bank: QuestionBank,
+  workingCopy: ExamWorkingCopy,
+  added: readonly Question[],
+): ExamWorkingCopy {
+  let next = workingCopy
+  const adding = new Set(added.map(({ id }) => id))
+  const { exam, arrangement } = selectedExam(bank, workingCopy)
+  const printed = orderedQuestions(exam, arrangement).filter(
+    ({ type }) => type === 'multiple-choice',
+  )
+  for (const [index, question] of printed.entries()) {
+    if (!adding.has(question.id)) continue
+    const above = printed.slice(0, index).reverse()[0]
+    const below = printed.slice(index + 1).find(({ id }) => !adding.has(id))
+    const neighbor = above ?? below
+    const columns = neighbor
+      ? next.columns?.[neighbor.id] ?? columnsOf(neighbor)
+      : 1
+    next = { ...next, columns: { ...(next.columns ?? {}), [question.id]: columns } }
+  }
+  return next
 }
 
 export type SaveAsSnapshot = {
@@ -686,17 +750,13 @@ export function createExamStore(options: {
           : { ...current, workingCopy: { ...current.workingCopy, title } },
       ),
 
-    setSectionHeading: (section, headingChange) =>
+    setSectionHeading: (sectionId, headingChange) =>
       change((current) => {
-        const sectionHeadings = withSectionHeading(
-          current.workingCopy.sectionHeadings,
-          section,
-          headingChange,
-        )
-        if (sameSectionHeadings(sectionHeadings, current.workingCopy.sectionHeadings)) return current
-        const workingCopy: ExamWorkingCopy = { ...current.workingCopy, sectionHeadings }
-        if (!sectionHeadings) delete workingCopy.sectionHeadings
-        return { ...current, workingCopy }
+        const { exam, arrangement } = selectedExam(current.questionBank, current.workingCopy)
+        const layout = rewordSection(exam, arrangement, sectionId, headingChange)
+        return layout
+          ? withExamWorkingCopy(current, withSectionLayout(current.workingCopy, layout))
+          : current
       }),
 
     setHeadingSize: (size) =>
@@ -869,8 +929,18 @@ export function createExamStore(options: {
         const copiedChoiceOrder = orderedChoices(original, selected.arrangement).map((choice) =>
           copiedChoices[originalChoices.findIndex(({ id }) => id === choice.id)]!.id,
         )
+        const referenced = withReferenceAdded(current.workingCopy, copy.id, questionId)
         const workingCopy = withPartPresentationCopied(
-          withReferenceAdded(current.workingCopy, copy.id, questionId),
+          // The copy sits in its original's Section, directly after it.
+          visibleOriginal
+            ? {
+                ...referenced,
+                sectionOf: {
+                  ...(referenced.sectionOf ?? {}),
+                  [copy.id]: sectionIdOf(selected.exam, visibleOriginal),
+                },
+              }
+            : referenced,
           original,
           copy,
           selected.arrangement,
@@ -902,76 +972,49 @@ export function createExamStore(options: {
         }
       }),
 
-    addToWorkingCopy: (questionOrId, targetQuestionId = null, placement = 'after') =>
-      change((current) => withQuestionAdded(
-        current,
-        questionOrId,
-        targetQuestionId,
-        placement,
-      )),
+    addToWorkingCopy: (questionOrId, target = null) =>
+      change((current) => withQuestionsAdded(current, [questionOrId], target)),
 
-    addManyToWorkingCopy: (questions, targetQuestionId = null, placement = 'after') =>
-      change((current) => {
-        let next = current
-        let target = targetQuestionId
-        for (const question of questions) {
-          const added = withQuestionAdded(next, question, target, placement)
-          if (added === next) continue
-          next = added
-          // Repeated "after" insertions need to advance past the question just
-          // added; repeated "before" insertions naturally retain their order
-          // when they all stay before the original target.
-          if (placement === 'after' && target !== null) {
-            target = typeof question === 'string' ? question : question.id
-          }
-        }
-        return next
-      }),
+    addManyToWorkingCopy: (questions, target = null) =>
+      change((current) => withQuestionsAdded(current, questions, target)),
 
-    replaceInWorkingCopy: (outgoingQuestionId, incomingQuestion) =>
+    moveInWorkingCopy: (questionIds, target) =>
       change((current) => {
-        const incomingQuestionId = typeof incomingQuestion === 'string'
-          ? incomingQuestion
-          : incomingQuestion.id
-        const bank = typeof incomingQuestion === 'string'
-          ? current.questionBank
-          : withQuestionBanked(current.questionBank, incomingQuestion)
-        const outgoing = bankQuestionById(bank, outgoingQuestionId)
-        const incoming = bankQuestionById(bank, incomingQuestionId)
-        if (
-          !outgoing
-          || !incoming
-          || outgoing.type !== incoming.type
-          || current.workingCopy.questionIds.includes(incomingQuestionId)
-        ) return current
-        const workingCopy = withColumnResolved({ ...current, questionBank: bank }, outgoingQuestionId)
-        const outgoingParts = partsOf(outgoing)
-        const incomingParts = partsOf(incoming)
-        const replaced = withReferenceReplaced(workingCopy, outgoingQuestionId, incomingQuestionId, {
-          outgoing: outgoingParts.map((part) => part.id),
-          pairs: incomingParts.flatMap((part, index) => {
-            const standIn = outgoingParts[index]
-            return standIn && standIn.type === part.type ? [[standIn.id, part.id] as const] : []
-          }),
-        })
-        return replaced === current.workingCopy && bank === current.questionBank
-          ? current
-          : { ...current, questionBank: bank, workingCopy: replaced }
-      }),
-
-    moveInWorkingCopy: (questionIds, targetId, placement) =>
-      change((current) => {
-        // Reordering is the derived Exam's own rule — a question only ever
-        // moves within its Question Section — so the move is resolved against
-        // the derived arrangement and its result recorded as the Working Copy's
-        // new order.
+        // Where a question may go is the Exam's own rule — a Section holds one
+        // type — so the move is resolved against the derived Exam and its
+        // result recorded as the Working Copy's Sections and order.
         const { exam, arrangement } = selectedExam(current.questionBank, current.workingCopy)
-        const moved = moveQuestions(exam, arrangement, questionIds, targetId, placement)
-        if (moved === arrangement) return current
-        return withExamWorkingCopy(
-          current,
-          withReferenceOrder(current.workingCopy, moved.questionOrder),
+        const layout = placeQuestions(exam, arrangement, questionIds, target)
+        return layout
+          ? withExamWorkingCopy(current, withSectionLayout(current.workingCopy, layout))
+          : current
+      }),
+
+    moveSection: (sectionId, direction) =>
+      change((current) => {
+        const { exam, arrangement } = selectedExam(current.questionBank, current.workingCopy)
+        const layout = moveSection(exam, arrangement, sectionId, direction)
+        return layout
+          ? withExamWorkingCopy(current, withSectionLayout(current.workingCopy, layout))
+          : current
+      }),
+
+    deleteSection: (sectionId) =>
+      change((current) => {
+        const { exam, arrangement } = selectedExam(current.questionBank, current.workingCopy)
+        const deleted = deleteSection(exam, arrangement, sectionId)
+        if (!deleted) return current
+        // Deleting a Section Removes its questions: they leave this Exam and
+        // stay in their Question Bank.
+        const removed = withReferencesRemoved(
+          withSectionLayout(current.workingCopy, deleted.layout),
+          deleted.removedQuestionIds,
+          deleted.removedQuestionIds.flatMap((id) => {
+            const question = bankQuestionById(current.questionBank, id)
+            return question ? partsOf(question).map((part) => part.id) : []
+          }),
         )
+        return withExamWorkingCopy(current, removed)
       }),
 
     shuffleSelectedQuestions: (questionIds) =>

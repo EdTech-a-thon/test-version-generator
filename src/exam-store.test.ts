@@ -1,6 +1,14 @@
 import { describe, expect, test } from 'bun:test'
-import { choicesOf, createQuestion, orderedChoices, orderedQuestions, topicsOf } from './exam'
-import type { Question } from './exam'
+import {
+  choicesOf,
+  createQuestion,
+  orderedChoices,
+  orderedQuestions,
+  questionsInSection,
+  sectionsOf,
+  topicsOf,
+} from './exam'
+import type { Question, SectionTarget } from './exam'
 import {
   createAuthoringState,
   createExamStore,
@@ -40,6 +48,23 @@ const bankIds = (store: ExamStore) =>
 const renderedIds = (store: ExamStore) => {
   const { exam, arrangement } = store.selectedExam()
   return orderedQuestions(exam, arrangement).map((question) => question.id)
+}
+
+/** A target beside one question: after it, or before it. */
+const beside = (
+  questionId: string,
+  placement: 'before' | 'after' = 'after',
+): SectionTarget => ({ kind: 'question', questionId, placement })
+
+/** The Working Copy's Sections, as ids, in print order. */
+const sectionIds = (store: ExamStore) => sectionsOf(store.selectedExam().exam).map(({ id }) => id)
+
+/** Each Section's questions, as ids, in print order. */
+const sectionContents = (store: ExamStore) => {
+  const { exam, arrangement } = store.selectedExam()
+  return sectionsOf(exam).map((section) =>
+    questionsInSection(exam, arrangement, section.id).map(({ id }) => id),
+  )
 }
 
 /** A store holding `count` banked questions, all of them on the Working Copy. */
@@ -149,7 +174,7 @@ describe('creating Question Content', () => {
     const inserted = createQuestion('multiple-choice')
 
     store.createInQuestionBank(inserted)
-    store.addToWorkingCopy(inserted, questions[0]!.id)
+    store.addToWorkingCopy(inserted, beside(questions[0]!.id))
 
     expect(renderedIds(store)).toEqual([
       questions[0]!.id,
@@ -200,11 +225,7 @@ describe('the Working Copy references the Question Bank', () => {
     }
     const store = createExamStore({ backend: memory(initial), initial })
 
-    store.addManyToWorkingCopy(
-      [questions[1]!.id, questions[2]!.id],
-      questions[0]!.id,
-      'after',
-    )
+    store.addManyToWorkingCopy([questions[1]!.id, questions[2]!.id], beside(questions[0]!.id))
 
     expect(renderedIds(store)).toEqual(questions.map(({ id }) => id))
   })
@@ -214,7 +235,7 @@ describe('the Working Copy references the Question Bank', () => {
     const before = store.getState()
 
     store.addToWorkingCopy(questions[0]!.id)
-    store.addToWorkingCopy(questions[0]!.id, questions[1]!.id)
+    store.addToWorkingCopy(questions[0]!.id, beside(questions[1]!.id))
 
     expect(store.getState().workingCopy.questionIds).toEqual([
       questions[0]!.id,
@@ -315,13 +336,13 @@ describe('Remove', () => {
   })
 })
 
-describe('Insert and Replace', () => {
+describe('Insert', () => {
   test('inserts an unused bank question after a chosen Working Copy question', async () => {
     const { store, questions } = await withExamWorkingCopy(2)
     const spare = createQuestion('multiple-choice')
     store.createInQuestionBank(spare)
 
-    store.addToWorkingCopy(spare.id, questions[0]!.id)
+    store.addToWorkingCopy(spare.id, beside(questions[0]!.id))
 
     expect(renderedIds(store)).toEqual([questions[0]!.id, spare.id, questions[1]!.id])
   })
@@ -331,7 +352,7 @@ describe('Insert and Replace', () => {
     const spare = createQuestion('multiple-choice')
     store.createInQuestionBank(spare)
 
-    store.addToWorkingCopy(spare.id, questions[1]!.id, 'before')
+    store.addToWorkingCopy(spare.id, beside(questions[1]!.id, 'before'))
 
     expect(renderedIds(store)).toEqual([questions[0]!.id, spare.id, questions[1]!.id])
   })
@@ -351,7 +372,7 @@ describe('Insert and Replace', () => {
     store.setQuestionColumns([first.id], 4)
     store.setQuestionColumns([second.id], 1)
 
-    store.addToWorkingCopy(beforeFirst.id, first.id, 'before')
+    store.addToWorkingCopy(beforeFirst.id, beside(first.id, 'before'))
     store.addToWorkingCopy(emptySectionFirst.id)
 
     expect(store.getState().workingCopy.columns?.[beforeFirst.id]).toBe(4)
@@ -371,38 +392,34 @@ describe('Insert and Replace', () => {
     const spare = createQuestion('multiple-choice')
     store.createInQuestionBank(spare)
 
-    store.addToWorkingCopy(spare.id, questions[0]!.id, 'before')
+    store.addToWorkingCopy(spare.id, beside(questions[0]!.id, 'before'))
 
     expect(renderedIds(store)).toEqual([spare.id, questions[0]!.id, questions[1]!.id])
   })
 
-  test('inserts before a question whose Working Copy neighbour is in the other section', async () => {
-    // The Working Copy's stored order interleaves the sections; the rendered
-    // order groups them. An insertion is placed against the *rendered*
-    // neighbour, so the two cannot disagree about where the question landed.
-    const { store, questions } = await withExamWorkingCopy(1, 'multiple-choice')
-    const shortAnswer = createQuestion('open')
-    store.createInQuestionBank(shortAnswer)
-    store.addToWorkingCopy(shortAnswer)
-    const second = createQuestion('multiple-choice')
-    store.createInQuestionBank(second)
-    store.addToWorkingCopy(second)
-    const spare = createQuestion('multiple-choice')
-    store.createInQuestionBank(spare)
-    expect(store.getState().workingCopy.questionIds).toEqual([
-      questions[0]!.id,
-      shortAnswer.id,
-      second.id,
-    ])
+  test('inserts before a question whose Working Copy neighbour is in the other section', () => {
+    // A Working Copy written before Sections were stored may interleave the
+    // types in its stored order, while the rendered order groups them. An
+    // insertion is placed against the *rendered* neighbour, so the two cannot
+    // disagree about where the question landed.
+    const [first, shortAnswer, second, spare] = [
+      createQuestion('multiple-choice'),
+      createQuestion('open'),
+      createQuestion('multiple-choice'),
+      createQuestion('multiple-choice'),
+    ]
+    const initial: AuthoringState = {
+      questionBank: { questions: [first!, shortAnswer!, second!, spare!] },
+      workingCopy: { title: 'Interleaved', questionIds: [first!.id, shortAnswer!.id, second!.id] },
+      dirty: false,
+    }
+    const store = createExamStore({ backend: memory(initial), initial })
 
-    store.addToWorkingCopy(spare.id, second.id, 'before')
+    store.addToWorkingCopy(spare!.id, beside(second!.id, 'before'))
 
-    expect(renderedIds(store)).toEqual([
-      questions[0]!.id,
-      spare.id,
-      second.id,
-      shortAnswer.id,
-    ])
+    expect(renderedIds(store)).toEqual([first!.id, spare!.id, second!.id, shortAnswer!.id])
+    // Once stored, the Working Copy's order is the order it prints.
+    expect(store.getState().workingCopy.questionIds).toEqual(renderedIds(store))
   })
 
   test('refuses to insert before a question in another Question Section', async () => {
@@ -414,7 +431,7 @@ describe('Insert and Replace', () => {
     store.createInQuestionBank(spare)
     const before = store.getState()
 
-    store.addToWorkingCopy(spare.id, shortAnswer.id, 'before')
+    store.addToWorkingCopy(spare.id, beside(shortAnswer.id, 'before'))
 
     expect(store.getState()).toBe(before)
   })
@@ -425,88 +442,24 @@ describe('Insert and Replace', () => {
     store.createInQuestionBank(shortAnswer)
     const before = store.getState()
 
-    store.addToWorkingCopy(shortAnswer.id, questions[0]!.id)
+    store.addToWorkingCopy(shortAnswer.id, beside(questions[0]!.id))
 
     expect(store.getState()).toBe(before)
   })
 
-  test('replaces one Working Copy question with an unused bank question in its place', async () => {
-    const { store, questions } = await withExamWorkingCopy(3)
-    const spare = createQuestion('multiple-choice')
-    store.createInQuestionBank(spare)
-
-    store.replaceInWorkingCopy(questions[1]!.id, spare.id)
-
-    expect(renderedIds(store)).toEqual([questions[0]!.id, spare.id, questions[2]!.id])
-  })
-
-  test('leaves the replaced question in the Question Bank, unchanged', async () => {
-    const { store, questions } = await withExamWorkingCopy(1)
-    const spare = createQuestion('multiple-choice')
-    store.createInQuestionBank(spare)
-
-    store.replaceInWorkingCopy(questions[0]!.id, spare.id)
-
-    expect(bankIds(store)).toEqual([questions[0]!.id, spare.id])
-    expect(store.getState().questionBank.questions[0]).toEqual(questions[0]!)
-    // Replaced out, so it is available to compose with again.
-    store.addToWorkingCopy(questions[0]!.id)
-    expect(renderedIds(store)).toEqual([spare.id, questions[0]!.id])
-  })
-
-  test('refuses a Replace across Question Sections, or one that would duplicate', async () => {
-    const { store, questions } = await withExamWorkingCopy(2, 'multiple-choice')
-    const shortAnswer = createQuestion('open')
-    store.createInQuestionBank(shortAnswer)
-    const before = store.getState()
-
-    store.replaceInWorkingCopy(questions[0]!.id, shortAnswer.id)
-    store.replaceInWorkingCopy(questions[0]!.id, questions[1]!.id)
-    store.replaceInWorkingCopy(questions[0]!.id, 'never-banked')
-    store.replaceInWorkingCopy('not-on-the-exam', shortAnswer.id)
-
-    expect(store.getState()).toBe(before)
-    expect(store.canUndo()).toBe(true)
-  })
-
-  test('Replace uses the incoming authored answer order and keeps the outgoing position and columns', async () => {
-    const { store } = await freshStore()
-    const before = createQuestion('multiple-choice', 2)
-    const outgoing = createQuestion('multiple-choice', 2)
-    const after = createQuestion('multiple-choice', 2)
-    const incoming = createQuestion('multiple-choice', 1)
-    for (const question of [before, outgoing, after]) {
-      store.createInQuestionBank(question)
-      store.addToWorkingCopy(question)
-    }
-    store.createInQuestionBank(incoming)
-    store.setQuestionColumns([outgoing.id], 4)
-    store.shuffleSelectedAnswers([outgoing.id])
-
-    store.replaceInWorkingCopy(outgoing.id, incoming.id)
-
-    expect(renderedIds(store)).toEqual([before.id, incoming.id, after.id])
-    expect(store.getState().workingCopy.columns?.[incoming.id]).toBe(4)
-    expect(store.getState().workingCopy.choiceOrder?.[incoming.id]).toBeUndefined()
-    expect(orderedChoices(
-      store.selectedExam().exam.questions.find(({ id }) => id === incoming.id)!,
-      store.selectedExam().arrangement,
-    ).map(({ id }) => id)).toEqual(choicesOf(incoming).map(({ id }) => id))
-  })
-
-  test('each is exactly one undo step', async () => {
+  test('an insert is exactly one undo step', async () => {
     const { store, questions } = await withExamWorkingCopy(2)
     const spare = createQuestion('multiple-choice')
     store.createInQuestionBank(spare)
 
-    store.replaceInWorkingCopy(questions[0]!.id, spare.id)
+    store.addToWorkingCopy(spare.id, beside(questions[0]!.id, 'before'))
     store.undo()
 
     expect(renderedIds(store)).toEqual([questions[0]!.id, questions[1]!.id])
     expect(bankIds(store)).toEqual([questions[0]!.id, questions[1]!.id, spare.id])
 
     store.redo()
-    expect(renderedIds(store)).toEqual([spare.id, questions[1]!.id])
+    expect(renderedIds(store)).toEqual([spare.id, questions[0]!.id, questions[1]!.id])
   })
 })
 
@@ -547,7 +500,7 @@ describe('moving a reference', () => {
   test('moves one question to an exact position on the Working Copy', async () => {
     const { store, questions } = await withExamWorkingCopy(3)
 
-    store.moveInWorkingCopy([questions[2]!.id], questions[0]!.id, 'before')
+    store.moveInWorkingCopy([questions[2]!.id], beside(questions[0]!.id, 'before'))
 
     expect(renderedIds(store)).toEqual([
       questions[2]!.id,
@@ -559,11 +512,7 @@ describe('moving a reference', () => {
   test('moves a selection as one block, preserving its order', async () => {
     const { store, questions } = await withExamWorkingCopy(4)
 
-    store.moveInWorkingCopy(
-      [questions[0]!.id, questions[1]!.id],
-      questions[3]!.id,
-      'after',
-    )
+    store.moveInWorkingCopy([questions[0]!.id, questions[1]!.id], beside(questions[3]!.id))
 
     expect(renderedIds(store)).toEqual([
       questions[2]!.id,
@@ -582,7 +531,7 @@ describe('moving a reference', () => {
     store.createInQuestionBank(shortAnswer)
     store.addToWorkingCopy(shortAnswer)
 
-    store.moveInWorkingCopy([shortAnswer.id], multipleChoice.id, 'before')
+    store.moveInWorkingCopy([shortAnswer.id], beside(multipleChoice.id, 'before'))
 
     expect(renderedIds(store)).toEqual([multipleChoice.id, shortAnswer.id])
   })
@@ -591,7 +540,7 @@ describe('moving a reference', () => {
     const { store, questions } = await withExamWorkingCopy(2)
     const before = store.getState()
 
-    store.moveInWorkingCopy([questions[0]!.id], questions[1]!.id, 'before')
+    store.moveInWorkingCopy([questions[0]!.id], beside(questions[1]!.id, 'before'))
 
     expect(store.getState()).toBe(before)
     // Nothing was recorded, so undo reaches past it to the last real action.
@@ -716,6 +665,254 @@ describe('shuffling selected questions', () => {
   })
 })
 
+describe('Question Sections on the Working Copy', () => {
+  /** A store whose Exam prints two Multiple Choice Sections around a Short
+   *  Answer one: [m1 m2] [o1] [m3 m4]. */
+  async function twoMultipleChoiceSections() {
+    const { backend, savedBackend, store } = await freshStore()
+    const [m1, m2, o1, m3, m4] = [
+      createQuestion('multiple-choice'),
+      createQuestion('multiple-choice'),
+      createQuestion('open'),
+      createQuestion('multiple-choice'),
+      createQuestion('multiple-choice'),
+    ] as const
+    for (const question of [m1, m2, o1, m3, m4]) {
+      store.createInQuestionBank(question)
+      store.addToWorkingCopy(question)
+    }
+    store.moveInWorkingCopy([m3.id, m4.id], { kind: 'new-section', afterSectionId: sectionIds(store)[1]! })
+    const [first, shortAnswer, second] = sectionIds(store) as [string, string, string]
+    await store.whenSettled()
+    return { backend, savedBackend, store, m1, m2, o1, m3, m4, first, shortAnswer, second }
+  }
+
+  test('a question moves into another Section of the same type, and one of another type is refused', async () => {
+    const { store, m1, m2, o1, m3, m4, shortAnswer, second } = await twoMultipleChoiceSections()
+    expect(sectionContents(store)).toEqual([[m1.id, m2.id], [o1.id], [m3.id, m4.id]])
+
+    store.moveInWorkingCopy([m1.id], beside(m4.id, 'before'))
+    expect(sectionContents(store)).toEqual([[m2.id], [o1.id], [m3.id, m1.id, m4.id]])
+
+    const before = store.getState()
+    store.moveInWorkingCopy([m2.id], { kind: 'section-end', sectionId: shortAnswer })
+    store.moveInWorkingCopy([o1.id], beside(m3.id))
+    expect(store.getState()).toBe(before)
+
+    store.moveInWorkingCopy([m2.id], { kind: 'section-end', sectionId: second })
+    expect(sectionContents(store)).toEqual([[], [o1.id], [m3.id, m1.id, m4.id, m2.id]])
+  })
+
+  test('a Section a move empties stays on the sheet, and is omitted from export', async () => {
+    const { store, m1, m2, o1, m3, m4, first, second } = await twoMultipleChoiceSections()
+
+    store.moveInWorkingCopy([m1.id, m2.id], { kind: 'section-end', sectionId: second })
+
+    expect(sectionContents(store)).toEqual([[], [o1.id], [m3.id, m4.id, m1.id, m2.id]])
+    expect(store.getState().workingCopy.sections?.map(({ id }) => id)).toContain(first)
+    const exported = prepareExport({
+      examId: 'exam-1',
+      ...store.selectedExam(),
+      configuration: DEFAULT_EXPORT_CONFIGURATION,
+      history: store.exportHistory(),
+      measure: unmeasured,
+      createdAt: '2026-09-04T12:00:00.000Z',
+      createId: () => 'record-1',
+    })
+    const printedSections = exported.record.plans.flatMap((plan) =>
+      plan.pages.flatMap((page) =>
+        page.items.flatMap((item) => (item.kind === 'section-heading' ? [item.sectionId] : [])),
+      ),
+    )
+    expect(printedSections.length).toBeGreaterThan(0)
+    expect(printedSections).not.toContain(first)
+  })
+
+  test('a new-Section target makes one Section per type directly below the one given', async () => {
+    const { store, m2, o1, first } = await twoMultipleChoiceSections()
+
+    store.moveInWorkingCopy([o1.id, m2.id], { kind: 'new-section', afterSectionId: first })
+
+    const [, made, madeShortAnswer] = sectionsOf(store.selectedExam().exam)
+    expect(made?.type).toBe('multiple-choice')
+    expect(madeShortAnswer?.type).toBe('open')
+    expect(sectionContents(store).slice(1, 4)).toEqual([[m2.id], [o1.id], []])
+  })
+
+  test('Add with no target goes to the last Section of its type, or a new Section at the end', async () => {
+    const { store, m1, m2, o1, m3, m4 } = await twoMultipleChoiceSections()
+    const choice = createQuestion('multiple-choice')
+    const trueFalse = createQuestion('true-false')
+    store.createInQuestionBank(choice)
+    store.createInQuestionBank(trueFalse)
+
+    store.addToWorkingCopy(choice.id)
+    store.addToWorkingCopy(trueFalse.id)
+
+    expect(sectionContents(store)).toEqual([
+      [m1.id, m2.id],
+      [o1.id],
+      [m3.id, m4.id, choice.id],
+      [trueFalse.id],
+    ])
+    expect(sectionsOf(store.selectedExam().exam).at(-1)?.type).toBe('true-false')
+  })
+
+  test('Add all with mixed types makes the new Sections in type order, and adds a type once per Section', async () => {
+    const { store } = await freshStore()
+    const questions = [
+      createQuestion('open'),
+      createQuestion('multiple-choice'),
+      createQuestion('true-false'),
+      createQuestion('open'),
+    ]
+    for (const question of questions) store.createInQuestionBank(question)
+
+    store.addManyToWorkingCopy(questions.map(({ id }) => id))
+
+    expect(sectionsOf(store.selectedExam().exam).map(({ type }) => type)).toEqual([
+      'multiple-choice',
+      'true-false',
+      'open',
+    ])
+    expect(sectionContents(store)).toEqual([
+      [questions[1]!.id],
+      [questions[2]!.id],
+      [questions[0]!.id, questions[3]!.id],
+    ])
+    store.undo()
+    expect(store.getState().workingCopy.questionIds).toEqual([])
+  })
+
+  test('Add all to a target adds only the questions its Section can take', async () => {
+    const { store, m1, m2, second } = await twoMultipleChoiceSections()
+    const choice = createQuestion('multiple-choice')
+    const shortAnswer = createQuestion('open')
+    store.createInQuestionBank(choice)
+    store.createInQuestionBank(shortAnswer)
+
+    store.addManyToWorkingCopy([shortAnswer.id, choice.id], beside(m1.id))
+
+    expect(sectionContents(store)[0]).toEqual([m1.id, choice.id, m2.id])
+    expect(store.getState().workingCopy.questionIds).not.toContain(shortAnswer.id)
+    const before = store.getState()
+    store.addToWorkingCopy(shortAnswer.id, { kind: 'section-end', sectionId: second })
+    expect(store.getState()).toBe(before)
+  })
+
+  test('moves a Section up or down past its neighbour, and a move off either end costs nothing', async () => {
+    const { store, first, shortAnswer, second } = await twoMultipleChoiceSections()
+
+    store.moveSection(first, 1)
+    expect(sectionIds(store)).toEqual([shortAnswer, first, second])
+    store.moveSection(second, -1)
+    expect(sectionIds(store)).toEqual([shortAnswer, second, first])
+
+    const before = store.getState()
+    store.moveSection(shortAnswer, -1)
+    store.moveSection(first, 1)
+    expect(store.getState()).toBe(before)
+
+    store.undo()
+    expect(sectionIds(store)).toEqual([shortAnswer, first, second])
+  })
+
+  test('deleting a Section Removes its questions, keeps them banked, and one undo restores them', async () => {
+    const { store, m1, m2, o1, m3, m4, first, shortAnswer, second } = await twoMultipleChoiceSections()
+
+    store.deleteSection(first)
+
+    expect(sectionIds(store)).toEqual([shortAnswer, second])
+    expect(renderedIds(store)).toEqual([o1.id, m3.id, m4.id])
+    expect(bankIds(store)).toContain(m1.id)
+    expect(store.getState().workingCopy.sectionOf?.[m1.id]).toBeUndefined()
+
+    store.undo()
+    expect(sectionIds(store)).toEqual([first, shortAnswer, second])
+    expect(sectionContents(store)).toEqual([[m1.id, m2.id], [o1.id], [m3.id, m4.id]])
+  })
+
+  test('a Section is reworded alone, not every Section of its type', async () => {
+    const { store, second } = await twoMultipleChoiceSections()
+
+    store.setSectionHeading(second, { title: 'Bonus' })
+
+    expect(sectionsOf(store.selectedExam().exam).map(({ title }) => title)).toEqual([
+      undefined,
+      undefined,
+      'Bonus',
+    ])
+  })
+
+  test('shuffling selected questions keeps each within its own Section', async () => {
+    const { store, m1, m2, o1, m3, m4 } = await twoMultipleChoiceSections()
+
+    store.shuffleSelectedQuestions([m1.id, m2.id, m3.id, m4.id])
+
+    expect(sectionContents(store)).toEqual([[m2.id, m1.id], [o1.id], [m4.id, m3.id]])
+  })
+
+  test('a duplicate lands directly after its original, in its original’s Section', async () => {
+    const { store, m1, m2, o1, m3, m4 } = await twoMultipleChoiceSections()
+
+    store.duplicateInWorkingCopy(m4.id)
+
+    const copyId = renderedIds(store).at(-1)!
+    expect(copyId).not.toBe(m4.id)
+    expect(sectionContents(store)).toEqual([[m1.id, m2.id], [o1.id], [m3.id, m4.id, copyId]])
+
+    store.duplicateInWorkingCopy(m1.id)
+    expect(sectionContents(store)[0]).toHaveLength(3)
+    expect(sectionContents(store)[0]![0]).toBe(m1.id)
+  })
+
+  test('Sections survive a reload from the Working Copy backup', async () => {
+    const { backend, savedBackend, store, second } = await twoMultipleChoiceSections()
+    store.setSectionHeading(second, { instructions: '' })
+    await store.whenSettled()
+    const contents = sectionContents(store)
+
+    const reloaded = await loadExamStore(backend, savedBackend)
+
+    expect(sectionContents(reloaded)).toEqual(contents)
+    expect(sectionsOf(reloaded.selectedExam().exam)[2]).toMatchObject({ id: second, instructions: '' })
+  })
+
+  test('a Working Copy written before Sections were stored keeps its wording when its Sections are first stored', () => {
+    const [choice, shortAnswer, spare] = [
+      createQuestion('multiple-choice'),
+      createQuestion('open'),
+      createQuestion('open'),
+    ]
+    const initial: AuthoringState = {
+      questionBank: { questions: [choice!, shortAnswer!, spare!] },
+      workingCopy: {
+        title: 'Legacy',
+        questionIds: [shortAnswer!.id, choice!.id],
+        sectionHeadings: { open: { title: 'Essays', instructions: '' } },
+      },
+      dirty: false,
+    }
+    const store = createExamStore({ backend: memory(initial), initial })
+    expect(sectionsOf(store.selectedExam().exam).map(({ id }) => id)).toEqual(['multiple-choice', 'open'])
+
+    store.addToWorkingCopy(spare!.id)
+
+    const { workingCopy } = store.getState()
+    expect(workingCopy.sectionHeadings).toBeUndefined()
+    expect(workingCopy.sections).toEqual([
+      { id: 'multiple-choice', type: 'multiple-choice' },
+      { id: 'open', type: 'open', title: 'Essays', instructions: '' },
+    ])
+    expect(sectionContents(store)).toEqual([[choice!.id], [shortAnswer!.id, spare!.id]])
+
+    store.undo()
+    expect(store.getState().workingCopy.sectionHeadings).toEqual({
+      open: { title: 'Essays', instructions: '' },
+    })
+  })
+})
+
 describe('duplicating', () => {
   test('banks a copy after the original with fresh identities and the visible presentation', async () => {
     const { store, questions } = await withExamWorkingCopy(2)
@@ -824,19 +1021,20 @@ describe('the dirty flag and persistence', () => {
     const { store } = await withExamWorkingCopy(1)
     await store.save()
 
-    store.setSectionHeading('multiple-choice', { title: 'Choose One', instructions: '' })
+    const [sectionId] = sectionIds(store)
+    store.setSectionHeading(sectionId!, { title: 'Choose One', instructions: '' })
     expect(store.getState().dirty).toBe(true)
-    expect(store.selectedExam().exam.sectionHeadings).toEqual({
-      'multiple-choice': { title: 'Choose One', instructions: '' },
-    })
+    expect(store.selectedExam().exam.sections).toEqual([
+      { id: sectionId!, type: 'multiple-choice', title: 'Choose One', instructions: '' },
+    ])
     store.setHeadingSize('small')
     expect(store.selectedExam().exam.headingSize).toBe('small')
 
     // Set back to the defaults, the Working Copy stores nothing and matches
     // the saved Exam again.
-    store.setSectionHeading('multiple-choice', { title: null, instructions: null })
+    store.setSectionHeading(sectionId!, { title: null, instructions: null })
     store.setHeadingSize('normal')
-    expect(store.getState().workingCopy.sectionHeadings).toBeUndefined()
+    expect(store.getState().workingCopy.sections).toEqual([{ id: sectionId!, type: 'multiple-choice' }])
     expect(store.getState().workingCopy.headingSize).toBeUndefined()
     expect(store.selectedExam().exam.headingSize).toBeUndefined()
     expect(store.getState().dirty).toBe(false)
@@ -884,7 +1082,7 @@ describe('the dirty flag and persistence', () => {
     const cases: Array<(store: ExamStore, question: Question) => void> = [
       (store) => store.setTitle('Chem Unit 3'),
       (store, question) => store.setQuestionColumns([question.id], 4),
-      (store) => store.setSectionHeading('open', { title: 'Essays' }),
+      (store) => store.setSectionHeading(sectionIds(store)[0]!, { title: 'Essays' }),
       (store) => store.setHeadingSize('large'),
       (store) => store.setHeaderLine('later', ''),
       (store) => store.setTextSize('small'),
@@ -986,7 +1184,7 @@ describe('the dirty flag and persistence', () => {
     const { backend, store, questions } = await withExamWorkingCopy(2)
     const bankOnly = createQuestion('open')
     store.createInQuestionBank(bankOnly)
-    store.moveInWorkingCopy([questions[1]!.id], questions[0]!.id, 'before')
+    store.moveInWorkingCopy([questions[1]!.id], beside(questions[0]!.id, 'before'))
     store.setTitle('Chem Unit 3')
     await store.whenSettled()
 
@@ -1041,32 +1239,6 @@ describe('the dirty flag and persistence', () => {
     expect(store.getState().workingCopy.title).toBe('Untitled Exam')
     expect(renderedIds(store)).toEqual(questions.map((question) => question.id))
     expect(store.getState().dirty).toBe(false)
-  })
-
-  test('Replace preserves an outgoing Question’s inherited and explicit column layout', async () => {
-    const { store } = await freshStore()
-    const inherited = { ...createQuestion('multiple-choice'), columns: 4 as const }
-    const inheritedIncoming = { ...createQuestion('multiple-choice'), columns: 1 as const }
-    const explicit = { ...createQuestion('multiple-choice'), columns: 2 as const }
-    const explicitIncoming = { ...createQuestion('multiple-choice'), columns: 1 as const }
-    for (const question of [inherited, explicit]) {
-      store.createInQuestionBank(question)
-      store.addToWorkingCopy(question)
-      store.setQuestionColumns([question.id], question.columns)
-    }
-    for (const question of [inheritedIncoming, explicitIncoming]) {
-      store.createInQuestionBank(question)
-    }
-
-    store.replaceInWorkingCopy(inherited.id, inheritedIncoming.id)
-    store.setQuestionColumns([explicit.id], 4)
-    store.replaceInWorkingCopy(explicit.id, explicitIncoming.id)
-
-    const columns = new Map(
-      store.selectedExam().exam.questions.map((question) => [question.id, question.columns]),
-    )
-    expect(columns.get(inheritedIncoming.id)).toBe(4)
-    expect(columns.get(explicitIncoming.id)).toBe(4)
   })
 
   test('Discard before the first user Save retains canonical Question Content', async () => {
@@ -1149,7 +1321,7 @@ describe('Save As', () => {
     const { store, questions } = await withExamWorkingCopy(2)
     await store.save()
     store.setTitle('Biology quiz')
-    store.moveInWorkingCopy([questions[1]!.id], questions[0]!.id, 'before')
+    store.moveInWorkingCopy([questions[1]!.id], beside(questions[0]!.id, 'before'))
     const sourceBefore = structuredClone(store.getState())
     let copied: import('./exam-store').SaveAsSnapshot | undefined
 
@@ -1205,7 +1377,7 @@ describe('undo and redo', () => {
     store.addToWorkingCopy(first)
     store.createInQuestionBank(second)
     store.addToWorkingCopy(second.id)
-    store.moveInWorkingCopy([second.id], first.id, 'before')
+    store.moveInWorkingCopy([second.id], beside(first.id, 'before'))
     store.removeFromWorkingCopy([first.id])
     expect(renderedIds(store)).toEqual([second.id])
 
@@ -1361,28 +1533,18 @@ describe('work space', () => {
     expect(backend.writes).toBe(writes)
   })
 
-  test('goes with a Removed question, follows a Replace, and is copied by Duplicate', async () => {
+  test('goes with a Removed question, and is copied by Duplicate', async () => {
     const { store, questions } = await withExamWorkingCopy(2, 'open')
     const [first, second] = questions
-    const spare = createQuestion('open')
-    store.createInQuestionBank(spare)
     store.setQuestionWorkSpace([first!.id], { height: 160, style: 'lines' })
     store.setQuestionWorkSpace([second!.id], { height: 64 })
 
     store.removeFromWorkingCopy([second!.id])
     expect(store.getState().workingCopy.workSpace?.[second!.id]).toBeUndefined()
 
-    store.replaceInWorkingCopy(first!.id, spare.id)
-    expect(store.getState().workingCopy.workSpace?.[first!.id]).toBeUndefined()
-    expect(store.getState().workingCopy.workSpace?.[spare.id]).toEqual({
-      height: 160,
-      style: 'lines',
-      fill: false,
-    })
-
-    store.duplicateInWorkingCopy(spare.id)
+    store.duplicateInWorkingCopy(first!.id)
     const copyId = store.getState().workingCopy.questionIds.find(
-      (id) => id !== spare.id,
+      (id) => id !== first!.id,
     )!
     expect(store.getState().workingCopy.workSpace?.[copyId]).toEqual({
       height: 160,

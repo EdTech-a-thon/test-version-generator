@@ -26,13 +26,13 @@
 // never leaving a bare question number at the foot of a page.
 
 import {
-  SECTION_ORDER,
   columnsOf,
   orderedChoices,
   orderedPartChoices,
   partsOf,
   promptsOf,
   questionsInSection,
+  sectionsOf,
   takesWorkSpace,
   topicsOf,
   WORK_SPACE_LINE_PITCH,
@@ -55,8 +55,8 @@ export { SECTION_INSTRUCTIONS, SECTION_TITLE } from './section-headings'
 import {
   DEFAULT_HEADING_SIZE,
   DEFAULT_TEXT_SIZE,
+  SECTION_INSTRUCTIONS,
   SECTION_TITLE,
-  sectionHeadingOf,
   type HeadingSize,
   type TextSize,
 } from './section-headings'
@@ -254,6 +254,9 @@ export function numberLabelOf(question: PlannedQuestion): string {
 
 export type SectionHeadingItem = {
   kind: 'section-heading'
+  /** Which of the Exam's Sections this heads. */
+  sectionId: string
+  /** That Section's Question Type — what its default wording is for. */
   section: QuestionType
   title: string
   instructions: string
@@ -263,6 +266,9 @@ export type SectionHeadingItem = {
   /** The Exam's heading size, present only when it is not `'normal'` — so an
    *  Exam that never chose one plans exactly as it always did. */
   size?: HeadingSize
+  /** A Section with no questions, planned only for the exam sheet, where it is
+   *  a place to put some. Exported output never carries one. */
+  empty?: true
 }
 
 // A question, or as much of one as this page has room for.
@@ -315,6 +321,7 @@ export type AnswerKeyHeadingItem = { kind: 'answer-key-heading' }
 
 export type AnswerKeySectionItem = {
   kind: 'answer-key-section'
+  sectionId: string
   section: QuestionType
   title: string
 }
@@ -736,25 +743,31 @@ function deriveQuestion(
   }
 }
 
-// Sections in fixed order, each omitted entirely when it holds no questions —
-// Empty sections omit their printed heading and instructions. Questions are
-// inserted from the application toolbar, outside the printable document.
-function deriveItems(exam: Exam, arrangement: Arrangement): PageItem[] {
+// The Exam's Sections in their own order. A Section with no questions is
+// omitted entirely from exported output — heading, directions and all — and is
+// planned only for the exam sheet, which asks for it, as somewhere to put
+// questions.
+function deriveItems(
+  exam: Exam,
+  arrangement: Arrangement,
+  emptySections = false,
+): PageItem[] {
   const items: PageItem[] = []
   let number = 1
-  for (const section of SECTION_ORDER) {
-    const questions = questionsInSection(exam, arrangement, section)
-    if (questions.length > 0) {
+  for (const section of sectionsOf(exam)) {
+    const questions = questionsInSection(exam, arrangement, section.id)
+    if (questions.length > 0 || emptySections) {
       // A part the teacher cleared is an empty string: it prints nothing, and
       // a heading cleared of both still holds its place in the plan — at no
       // height — so the sheet can offer to bring it back.
-      const heading = sectionHeadingOf(exam.sectionHeadings, section)
       items.push({
         kind: 'section-heading',
-        section,
-        title: heading.title,
-        instructions: heading.instructions,
+        sectionId: section.id,
+        section: section.type,
+        title: section.title ?? SECTION_TITLE[section.type],
+        instructions: section.instructions ?? SECTION_INSTRUCTIONS[section.type],
         keepWithNext: true,
+        ...(questions.length === 0 ? { empty: true as const } : {}),
         ...(exam.headingSize && exam.headingSize !== DEFAULT_HEADING_SIZE
           ? { size: exam.headingSize }
           : {}),
@@ -1124,26 +1137,27 @@ function paginate(
 // is a number on the test — because the key is derived before layout and the
 // id set guards repeats.
 function deriveAnswerKey(testItems: readonly PageItem[]): PageItem[] {
-  // The key's section titles are the test's own, as the Exam words them. A
-  // heading cleared from the test still names its group here: the key is a
-  // teacher's reference, and a run of answers with no label is not one.
-  const titles = new Map<QuestionType, string>()
-  for (const item of testItems) {
-    if (item.kind === 'section-heading' && item.title) titles.set(item.section, item.title)
-  }
+  // The key groups its lines by the test's Sections, under the test's own
+  // titles, as the Exam words them. A heading cleared from the test still
+  // names its group here: the key is a teacher's reference, and a run of
+  // answers with no label is not one. A Section with no questions has no
+  // group.
   const items: PageItem[] = [{ kind: 'answer-key-heading' }]
   const seen = new Set<string>()
-  let section: QuestionType | null = null
+  let heading: SectionHeadingItem | null = null
+  let grouped: string | null = null
 
   for (const item of testItems) {
+    if (item.kind === 'section-heading') heading = item
     if (item.kind !== 'question' || seen.has(item.question.id)) continue
     seen.add(item.question.id)
-    if (item.question.type !== section) {
-      section = item.question.type
+    if (heading && heading.sectionId !== grouped) {
+      grouped = heading.sectionId
       items.push({
         kind: 'answer-key-section',
-        section,
-        title: titles.get(section) ?? SECTION_TITLE[section],
+        sectionId: heading.sectionId,
+        section: heading.section,
+        title: heading.title || SECTION_TITLE[heading.section],
       })
     }
     const metadata = {
@@ -1235,8 +1249,9 @@ export function buildExportDocument(
   arrangement: Arrangement,
   selection: ExportContentSelection,
   version?: string,
+  emptySections = false,
 ): ExportDocument {
-  const test = deriveItems(exam, arrangement)
+  const test = deriveItems(exam, arrangement, emptySections)
   return {
     title: exam.title,
     arrangement: {
@@ -1295,6 +1310,9 @@ export type PlanRequest = {
   /** The shuffled Version this paper is, named on every page; absent for the
    *  Working Copy's own arrangement, which prints no label. */
   version?: string
+  /** Plan empty Sections too, as the exam sheet does, where each is a place to
+   *  put questions. Never set for anything exported. */
+  emptySections?: boolean
 }
 
 /** Layout resolution, on its own: an Export Document onto sheets. Keeping the
@@ -1356,6 +1374,10 @@ export function planExport({
   selection,
   measure,
   version,
+  emptySections,
 }: PlanRequest): LayoutPlan {
-  return resolveLayout(buildExportDocument(exam, arrangement, selection, version), measure)
+  return resolveLayout(
+    buildExportDocument(exam, arrangement, selection, version, emptySections),
+    measure,
+  )
 }

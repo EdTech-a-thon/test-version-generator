@@ -34,8 +34,15 @@ export type ExamWorkingCopy = {
    *  Absent means authored order, preserving compatibility with drafts stored
    *  before answer shuffling existed. */
   choiceOrder?: Record<string, string[]>
-  /** This Exam's rewording of its section headings, and the size they print
-   *  at. Exam presentation like `workSpace`; absent means the defaults. */
+  /** This Exam's Question Sections, in print order, and which one each
+   *  referenced question belongs to. Absent on a Working Copy written before
+   *  Sections were stored, which then reads as one Section per type
+   *  (`sectionsOf` in exam.ts); the first structural edit stores them. */
+  sections?: import('./exam').ExamSection[]
+  sectionOf?: Record<string, string>
+  /** The rewording a Working Copy written before Sections were stored gave
+   *  each type's one Section, and the size every heading prints at. Exam
+   *  presentation like `workSpace`; absent means the defaults. */
   sectionHeadings?: import('./section-headings').SectionHeadings
   headingSize?: import('./section-headings').HeadingSize
   textSize?: import('./section-headings').TextSize
@@ -132,10 +139,14 @@ export function withReferencesRemoved(
   const workSpace = draft.workSpace
     ? { ...draft.workSpace }
     : undefined
+  const sectionOf = draft.sectionOf
+    ? { ...draft.sectionOf }
+    : undefined
   for (const id of [...removing, ...partIds]) {
     delete choiceOrder?.[id]
     delete columns?.[id]
     delete workSpace?.[id]
+    delete sectionOf?.[id]
   }
   return {
     ...draft,
@@ -143,6 +154,24 @@ export function withReferencesRemoved(
     ...(choiceOrder ? { choiceOrder } : {}),
     ...(columns ? { columns } : {}),
     ...(workSpace ? { workSpace } : {}),
+    ...(sectionOf ? { sectionOf } : {}),
+  }
+}
+
+/** The Working Copy with a structural edit's Sections written back: every
+ *  Section stored, every question placed, and its references in the order the
+ *  Sections print them. Once Sections are stored, the legacy per-type wording
+ *  has moved onto them and is dropped. */
+export function withSectionLayout(
+  draft: ExamWorkingCopy,
+  layout: import('./exam').SectionLayout,
+): ExamWorkingCopy {
+  const rest: ExamWorkingCopy = { ...draft }
+  delete rest.sectionHeadings
+  return {
+    ...withReferenceOrder(rest, layout.questionOrder),
+    sections: layout.sections,
+    sectionOf: layout.sectionOf,
   }
 }
 
@@ -185,79 +214,3 @@ export function withChoiceOrder(
   return { ...draft, choiceOrder }
 }
 
-/** What a Replace of one Multipart question by another knows about their Parts: every
- *  Part id of the outgoing question, and which outgoing Part each incoming Part
- *  stands in for. */
-export type ReplacedParts = {
-  outgoing: readonly string[]
-  pairs: readonly (readonly [outgoingPartId: string, incomingPartId: string])[]
-}
-
-/**
- * One reference Replaced by another, in place.
- *
- * The incoming question takes the outgoing one's exact position, so a Replace
- * is a change of content at a position rather than a Remove and an add. The
- * outgoing question keeps its Question Bank record: replacement is not
- * deletion, and the question it replaced is available again immediately.
- *
- * Refused — the Working Copy comes back unchanged — when the outgoing question is
- * not referenced or the incoming one already is. Whether the two are of the
- * same Question Type is the store's business: a Working Copy holds ids, and only
- * the Question Bank knows what is behind them.
- */
-export function withReferenceReplaced(
-  draft: ExamWorkingCopy,
-  outgoingQuestionId: string,
-  incomingQuestionId: string,
-  parts: ReplacedParts = { outgoing: [], pairs: [] },
-): ExamWorkingCopy {
-  const index = draft.questionIds.indexOf(outgoingQuestionId)
-  if (index < 0 || isInWorkingCopy(draft, incomingQuestionId)) return draft
-  const questionIds = [...draft.questionIds]
-  questionIds[index] = incomingQuestionId
-  // Replace begins with the incoming question's authored arrangement. Neither
-  // an outgoing arrangement nor stale persisted state may follow it here.
-  const choiceOrder = draft.choiceOrder
-    ? { ...draft.choiceOrder }
-    : undefined
-  delete choiceOrder?.[outgoingQuestionId]
-  delete choiceOrder?.[incomingQuestionId]
-  // The position's layout belongs to this Exam arrangement, so Replace carries
-  // it to the incoming Question while its authored answer order starts fresh.
-  const columns = draft.columns ? { ...draft.columns } : undefined
-  const outgoingColumns = columns?.[outgoingQuestionId]
-  delete columns?.[outgoingQuestionId]
-  delete columns?.[incomingQuestionId]
-  if (outgoingColumns !== undefined) columns![incomingQuestionId] = outgoingColumns
-  // So does the room left for work: the page keeps its shape when one Short
-  // Answer question stands in for another.
-  const workSpace = draft.workSpace ? { ...draft.workSpace } : undefined
-  const outgoingWorkSpace = workSpace?.[outgoingQuestionId]
-  delete workSpace?.[outgoingQuestionId]
-  delete workSpace?.[incomingQuestionId]
-  if (outgoingWorkSpace !== undefined) workSpace![incomingQuestionId] = outgoingWorkSpace
-  // A Multipart question's Parts keep the page's shape position by position: each
-  // incoming Part takes the columns and work space of the outgoing Part in the
-  // same place, where the two are the same kind. Answer order starts fresh, as
-  // it does for the question.
-  const carried = new Map(parts.pairs)
-  for (const outgoingPartId of parts.outgoing) {
-    const incomingPartId = carried.get(outgoingPartId)
-    const partColumns = columns?.[outgoingPartId]
-    const partWorkSpace = workSpace?.[outgoingPartId]
-    delete choiceOrder?.[outgoingPartId]
-    delete columns?.[outgoingPartId]
-    delete workSpace?.[outgoingPartId]
-    if (incomingPartId === undefined) continue
-    if (partColumns !== undefined) columns![incomingPartId] = partColumns
-    if (partWorkSpace !== undefined) workSpace![incomingPartId] = partWorkSpace
-  }
-  return {
-    ...draft,
-    questionIds,
-    ...(choiceOrder ? { choiceOrder } : {}),
-    ...(columns ? { columns } : {}),
-    ...(workSpace ? { workSpace } : {}),
-  }
-}

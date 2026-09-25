@@ -33,6 +33,7 @@ import {
   type SectionHeadingItem,
 } from './export-plan'
 import type { ProseMirrorJSON } from './question-doc'
+import { SECTION_LABELS } from './exam'
 
 /** The blocks inside a node — a choice's own paragraphs, say. */
 function blocksOf(node: ProseMirrorJSON): ProseMirrorJSON[] {
@@ -290,15 +291,43 @@ export function QuestionContent({
 // A cleared part prints nothing — not an empty line — and a heading cleared of
 // both prints nothing at all, so it measures, and packs, at no height.
 export function SectionHeadingContent({ item }: { item: SectionHeadingItem }) {
-  if (!item.title && !item.instructions) return null
+  if (!item.title && !item.instructions) {
+    return item.empty ? <EmptySectionBox item={item} /> : null
+  }
   const styles = sectionHeadingStyles(item.size)
   return (
-    <header className="exam-section">
-      {item.title && <h2 className="section-title" style={styles.title}>{item.title}</h2>}
-      {item.instructions && (
-        <p className="section-instructions" style={styles.instructions}>{item.instructions}</p>
-      )}
-    </header>
+    <>
+      <header className="exam-section">
+        {item.title && <h2 className="section-title" style={styles.title}>{item.title}</h2>}
+        {item.instructions && (
+          <p className="section-instructions" style={styles.instructions}>{item.instructions}</p>
+        )}
+      </header>
+      {item.empty && <EmptySectionBox item={item} />}
+    </>
+  )
+}
+
+/** Where an empty Question Section takes questions of its type on the exam
+ *  sheet. Only the sheet plans an empty Section, so this is never exported; it
+ *  is drawn here, with the heading, so the sheet measures the room it takes. */
+export function EmptySectionBox({
+  item,
+  active = false,
+}: {
+  item: SectionHeadingItem
+  active?: boolean
+}) {
+  return (
+    <div
+      className="exam-section-empty"
+      data-empty-section=""
+      data-section-id={item.sectionId}
+      data-section-type={item.section}
+      data-active={active ? 'true' : undefined}
+    >
+      Drag {SECTION_LABELS[item.section].toLowerCase()} questions here
+    </div>
   )
 }
 
