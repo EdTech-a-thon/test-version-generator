@@ -172,6 +172,26 @@ function renderNode(node: ProseMirrorJSON, key: number): ReactNode {
         </figure>
       )
     }
+    // Two or three equal Panels across the line, centred against one another;
+    // see `.doc-side-by-side` in styles.css.
+    case 'sideBySide': {
+      const panels = childrenOf(node)
+      return (
+        <div
+          key={key}
+          className="doc-side-by-side"
+          style={{ gridTemplateColumns: `repeat(${Math.max(1, panels.length)}, minmax(0, 1fr))` }}
+        >
+          {panels.map((panel, index) => (
+            <div key={index} className="doc-panel">
+              {renderAll(panel)}
+            </div>
+          ))}
+        </div>
+      )
+    }
+    case 'sideBySidePanel':
+      return <div key={key} className="doc-panel">{renderAll(node)}</div>
     case 'table':
       return (
         <table key={key} className="doc-table">

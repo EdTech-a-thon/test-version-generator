@@ -160,6 +160,93 @@ describe('PDF Export Adapter', () => {
     expect(text).not.toContain('\\sqrt')
   })
 
+  // A converted precalculus test printed `dfrac{3x - 4}{2x - 5}` and
+  // `-2 le x le 4`: every command the typesetter did not know lost its
+  // backslash and printed as a word.
+  test('writes school notation as notation, never as LaTeX command names', async () => {
+    const { plans } = plansOf('school mathematics notation')
+    const bytes = await createPublicationPdf(plans, noImages, fonts)
+    const document = await getDocument({ data: bytes, disableWorker: true }).promise
+    const text = (await (await document.getPage(1)).getTextContent()).items
+      .map((item) => ('str' in item ? item.str : ''))
+      .join(' ')
+    const compact = text.replace(/\s+/g, '')
+
+    expect(compact).toContain('f(x)=(3x−4)⁄(2x−5)')
+    expect(compact).toContain('−2≤x≤4')
+    expect(compact).toContain('h(x)=3f(x⁄2)+1')
+    expect(compact).toContain('(f∘g)(x)')
+    expect(compact).toContain('[−1⁄5,1⁄4]')
+    expect(compact).toContain('[−4,3]')
+    expect(compact).toContain('≠g(x)')
+    expect(compact).toContain('undefined')
+    expect(compact).toContain('√(x+1)⁄2≥0')
+    for (const leak of ['frac', 'left', 'right', 'circ', 'text', 'geq', '\\', '{', '}']) {
+      expect(compact).not.toContain(leak)
+    }
+  })
+
+  test('draws a boxed passage inside a black border around its text', async () => {
+    const { plans } = plansOf('a boxed passage that opens its question')
+    const bytes = await createPublicationPdf(plans, noImages, fonts)
+    const page = await (await getDocument({ data: bytes, disableWorker: true }).promise).getPage(1)
+    const text = (await page.getTextContent()).items
+      .map((item) => ('str' in item ? item.str : ''))
+      .join(' ')
+    expect(text).toContain('Competition from the Americas')
+    expect(text).toContain('Source: BBC online')
+
+    // pdf-lib strokes a bordered rectangle in the colour it is given: the box
+    // is the one black stroke on the page.
+    const operators = await page.getOperatorList()
+    const blackStrokes = operators.fnArray.filter((op, index) => {
+      const args = operators.argsArray[index] as unknown[]
+      return op === OPS.setStrokeRGBColor
+        && (args.join(',') === '0,0,0' || String(args[0]).toLowerCase() === '#000000')
+    })
+    expect(blackStrokes.length).toBeGreaterThanOrEqual(1)
+  })
+
+  test('draws a Side-by-Side’s pictures beside one another, each centred in its Panel', async () => {
+    const { plans } = plansOf('side-by-side panels of pictures, tables and text')
+    const bytes = await createPublicationPdf(plans, pixel, fonts)
+    const page = await (await getDocument({ data: bytes, disableWorker: true }).promise).getPage(1)
+    const operators = await page.getOperatorList()
+    // pdf-lib draws an image as save, translate to its corner, scale to its
+    // size, paint.
+    const images: { left: number; bottom: number; width: number }[] = []
+    let corner = [0, 0]
+    let width = 0
+    for (const [index, op] of operators.fnArray.entries()) {
+      const args = operators.argsArray[index] as number[]
+      if (op === OPS.transform) {
+        const unit = args[0] === 1 && args[3] === 1
+        if (unit && (args[4] !== 0 || args[5] !== 0)) corner = [args[4]!, args[5]!]
+        else if (!unit && args[4] === 0 && args[5] === 0) width = args[0]!
+      }
+      if (op === OPS.paintImageXObject) {
+        images.push({ left: corner[0]!, bottom: corner[1]!, width })
+      }
+    }
+    // The two graphs of the first question.
+    const [f, g] = images
+    expect(f).toBeDefined()
+    expect(g).toBeDefined()
+    const margin = 72 * 0.75
+    const body = margin + questionIndentOf({ type: 'multiple-choice' }) * 0.75
+    const lane = 816 * 0.75 - margin - body
+    const panel = lane / 2
+    // Side by side: g in the right Panel, level with f rather than below it.
+    expect(g!.left).toBeGreaterThanOrEqual(body + panel - 0.5)
+    expect(f!.left + f!.width).toBeLessThanOrEqual(body + panel + 0.5)
+    // Each centred across its Panel.
+    expect(Math.abs(f!.left + f!.width / 2 - (body + panel / 2))).toBeLessThan(9)
+    expect(Math.abs(g!.left + g!.width / 2 - (body + panel * 1.5))).toBeLessThan(9)
+    // g is drawn smaller (its Authored Image Size), so centring it against f
+    // puts its bottom above f's.
+    expect(g!.bottom).toBeGreaterThan(f!.bottom)
+  })
+
   test('requires the font variants used by authored formatting', async () => {
     const { plans } = plansOf('every inline mark')
     const requested: string[] = []

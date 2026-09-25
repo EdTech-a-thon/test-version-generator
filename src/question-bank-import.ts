@@ -6,6 +6,7 @@ import questionBankSchema020 from './question-bank-record-0.2.0.schema.json'
 import questionBankSchema030 from './question-bank-record-0.3.0.schema.json'
 import questionBankSchema040 from './question-bank-record-0.4.0.schema.json'
 import questionBankSchema050 from './question-bank-record-0.5.0.schema.json'
+import questionBankSchema060 from './question-bank-record-0.6.0.schema.json'
 import {
   QUESTION_BANK_ATTACHMENT_DESCRIPTION,
   QUESTION_BANK_FORMAT,
@@ -308,6 +309,7 @@ const validate020 = ajv.compile(questionBankSchema020)
 const validate030 = ajv.compile(questionBankSchema030)
 const validate040 = ajv.compile(questionBankSchema040)
 const validate050 = ajv.compile(questionBankSchema050)
+const validate060 = ajv.compile(questionBankSchema060)
 
 function schemaMessage(errors: ErrorObject[] | null | undefined): string {
   const first = errors?.[0]
@@ -423,6 +425,72 @@ function valueAt(value: unknown, pointer: string): unknown {
         : undefined, value)
 }
 
+/** The versions that know the Pending Image, added in 0.5.0. */
+const PENDING_IMAGE_VERSIONS: ReadonlySet<string> = new Set(['0.5.0', '0.6.0'])
+
+/** The versions that know the Side-by-Side, added in 0.6.0. */
+const SIDE_BY_SIDE_VERSIONS: ReadonlySet<string> = new Set(['0.6.0'])
+
+/** Where a Side-by-Side may stand: a top-level block of a Question's stem or
+ *  of a Multipart Part's stem, and nowhere else. */
+const STEM_BLOCK = /^bank\/questions\/\d+\/(?:parts\/\d+\/)?stem\/content\/\d+$/
+
+const isSideBySideNode = (node: unknown): node is { type: 'side-by-side' | 'panel'; content?: unknown } =>
+  typeof node === 'object' &&
+  node !== null &&
+  ((node as { type?: unknown }).type === 'side-by-side' || (node as { type?: unknown }).type === 'panel')
+
+/** What is wrong with the Side-by-Side a schema failure at `pointer` passes
+ *  through, if that is what failed. */
+function sideBySideProblem(value: unknown, pointer: string, sourceVersion: string): string | undefined {
+  const segments = pointer.split('/').filter(Boolean)
+  const trail: { path: string; node: { type: 'side-by-side' | 'panel'; content?: unknown } }[] = []
+  let current = value
+  for (const [index, segment] of segments.entries()) {
+    current =
+      typeof current === 'object' && current !== null
+        ? (current as Record<string, unknown>)[segment]
+        : undefined
+    if (isSideBySideNode(current)) trail.push({ path: segments.slice(0, index + 1).join('/'), node: current })
+  }
+  const [outer, ...within] = trail
+  if (!outer) return undefined
+  if (!SIDE_BY_SIDE_VERSIONS.has(sourceVersion))
+    return `Side-by-Sides need Question Bank Record 0.6.0 or later; this record declares ${sourceVersion}.`
+  if (outer.node.type === 'panel') return 'A Panel may appear only inside a Side-by-Side.'
+  if (!STEM_BLOCK.test(outer.path))
+    return 'A Side-by-Side may appear only as a top-level block of a Question’s or a Part’s stem — not in an answer, a matching item, a Word Bank answer or a Suggested Answer, and not inside a blockquote, a list, a table or a Panel.'
+  const panels = outer.node.content
+  if (!Array.isArray(panels) || panels.length < 2 || panels.length > 3)
+    return `A Side-by-Side must hold two or three Panels; this one holds ${Array.isArray(panels) ? panels.length : 'none'}.`
+  if (panels.some((panel) => (panel as { type?: unknown } | null)?.type !== 'panel'))
+    return 'A Side-by-Side may hold only Panels.'
+  if (within.some(({ node }) => node.type === 'side-by-side'))
+    return 'A Side-by-Side cannot be placed inside a Panel of another Side-by-Side.'
+  if (panels.some((panel) => !Array.isArray((panel as { content?: unknown }).content) || (panel as { content: unknown[] }).content.length === 0))
+    return 'A Panel must hold at least one block.'
+  return undefined
+}
+
+/**
+ * A misplaced or malformed Side-by-Side is lifted out of the generic
+ * structural failure for the reason a malformed Pending Image is: an
+ * assistant converting a test is likely to put one where the format does not
+ * allow it, and the message should say where it may go rather than name a
+ * JSON pointer. It stays a structural failure — the schema is what forbids it.
+ */
+function malformedSideBySide(
+  errors: ErrorObject[] | null | undefined,
+  value: unknown,
+  sourceVersion: string,
+): QuestionBankImportError | undefined {
+  for (const error of errors ?? []) {
+    const problem = sideBySideProblem(value, error.instancePath, sourceVersion)
+    if (problem) return new QuestionBankImportError('invalid-structure', problem)
+  }
+  return undefined
+}
+
 /**
  * A malformed Pending Image is lifted out of the generic structural failure,
  * as an unsafe link is: it is the mistake an assistant converting a test is
@@ -441,10 +509,10 @@ function malformedPendingImage(
     if (typeof node !== 'object' || node === null || !('pending' in node)) continue
     const { type, pending, asset } = node as { type?: unknown; pending?: unknown; asset?: unknown }
     if (type !== 'inline-image' && type !== 'block-image') continue
-    if (sourceVersion !== '0.5.0') {
+    if (!PENDING_IMAGE_VERSIONS.has(sourceVersion)) {
       return new QuestionBankImportError(
         'invalid-question',
-        `Pending Images need Question Bank Record 0.5.0; this record declares ${sourceVersion}.`,
+        `Pending Images need Question Bank Record 0.5.0 or later; this record declares ${sourceVersion}.`,
       )
     }
     if (typeof pending === 'object' && pending !== null && Object.keys(pending).length === 0) {
@@ -493,6 +561,8 @@ function parseWith(
     }
     const pendingError = malformedPendingImage(validate.errors, value, sourceVersion)
     if (pendingError) throw pendingError
+    const sideBySideError = malformedSideBySide(validate.errors, value, sourceVersion)
+    if (sideBySideError) throw sideBySideError
     throw new QuestionBankImportError(
       'invalid-structure',
       schemaMessage(validate.errors),
@@ -542,10 +612,11 @@ function parseWith(
 /**
  * Every retained version migrates forward without rewriting anything. 0.2.0
  * added `true-false` to 0.1.0, 0.3.0 added `matching` to 0.2.0, and 0.4.0
- * added `multipart` to 0.3.0, and 0.5.0 added Pending Images to 0.4.0; none
- * can appear in an older record, and no version changed anything an older
- * record already says — so a record that satisfies an older schema is already
- * a conforming 0.5.0 record once its version is restated.
+ * added `multipart` to 0.3.0, 0.5.0 added Pending Images to 0.4.0, and 0.6.0
+ * added the Side-by-Side to 0.5.0; none can appear in an older record, and no
+ * version changed anything an older record already says — so a record that
+ * satisfies an older schema is already a conforming 0.6.0 record once its
+ * version is restated.
  */
 const parser010: Parser = (value) => parseWith(validate010, '0.1.0', value)
 
@@ -557,6 +628,8 @@ const parser040: Parser = (value) => parseWith(validate040, '0.4.0', value)
 
 const parser050: Parser = (value) => parseWith(validate050, '0.5.0', value)
 
+const parser060: Parser = (value) => parseWith(validate060, '0.6.0', value)
+
 /** Exact versions only: adding compatibility requires adding an explicit parser or migration. */
 export const SUPPORTED_QUESTION_BANK_VERSIONS: Readonly<Record<string, Parser>> =
   Object.freeze({
@@ -565,6 +638,7 @@ export const SUPPORTED_QUESTION_BANK_VERSIONS: Readonly<Record<string, Parser>> 
     '0.3.0': parser030,
     '0.4.0': parser040,
     '0.5.0': parser050,
+    '0.6.0': parser060,
   })
 
 const utf8 = new TextDecoder('utf-8', { fatal: true })

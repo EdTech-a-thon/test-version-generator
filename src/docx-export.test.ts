@@ -21,7 +21,7 @@ import {
   prepareExport,
 } from './export-preparation'
 import { docxFingerprint } from './docx-fingerprint'
-import { parseXml } from './xml'
+import { descendants, parseXml, path } from './xml'
 import { FIXTURES, PIXEL_PNG, paragraph, text } from './export-fixtures'
 import { planExport, unmeasured, STUDENT_TEST } from './export-plan'
 import type { Arrangement, Exam } from './exam'
@@ -390,11 +390,16 @@ describe('what Word is asked to draw stays on the sheet', () => {
   test('every table’s grid columns are its cells’ widths', async () => {
     const wrong: string[] = []
     for (const fixture of FIXTURES) {
-      const xml = await part(await packagedFixture(fixture), 'word/document.xml')
-      for (const [table] of xml.matchAll(/<w:tbl>.*?<\/w:tbl>/gs)) {
-        const grid = [...table.matchAll(/<w:gridCol w:w="(\d+)"\/>/g)].map((match) => Number(match[1]))
-        const firstRow = /<w:tr\b.*?<\/w:tr>/s.exec(table)![0]
-        const cells = [...firstRow.matchAll(/<w:tcW w:type="dxa" w:w="(\d+)"\/>/g)].map((match) => Number(match[1]))
+      const xml = parseXml(await part(await packagedFixture(fixture), 'word/document.xml'))
+      // Parsed rather than matched: a table in a Panel is a table in a table.
+      for (const table of descendants(xml, 'w:tbl')) {
+        const grid = (path(table, 'w:tblGrid')?.children ?? [])
+          .filter((column) => column.name === 'w:gridCol')
+          .map((column) => Number(column.attrs['w:w']))
+        const firstRow = table.children.find((row) => row.name === 'w:tr')!
+        const cells = firstRow.children
+          .filter((cell) => cell.name === 'w:tc')
+          .map((cell) => Number(path(cell, 'w:tcPr', 'w:tcW')?.attrs['w:w']))
         if (grid.join() !== cells.join()) wrong.push(`${fixture.name}: grid ${grid} for cells ${cells}`)
       }
     }

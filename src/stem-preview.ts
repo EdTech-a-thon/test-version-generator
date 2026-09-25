@@ -40,6 +40,8 @@ const PROSE_BLOCKS = new Set([
   'bullet_list',
   'ordered_list',
   'list_item',
+  'sideBySide',
+  'sideBySidePanel',
 ])
 
 const BADGE_NODES: Record<string, StemPreviewBadge> = {

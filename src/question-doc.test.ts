@@ -139,6 +139,30 @@ describe('cleanDocument', () => {
     ])
   })
 
+  test('keeps a Side-by-Side to at most three Panels, none of them empty', () => {
+    const cleaned = cleanDocument({
+      type: 'doc',
+      content: [
+        {
+          type: 'sideBySide',
+          content: [
+            { type: 'sideBySidePanel' },
+            { type: 'paragraph' },
+            { type: 'sideBySidePanel', content: [{ type: 'paragraph' }] },
+            { type: 'sideBySidePanel', content: [{ type: 'paragraph' }] },
+            { type: 'sideBySidePanel', content: [{ type: 'paragraph' }] },
+          ],
+        },
+        { type: 'sideBySide' },
+      ],
+    })
+    const [kept, emptied] = cleaned.content as ProseMirrorJSON[]
+    const panels = kept!.content as ProseMirrorJSON[]
+    expect(panels.map((panel) => panel.type)).toEqual(['sideBySidePanel', 'sideBySidePanel', 'sideBySidePanel'])
+    expect(panels[0]!.content).toEqual([{ type: 'paragraph' }])
+    expect((emptied!.content as ProseMirrorJSON[]).length).toBe(1)
+  })
+
   test('never leaves a choice list with fewer than two answers', () => {
     const cleaned = cleanDocument(doc(choiceList('c1')))
     expect(choiceNodesOf(cleaned)).toHaveLength(2)

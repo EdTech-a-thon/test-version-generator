@@ -9,6 +9,7 @@ import {
   QUESTION_BANK_FORMAT_VERSION,
   type QuestionBankRecord,
   type QuestionBankRecordQuestion,
+  type SemanticNode,
 } from './question-bank-export'
 import {
   DEFAULT_QUESTION_BANK_IMPORT_LIMITS,
@@ -26,6 +27,18 @@ const paragraph = (value = 'Question') => ({
   type: 'document' as const,
   content: [{ type: 'paragraph', content: [{ type: 'text', text: value }] }],
 })
+
+const block = (value = 'Panel') => ({ type: 'paragraph', content: [{ type: 'text', text: value }] })
+const panel = (...content: SemanticNode[]): SemanticNode => ({ type: 'panel', content })
+const sideBySide = (...panels: SemanticNode[]): SemanticNode => ({ type: 'side-by-side', content: panels })
+const PIXEL_ID = 'sha256:c414cd0e204de974f73753c7e28d7638e7b3691bb8b1a2bab6b25bb7fed7ce77'
+const PIXEL_ASSET: QuestionBankRecord['media'][number] = {
+  id: PIXEL_ID,
+  mimeType: 'image/png',
+  width: 1,
+  height: 1,
+  bytes: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+}
 
 function baseRecord(): QuestionBankRecord {
   return {
@@ -203,6 +216,7 @@ describe('hostile Question Bank File inspection', () => {
       '0.3.0',
       '0.4.0',
       '0.5.0',
+      '0.6.0',
     ])
     expect(DEFAULT_QUESTION_BANK_IMPORT_LIMITS).toEqual({
       pdfBytes: 100 * 1024 * 1024,
@@ -236,17 +250,17 @@ describe('hostile Question Bank File inspection', () => {
 
   test('reports the file version and exact supported versions before semantic validation', async () => {
     const source = baseRecord() as QuestionBankRecord & Record<string, unknown>
-    source.formatVersion = '0.6.0'
+    source.formatVersion = '0.7.0'
     source.requiredFeatures = ['also-unknown']
     await rejected(
       inspectQuestionBankRecord(bytesOf(source)),
       'unsupported-version',
-      '0.6.0',
+      '0.7.0',
     )
     await rejected(
       inspectQuestionBankRecord(bytesOf(source)),
       'unsupported-version',
-      '0.1.0, 0.2.0, 0.3.0, 0.4.0, 0.5.0',
+      '0.1.0, 0.2.0, 0.3.0, 0.4.0, 0.5.0, 0.6.0',
     )
   })
 
@@ -548,6 +562,106 @@ describe('hostile Question Bank File inspection', () => {
       'duplicate-id',
       'q1-s1',
     )
+  })
+
+  test('reads a Side-by-Side in a stem and in a Part’s stem, and imports it as the editor’s', async () => {
+    const source = multipartRecord()
+    const question = source.bank.questions[0]!
+    question.stem.content.push(sideBySide(panel(block('Left')), panel(block('Right'))))
+    question.parts![0]!.stem.content.push(sideBySide(panel(block('One')), panel(block('Two')), panel(block('Three'))))
+    const proposal = await inspectQuestionBankRecord(bytesOf(source))
+
+    expect(proposal.record.bank.questions[0]!.stem.content[1]).toEqual(sideBySide(panel(block('Left')), panel(block('Right'))))
+    const [imported] = importedQuestionsFromRecord(proposal.record)
+    expect(imported!.doc.content![1]).toEqual({
+      type: 'sideBySide',
+      content: ['Left', 'Right'].map((value) => ({
+        type: 'sideBySidePanel',
+        content: [{ type: 'paragraph', content: [{ type: 'text', text: value }] }],
+      })),
+    })
+    expect(partsOf(imported!)[0]!.stem[1]).toMatchObject({
+      type: 'sideBySide',
+      content: [{ type: 'sideBySidePanel' }, { type: 'sideBySidePanel' }, { type: 'sideBySidePanel' }],
+    })
+  })
+
+  test.each([
+    ['with one Panel', (record: QuestionBankRecord) => {
+      record.bank.questions[0]!.stem.content.push(sideBySide(panel(block())))
+    }, 'two or three Panels; this one holds 1'],
+    ['with four Panels', (record: QuestionBankRecord) => {
+      record.bank.questions[0]!.stem.content.push(sideBySide(panel(block()), panel(block()), panel(block()), panel(block())))
+    }, 'two or three Panels; this one holds 4'],
+    ['with an empty Panel', (record: QuestionBankRecord) => {
+      record.bank.questions[0]!.stem.content.push(sideBySide(panel(), panel(block())))
+    }, 'A Panel must hold at least one block'],
+    ['holding something other than Panels', (record: QuestionBankRecord) => {
+      record.bank.questions[0]!.stem.content.push(sideBySide(panel(block()), block()))
+    }, 'may hold only Panels'],
+    ['inside another Side-by-Side', (record: QuestionBankRecord) => {
+      record.bank.questions[0]!.stem.content.push(
+        sideBySide(panel(sideBySide(panel(block()), panel(block()))), panel(block())),
+      )
+    }, 'inside a Panel of another Side-by-Side'],
+    ['in a choice', (record: QuestionBankRecord) => {
+      record.bank.questions[0]!.choices![0]!.content.content.push(sideBySide(panel(block()), panel(block())))
+    }, 'only as a top-level block'],
+    ['inside a blockquote', (record: QuestionBankRecord) => {
+      record.bank.questions[0]!.stem.content.push({ type: 'blockquote', content: [sideBySide(panel(block()), panel(block()))] })
+    }, 'only as a top-level block'],
+    ['inside a list item', (record: QuestionBankRecord) => {
+      record.bank.questions[0]!.stem.content.push({
+        type: 'bullet-list',
+        content: [{ type: 'list-item', content: [sideBySide(panel(block()), panel(block()))] }],
+      })
+    }, 'only as a top-level block'],
+    ['in a Suggested Answer', (record: QuestionBankRecord) => {
+      const question = record.bank.questions[0]!
+      question.type = 'short-answer'
+      delete question.choices
+      question.suggestedAnswer = { type: 'document', content: [sideBySide(panel(block()), panel(block()))] }
+    }, 'only as a top-level block'],
+    ['as a lone Panel', (record: QuestionBankRecord) => {
+      record.bank.questions[0]!.stem.content.push(panel(block()))
+    }, 'only inside a Side-by-Side'],
+  ])('refuses a Side-by-Side %s', async (_name, edit, message) => {
+    const source = baseRecord()
+    edit(source)
+    await rejected(inspectQuestionBankRecord(bytesOf(source)), 'invalid-structure', message)
+  })
+
+  test('refuses a Side-by-Side in a Part’s choice, while reading one in the Part’s stem', async () => {
+    const source = multipartRecord()
+    source.bank.questions[0]!.parts![0]!.choices![0]!.content.content.push(sideBySide(panel(block()), panel(block())))
+    await rejected(inspectQuestionBankRecord(bytesOf(source)), 'invalid-structure', 'only as a top-level block')
+  })
+
+  test('refuses a Side-by-Side in a record older than 0.6.0, and still reads that record without one', async () => {
+    const source = baseRecord()
+    source.formatVersion = '0.5.0' as typeof source.formatVersion
+    const proposal = await inspectQuestionBankRecord(bytesOf(source))
+    expect(proposal.summary.formatVersion).toBe('0.5.0')
+    expect(proposal.record.formatVersion).toBe(QUESTION_BANK_FORMAT_VERSION)
+
+    source.bank.questions[0]!.stem.content.push(sideBySide(panel(block()), panel(block())))
+    await rejected(inspectQuestionBankRecord(bytesOf(source)), 'invalid-structure', 'need Question Bank Record 0.6.0')
+  })
+
+  test('counts a Media Asset and a Pending Image inside a Panel like any other picture', async () => {
+    const source = baseRecord()
+    source.bank.questions[0]!.stem.content.push(
+      sideBySide(
+        panel({ type: 'block-image', asset: PIXEL_ID, alt: 'Graph A' }),
+        panel({ type: 'block-image', pending: { image: 2 }, alt: 'Graph B' }),
+      ),
+    )
+    source.media = [PIXEL_ASSET]
+    const proposal = await inspectQuestionBankRecord(bytesOf(source))
+    expect(proposal.summary).toMatchObject({ mediaAssets: 1, pendingImages: 1 })
+
+    source.media = []
+    await rejected(inspectQuestionBankRecord(bytesOf(source)), 'dangling-reference', PIXEL_ID)
   })
 
   test('structural schema validation precedes semantic validation', async () => {

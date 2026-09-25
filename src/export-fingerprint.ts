@@ -65,6 +65,11 @@ export type ExportFingerprint = {
 //   table:<rows>x<columns>         a table or a choice grid opens
 //   cell:<row>,<column>            one cell opens; its own lines follow
 //   /table                         the table closes
+//   box                            a Blockquote's border opens; its lines follow
+//   /box                           …and closes
+//   side:<panels>                  a Side-by-Side opens
+//   panel:<index>                  one Panel opens; its own lines follow
+//   /side                          the Side-by-Side closes
 //   space:blank                    a Short Answer question's empty work space
 //   space:lines:<n>                …or its work space ruled with n lines
 //
@@ -305,8 +310,29 @@ function planBlock(
       ]
     }
 
+    // A Blockquote's border is content, not styling: a boxed passage that
+    // loses its box is the whole bug. Like a table it cannot carry the opening
+    // run, so that takes a line of its own.
     case 'blockquote':
-      return planBlocks(childrenOf(node), { ...context, list: undefined }, images)
+      return [
+        ...(opener.length > 0 ? [line(kind, renderInline(opener))] : []),
+        'box',
+        ...planBlocks(childrenOf(node), { list: undefined }, images),
+        '/box',
+      ]
+
+    case 'sideBySide': {
+      const panels = childrenOf(node)
+      return [
+        ...(opener.length > 0 ? [line(kind, renderInline(opener))] : []),
+        `side:${panels.length}`,
+        ...panels.flatMap((panel, index) => {
+          const content = planBlocks(childrenOf(panel), {}, images)
+          return [`panel:${index}`, ...(content.length > 0 ? content : ['para'])]
+        }),
+        '/side',
+      ]
+    }
 
     case 'bullet_list':
     case 'ordered_list': {

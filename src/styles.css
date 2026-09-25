@@ -1331,6 +1331,17 @@ button { cursor: pointer; }
    it out; left to size itself it shrinks to its shortest content. */
 :is(.question-reading, .pop-over-card) .doc-table { width: 100%; table-layout: fixed; }
 .doc-math--block { display: block; margin: 6px 0; text-align: center; }
+/* A Blockquote prints boxed: a quoted source passage set apart from the stem. */
+.doc-content blockquote { margin: 8px 0; padding: 6px 10px; border: 1px solid #000; }
+.doc-content blockquote > :first-child { margin-top: 0; }
+.doc-content blockquote > :last-child { margin-bottom: 0; }
+/* A Side-by-Side: equal Panels across the line, centred against the tallest.
+   A Panel centres its pictures and tables; its text stays left-aligned. */
+.doc-side-by-side { display: grid; column-gap: 16px; align-items: center; margin: 8px 0; }
+.doc-panel { min-width: 0; }
+.doc-panel > .doc-figure { text-align: center; }
+.doc-panel > .doc-table { margin-inline: auto; }
+.doc-panel > .doc-math--block { text-align: center; }
 
 .dialog-backdrop {
   position: fixed; inset: 0; z-index: 100; padding: 28px; display: grid; place-items: center;
@@ -3127,6 +3138,40 @@ a.import-card-main:hover .exam-sheet, a.import-card-main:focus-visible .exam-she
 .new-import { max-width: 720px; }
 .new-import-lede { margin: 0 0 18px; color: #5f4d40; font-size: 15px; line-height: 1.5; }
 
+/* A Blockquote in the editor is the box it prints as (see `.doc-content
+   blockquote`), not Crepe's quote bar. */
+.milkdown .ProseMirror blockquote {
+  padding: 6px 10px; border: 1px solid #000; box-sizing: border-box; margin: 8px 0;
+}
+.milkdown .ProseMirror blockquote::before { display: none; }
+
+/* A Side-by-Side in the editor: its Panels in a row, as they print, each
+   outlined so the teacher can see where one ends; "Add panel" and "Stack
+   panels" above the row, and a Panel's "Remove panel" in its corner, on hover. */
+.milkdown .side-by-side { position: relative; margin: 12px 0; }
+.milkdown .side-by-side-panels { display: grid; column-gap: 16px; align-items: center; }
+.milkdown .side-by-side-panel {
+  position: relative; min-width: 0; padding: 4px 8px;
+  border: 1px dashed var(--line, #d8cab8); border-radius: 6px;
+}
+.milkdown .side-by-side-panel-content > .milkdown-image-block,
+.milkdown .side-by-side-panel-content > [data-type="image-block"] { margin-inline: auto; }
+.milkdown .side-by-side-controls {
+  position: absolute; top: -14px; left: 4px; z-index: 2; display: flex; gap: 4px;
+  opacity: 0; transition: opacity 120ms;
+}
+.milkdown .side-by-side:hover > .side-by-side-controls,
+.milkdown .side-by-side:focus-within > .side-by-side-controls { opacity: 1; }
+.milkdown .side-by-side-control {
+  display: inline-grid; place-items: center; width: 24px; height: 24px; padding: 0;
+  border: 1px solid #d8cab8; border-radius: 6px; background: #fffaf3; color: #46372d; cursor: pointer;
+}
+.milkdown .side-by-side-control svg { width: 14px; height: 14px; }
+.milkdown .side-by-side-control:disabled { opacity: 0.4; cursor: default; }
+.milkdown .side-by-side-remove {
+  position: absolute; top: 2px; right: 2px; z-index: 1; opacity: 0; transition: opacity 120ms;
+}
+.milkdown .side-by-side-panel:hover > .side-by-side-remove { opacity: 1; }
 /* ---- The Question Bank Pop-over -------------------------------------------
    A narrow window kept on top of another document (ADR-0030). Everything is a
    size smaller than the bank page: the cards are for recognising a Question,

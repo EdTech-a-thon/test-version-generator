@@ -143,7 +143,7 @@ describe('inspecting a Test Parrot Package', () => {
   test('a bare Question Bank Record reads as one bank and no Exams', async () => {
     const proposal = await inspectImportRecord(bytesOf(chemistry()))
 
-    expect(proposal.source).toEqual({ format: QUESTION_BANK_FORMAT, formatVersion: '0.5.0' })
+    expect(proposal.source).toEqual({ format: QUESTION_BANK_FORMAT, formatVersion: '0.6.0' })
     expect(proposal.banks).toHaveLength(1)
     expect(proposal.banks[0]).toMatchObject({
       id: BARE_RECORD_BANK_ID,

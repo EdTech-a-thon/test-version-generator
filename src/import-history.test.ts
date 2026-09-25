@@ -129,7 +129,7 @@ describe('the import history', () => {
   })
 })
 
-const example = join(import.meta.dir, '..', 'public', 'formats', 'question-bank', '0.5.0', 'examples', 'pending-images.json')
+const example = join(import.meta.dir, '..', 'public', 'formats', 'question-bank', '0.6.0', 'examples', 'pending-images.json')
 
 async function storedMediaHashes(): Promise<string[]> {
   const database = await new Promise<IDBDatabase>((resolve, reject) => {

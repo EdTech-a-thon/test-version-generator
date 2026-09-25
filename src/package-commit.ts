@@ -8,7 +8,7 @@ import {
 } from './exam'
 import type { SavedState } from './exam-store'
 import type { ImportSelection } from './import-selection'
-import type { ImportProposal } from './package-import'
+import { positionColumns, type ExamRecordPosition, type ImportProposal } from './package-import'
 import { withResolvedImages, type PendingImageResolution } from './pending-images'
 import { createWorkingCopy } from './question-bank'
 import { UNTITLED_QUESTION_BANK } from './question-bank-workspaces'
@@ -109,16 +109,17 @@ export function planImport(
     const columns: Record<string, ColumnSetting> = {}
     const choiceOrder: Record<string, string[]> = {}
     const workSpace: Record<string, WorkSpace> = {}
-    // The rule a teacher adding a Question meets: a Multiple Choice Question
-    // takes the layout of the one before it, and the first takes one column.
-    let previousColumns: ColumnSetting | undefined
+    const identityOf = (position: ExamRecordPosition) =>
+      identities.get(position.question.bank)!.get(position.question.question)!
+    const layout = positionColumns(
+      exam.positions,
+      (position) => identityOf(position).question.type === 'multiple-choice',
+    )
     for (const position of exam.positions) {
-      const { question, answers } = identities.get(position.question.bank)!.get(position.question.question)!
+      const { question, answers } = identityOf(position)
       questions.push(question)
-      if (question.type === 'multiple-choice') {
-        previousColumns = position.columns ?? previousColumns ?? 1
-        columns[question.id] = previousColumns
-      }
+      const laidOut = layout.get(`${position.question.bank}/${position.question.question}`)
+      if (laidOut) columns[question.id] = laidOut
       if (position.answerOrder) {
         choiceOrder[question.id] = position.answerOrder.map((id) => answers.get(id)!)
       }

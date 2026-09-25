@@ -10,12 +10,15 @@ import publicSchema030 from '../public/formats/question-bank/0.3.0/schema.json'
 import applicationSchema030 from './question-bank-record-0.3.0.schema.json'
 import publicSchema040 from '../public/formats/question-bank/0.4.0/schema.json'
 import applicationSchema040 from './question-bank-record-0.4.0.schema.json'
-import publicSchema from '../public/formats/question-bank/0.5.0/schema.json'
-import applicationSchema from './question-bank-record-0.5.0.schema.json'
+import publicSchema050 from '../public/formats/question-bank/0.5.0/schema.json'
+import applicationSchema050 from './question-bank-record-0.5.0.schema.json'
+import publicSchema from '../public/formats/question-bank/0.6.0/schema.json'
+import applicationSchema from './question-bank-record-0.6.0.schema.json'
 import {
   QUESTION_BANK_FORMAT_VERSION,
   SUPPORTED_SEMANTIC_MARK_TYPES,
   SUPPORTED_SEMANTIC_NODE_TYPES,
+  SUPPORTED_STEM_LAYOUT_NODE_TYPES,
   prepareQuestionBankExport,
   serializeQuestionBankRecord,
   type QuestionBankRecord,
@@ -54,10 +57,10 @@ function schemaEnum(definition: 'node' | 'mark', property: string): string[] {
   return schema.$defs[definition]!.properties[property]!.enum
 }
 
-describe('public Question Bank Record 0.5.0 contract', () => {
+describe('public Question Bank Record 0.6.0 contract', () => {
   test('canonical examples validate independently against the published schema', async () => {
     expect(publicSchema.$id).toBe(
-      'https://testparrot.com/formats/question-bank/0.5.0/schema.json',
+      'https://testparrot.com/formats/question-bank/0.6.0/schema.json',
     )
     expect(
       await Bun.file(
@@ -65,7 +68,7 @@ describe('public Question Bank Record 0.5.0 contract', () => {
           import.meta.dir,
           '..',
           'public',
-          'question-bank-record-0.5.0.schema.json',
+          'question-bank-record-0.6.0.schema.json',
         ),
       ).json(),
     ).toEqual(publicSchema)
@@ -84,6 +87,7 @@ describe('public Question Bank Record 0.5.0 contract', () => {
       'pending-images.json',
       'provenance-and-links.json',
       'short-answer.json',
+      'side-by-side.json',
       'true-false.json',
     ])
     for (const name of names) {
@@ -304,13 +308,18 @@ describe('public Question Bank Record 0.5.0 contract', () => {
       'pending-unknown-member.json',
       'pending-with-asset.json',
       'pending-zero.json',
+      'side-by-side-four-panels.json',
+      'side-by-side-in-blockquote.json',
+      'side-by-side-in-choice.json',
+      'side-by-side-nested.json',
+      'side-by-side-one-panel.json',
       'unsafe-url.json',
       'unsupported-required-feature.json',
       'unsupported-version.json',
     ])
     const validate = new Ajv2020({ allErrors: true, strict: true }).compile(publicSchema)
     for (const [name, code] of Object.entries(manifest)) {
-      if (name.startsWith('pending-'))
+      if (name.startsWith('pending-') || name.startsWith('side-by-side-'))
         expect(validate(await fixture(invalidRoot, name)), name).toBe(false)
       try {
         await inspectQuestionBankRecord(
@@ -350,13 +359,21 @@ describe('public Question Bank Record 0.5.0 contract', () => {
     expect([...SUPPORTED_SEMANTIC_MARK_TYPES].sort()).toEqual(
       schemaEnum('mark', 'type').sort(),
     )
+    const layoutDefinitions = publicSchema.$defs as unknown as Record<
+      string,
+      { properties: { type: { const: string } } }
+    >
+    expect([...SUPPORTED_STEM_LAYOUT_NODE_TYPES]).toEqual([
+      layoutDefinitions.sideBySide!.properties.type.const,
+      layoutDefinitions.panel!.properties.type.const,
+    ])
 
     const complete = (await fixture(
       exampleRoot,
       'complete-rich-text.json',
     )) as QuestionBankRecord
     const encoded = JSON.stringify(complete)
-    for (const type of SUPPORTED_SEMANTIC_NODE_TYPES)
+    for (const type of [...SUPPORTED_SEMANTIC_NODE_TYPES, ...SUPPORTED_STEM_LAYOUT_NODE_TYPES])
       expect(encoded).toContain(`"type":"${type}"`)
     for (const type of SUPPORTED_SEMANTIC_MARK_TYPES)
       expect(encoded).toContain(`"type":"${type}"`)
@@ -448,14 +465,69 @@ describe('public Question Bank Record 0.5.0 contract', () => {
   })
 })
 
-// 0.1.0, 0.2.0 and 0.3.0 are retired as producer versions and retained as
+// 0.1.0 through 0.5.0 are retired as producer versions and retained as
 // consumer ones: every Question Bank File a teacher has already shared must
 // still open. Their published contracts are therefore frozen — these are the
 // assertions that keep them that way.
-// 0.1.0 through 0.4.0 are retired as producer versions and retained as
-// consumer ones: every Question Bank File a teacher has already shared must
-// still open. Their published contracts are therefore frozen — these are the
-// assertions that keep them that way.
+describe('retained Question Bank Record 0.5.0 contract', () => {
+  const root050 = fixtureRootFor('0.5.0')
+
+  test('the published 0.5.0 schema is unchanged and still checked in twice', async () => {
+    expect(publicSchema050.$id).toBe(
+      'https://testparrot.com/formats/question-bank/0.5.0/schema.json',
+    )
+    expect(publicSchema050.properties.formatVersion.const).toBe('0.5.0')
+    expect(applicationSchema050).toEqual(publicSchema050)
+    expect(
+      await Bun.file(join(import.meta.dir, '..', 'public', 'question-bank-record-0.5.0.schema.json')).json(),
+    ).toEqual(publicSchema050)
+  })
+
+  test('every 0.5.0 canonical example still imports, migrated to the current version', async () => {
+    const names = await filesIn(join(root050, 'examples'))
+
+    expect(names).toContain('pending-images.json')
+    expect(names).not.toContain('side-by-side.json')
+    for (const name of names) {
+      const proposal = await inspectQuestionBankRecord(
+        await Bun.file(join(root050, 'examples', name)).bytes(),
+      )
+      expect(proposal.record.formatVersion, name).toBe(QUESTION_BANK_FORMAT_VERSION)
+      expect(proposal.summary.formatVersion, name).toBe('0.5.0')
+    }
+  })
+
+  test('0.5.0 counterexamples are still rejected with their documented errors', async () => {
+    const manifest = (await fixture(join(root050, 'invalid'), 'manifest.json')) as Record<string, string>
+
+    for (const [name, code] of Object.entries(manifest)) {
+      try {
+        await inspectQuestionBankRecord(await Bun.file(join(root050, 'invalid', name)).bytes())
+        throw new Error(`${name} unexpectedly conformed`)
+      } catch (error) {
+        expect(error, name).toBeInstanceOf(QuestionBankImportError)
+        expect((error as QuestionBankImportError).code, name).toBe(code)
+      }
+    }
+  })
+
+  test('a 0.5.0 record cannot hold a Side-by-Side, since a 0.5.0 consumer would reject one', async () => {
+    const record = (await fixture(exampleRoot, 'side-by-side.json')) as { formatVersion: string }
+    record.formatVersion = '0.5.0'
+    const validate = new Ajv2020({ allErrors: true, strict: false }).compile(publicSchema050)
+
+    expect(validate(record)).toBe(false)
+    try {
+      await inspectQuestionBankRecord(new TextEncoder().encode(JSON.stringify(record)))
+      throw new Error('A 0.5.0 Side-by-Side unexpectedly conformed')
+    } catch (error) {
+      expect(error).toBeInstanceOf(QuestionBankImportError)
+      expect((error as QuestionBankImportError).code).toBe('invalid-structure')
+      expect((error as Error).message).toContain('0.6.0')
+    }
+  })
+})
+
 describe('retained Question Bank Record 0.4.0 contract', () => {
   const root040 = fixtureRootFor('0.4.0')
 

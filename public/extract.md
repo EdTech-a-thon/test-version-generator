@@ -10,7 +10,7 @@ Always create one complete UTF-8 JSON file using the **Test Parrot Package `0.1.
 <short-name>.parrot.json
 ```
 
-A package always holds exactly one Question Bank Record `0.5.0` with every converted Question. What else goes in it depends on the source, so triage it first:
+A package always holds exactly one Question Bank Record `0.6.0` with every converted Question. What else goes in it depends on the source, so triage it first:
 
 - **The source is a test** — an exam, quiz, worksheet or any paper a student sits, with its questions in a printed order: also add one Exam Record `0.1.0` that lays the Questions out as the test does (see [Tests](#tests)).
 - **The source is only questions** — a question pool, a study list, a bank exported from elsewhere, anything not laid out as one paper: add no Exam. `exams` is an empty array.
@@ -30,15 +30,16 @@ Do not generate a PDF. Do not return a summary in place of the JSON file.
 
 Use these resources as the source of truth:
 
-- [JSON Schema](./formats/question-bank/0.5.0/schema.json)
-- [Minimal Multiple Choice example](./formats/question-bank/0.5.0/examples/minimal-multiple-choice.json)
-- [True/False example](./formats/question-bank/0.5.0/examples/true-false.json)
-- [Matching example](./formats/question-bank/0.5.0/examples/matching.json)
-- [Multipart example](./formats/question-bank/0.5.0/examples/multipart.json)
-- [Short Answer example](./formats/question-bank/0.5.0/examples/short-answer.json)
-- [Complete rich-text example](./formats/question-bank/0.5.0/examples/complete-rich-text.json)
-- [Provenance and links example](./formats/question-bank/0.5.0/examples/provenance-and-links.json)
-- [Pending Images example](./formats/question-bank/0.5.0/examples/pending-images.json)
+- [JSON Schema](./formats/question-bank/0.6.0/schema.json)
+- [Minimal Multiple Choice example](./formats/question-bank/0.6.0/examples/minimal-multiple-choice.json)
+- [True/False example](./formats/question-bank/0.6.0/examples/true-false.json)
+- [Matching example](./formats/question-bank/0.6.0/examples/matching.json)
+- [Multipart example](./formats/question-bank/0.6.0/examples/multipart.json)
+- [Short Answer example](./formats/question-bank/0.6.0/examples/short-answer.json)
+- [Complete rich-text example](./formats/question-bank/0.6.0/examples/complete-rich-text.json)
+- [Provenance and links example](./formats/question-bank/0.6.0/examples/provenance-and-links.json)
+- [Pending Images example](./formats/question-bank/0.6.0/examples/pending-images.json)
+- [Side-by-side example](./formats/question-bank/0.6.0/examples/side-by-side.json)
 - [Test Parrot Package JSON Schema](./formats/package/0.1.0/schema.json) and [Exam Record JSON Schema](./formats/exam/0.1.0/schema.json)
 - [Package example: a test, with its bank and Exam](./formats/package/0.1.0/examples/bank-and-exam.json)
 - [Package example: questions only, with a bank and no Exam](./formats/package/0.1.0/examples/bank-only.json)
@@ -48,7 +49,7 @@ The Question Bank Record inside the package has this top-level shape:
 ```json
 {
   "format": "test-parrot/question-bank",
-  "formatVersion": "0.5.0",
+  "formatVersion": "0.6.0",
   "generator": {
     "name": "Name of the assistant or conversion tool",
     "version": "Version or model name"
@@ -78,7 +79,7 @@ The file itself is the package, with the Question Bank Record under `questionBan
   },
   "requiredFeatures": [],
   "questionBanks": [
-    { "id": "bank", "record": { "format": "test-parrot/question-bank", "formatVersion": "0.5.0", "...": "the complete Question Bank Record" } }
+    { "id": "bank", "record": { "format": "test-parrot/question-bank", "formatVersion": "0.6.0", "...": "the complete Question Bank Record" } }
   ],
   "exams": [
     {
@@ -101,7 +102,7 @@ When triage says the source is a test:
 - Name the bank after the subject or unit, and name the Exam after the test's own title as printed.
 - Give the Exam one position for every converted Question, in printed order, each naming `"bank": "bank"` and that Question's ID. Use each Question exactly once. An unconverted question gets no position. A Multipart question is one Question, so it takes one position, however many source numbers its Parts carried.
 - Write every Question's choices and Word Bank answers into the bank in the order the test prints them. That records the test's answer order, so leave out `answerOrder`: answers print in the order the bank records them, and the answer key's letters stay right.
-- Record `columns` (`1`, `2` or `4`) on a Multiple Choice position only when the source layout makes it clear how many columns its answers are printed in — for example, four answers side by side on one line is `4`. When it is not clear, leave `columns` out. Never put `columns` on any other Question Type.
+- Record `columns` (`1`, `2` or `4`) on a Multiple Choice position whenever the source layout shows how many columns its answers are printed in: count the answers side by side on one line. Four answers across one line is `4`. Answers printed as a grid of two across — (A) beside (B), (C) beside (D), a 2 × 2 grid — are `2`. Answers printed one under another are `1`. Answers that are pictures, such as four graphs to choose from, are nearly always printed as a grid: look at the page and record it, since a picture answer with no `columns` prints as wide as the whole question. Leave `columns` out only when the layout truly cannot be read, such as answers split across a page break. Never put `columns` on any other Question Type.
 - Never add `workSpace`. Room left for writing is not something to guess from a scan; the teacher sets it in Test Parrot.
 - Do not add point values, section headings, instructions, or any other member: the Exam Record has none of these.
 
@@ -125,10 +126,10 @@ Completeness means accounting for every source question, not pretending every qu
 
 ### During conversion
 
-1. Classify a question as `multiple-choice`, `true-false`, `matching`, `short-answer` or `multipart` only when the source supports that classification. Version `0.5.0` supports only those five types. If its type is uncertain or it cannot be represented without material loss, leave it out and report it explicitly; never coerce it into the closest supported type.
+1. Classify a question as `multiple-choice`, `true-false`, `matching`, `short-answer` or `multipart` only when the source supports that classification. Version `0.6.0` supports only those five types. If its type is uncertain or it cannot be represented without material loss, leave it out and report it explicitly; never coerce it into the closest supported type.
 2. Preserve the exact wording, punctuation, capitalization, symbols, units, and meaningful whitespace.
 3. Preserve authored question and choice order.
-4. Preserve paragraphs, headings, blockquotes, lists, code, rules, tables, equations, hard breaks, links, images, captions, and text formatting when present.
+4. Preserve paragraphs, headings, blockquotes, lists, code, rules, tables, equations, hard breaks, links, images, captions, content printed side by side, and text formatting when present (see [Page layout: boxes and side-by-side content](#page-layout-boxes-and-side-by-side-content)).
 5. Do not rewrite, summarize, correct, simplify, or “improve” source content unless the user explicitly requests editing.
 6. Never invent missing text, choices, answers, correctness, Difficulty, Topics, attribution, or license information.
 7. Ask the user about materially ambiguous OCR, unreadable symbols, unclear question boundaries, missing choices, uncertain Question Types, and uncertain answer keys instead of guessing.
@@ -151,13 +152,16 @@ Perform a second pass against the original source and verify all of the followin
 - every image, caption, table, list, equation, hard break, and safe link was preserved;
 - all Question, choice, item, word bank, Part and Part choice IDs are unique and sequential;
 - every meaningful image, including an image used as an answer choice, matching item or word bank answer, is a Pending Image;
-- every picture has its own Pending Image, with side-by-side pictures split rather than merged;
-- every Question covered by shared directions (for example “Use the information above for problems 3 – 5”) repeats the shared pictures in its own stem;
+- every picture has its own Pending Image, with pictures printed side by side split rather than merged — one per `panel` of a `side-by-side`;
+- shared material — a passage, picture, table or anything else that directions such as “Use the information above for problems 3 – 5” refer to — appears once, in the stem of the one Multipart Question whose Parts are those problems, and is never repeated in a Part's stem or in another Question;
+- every boxed passage or quote is a `blockquote`, with its “Source: …” line as the ordinary paragraph right after it, and was transcribed as text even when the source stores it as a picture;
+- content printed side by side is one `side-by-side` of two or three `panel`s, left to right, directly in a Question's or Part's stem — never in a choice, matching item, word bank answer or Suggested Answer, never inside a blockquote, list, table or another `side-by-side`, and never for answer choices laid out in a grid;
+- borders and shaded boxes that only frame or group the questions themselves were ignored;
 - every Pending Image names the tag printed on its picture, or its page when the picture has no tag;
 - every tag in the [image tag list](#image-tags-in-this-document) is accounted for in the conversion report;
 - the Question Bank Record's `media` is an empty array;
 - for a test, the Exam has one position per converted Question, in printed order, each naming an existing Question ID in the package's bank, and no Question twice;
-- for a test, every `columns` value reflects a layout the source makes clear, sits only on a Multiple Choice position (never on a Multipart question), and no position has `workSpace`;
+- for a test, every Multiple Choice position whose answers the source prints side by side — a row of four, a 2 × 2 grid, a grid of pictures — has the `columns` that layout shows, every `columns` value sits only on a Multiple Choice position (never on a Multipart question), and no position has `workSpace`;
 - the file is a Test Parrot Package with exactly one Question Bank Record, and it holds an Exam only if the source is a test;
 - the final JSON passes the public schema and semantic rules.
 
@@ -165,7 +169,7 @@ If any check fails, fix the record or disclose the precise limitation. Never say
 
 ## Question types
 
-Version `0.5.0` supports `multiple-choice`, `true-false`, `matching`, `short-answer`, and `multipart` Questions. Do not use any of them as a fallback for an unknown, mixed, or unsupported Question Type. In particular, do not turn an uncertain question into Short Answer merely because it has no clearly detected choices, do not turn a two-choice question into True/False unless those two choices really are true and false, do not turn a matching section into Multiple Choice questions that each repeat the word bank, and do not turn a passage and its questions into separate questions that each repeat the passage — or that leave it out. Leave it unconverted and warn the user instead.
+Version `0.6.0` supports `multiple-choice`, `true-false`, `matching`, `short-answer`, and `multipart` Questions. Do not use any of them as a fallback for an unknown, mixed, or unsupported Question Type. In particular, do not turn an uncertain question into Short Answer merely because it has no clearly detected choices, do not turn a two-choice question into True/False unless those two choices really are true and false, do not turn a matching section into Multiple Choice questions that each repeat the word bank, and do not turn a passage and its questions into separate questions that each repeat the passage — or that leave it out. Leave it unconverted and warn the user instead.
 
 ### Multiple Choice
 
@@ -640,7 +644,7 @@ A Short Answer Part is written the same way, without `choices`:
 }
 ```
 
-When the shared material is an image, a map or a chart, put it in the stem as a Pending Image `block-image` (see [Images and Pending Images](#images-and-pending-images)); a table is a `table`. The material belongs to the Multipart question alone: never copy it into a Part's stem.
+When the shared material is an image, a map or a chart, put it in the stem as a Pending Image `block-image` (see [Images and Pending Images](#images-and-pending-images)); a table is a `table`. A passage or quote printed inside a border is a `blockquote`, with its “Source: …” line as the ordinary paragraph right after it, as in the example above; material printed side by side, such as two graphs or a picture beside text, is a `side-by-side` (see [Page layout: boxes and side-by-side content](#page-layout-boxes-and-side-by-side-content)). The material belongs to the Multipart question alone: write it once, in its stem, and never copy it into a Part's stem or into any other Question.
 
 ## Rich text
 
@@ -670,6 +674,7 @@ Supported nodes are:
 - `inline-math` and `display-math` with authored math in `source`
 - `hard-break`
 - `inline-image` and `block-image`
+- `side-by-side`, holding two or three `panel` nodes — only directly in a Question's or a Part's stem (see [Page layout: boxes and side-by-side content](#page-layout-boxes-and-side-by-side-content))
 
 Supported marks on `text` nodes are:
 
@@ -730,6 +735,44 @@ Use `inline-math` or `display-math` with the authored math source for mathematic
 
 The same formatting rules apply inside stems, choices, matching items, word bank answers, Multipart Parts, and Suggested Answers.
 
+## Page layout: boxes and side-by-side content
+
+Most of a page's layout is not content: Test Parrot lays the test out itself. Two things a page does with its content are, and each has one node.
+
+**A boxed source is a `blockquote`.** A passage, quote, speech excerpt or document printed inside a border is a `blockquote` holding its paragraphs. Its attribution — “Source: …”, “— Patrick Henry, 1775” — is the ordinary paragraph right after the blockquote, outside it, even when the source prints it inside the box. Transcribe a boxed passage as text even when the source document stores it as a picture; keep a picture only for genuine artwork, such as a map, chart, cartoon, photograph or graph.
+
+**Content printed side by side is a `side-by-side`.** Two graphs next to each other, two tables, a table beside a graph, or a picture beside its text are one `side-by-side` with one `panel` per item, left to right:
+
+```json
+{
+  "type": "side-by-side",
+  "content": [
+    {
+      "type": "panel",
+      "content": [
+        { "type": "block-image", "pending": { "image": 3 }, "alt": "Graph of f", "caption": "Graph of f" }
+      ]
+    },
+    {
+      "type": "panel",
+      "content": [
+        { "type": "block-image", "pending": { "image": 4 }, "alt": "Graph of g", "caption": "Graph of g" }
+      ]
+    }
+  ]
+}
+```
+
+Rules:
+
+- A `side-by-side` holds two or three `panel`s and nothing else, and has no other members. When the source prints four or more items across one line, write them as ordinary blocks one after another, or as two `side-by-side`s, one under the other, and say so in the report.
+- A `panel` holds one or more blocks — paragraphs, headings, blockquotes, lists, tables, equations, pictures — in the order they read inside it. A `panel` never holds another `side-by-side`.
+- A `side-by-side` is written only directly in a Question's `stem` or a Multipart Part's `stem`, as one of its top-level blocks: never in a choice, a matching item, a word bank answer or a Suggested Answer, and never inside a blockquote, list, table or panel.
+- Text above or below the items, such as the question or a caption spanning both, stays outside the `side-by-side`, before or after it in the stem.
+- **Answer choices laid out in a grid are not a `side-by-side`.** Write the choices as ordinary `choices`; for a test, the grid is the position's `columns` (see [Tests](#tests)).
+
+**Boxes around the questions themselves are layout.** A border or shaded box that only frames or groups questions — a box around each question, around a section, or around an answer area — is not content. Ignore it: do not write it as a `blockquote`, a `side-by-side`, a table or a rule.
+
 ## Links
 
 Only absolute HTTP and HTTPS links are allowed. Preserve both the visible label and destination:
@@ -772,10 +815,10 @@ Rules:
 - A Pending Image has a `pending` member and **no `asset` member**.
 - `pending` holds `image`: the number on the tag printed on that picture. Read the number from the tag; do not count images yourself.
 - A picture with no tag, such as a diagram drawn with lines or a picture on a scanned page, gets `"pending": { "page": <n> }` instead, where `n` is the 1-based page of the file as a PDF viewer counts it (in a Word document, always `1`). Do not add coordinates or any other location.
-- **Not every tag is a picture.** Test Parrot tags every embedded image, and some documents store a reading passage, a table, an equation, or a caption as an image. Transcribe those as ordinary content—text, a table, or math—exactly as you would if they were typed, and do not write a Pending Image for their tag. A tagged image that holds only words, such as a boxed reading passage with its source line, is text: transcribe every word, including the source line, and repeat a shared passage in every Question that uses it. Write a Pending Image for such a tag only if you cannot read its words reliably, and say so in the conversion report.
+- **Not every tag is a picture.** Test Parrot tags every embedded image, and some documents store a reading passage, a table, an equation, or a caption as an image. Transcribe those as ordinary content—text, a table, or math—exactly as you would if they were typed, and do not write a Pending Image for their tag. A tagged image that holds only words, such as a boxed reading passage with its source line, is text: transcribe it as a `blockquote` with its source line as the paragraph right after it (see [Page layout: boxes and side-by-side content](#page-layout-boxes-and-side-by-side-content)). A passage that several questions share is written once, in the stem of the Multipart Question those questions become (see [Multipart](#multipart)). Keep a picture only for genuine artwork, such as a map, chart, cartoon, photograph or graph. Write a Pending Image for a tag of words only if you cannot read its words reliably, and say so in the conversion report.
 - Put the Pending Image exactly where the picture belongs: in the `stem` when the picture belongs to the question, or in the choice's `content` when the picture is that answer choice.
-- **Write one Pending Image per picture.** Two graphs side by side, such as “Graph of f” and “Graph of g”, are two pictures and need two Pending Images, in reading order. When you cannot tell whether something is one picture or several, write several: an extra Pending Image is easy for the teacher to fill, and a missing one is not.
-- **Repeat shared pictures.** When one picture serves several Questions, every one of those Questions gets its own copy of the Pending Image, with the same tag number. Directions such as “Use the information above for problems 3 – 5” mean that Questions 3, 4, and 5 each start their stem with the pictures that directions refer to, even though the source prints them once.
+- **Write one Pending Image per picture.** Two graphs side by side, such as “Graph of f” and “Graph of g”, are two pictures and need two Pending Images, in reading order, each in its own `panel` of one `side-by-side`. When you cannot tell whether something is one picture or several, write several: an extra Pending Image is easy for the teacher to fill, and a missing one is not.
+- **Shared pictures belong to a Multipart Question.** When one picture serves several questions, those questions are the Parts of one Multipart Question, and the picture is written once, in its stem. Directions such as “Use the information above for problems 3 – 5” mean that problems 3, 4, and 5 are the Parts of one Multipart Question whose stem holds the pictures those directions refer to; never copy the pictures into each Part's stem or into separate Questions (see [Multipart](#multipart)). The same tag appears in more than one place only when the source itself uses the same picture as content of two unrelated Questions, and then every occurrence names that tag.
 - Put caption text printed beside or below the picture in `caption`, even if the source shows the caption as an image.
 - Give every Pending Image useful `alt` text describing what the picture shows. `authoredSize` from `0.05` through `1` is optional.
 - Use `block-image` for a picture that stands on its own line, including a picture that is an answer choice's whole content. Use `inline-image` only for a small picture inside a line of text.
@@ -810,7 +853,7 @@ Include only information explicitly present in the source or supplied by the use
 
 ## Final validation and delivery
 
-Validate the package against the [package schema](./formats/package/0.1.0/schema.json), its Question Bank Record against the [Question Bank Record schema](./formats/question-bank/0.5.0/schema.json), and any Exam against the [Exam Record schema](./formats/exam/0.1.0/schema.json). Schema validation alone is not sufficient: also verify Question cardinality, unique IDs, that every matching `answer` names an ID in the same Question's `wordBank`, that every Multipart Part is Multiple Choice with at least two choices or Short Answer with none, safe links, and that every Pending Image follows the rules above.
+Validate the package against the [package schema](./formats/package/0.1.0/schema.json), its Question Bank Record against the [Question Bank Record schema](./formats/question-bank/0.6.0/schema.json), and any Exam against the [Exam Record schema](./formats/exam/0.1.0/schema.json). Schema validation alone is not sufficient: also verify Question cardinality, unique IDs, that every matching `answer` names an ID in the same Question's `wordBank`, that every Multipart Part is Multiple Choice with at least two choices or Short Answer with none, that every `side-by-side` has two or three panels and stands directly in a stem, safe links, and that every Pending Image follows the rules above.
 
 Relevant import limits include:
 

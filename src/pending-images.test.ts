@@ -15,7 +15,7 @@ import { estimatedSize, resolutionOf } from './resolved-pictures'
 import { ownDocumentMedia } from './local-images'
 import { cleanDocument, pendingImageOf, type ProseMirrorJSON } from './question-doc'
 
-const example = join(import.meta.dir, '..', 'public', 'formats', 'question-bank', '0.5.0', 'examples', 'pending-images.json')
+const example = join(import.meta.dir, '..', 'public', 'formats', 'question-bank', '0.6.0', 'examples', 'pending-images.json')
 const proposal = async () => inspectImportRecord(await Bun.file(example).bytes())
 const tags = (...numbers: number[]) => numbers.map((tag) => ({ tag }))
 
@@ -148,10 +148,61 @@ describe('sizing a picture from its page', () => {
     expect(estimatedSize(crop(400, 0.25), { where: 'Question' })).toBe(0.51)
   })
 
-  test('leaves a picture that filled its page, an upload, and an answer at the size they fit', () => {
+  test('leaves a picture that filled its page, an upload, and a matching set’s pictures at the size they fit', () => {
     expect(estimatedSize(crop(2400, 0.9), { where: 'Question' })).toBeUndefined()
     expect(estimatedSize({ asset: asset(900), origin: { kind: 'upload', name: 'a.png' } }, { where: 'Question' })).toBeUndefined()
-    expect(estimatedSize(crop(850, 1 / 3), { where: 'Answer B' })).toBeUndefined()
+    expect(estimatedSize(crop(850, 1 / 3), { where: 'Item 2' })).toBeUndefined()
+  })
+
+  // A converted precalculus test's answers were four graphs, each a third of
+  // its page wide. Left to fill its cell, each printed as wide as the question
+  // whenever the answers were in one column.
+  test('knows the columns an imported Exam prints each Question’s answers in', () => {
+    const pictured = (image: number) => ({
+      id: `c${image}`,
+      correct: image === 1,
+      content: { type: 'document', content: [{ type: 'block-image', pending: { image }, alt: 'graph' }] },
+    })
+    const question = (id: string) => ({
+      id,
+      type: 'multiple-choice',
+      stem: { type: 'document', content: [] },
+      choices: [pictured(1), pictured(2)],
+    })
+    const banks = [{ id: 'bank', record: { bank: { questions: [question('q1'), question('q2'), question('q3')] } } }]
+    const exams = [{
+      positions: [
+        { question: { bank: 'bank', question: 'q1' } },
+        { question: { bank: 'bank', question: 'q2' }, columns: 4 },
+        { question: { bank: 'bank', question: 'q3' } },
+      ],
+    }]
+    const columnsOf = (occurrences: ReturnType<typeof pendingImagesOf>) =>
+      occurrences.filter((_, index) => index % 2 === 0).map((occurrence) => occurrence.answerColumns)
+    // As the import lays them out: the first takes one column, a Question with
+    // none of its own takes the one before it.
+    expect(columnsOf(pendingImagesOf({ banks, exams } as never))).toEqual([1, 4, 4])
+    // With no Exam, a Question's answers are sized for the columns it starts with.
+    expect(columnsOf(pendingImagesOf({ banks } as never))).toEqual([2, 2, 2])
+  })
+
+  test('sizes an answer’s picture against its cell, as wide as its answers’ columns make it', () => {
+    const graph = crop(850, 1 / 3)
+    // Two columns: a third of the page is about the whole cell.
+    expect(estimatedSize(graph, { where: 'Answer B', answerColumns: 2 })).toBeUndefined()
+    // One column: the cell is the question's width, and the graph a share of it.
+    const alone = estimatedSize(graph, { where: 'Answer B', answerColumns: 1 })!
+    expect(alone).toBeGreaterThan(0.4)
+    expect(alone).toBeLessThan(0.55)
+    // A narrower graph in a grid is a share of its cell.
+    const small = estimatedSize(crop(850, 0.2), { where: 'Answer C', answerColumns: 2 })!
+    expect(small).toBeGreaterThan(0.5)
+    expect(small).toBeLessThan(0.7)
+    // A Part's answers are sized against a Part's choice area, in the columns
+    // a Part starts with.
+    const part = estimatedSize(crop(850, 0.2), { where: 'Part a, Answer A' })!
+    expect(part).toBeGreaterThan(0.5)
+    expect(part).toBeLessThan(0.7)
   })
 
   test('an import writes the estimated size as the Authored Image Size', async () => {
@@ -161,5 +212,102 @@ describe('sizing a picture from its page', () => {
     const resolution = resolutionOf(new Map([[first.key, crop(850, 1 / 3)]]), occurrences)
     const plan = planImport(found, initialSelection(found), (() => { let next = 0; return () => `id-${next++}` })(), resolution)
     expect(JSON.stringify(plan.banks[0]!.questions[0]!.doc)).toContain('"ratio":0.4}')
+  })
+})
+
+describe('a Pending Image inside a Side-by-Side', () => {
+  const pixel = {
+    id: 'sha256:c414cd0e204de974f73753c7e28d7638e7b3691bb8b1a2bab6b25bb7fed7ce77',
+    mimeType: 'image/png' as const,
+    width: 1,
+    height: 1,
+    bytes: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+  }
+  const paragraph = (text: string) => ({ type: 'paragraph', content: [{ type: 'text', text }] })
+  const pictured = (image: number) => ({ type: 'block-image', pending: { image }, alt: `Graph ${image}` })
+  const panels = (...blocks: unknown[]) => ({
+    type: 'side-by-side',
+    content: blocks.map((block) => ({ type: 'panel', content: [block] })),
+  })
+  const record = {
+    format: 'test-parrot/question-bank',
+    formatVersion: '0.6.0',
+    generator: { name: 'Assistant', version: '1' },
+    requiredFeatures: [],
+    bank: {
+      name: 'Graphs',
+      questions: [
+        {
+          id: 'q1',
+          type: 'short-answer',
+          stem: { type: 'document', content: [paragraph('Compare the graphs.'), panels(pictured(1), pictured(2))] },
+        },
+        {
+          id: 'q2',
+          type: 'multipart',
+          stem: { type: 'document', content: [paragraph('Use the graphs.')] },
+          parts: [
+            {
+              id: 'q2-s1',
+              type: 'short-answer',
+              stem: { type: 'document', content: [panels(paragraph('Before'), pictured(3))] },
+            },
+          ],
+        },
+      ],
+    },
+    media: [],
+  }
+  const found = async () => inspectImportRecord(new TextEncoder().encode(JSON.stringify(record)))
+
+  test('is found where it sits, in a stem or a Part’s stem, and resolved in place', async () => {
+    const proposal = await found()
+    const occurrences = pendingImagesOf(proposal)
+    expect(occurrences.map(({ where, pending }) => [where, pending])).toEqual([
+      ['Question', { image: 1 }],
+      ['Question', { image: 2 }],
+      ['Part a', { image: 3 }],
+    ])
+    // Each fills its Panel rather than taking the lane's share it had on
+    // its page.
+    expect(occurrences.every((occurrence) => occurrence.inPanel)).toBe(true)
+    const third = { asset: { ...pixel, width: 850 }, origin: { kind: 'crop', page: 1 } as const, pageShare: 1 / 3 }
+    expect(estimatedSize(third, { where: 'Question' })).toBe(0.4)
+    expect(estimatedSize(third, occurrences[0]!)).toBeUndefined()
+
+    const resolution = new Map(occurrences.map(({ key }) => [key, { asset: pixel }]))
+    const plan = planImport(proposal, initialSelection(proposal), (() => { let next = 0; return () => `id-${next++}` })(), resolution)
+    const [compared, multipart] = plan.banks[0]!.questions
+    const sideBySide = (compared!.doc.content as ProseMirrorJSON[])[1]!
+    expect(sideBySide.type).toBe('sideBySide')
+    const hash = pixel.id.slice('sha256:'.length)
+    expect(JSON.stringify(sideBySide)).toContain(`/local-images/${hash}`)
+    expect(JSON.stringify(sideBySide)).not.toContain('pending')
+    expect(JSON.stringify(multipart!.doc)).toContain(`/local-images/${hash}`)
+  })
+
+  test('in a stored Question, is listed and given its stored picture', () => {
+    const question = {
+      id: 'stored',
+      doc: {
+        type: 'doc',
+        content: [
+          { type: 'paragraph', content: [{ type: 'text', text: 'Compare.' }] },
+          {
+            type: 'sideBySide',
+            content: [
+              { type: 'sideBySidePanel', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Left' }] }] },
+              { type: 'sideBySidePanel', content: [{ type: 'image-block', attrs: { src: '', pending: { image: 4 } } }] },
+            ],
+          },
+        ],
+      },
+    }
+    expect(pendingImagesOfQuestions([question]).map(({ key, where, pending }) => [key, where, pending])).toEqual([
+      ['stored/doc/0', 'Question', { image: 4 }],
+    ])
+    const resolved = withStoredPictures(question, new Map([['stored/doc/0', { src: `/local-images/${'d'.repeat(64)}` }]]))
+    expect(pendingImagesOfQuestions([resolved])).toEqual([])
+    expect(JSON.stringify(resolved)).toContain(`/local-images/${'d'.repeat(64)}`)
   })
 })

@@ -299,6 +299,21 @@ function blockLines(
     return lines
   }
 
+  // A Side-by-Side is a grid of Panels, read Panel by Panel. Like a table it
+  // cannot carry the opening run, so that takes a line of its own.
+  if (has(node, 'doc-side-by-side')) {
+    const panels = node.children.filter((child) => has(child, 'doc-panel'))
+    return [
+      ...(opener.length > 0 ? [line('para', renderInline(opener))] : []),
+      `side:${panels.length}`,
+      ...panels.flatMap((panel, index) => {
+        const content = childBlocks(panel, reader)
+        return [`panel:${index}`, ...(content.length > 0 ? content : ['para'])]
+      }),
+      '/side',
+    ]
+  }
+
   // Display mathematics is a block of its own: KaTeX draws it into a span, so
   // the tag says nothing and the class is what carries the intent.
   if (has(node, 'doc-math')) {
@@ -328,7 +343,12 @@ function blockLines(
         ),
       ]
     case 'blockquote':
-      return childBlocks(node, reader, opener)
+      return [
+        ...(opener.length > 0 ? [line('para', renderInline(opener))] : []),
+        'box',
+        ...childBlocks(node, reader),
+        '/box',
+      ]
     case 'ul':
     case 'ol': {
       let opening = opener

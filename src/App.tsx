@@ -5,7 +5,8 @@ import { Crepe } from '@milkdown/crepe'
 import { size } from '@floating-ui/dom'
 import { keymapRef } from '@milkdown/crepe/feature/toolbar'
 import type { Ctx } from '@milkdown/kit/ctx'
-import { editorViewCtx } from '@milkdown/kit/core'
+import { commandsCtx, editorViewCtx } from '@milkdown/kit/core'
+import { clearTextInCurrentBlockCommand } from '@milkdown/kit/preset/commonmark'
 import { Node as ProseNode } from '@milkdown/kit/prose/model'
 import { TextSelection } from '@milkdown/kit/prose/state'
 import { blockConfig } from '@milkdown/kit/plugin/block'
@@ -44,6 +45,15 @@ import {
   toggleScript,
 } from './script-marks'
 import { leftArrowInputRule, rightArrowInputRule } from './text-arrows'
+import {
+  insertSideBySide,
+  keepSideBySidesInStems,
+  sideBySidePanelSchema,
+  sideBySideIcon,
+  sideBySidePanelView,
+  sideBySideSchema,
+  sideBySideView,
+} from './side-by-side'
 import type { ReactNode } from 'react'
 import {
   cleanDocument,
@@ -468,6 +478,18 @@ function CrepeQuestion({
       featureConfigs: {
         [Crepe.Feature.BlockEdit]: {
           advancedGroup: { codeBlock: null },
+          // A Side-by-Side lays two or three Panels across the stem; it goes
+          // where the cursor is, and only in a stem (see `side-by-side.ts`).
+          buildMenu: (builder) => {
+            builder.getGroup('advanced').addItem('side-by-side', {
+              label: 'Side by side',
+              icon: sideBySideIcon,
+              onRun: (ctx: Ctx) => {
+                ctx.get(commandsCtx).call(clearTextInCurrentBlockCommand.key)
+                insertSideBySide(ctx.get(editorViewCtx))
+              },
+            })
+          },
           // Crepe only flips the slash menu above or below the caret; it never
           // shrinks it. In a short editor neither side has the menu's full
           // 420px, so the rest of it hung past the editor's edge, under the
@@ -565,6 +587,11 @@ function CrepeQuestion({
       .use(multipartPartView)
       .use(multipartPartStemView)
       .use(keepMultipartParts)
+      .use(sideBySideSchema)
+      .use(sideBySidePanelSchema)
+      .use(sideBySideView)
+      .use(sideBySidePanelView)
+      .use(keepSideBySidesInStems)
     // Make the whole multiple-choice block — or matching set — the drag target
     // instead of a single answer row: never offer a handle for a choice, prompt
     // or Word Bank answer itself, so Crepe's handle climbs to the block.
@@ -594,6 +621,9 @@ function CrepeQuestion({
             || node?.type?.name === 'multipartParts'
             || node?.type?.name === 'multipartPart'
             || node?.type?.name === 'multipartPartStem'
+            // A Panel moves with its Side-by-Side; the blocks in it keep
+            // their own handles, so they drag in and out of it.
+            || node?.type?.name === 'sideBySidePanel'
           ) return false
           // A Part's answers belong to that Part, and a Part is moved with
           // its own controls, so nothing inside the box offers a handle of

@@ -7,7 +7,8 @@ import {
   type SemanticNode,
 } from './question-bank-export'
 import type { ParsedQuestionBankRecord } from './question-bank-import'
-import type { ImportProposal } from './package-import'
+import { positionColumns, type ImportProposal } from './package-import'
+import { DEFAULT_COLUMNS, type ColumnSetting } from './exam'
 import { pendingImageOf, type ProseMirrorJSON } from './question-doc'
 
 /**
@@ -37,6 +38,11 @@ export type PendingImageOccurrence = {
   /** How to name it where the Question number says nothing, such as inside
    *  the Question's own editor. */
   label?: string
+  /** Whether it sits in a Side-by-Side's Panel, which it is sized to fill. */
+  inPanel?: true
+  /** For a picture in a Multiple Choice answer, how many columns its answers
+   *  print in — how wide the cell it is sized to is. */
+  answerColumns?: ColumnSetting
 }
 
 /** The picture that fills a Pending Image, and the Authored Image Size it
@@ -46,15 +52,18 @@ export type ResolvedImage = { asset: MediaAssetDeclaration; authoredSize?: numbe
 /** Key → the picture that fills it. Absent keys stay Pending Images. */
 export type PendingImageResolution = ReadonlyMap<string, ResolvedImage>
 
-type Part = { id: string; where: string; document: SemanticDocument }
+type Part = { id: string; where: string; document: SemanticDocument; answerColumns?: ColumnSetting }
 
-function partsOf(question: QuestionBankRecordQuestion): Part[] {
+// `columns` is what the Question's answers print in. A Part's are the columns
+// a Part is imported with.
+function partsOf(question: QuestionBankRecordQuestion, columns: ColumnSetting): Part[] {
   return [
     { id: 'stem', where: 'Question', document: question.stem },
     ...(question.choices ?? []).map((choice, index) => ({
       id: choice.id,
       where: `Answer ${bankLetter(index)}`,
       document: choice.content,
+      answerColumns: columns,
     })),
     ...(question.prompts ?? []).map((prompt, index) => ({
       id: prompt.id,
@@ -77,6 +86,7 @@ function partsOf(question: QuestionBankRecordQuestion): Part[] {
           id: choice.id,
           where: `${where}, Answer ${bankLetter(choiceIndex)}`,
           document: choice.content,
+          answerColumns: DEFAULT_COLUMNS,
         })),
         ...(part.suggestedAnswer
           ? [{ id: `${part.id}-suggested-answer`, where: `${where}, Suggested Answer`, document: part.suggestedAnswer }]
@@ -86,13 +96,15 @@ function partsOf(question: QuestionBankRecordQuestion): Part[] {
   ]
 }
 
-function pendingNodes(document: SemanticDocument): SemanticNode[] {
-  const found: SemanticNode[] = []
-  const visit = (node: SemanticNode) => {
-    if ((node.type === 'inline-image' || node.type === 'block-image') && node.pending) found.push(node)
-    for (const child of node.content ?? []) visit(child)
+function pendingNodes(document: SemanticDocument): { node: SemanticNode; inPanel: boolean }[] {
+  const found: { node: SemanticNode; inPanel: boolean }[] = []
+  const visit = (node: SemanticNode, inPanel: boolean) => {
+    if ((node.type === 'inline-image' || node.type === 'block-image') && node.pending) {
+      found.push({ node, inPanel })
+    }
+    for (const child of node.content ?? []) visit(child, inPanel || node.type === 'panel')
   }
-  for (const node of document.content) visit(node)
+  for (const node of document.content) visit(node, false)
   return found
 }
 
@@ -105,10 +117,13 @@ const keyOf = (bankId: string, questionId: string, partId: string, index: number
 export function pendingImagesOfRecord(
   bankId: string,
   record: Pick<ParsedQuestionBankRecord, 'bank'>,
+  columnsOf: (questionId: string) => ColumnSetting | undefined = () => undefined,
 ): PendingImageOccurrence[] {
   return record.bank.questions.flatMap((question, questionIndex) =>
-    partsOf(question).flatMap((part) =>
-      pendingNodes(part.document).map((node, index) => ({
+    // A Question no Exam lays out is sized for the columns a Question
+    // starts with: answers made of pictures are nearly always a grid.
+    partsOf(question, columnsOf(question.id) ?? DEFAULT_COLUMNS).flatMap((part) =>
+      pendingNodes(part.document).map(({ node, inPanel }, index) => ({
         key: keyOf(bankId, question.id, part.id, index),
         bankId,
         questionNumber: questionIndex + 1,
@@ -116,6 +131,8 @@ export function pendingImagesOfRecord(
         pending: { ...node.pending! },
         ...(node.alt !== undefined ? { alt: node.alt } : {}),
         ...(node.caption !== undefined ? { caption: node.caption } : {}),
+        ...(inPanel ? { inPanel: true as const } : {}),
+        ...(part.answerColumns ? { answerColumns: part.answerColumns } : {}),
       })),
     ),
   )
@@ -123,12 +140,22 @@ export function pendingImagesOfRecord(
 
 /** Every Pending Image in the banks a selection brings in. */
 export function pendingImagesOf(
-  proposal: Pick<ImportProposal, 'banks'>,
+  proposal: Pick<ImportProposal, 'banks'> & Partial<Pick<ImportProposal, 'exams'>>,
   allowed: (bankId: string) => boolean = () => true,
 ): PendingImageOccurrence[] {
+  // The columns each Question's answers print in, as the first Exam that lays
+  // it out gives them.
+  const typeOf = new Map(proposal.banks.flatMap((bank) =>
+    bank.record.bank.questions.map((question) => [`${bank.id}/${question.id}`, question.type] as const)))
+  const columns = new Map<string, ColumnSetting>()
+  for (const exam of proposal.exams ?? []) {
+    const laidOut = positionColumns(exam.positions, (position) =>
+      typeOf.get(`${position.question.bank}/${position.question.question}`) === 'multiple-choice')
+    for (const [key, count] of laidOut) if (!columns.has(key)) columns.set(key, count)
+  }
   return proposal.banks
     .filter((bank) => allowed(bank.id))
-    .flatMap((bank) => pendingImagesOfRecord(bank.id, bank.record))
+    .flatMap((bank) => pendingImagesOfRecord(bank.id, bank.record, (id) => columns.get(`${bank.id}/${id}`)))
 }
 
 /** A bank's record with each Pending Image replaced by what `change` makes
@@ -344,7 +371,17 @@ export function pendingImagesOfQuestions(questions: readonly EditorQuestion[]): 
   return questions.flatMap((question, index) => {
     const found: PendingImageOccurrence[] = []
     const counts = { doc: 0, suggestedAnswer: 0 }
-    const visit = (part: 'doc' | 'suggestedAnswer', node: ProseMirrorJSON, where: string) => {
+    // `grid` is the columns answers here print in — a Part's own, or the
+    // columns a Question starts with, since which Exam lays it out is not
+    // known here; `answerColumns` is set inside an answer.
+    const visit = (
+      part: 'doc' | 'suggestedAnswer',
+      node: ProseMirrorJSON,
+      where: string,
+      inPanel = false,
+      grid: ColumnSetting = DEFAULT_COLUMNS,
+      answerColumns?: ColumnSetting,
+    ) => {
       const pending = pendingImageOf(node)
       if (pending) {
         const attrs = node.attrs as Record<string, unknown>
@@ -356,8 +393,15 @@ export function pendingImagesOfQuestions(questions: readonly EditorQuestion[]): 
           pending,
           ...(typeof attrs.alt === 'string' && attrs.alt ? { alt: attrs.alt } : {}),
           ...(typeof attrs.caption === 'string' && attrs.caption ? { caption: attrs.caption } : {}),
+          ...(inPanel ? { inPanel: true as const } : {}),
+          ...(answerColumns ? { answerColumns } : {}),
         })
       }
+      const partColumns = (node.attrs as Record<string, unknown> | undefined)?.columns
+      const answersGrid: ColumnSetting = node.type === 'multipartPart'
+        && (partColumns === 1 || partColumns === 2 || partColumns === 4)
+        ? partColumns
+        : grid
       // A Multipart question's Parts are lettered, and so are the answers
       // inside each: “Part b, Answer C”.
       const answers = editorChildren(node).filter((child) => child.type === 'multipleChoiceChoice')
@@ -376,6 +420,9 @@ export function pendingImagesOfQuestions(questions: readonly EditorQuestion[]): 
               : child.type === 'suggestedAnswer' && where !== 'Question'
                 ? within('Suggested Answer')
                 : where,
+          inPanel || child.type === 'sideBySidePanel',
+          answersGrid,
+          letter >= 0 ? answersGrid : answerColumns,
         )
       }
     }

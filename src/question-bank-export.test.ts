@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs'
 import { partsOf, type Question } from './exam'
 import { mark, paragraph, text } from './export-fixtures'
+import type { ProseMirrorJSON } from './question-doc'
 import type { QuestionBankResource } from './question-bank-workspaces'
 import {
   QUESTION_BANK_FORMAT,
@@ -407,7 +408,7 @@ describe('Question Bank exchange export seam', () => {
   test('writes a Multipart question as its material and lettered Parts, each under a package-local id', async () => {
     const { record } = await prepareQuestionBankExport(bank([multipart, emptyMultipart]))
 
-    expect(record.formatVersion).toBe('0.5.0')
+    expect(record.formatVersion).toBe('0.6.0')
     expect(record.bank.questions[0]).toEqual({
       id: 'q1',
       type: 'multipart',
@@ -761,7 +762,7 @@ describe('a Question Bank with Pending Images', () => {
     const prepared = await prepareQuestionBankExport(bank([pictured]), async () => {
       throw new Error('a Pending Image has no media to load')
     })
-    expect(prepared.record.formatVersion).toBe('0.5.0')
+    expect(prepared.record.formatVersion).toBe('0.6.0')
     expect(prepared.record.media).toEqual([])
     expect(prepared.record.bank.questions[0]!.stem.content[1]).toEqual({
       type: 'block-image',
@@ -786,5 +787,145 @@ describe('a Question Bank with Pending Images', () => {
     const [question] = importedQuestionsFromRecord(reimported.record)
     expect(JSON.stringify(question!.doc)).toContain('"pending":{"image":3}')
     expect(JSON.stringify(question!.doc)).toContain('"pending":{"page":2}')
+  })
+})
+
+describe('a Question Bank with Side-by-Sides', () => {
+  const PIXEL = Uint8Array.from(
+    atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='),
+    (character) => character.charCodeAt(0),
+  )
+  const pixels = async () => ({ data: PIXEL, mimeType: 'image/png' as const, width: 1, height: 1 })
+  const panel = (...content: ProseMirrorJSON[]): ProseMirrorJSON => ({ type: 'sideBySidePanel', content })
+  const sideBySide = (...panels: ProseMirrorJSON[]): ProseMirrorJSON => ({ type: 'sideBySide', content: panels })
+  const graph = (name: string): ProseMirrorJSON => ({ type: 'image-block', attrs: { src: `/local-images/${name}`, alt: name } })
+  const table = (value: string): ProseMirrorJSON => ({
+    type: 'table',
+    content: [{ type: 'table_row', content: [{ type: 'table_cell', content: [paragraph(text(value))] }] }],
+  })
+
+  const compared: Question = {
+    id: 'local-compared-id',
+    type: 'open',
+    columns: 1,
+    doc: {
+      type: 'doc',
+      content: [
+        paragraph(text('Compare the two graphs.')),
+        sideBySide(panel(graph('graph-a'), paragraph(text('Graph A'))), panel(graph('graph-b'))),
+        paragraph(text('What changed?')),
+      ],
+    },
+  }
+  const passage: Question = {
+    id: 'local-passage-id',
+    type: 'multipart',
+    columns: 1,
+    doc: {
+      type: 'doc',
+      content: [
+        { type: 'blockquote', content: [paragraph(text('Four score and seven years ago …'))] },
+        paragraph(text('Source: Abraham Lincoln, 1863')),
+        sideBySide(panel(graph('photo')), panel(paragraph(text('Lincoln spoke for two minutes.')))),
+        {
+          type: 'multipartParts',
+          content: [
+            {
+              type: 'multipartPart',
+              attrs: { id: 'local-part', columns: 2 },
+              content: [
+                {
+                  type: 'multipartPartStem',
+                  content: [sideBySide(panel(table('Liberty')), panel(table('Union')), panel(paragraph(text('Equality'))))],
+                },
+                { type: 'suggestedAnswer', content: [paragraph(text('Because.'))] },
+              ],
+            },
+          ],
+        },
+      ],
+    },
+  }
+
+  test('writes a Side-by-Side in a stem and a Part’s stem as its Panels, collecting their pictures into media', async () => {
+    const loaded: string[] = []
+    const { record } = await prepareQuestionBankExport(bank([compared, passage]), async (source) => {
+      loaded.push(source)
+      return pixels()
+    })
+
+    expect(loaded).toEqual(['/local-images/graph-a', '/local-images/graph-b', '/local-images/photo'])
+    expect(record.media).toHaveLength(1)
+    const [first, second] = record.bank.questions
+    expect(first!.stem.content[1]).toMatchObject({
+      type: 'side-by-side',
+      content: [
+        { type: 'panel', content: [{ type: 'block-image', alt: 'graph-a' }, { type: 'paragraph' }] },
+        { type: 'panel', content: [{ type: 'block-image', alt: 'graph-b' }] },
+      ],
+    })
+    expect(JSON.stringify(first!.stem.content[1])).toContain(record.media[0]!.id)
+    expect(JSON.stringify(record)).not.toContain('sideBySide')
+    expect(second!.stem.content.map((node) => node.type)).toEqual(['blockquote', 'paragraph', 'side-by-side'])
+    expect(second!.parts![0]!.stem.content[0]!.content!.map((node) => node.type)).toEqual(['panel', 'panel', 'panel'])
+  })
+
+  test('round-trips through the record: export, import, and export again write the same bank', async () => {
+    const first = await prepareQuestionBankExport(bank([compared, passage]), pixels)
+    const inspected = await inspectQuestionBankRecord(first.recordBytes)
+    expect(inspected.summary.mediaAssets).toBe(1)
+    const imported = importedQuestionsFromRecord(inspected.record)
+
+    const hash = first.record.media[0]!.id.slice('sha256:'.length)
+    expect(imported[0]!.doc.content![1]).toMatchObject({
+      type: 'sideBySide',
+      content: [
+        {
+          type: 'sideBySidePanel',
+          content: [{ type: 'image-block', attrs: { src: `/local-images/${hash}` } }, { type: 'paragraph' }],
+        },
+        { type: 'sideBySidePanel' },
+      ],
+    })
+    const second = await prepareQuestionBankExport(bank(imported), pixels)
+    expect(second.record.bank).toEqual(first.record.bank)
+    expect(second.record.media).toEqual(first.record.media)
+  })
+
+  test('refuses a Side-by-Side anywhere but directly in a stem, and one without two or three Panels', async () => {
+    const inChoice: Question = {
+      id: 'local-choice-side-by-side',
+      type: 'multiple-choice',
+      columns: 1,
+      doc: {
+        type: 'doc',
+        content: [
+          paragraph(text('Which?')),
+          {
+            type: 'multipleChoice',
+            content: [
+              {
+                type: 'multipleChoiceChoice',
+                attrs: { id: 'a', correct: true },
+                content: [sideBySide(panel(paragraph(text('A'))), panel(paragraph(text('B'))))],
+              },
+              choice('b', false, 'Other'),
+            ],
+          },
+        ],
+      },
+    }
+    const inBlockquote: Question = {
+      ...compared,
+      doc: { type: 'doc', content: [{ type: 'blockquote', content: [compared.doc.content![1]!] }] },
+    }
+    const onePanel: Question = {
+      ...compared,
+      doc: { type: 'doc', content: [sideBySide(panel(paragraph(text('Alone'))))] },
+    }
+
+    await expect(prepareQuestionBankExport(bank([inChoice]), pixels)).rejects.toThrow(/only as a top-level block of a stem/)
+    await expect(prepareQuestionBankExport(bank([inBlockquote]), pixels)).rejects.toThrow(/only as a top-level block of a stem/)
+    await expect(prepareQuestionBankExport(bank([onePanel]), pixels)).rejects.toThrow(/two or three Panels/)
   })
 })
