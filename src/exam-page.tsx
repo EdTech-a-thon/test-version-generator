@@ -747,8 +747,13 @@ function QuestionView({
  *  controls where they were, through each pass of repagination. */
 const MOVE_ANCHOR_MS = 1200
 
-/** How far a Section's highlight reaches past its first and last pieces: to
- *  its dashed rule above, and halfway into the gap below. */
+/** How far above its heading a Section's dashed rule is drawn — `top` on
+ *  `.exam-section--editable::before` in styles.css. A Section's highlight runs
+ *  from its own rule to the next Section's, so the two always meet. */
+const SECTION_RULE_OFFSET = 9
+
+/** How far a Section's highlight reaches below the last piece on a sheet when
+ *  no Section follows it there. */
 const SECTION_BAND_BLEED = 12
 
 /** One sheet's stretch of a Section, as drawn: from its sheet's top edge, for
@@ -1516,9 +1521,9 @@ export function ExamPage({
       }
       const onSheet = [...spans].sort(([, a], [, b]) => a.top - b.top)
       onSheet.forEach(([sectionId, span], index) => {
-        const top = span.top - SECTION_BAND_BLEED
+        const top = span.top - SECTION_RULE_OFFSET
         const next = onSheet[index + 1]
-        const bottom = next ? next[1].top - SECTION_BAND_BLEED : span.bottom + SECTION_BAND_BLEED
+        const bottom = next ? next[1].top - SECTION_RULE_OFFSET : span.bottom + SECTION_BAND_BLEED
         bands.push({
           sectionId,
           pageIndex,
@@ -1783,7 +1788,7 @@ export function ExamPage({
             return !!section && section.title === '' && section.instructions === ''
           })()}
           disabled={titleDisabled}
-          style={{ top: pointedBand.top + SECTION_BAND_BLEED, left: pointedBand.pageLeft }}
+          style={{ top: pointedBand.top + SECTION_RULE_OFFSET, left: pointedBand.pageLeft }}
           onRevealTitle={() => setRevealTitleOf(pointedBand.sectionId)}
           onHover={(on) => setHoveredSectionId(on ? pointedBand.sectionId : null)}
         />

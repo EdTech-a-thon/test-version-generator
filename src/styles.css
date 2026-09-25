@@ -1035,14 +1035,14 @@ button { cursor: pointer; }
 
 /* Where each Section begins, on the sheet only: a dashed rule just above its
    heading, across the paper's whole width, margins included — drawn outside
-   the flow so the page is laid out exactly as it prints. */
+   the flow so the page is laid out exactly as it prints. Its 9px offset is
+   `SECTION_RULE_OFFSET` in exam-page.tsx, where a Section's highlight starts. */
 .exam-section--editable::before,
 .exam-section-hidden::before {
   content: ''; position: absolute; top: -9px;
   left: calc(-1 * var(--page-margin)); right: calc(-1 * var(--page-margin));
   border-top: 1px dashed #ddd0c2; pointer-events: none;
 }
-.exam-section-hidden::before { top: -8px; }
 
 /* A Section pointed at through its heading: one band across the paper's whole
    width, margins included, behind everything in the Section, so the teacher
