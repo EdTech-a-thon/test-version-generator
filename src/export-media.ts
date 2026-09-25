@@ -170,8 +170,6 @@ export function imageSourcesOf(plans: readonly LayoutPlan[]): string[] {
   }
   for (const plan of plans) {
     for (const page of plan.pages) {
-      // An Exam's own header may carry images too — a school's logo.
-      for (const block of page.furniture.customHeader?.content ?? []) visit(block)
       for (const item of page.items) {
         if (item.kind !== 'question') continue
         for (const block of item.stem) visit(block)

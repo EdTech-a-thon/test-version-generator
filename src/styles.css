@@ -761,48 +761,6 @@ button { cursor: pointer; }
   flex: 1 1 auto; display: flex; align-items: flex-end;
   margin: 0; font: 700 26px/1.2 Georgia, serif;
 }
-/* An Exam's own header, in place of the identity line: exactly the height the
-   plan measured it at, and clipped there, so a header past the cap cannot push
-   the page out of shape. `flow-root` contains its first and last margins, as
-   the measuring host does. */
-.page-header-custom { flex: none; display: flow-root; overflow: hidden; }
-.page-header-content > :first-child { margin-top: 0; }
-.page-header-content > :last-child { margin-bottom: 0; }
-.page-header-custom--editing { overflow: visible; }
-/* The header open for editing: the editor sits where the header prints, and a
-   bar above it in the page's top margin says what is being edited and holds
-   what only a header has. Tables show faint guides, since a header's tables
-   usually print without borders. */
-.page-header--editing { position: relative; z-index: 5; }
-.header-editor { position: relative; }
-.header-editor-bar {
-  position: absolute; bottom: calc(100% + 8px); left: -8px; right: -8px;
-  display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
-  padding: 5px 8px; border-radius: 8px;
-  color: #4e3b2f; background: #fffaf3; box-shadow: 0 2px 10px rgb(55 42 33 / 18%);
-  font: 500 12.5px/1.3 Arial, Helvetica, sans-serif;
-}
-.header-editor-label { margin-right: 4px; font-weight: 700; }
-.header-editor-button {
-  display: inline-flex; align-items: center; gap: 4px;
-  padding: 4px 8px; border: 1px solid #e1d4c4; border-radius: 6px;
-  color: inherit; background: #fff; font: inherit; cursor: pointer;
-}
-.header-editor-button svg { width: 14px; height: 14px; }
-.header-editor-button:hover { border-color: #c9b49b; background: #f6f1e8; }
-.header-editor-button[aria-pressed="true"] { border-color: var(--paper-accent); color: var(--paper-accent); }
-.header-editor-done { margin-left: auto; font-weight: 700; }
-.header-editor-toggle { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
-.header-editor-warning { flex-basis: 100%; color: var(--paper-danger); font-weight: 700; }
-.header-editor-body {
-  outline: 1px dashed #c9b49b; outline-offset: 4px; border-radius: 2px;
-}
-.header-editor-body .milkdown .ProseMirror { padding: 0; min-height: 1.45em; }
-.header-editor-body table td, .header-editor-body table th { border: 1px dashed #d8cbbb; }
-.header-id-chip {
-  display: inline-block; padding: 0 6px; border-radius: 999px;
-  color: #6d5a45; background: #efe4d6; font: 700 0.85em/1.5 Arial, Helvetica, sans-serif;
-}
 .page-header--answer-key .page-identity,
 .page-header--answer-key-later .page-identity { justify-content: flex-end; }
 /* A flex item, so its children's margins stay inside it — the same containment
@@ -1307,7 +1265,6 @@ button { cursor: pointer; }
 .doc-figure figcaption { font-size: 13px; font-style: italic; }
 .doc-table { border-collapse: collapse; }
 .doc-table td, .doc-table th { padding: 3px 8px; border: 1px solid #b9a893; }
-.doc-table--borderless td, .doc-table--borderless th { border-color: transparent; }
 .doc-math--block { display: block; margin: 6px 0; text-align: center; }
 
 .dialog-backdrop {

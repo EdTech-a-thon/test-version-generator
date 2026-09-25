@@ -133,9 +133,7 @@ export function planImport(
       ...(Object.keys(workSpace).length > 0 ? { workSpace } : {}),
       ...(exam.sectionHeadings ? { sectionHeadings: exam.sectionHeadings } : {}),
       ...(exam.headingSize ? { headingSize: exam.headingSize } : {}),
-      ...(exam.header ? { header: exam.header } : {}),
     }
-    for (const asset of exam.headerMedia ?? []) media.set(asset.id, asset)
     return [{
       source: exam.key,
       examId: createId(),

@@ -1,6 +1,6 @@
 # Exam Record 0.2.0
 
-The **Exam Record** is the portable composition of one Exam: its name, its own test-page header, how its section headings read and how large they print, and, for each position, the Question it uses, with that position's answer columns, answer order and Work Space. It never carries Question Content. It references Questions in Question Bank Records that travel beside it in the same [Test Parrot Package](test-parrot-package-0.1.0.md), and it is importable only inside one. See ADR-0022.
+The **Exam Record** is the portable composition of one Exam: its name, how its section headings read and how large they print, and, for each position, the Question it uses, with that position's answer columns, answer order and Work Space. It never carries Question Content. It references Questions in Question Bank Records that travel beside it in the same [Test Parrot Package](test-parrot-package-0.1.0.md), and it is importable only inside one. See ADR-0022.
 
 ## Published contract
 
@@ -22,8 +22,6 @@ The schema is the structural contract; this document supplies the rules JSON Sch
 | `name`          | The Exam's name. An empty name imports as “Untitled Exam”. |
 | `sectionHeadings` | Optional. The Exam's own wording for its Question Section headings. See below. |
 | `headingSize`   | Optional. `small`, `normal` or `large`: how large every section heading and its directions print. Absent means `normal`. |
-| `header`        | Optional. The Exam's own test-page header. See below. |
-| `media`         | Optional. The images `header` shows, as in a Question Bank Record's `media`. |
 | `positions`     | The Exam's positions, in order. May be empty.            |
 
 Unknown optional members are ignored and are not preserved on import.
@@ -54,17 +52,6 @@ Every Question Section prints a heading and a line of directions. Test Parrot ha
 - Producers record only departures from the default. Importers keep the members as given.
 - The Answer Key's section titles follow `title`; a Section whose `title` is empty is still named by its default there.
 
-## Header
-
-By default every test page prints Test Parrot's own header: Name, Class and Date blanks on the first page, a Name blank on later ones, and the paper's ID on each (ADR-0026). `header` replaces it:
-
-- `later` is a document that prints on every test page, and on the first as well unless `differentFirstPage` is `true`, when `first` prints there instead.
-- Documents use the Question Bank Record's document vocabulary. Images reference `media` by `asset`, exactly as in a Question Bank Record.
-- An `exam-id` node, inline, prints the paper's ID, such as `ID: A`.
-- A `table` prints without borders unless it has `"borders": true`; a table without borders prints its first row as an ordinary row.
-- A document that prints nothing takes no room. The Exam's title always prints on its own line under the first page's header.
-- Answer Key pages keep Test Parrot's own header.
-
 ## Sections and order
 
 Test Parrot always prints Question Sections in its own order: Multiple Choice, True/False, Matching, Short Answer, Multipart. An Exam Record carries no Section order. On import, positions are stably regrouped into that order, keeping only their order within each Section. A record whose positions interleave Sections is conforming; it is not rejected and no warning is given.
@@ -78,7 +65,7 @@ Test Parrot always prints Question Sections in its own order: Multiple Choice, T
 
 ## Changes from 0.1.0
 
-`sectionHeadings`, `headingSize`, `header` and `media` are new, and all are optional. Test Parrot still imports Exam Record `0.1.0`, whose Exams print the default header and every heading in the default wording at the normal size, and writes `0.2.0`.
+`sectionHeadings` and `headingSize` are new, and both are optional. Test Parrot still imports Exam Record `0.1.0`, whose Exams print every heading in the default wording at the normal size, and writes `0.2.0`.
 
 ## Producers
 

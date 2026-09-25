@@ -840,28 +840,6 @@ describe('the dirty flag and persistence', () => {
     expect(store.selectedExam().exam.headingSize).toBe('small')
   })
 
-  test('an Exam’s own header is saved Exam presentation, and setting it back to the default stores nothing', async () => {
-    const { store } = await withExamWorkingCopy(1)
-    await store.save()
-    const header = {
-      differentFirstPage: false,
-      first: [],
-      later: [{ type: 'paragraph', content: [{ type: 'text', text: 'Springfield High' }] }],
-    }
-
-    store.setHeader(header)
-    expect(store.getState().dirty).toBe(true)
-    expect(store.selectedExam().exam.header).toEqual(header)
-
-    store.setHeader(null)
-    expect(store.getState().workingCopy.header).toBeUndefined()
-    expect(store.selectedExam().exam.header).toBeUndefined()
-    expect(store.getState().dirty).toBe(false)
-
-    store.undo()
-    expect(store.selectedExam().exam.header).toEqual(header)
-  })
-
   test('a change that changes nothing costs no undo step, dirty flag, or write', async () => {
     // The store's one-action invariant cuts both ways: an action that leaves
     // the state exactly as it found it is not an action. Setting the title it

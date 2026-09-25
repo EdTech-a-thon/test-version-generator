@@ -505,8 +505,6 @@ function furnitureLines(header: XmlNode | string, reader: Reader): ContentLine[]
   if (!root) return []
   const identity = find(root, 'page-identity')
   const lines: ContentLine[] = []
-  const custom = find(root, 'page-header-content')
-  if (custom) lines.push(...childBlocks(custom, reader))
   if (identity) {
     const fields = identity.children.map((child) =>
       normalizeSpace(textOf(child)).trim(),

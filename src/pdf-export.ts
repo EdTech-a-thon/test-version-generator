@@ -13,11 +13,6 @@ import {
   PDFDocument,
   PDFName,
   PDFString,
-  clip,
-  endPath,
-  popGraphicsState,
-  pushGraphicsState,
-  rectangle,
   rgb,
   type PDFFont,
   type PDFImage,
@@ -35,9 +30,7 @@ import {
   type MediaLoader,
 } from './export-media'
 import {
-  HEADER_HEIGHT,
   MATCHING_BANK_WIDTH,
-  TITLE_LINE_HEIGHT,
   PART_INDENT,
   printsNumberLine,
   questionIndentOf,
@@ -545,7 +538,6 @@ function drawTable(context: DrawContext, table: ProseMirrorJSON, x: number, widt
   const rows = childrenOf(table).filter((row) => row.type === 'table_row' || row.type === 'table_header_row')
   const columns = Math.max(1, ...rows.map((row) => childrenOf(row).length))
   const cellWidth = width / columns
-  const borderless = (table.attrs as { borderless?: unknown } | undefined)?.borderless === true
   for (const row of rows) {
     const top = context.y
     let bottom = top - BODY_LINE - 8
@@ -567,8 +559,7 @@ function drawTable(context: DrawContext, table: ProseMirrorJSON, x: number, widt
       bottom = Math.min(bottom, cellContext.y - 4)
     }
     ensureRoom(context, top - bottom)
-    // A borderless table keeps its cells and loses its rules, as in print.
-    for (let column = 0; column < columns && !borderless; column += 1) {
+    for (let column = 0; column < columns; column += 1) {
       context.page.drawRectangle({
         x: x + column * cellWidth,
         y: bottom,
@@ -881,47 +872,12 @@ function drawAnswerKeyEntry(context: DrawContext, item: AnswerKeyEntryItem): voi
   }
 }
 
-// How far below the title band's top edge its baseline line starts: where the
-// default header puts the title, 36pt from the page top under a 31.5pt
-// identity line.
-const TITLE_BAND_OFFSET = 36 - pt(HEADER_HEIGHT.later)
-
 function drawFurniture(
   context: DrawContext,
   furniture: PageFurniture,
   pageTop: number,
   headerBottom: number,
 ): void {
-  const custom = furniture.customHeader
-  if (custom) {
-    // An Exam's own header, in exactly the band the plan gave it and clipped
-    // there, as print clips it: this adapter sets text by its own metrics, and
-    // a header drawn a little taller must not run into the questions.
-    const band = pt(custom.height)
-    if (band > 0) {
-      context.page.pushOperators(
-        pushGraphicsState(),
-        rectangle(context.x - 2, pageTop - band, context.width + 4, band + 2),
-        clip(),
-        endPath(),
-      )
-      drawBlocks(
-        { ...context, y: pageTop, bottom: -Infinity },
-        custom.content,
-        { x: context.x, width: context.width },
-      )
-      context.page.pushOperators(popGraphicsState())
-    }
-    if (furniture.title !== null) {
-      const titleContext = { ...context, y: pageTop - band - TITLE_BAND_OFFSET, bottom: headerBottom }
-      drawInline(
-        titleContext,
-        [{ text: furniture.title, font: 'bold', size: TITLE_SIZE }],
-        { x: context.x, width: context.width, line: TITLE_SIZE * 1.15 },
-      )
-    }
-    return
-  }
   const pieces: InlinePiece[] = []
   for (const field of furniture.identityFields) {
     pieces.push({ text: `${field}: __________________  `, font: 'regular', size: SMALL_SIZE })
@@ -994,10 +950,9 @@ async function createPdf(
       const margin = pt(plan.pageSize.margin)
       const page = document.addPage([width, height])
       const top = height - margin
-      const custom = planned.furniture.customHeader
-      const headerHeight = custom
-        ? pt(custom.height + (planned.furniture.title !== null ? TITLE_LINE_HEIGHT : 0))
-        : pt(HEADER_HEIGHT[planned.header])
+      const headerHeight = planned.header === 'first' || planned.header === 'answer-key'
+        ? pt(84)
+        : pt(42)
       const footerHeight = pt(36)
       const context: DrawContext = {
         document,

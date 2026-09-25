@@ -67,7 +67,7 @@ describe('public Exam Record 0.2.0 contract', () => {
   test('canonical examples validate independently against the published schema', async () => {
     const validate = strict().compile(publicExamSchema020)
     const names = await filesIn(join(currentExamRoot, 'examples'))
-    expect(names).toEqual(['header.json', 'minimal.json', 'section-headings.json'])
+    expect(names).toEqual(['minimal.json', 'section-headings.json'])
     for (const name of names) {
       expect(validate(await read(join(currentExamRoot, 'examples'), name)), `${name}: ${JSON.stringify(validate.errors)}`).toBe(true)
     }

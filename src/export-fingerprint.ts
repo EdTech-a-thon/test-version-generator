@@ -610,7 +610,7 @@ export function planItemLines(
   }
 }
 
-function furnitureLines(furniture: PageFurniture, images: ImageOrdinals): {
+function furnitureLines(furniture: PageFurniture): {
   header: ContentLine[]
   footer: ContentLine[]
 } {
@@ -620,10 +620,7 @@ function furnitureLines(furniture: PageFurniture, images: ImageOrdinals): {
   ].join(' ')
   return {
     header: [
-      // An Exam's own header says what its blocks say, as a stem does.
-      ...(furniture.customHeader
-        ? planBlocks(furniture.customHeader.content, {}, images)
-        : [`para ${identity}`]),
+      `para ${identity}`,
       ...(furniture.title === null ? [] : [`heading:title ${furniture.title}`]),
     ],
     footer: [`para ${furniture.pageNumber}`],
@@ -649,7 +646,7 @@ export function layoutFingerprint(
       width: plan.pageSize.width,
       height: plan.pageSize.height,
       margin: plan.pageSize.margin,
-      ...furnitureLines(page.furniture, images),
+      ...furnitureLines(page.furniture),
       content: page.items.flatMap((item) => planItemLines(item, images)),
     })),
   )

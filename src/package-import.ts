@@ -1,7 +1,6 @@
 import Ajv2020, { type ErrorObject } from 'ajv/dist/2020'
 import type { ColumnSetting, WorkSpace } from './exam'
 import type { HeadingSize, SectionHeadings } from './section-headings'
-import type { ExamHeader } from './page-header'
 import examSchema010 from './exam-record-0.1.0.schema.json'
 import examSchema020 from './exam-record-0.2.0.schema.json'
 import packageSchema010 from './test-parrot-package-0.1.0.schema.json'
@@ -10,9 +9,6 @@ import {
   RECORD_TYPE_ORDER,
   type QuestionBankRecordQuestion,
   type QuestionBankRecordQuestionType,
-  recordDocumentToEditorNodes,
-  type SemanticDocument,
-  type SemanticNode,
 } from './question-bank-export'
 import {
   DEFAULT_QUESTION_BANK_IMPORT_LIMITS,
@@ -76,10 +72,6 @@ export type ExamRecord = {
    *  `'open'`); only departures from the default wording. */
   sectionHeadings?: Partial<Record<QuestionBankRecordQuestionType, ExamRecordSectionHeading>>
   headingSize?: HeadingSize
-  /** The Exam's own test-page header, in the exchange document vocabulary. */
-  header?: { differentFirstPage: boolean; first: SemanticDocument; later: SemanticDocument }
-  /** The images the header shows, as a Question Bank Record carries its own. */
-  media?: ParsedQuestionBankRecord['media']
   positions: ExamRecordPosition[]
 }
 
@@ -111,9 +103,6 @@ export type ProposedExam = {
    *  size — absent when the record says nothing but the defaults. */
   sectionHeadings?: SectionHeadings
   headingSize?: HeadingSize
-  /** The Exam's own header as editor content, and the images it shows. */
-  header?: ExamHeader
-  headerMedia?: ParsedQuestionBankRecord['media']
   /** Positions regrouped into Test Parrot's Section order, keeping only the
    *  order within each Section. */
   positions: ExamRecordPosition[]
@@ -177,7 +166,7 @@ function copyPosition(position: ExamRecordPosition): ExamRecordPosition {
  *  Answer section is `'open'` — or nothing, when it keeps the defaults. */
 function localHeadingsOf(
   exam: ExamRecord,
-): { sectionHeadings?: SectionHeadings; headingSize?: HeadingSize; header?: ExamHeader; headerMedia?: ParsedQuestionBankRecord['media'] } {
+): { sectionHeadings?: SectionHeadings; headingSize?: HeadingSize } {
   const entries = Object.entries(exam.sectionHeadings ?? {}) as [
     QuestionBankRecordQuestionType,
     ExamRecordSectionHeading,
@@ -188,16 +177,6 @@ function localHeadingsOf(
   return {
     ...(entries.length > 0 ? { sectionHeadings } : {}),
     ...(exam.headingSize && exam.headingSize !== 'normal' ? { headingSize: exam.headingSize } : {}),
-    ...(exam.header
-      ? {
-          header: {
-            differentFirstPage: exam.header.differentFirstPage,
-            first: recordDocumentToEditorNodes(exam.header.first),
-            later: recordDocumentToEditorNodes(exam.header.later),
-          },
-          ...(exam.media?.length ? { headerMedia: exam.media } : {}),
-        }
-      : {}),
   }
 }
 
@@ -231,40 +210,7 @@ const examParser020: ExamParser = (value) => {
     name: exam.name,
     ...(Object.keys(sectionHeadings).length > 0 ? { sectionHeadings } : {}),
     ...(exam.headingSize ? { headingSize: exam.headingSize } : {}),
-    ...(exam.header ? { header: structuredClone(exam.header) } : {}),
-    ...(exam.media?.length ? { media: exam.media.map((asset) => ({ ...asset })) } : {}),
     positions: exam.positions.map(copyPosition),
-  }
-}
-
-/** Every image an Exam's header shows must travel with it, and be the image
- *  its id says it is — the same promise a Question Bank Record makes. */
-async function verifyHeaderMedia(exam: ExamRecord, index: number): Promise<void> {
-  if (!exam.header) return
-  const media = new Map((exam.media ?? []).map((asset) => [asset.id, asset]))
-  const visit = (node: SemanticNode) => {
-    if (node.asset !== undefined && !media.has(node.asset)) {
-      throw new QuestionBankImportError(
-        'dangling-reference',
-        `Exam ${index + 1}'s header shows Media Asset “${node.asset}”, which the Exam does not carry.`,
-      )
-    }
-    for (const child of node.content ?? []) visit(child)
-  }
-  for (const node of [...exam.header.first.content, ...exam.header.later.content]) visit(node)
-  for (const asset of media.values()) {
-    let bytes: Uint8Array
-    try {
-      bytes = Uint8Array.from(atob(asset.bytes), (character) => character.charCodeAt(0))
-    } catch {
-      throw new QuestionBankImportError('invalid-media', `Media Asset “${asset.id}” is not valid base64.`)
-    }
-    const digest = [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))]
-      .map((byte) => byte.toString(16).padStart(2, '0'))
-      .join('')
-    if (asset.id !== `sha256:${digest}`) {
-      throw new QuestionBankImportError('invalid-media', `Media Asset “${asset.id}” does not match its SHA-256 digest.`)
-    }
   }
 }
 
@@ -455,7 +401,6 @@ async function inspectPackageValue(
   // Exams are parsed before any bank's media is decoded: an unsupported Exam
   // version is a cheap refusal, and there is no reason to pay for images first.
   const exams = testParrotPackage.exams.map(parseExam)
-  for (const [index, exam] of exams.entries()) await verifyHeaderMedia(exam, index)
 
   const banks: ProposedBank[] = []
   let questions = 0

@@ -52,19 +52,6 @@ import { stemNodesOf, type ProseMirrorJSON } from './question-doc'
 // about its sections; re-exported for the adapters and tests that print it.
 export { SECTION_INSTRUCTIONS, SECTION_TITLE } from './section-headings'
 import {
-  MAX_HEADER_SHARE,
-  headerContentOf,
-  isEmptyContent,
-  isExamHeader,
-  resolveHeaderContent,
-  type HeaderSlot,
-} from './page-header'
-
-/** The ID a paper prints, on every page of both documents. */
-function arrangementLabelOf(letter: string): string {
-  return `ID: ${letter}`
-}
-import {
   DEFAULT_HEADING_SIZE,
   SECTION_TITLE,
   sectionHeadingOf,
@@ -81,9 +68,6 @@ export type ColumnCount = 1 | 2 | 4
 export type Measure = {
   /** Height in px of one page item, laid out at the content box's width. */
   itemHeight(item: PageItem): number
-  /** Height in px of an Exam's own header content at the same width. A
-   *  `Measure` without it gives such a header no height. */
-  blocksHeight?(blocks: ProseMirrorJSON[]): number
 }
 
 // A stub that reports nothing: every item is zero-height, so an exam packs onto
@@ -400,10 +384,6 @@ export type PlannedPage = {
 export type IdentityField = 'Name' | 'Class' | 'Date'
 
 export type PageFurniture = {
-  /** The Exam's own header, where it has one: the content this page prints in
-   *  place of the identity line — its ID already resolved — and the height the
-   *  plan gave it. Absent on the default header and on every answer-key page. */
-  customHeader?: { content: ProseMirrorJSON[]; height: number }
   identityFields: readonly IdentityField[]
   /** The exam title, on the pages that repeat it; `null` on the rest. */
   title: string | null
@@ -436,16 +416,11 @@ function furnitureOf(
   page: { header: PageHeader; number: number },
   title: string,
   arrangementLetter: string,
-  headers: ResolvedHeaders,
 ): PageFurniture {
-  const custom = headers.custom?.[page.header as HeaderSlot]
   return {
-    ...(custom
-      ? { customHeader: { content: custom, height: headers.contentHeights[page.header as HeaderSlot]! } }
-      : {}),
-    identityFields: custom ? [] : IDENTITY_FIELDS[page.header],
+    identityFields: IDENTITY_FIELDS[page.header],
     title: REPEATS_TITLE[page.header] ? title : null,
-    arrangementLabel: arrangementLabelOf(arrangementLetter),
+    arrangementLabel: `ID: ${arrangementLetter}`,
     pageNumber: page.number,
   }
 }
@@ -485,50 +460,9 @@ export const HEADER_HEIGHT: Record<PageHeader, number> = {
 
 export const FOOTER_HEIGHT = 36
 
-/** How much vertical space packing may fill on a page carrying `header`.
- *  `heights` are the Exam's own when it has its own header. */
-export function pageContentHeight(
-  header: PageHeader,
-  heights: Readonly<Record<PageHeader, number>> = HEADER_HEIGHT,
-): number {
-  return PAGE_BOX_HEIGHT - heights[header] - FOOTER_HEIGHT
-}
-
-/** The first page's title line, below whichever header the page carries. */
-export const TITLE_LINE_HEIGHT = HEADER_HEIGHT.first - HEADER_HEIGHT.later
-
-/** The most room an Exam's own header may take on a page. */
-export const MAX_HEADER_HEIGHT = Math.floor(PAGE_BOX_HEIGHT * MAX_HEADER_SHARE)
-
-/** An Exam's headers as one paper prints them. `custom` is absent on an Exam
- *  that keeps the default header; `heights` is every variant's full header
- *  height, and `contentHeights` the height of the custom content alone. */
-type ResolvedHeaders = {
-  custom?: Record<HeaderSlot, ProseMirrorJSON[]>
-  contentHeights: Partial<Record<HeaderSlot, number>>
-  heights: Record<PageHeader, number>
-}
-
-function resolveHeaders(document: ExportDocument, measure: Measure): ResolvedHeaders {
-  if (!document.header) return { contentHeights: {}, heights: HEADER_HEIGHT }
-  const heightOf = (blocks: ProseMirrorJSON[]) =>
-    isEmptyContent(blocks)
-      ? 0
-      : Math.min(MAX_HEADER_HEIGHT, Math.ceil(measure.blocksHeight?.(blocks) ?? 0))
-  const contentHeights = {
-    first: heightOf(document.header.first),
-    later: heightOf(document.header.later),
-  }
-  return {
-    custom: document.header,
-    contentHeights,
-    heights: {
-      ...HEADER_HEIGHT,
-      // The title keeps its own line under the header on the first page.
-      first: contentHeights.first + TITLE_LINE_HEIGHT,
-      later: contentHeights.later,
-    },
-  }
+/** How much vertical space packing may fill on a page carrying `header`. */
+export function pageContentHeight(header: PageHeader): number {
+  return PAGE_BOX_HEIGHT - HEADER_HEIGHT[header] - FOOTER_HEIGHT
 }
 
 /** The most room a teacher can drag a work space to: a whole later page less
@@ -999,11 +933,10 @@ function paginate(
   stream: PageStream,
   initialHeader: PageHeader,
   continuedHeader: PageHeader,
-  heights: Readonly<Record<PageHeader, number>> = HEADER_HEIGHT,
 ): PackedPage[] {
   const pages: PackedPage[] = []
   let header: PageHeader = initialHeader
-  let box = pageContentHeight(header, heights)
+  let box = pageContentHeight(header)
   let current: PageItem[] = []
   let used = 0
   // Set once a work space has taken the rest of this page: nothing else may
@@ -1016,7 +949,7 @@ function paginate(
     used = 0
     full = false
     header = continuedHeader
-    box = pageContentHeight(header, heights)
+    box = pageContentHeight(header)
   }
 
   // A work space that fills its page is measured at its least height, which is
@@ -1047,7 +980,7 @@ function paginate(
   // A heading alone on its page has nothing to move away from: the piece goes
   // on ahead of it only when a fresh page would actually hold it, and an
   // oversized piece overflows under the heading instead.
-  const fullPage = pageContentHeight(continuedHeader, heights)
+  const fullPage = pageContentHeight(continuedHeader)
   // A Part that fills its page ends the piece it is in: nothing may follow it
   // on that page.
   const endsPiece = (segment: Segment) =>
@@ -1070,7 +1003,7 @@ function paginate(
           current.pop()
           flush()
           place(last, measure.itemHeight(last))
-        } else if (height <= pageContentHeight(continuedHeader, heights)) {
+        } else if (height <= pageContentHeight(continuedHeader)) {
           flush()
           continue
         }
@@ -1130,7 +1063,7 @@ function paginate(
     if (
       current.length > 0
       && !followsSectionHeading
-      && height <= pageContentHeight(continuedHeader, heights)
+      && height <= pageContentHeight(continuedHeader)
     ) {
       flush()
       place(item, height)
@@ -1237,9 +1170,6 @@ export type ExportDocument = {
   title: string
   arrangement: { id: string; letter: string }
   selection: ExportContentSelection
-  /** The Exam's own test-page header, as this paper prints it — its ID
-   *  resolved — or absent for the default header. */
-  header?: Record<HeaderSlot, ProseMirrorJSON[]>
   /** The student test's content items, in order, before page assignment. */
   test: PageItem[]
   /** The answer key's content items, in order, before page assignment. */
@@ -1254,19 +1184,10 @@ export function buildExportDocument(
   selection: ExportContentSelection,
 ): ExportDocument {
   const test = deriveItems(exam, arrangement)
-  const label = arrangementLabelOf(arrangement.letter)
   return {
     title: exam.title,
     arrangement: { id: arrangement.id, letter: arrangement.letter },
     selection,
-    ...(exam.header && isExamHeader(exam.header)
-      ? {
-          header: {
-            first: resolveHeaderContent(headerContentOf(exam.header, 'first'), label),
-            later: resolveHeaderContent(headerContentOf(exam.header, 'later'), label),
-          },
-        }
-      : {}),
     test,
     answerKey: deriveAnswerKey(test),
   }
@@ -1314,10 +1235,9 @@ function resolveLayout(
   document: ExportDocument,
   measure: Measure,
 ): LayoutPlan {
-  const headers = resolveHeaders(document, measure)
   const pages: PackedPage[] = []
   if (document.selection.test) {
-    pages.push(...paginate(document.test, measure, 'test', 'first', 'later', headers.heights))
+    pages.push(...paginate(document.test, measure, 'test', 'first', 'later'))
   }
   if (document.selection.answerKey) {
     pages.push(
@@ -1340,7 +1260,7 @@ function resolveLayout(
     // rather than rediscover one of its own.
     pages: pages.map((page, index) => ({
       ...page,
-      furniture: furnitureOf(page, document.title, document.arrangement.letter, headers),
+      furniture: furnitureOf(page, document.title, document.arrangement.letter),
       breakBefore: index > 0,
     })),
   }

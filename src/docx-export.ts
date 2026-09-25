@@ -591,8 +591,6 @@ function blockOf(
   }
 }
 
-const NO_CELL_BORDER = { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' }
-
 const CELL_BORDER = {
   style: BorderStyle.SINGLE,
   size: 4,
@@ -615,12 +613,8 @@ function documentTable(
     1,
   )
   const cellWidth = build.contentWidth / columns
-  // A borderless table keeps its cells and loses its rules, as in print.
-  const borderless = (node.attrs as { borderless?: unknown } | undefined)?.borderless === true
-  const border = borderless ? NO_CELL_BORDER : CELL_BORDER
   return new Table({
     width: { size: twips(build.contentWidth), type: WidthType.DXA },
-    ...(borderless ? { borders: NO_BORDERS } : {}),
     columnWidths: gridOf(Array.from({ length: columns }, () => cellWidth)),
     indent: context.indent
       ? { size: context.indent, type: WidthType.DXA }
@@ -643,7 +637,12 @@ function documentTable(
             return new TableCell({
               width: { size: twips(cellWidth), type: WidthType.DXA },
               shading: header ? { fill: 'F1F1F1' } : undefined,
-              borders: { top: border, bottom: border, left: border, right: border },
+              borders: {
+                top: CELL_BORDER,
+                bottom: CELL_BORDER,
+                left: CELL_BORDER,
+                right: CELL_BORDER,
+              },
               children: content.length > 0 ? content : [new Paragraph({})],
             })
           }),
@@ -1058,12 +1057,9 @@ function identityLine(furniture: PageFurniture): Paragraph {
   })
 }
 
-function headerParagraphs(furniture: PageFurniture, build: BuildContext): (Paragraph | Table)[] {
+function headerParagraphs(furniture: PageFurniture): Paragraph[] {
   return [
-    // An Exam's own header, block for block, in place of the identity line.
-    ...(furniture.customHeader
-      ? blocks(furniture.customHeader.content, { indent: 0 }, build)
-      : [identityLine(furniture)]),
+    identityLine(furniture),
     ...(furniture.title === null
       ? []
       : [
@@ -1113,7 +1109,7 @@ function sectionOf(
         },
       },
     },
-    headers: { default: new Header({ children: headerParagraphs(page.furniture, build) }) },
+    headers: { default: new Header({ children: headerParagraphs(page.furniture) }) },
     footers: { default: new Footer({ children: [footerParagraph(page.furniture)] }) },
     children: page.items.flatMap((item) => itemContent(item, build)),
   }

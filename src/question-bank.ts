@@ -38,8 +38,6 @@ export type ExamWorkingCopy = {
    *  at. Exam presentation like `workSpace`; absent means the defaults. */
   sectionHeadings?: import('./section-headings').SectionHeadings
   headingSize?: import('./section-headings').HeadingSize
-  /** This Exam's own test-page header; absent means the default header. */
-  header?: import('./page-header').ExamHeader
 }
 
 export function createQuestionBank(): QuestionBank {

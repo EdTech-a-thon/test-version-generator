@@ -72,8 +72,6 @@ export type SemanticNode = {
   alt?: string
   caption?: string
   authoredSize?: number
-  /** On a header table: printed with borders. */
-  borders?: boolean
 }
 
 export type SemanticDocument = { type: 'document'; content: SemanticNode[] }
@@ -343,11 +341,7 @@ function semanticNode(node: ProseMirrorJSON, mediaIds: ReadonlyMap<string, strin
     case 'hr':
       return { type: 'rule' }
     case 'table':
-      // Only an Exam's header marks a table's borders; a Question's tables
-      // always print with them and never carry the flag.
-      return { type: 'table', ...(attrs.borders === true ? { borders: true } : {}), content: content() }
-    case 'exam_id':
-      return { type: 'exam-id' }
+      return { type: 'table', content: content() }
     case 'table_header_row':
       return { type: 'table-row', header: true, content: content() }
     case 'table_row':
@@ -675,33 +669,6 @@ export async function prepareQuestionBankExport(
   }
 }
 
-/**
- * Editor documents in the exchange format's document vocabulary, with the
- * images they show gathered into `media` exactly as a Question Bank Record
- * gathers its own — what an Exam Record's header travels as.
- */
-export async function portableDocuments(
-  documents: readonly (readonly ProseMirrorJSON[])[],
-  loadMedia: QuestionBankMediaLoader = browserQuestionBankMedia,
-): Promise<{ documents: SemanticDocument[]; media: QuestionBankRecord['media'] }> {
-  const sources = documents
-    .flatMap((nodes) => imageSources(nodes))
-    .filter((source, index, all) => all.indexOf(source) === index)
-  const loaded = await Promise.all(sources.map((source) => loadMedia(source)))
-  const mediaIds = new Map<string, string>()
-  const media: QuestionBankRecord['media'] = []
-  for (const [index, source] of sources.entries()) {
-    const asset = loaded[index]
-    if (!asset) throw new Error(`Required media for “${source}” could not be resolved. Re-add the image and try again.`)
-    const id = `sha256:${hex(await crypto.subtle.digest('SHA-256', asset.data))}`
-    mediaIds.set(source, id)
-    if (!media.some((candidate) => candidate.id === id)) {
-      media.push({ id, mimeType: asset.mimeType, width: asset.width, height: asset.height, bytes: base64(asset.data) })
-    }
-  }
-  return { documents: documents.map((nodes) => semanticDocument(nodes, mediaIds)), media }
-}
-
 const EDITOR_NODE_TYPES: Record<string, string> = {
   'hard-break': 'hardbreak',
   'bullet-list': 'bullet_list',
@@ -725,7 +692,6 @@ const EDITOR_MARK_TYPES: Record<SemanticMark['type'], string> = {
 }
 
 function editorNode(node: SemanticNode): ProseMirrorJSON {
-  if (node.type === 'exam-id') return { type: 'exam_id' }
   if (node.type === 'inline-math')
     return { type: 'math_inline', attrs: { value: node.source ?? '' } }
   if (node.type === 'display-math') {
@@ -757,7 +723,6 @@ function editorNode(node: SemanticNode): ProseMirrorJSON {
   const attrs: Record<string, unknown> = {}
   if (node.type === 'heading') attrs.level = node.level
   if (node.type === 'ordered-list') attrs.order = node.start
-  if (node.type === 'table' && node.borders) attrs.borders = true
   const converted: ProseMirrorJSON = {
     type,
     ...(node.text !== undefined ? { text: node.text } : {}),

@@ -19,7 +19,6 @@ import { DocView } from './doc-view'
 import {
   hasCompactNumber,
   printsNumberLine,
-  TITLE_LINE_HEIGHT,
   type AnswerKeyEntryItem,
   type AnswerKeySectionItem,
   type ChoiceGrid,
@@ -371,12 +370,8 @@ export function PageHeaderContent({
   furniture,
   onTitleChange,
   titleDisabled = false,
-  editor,
-  onDoubleClick,
 }: {
   header: PageHeader
-  /** Present in the editor on a test page: opens its header for editing. */
-  onDoubleClick?: (event: React.MouseEvent<HTMLElement>) => void
   furniture: PageFurniture
   /** Present only in the editor. The Exam's name is furniture on its own first
    *  page, so it can be typed there as well as in the document bar — one
@@ -385,43 +380,18 @@ export function PageHeaderContent({
    *  adapter prints too. */
   onTitleChange?: (title: string) => void
   titleDisabled?: boolean
-  /** The header editor, while the teacher is editing this page's header. It
-   *  takes the header's place and may grow past the height the plan gave it;
-   *  the plan catches up once the edit settles. */
-  editor?: ReactNode
 }) {
-  const custom = furniture.customHeader
-  // An Exam's own header replaces the identity line and takes exactly the
-  // height the plan gave it; the title keeps its own line beneath it.
-  const style = custom
-    ? { height: custom.height + (furniture.title !== null ? TITLE_LINE_HEIGHT : 0) }
-    : undefined
-  const classes = [`page-header`, `page-header--${header}`]
-  if (custom) classes.push('page-header--custom')
-  if (editor) classes.push('page-header--editing')
   return (
-    <header
-      className={classes.join(' ')}
-      style={editor ? undefined : style}
-      onDoubleClick={onDoubleClick}
-    >
-      {editor ? (
-        <div className="page-header-custom page-header-custom--editing">{editor}</div>
-      ) : custom ? (
-        <div className="page-header-custom" style={{ height: custom.height }}>
-          <CustomHeaderContent content={custom.content} />
-        </div>
-      ) : (
-        <div className="page-identity">
-          {furniture.identityFields.map((field) => (
-            <span className="identity-field" key={field}>
-              {field}:
-              <span className="identity-blank" />
-            </span>
-          ))}
-          <span className="page-id">{furniture.arrangementLabel}</span>
-        </div>
-      )}
+    <header className={`page-header page-header--${header}`}>
+      <div className="page-identity">
+        {furniture.identityFields.map((field) => (
+          <span className="identity-field" key={field}>
+            {field}:
+            <span className="identity-blank" />
+          </span>
+        ))}
+        <span className="page-id">{furniture.arrangementLabel}</span>
+      </div>
       {furniture.title !== null && (
         <h1 className="exam-title">
           {onTitleChange ? (
@@ -445,20 +415,6 @@ export function PageHeaderContent({
         </h1>
       )}
     </header>
-  )
-}
-
-function CustomHeaderContent({ content }: { content: readonly ProseMirrorJSON[] }) {
-  return <DocView className="page-header-content" content={content} />
-}
-
-/** An Exam's own header at its natural height, in the box a page draws it
- *  in — what `dom-measure.ts` reads a header's height off. */
-export function CustomHeaderMeasureView({ content }: { content: readonly ProseMirrorJSON[] }) {
-  return (
-    <div className="page-header-custom">
-      <CustomHeaderContent content={content} />
-    </div>
   )
 }
 

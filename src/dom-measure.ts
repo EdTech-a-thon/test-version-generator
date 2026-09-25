@@ -24,8 +24,7 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { PAGE_CONTENT_WIDTH, type Measure, type PageItem } from './export-plan'
-import { CustomHeaderMeasureView, PageItemMeasureView } from './page-item-view'
-import type { ProseMirrorJSON } from './question-doc'
+import { PageItemMeasureView } from './page-item-view'
 
 let host: HTMLElement | null | undefined
 
@@ -71,18 +70,9 @@ const HEIGHT_CACHE_LIMIT = 600
 // there would be fighting React's own scheduling for no gain — nothing in a
 // measured item is interactive or stateful.
 function itemHeight(item: PageItem): number {
-  return heightOf(renderToStaticMarkup(createElement(PageItemMeasureView, { item })))
-}
-
-// An Exam's own header, in the same box the page draws it in, at the same
-// content width — the page clips it to exactly this height.
-function blocksHeight(blocks: ProseMirrorJSON[]): number {
-  return heightOf(renderToStaticMarkup(createElement(CustomHeaderMeasureView, { content: blocks })))
-}
-
-function heightOf(markup: string): number {
   const element = measureHost()
   if (!element) return 0
+  const markup = renderToStaticMarkup(createElement(PageItemMeasureView, { item }))
   const remembered = heights.get(markup)
   if (remembered !== undefined) return remembered
   element.innerHTML = markup
@@ -104,6 +94,5 @@ function invalidate(): void {
 
 export const domMeasure: Measure & { invalidate(): void } = {
   itemHeight,
-  blocksHeight,
   invalidate,
 }

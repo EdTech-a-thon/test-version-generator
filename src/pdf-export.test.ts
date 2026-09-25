@@ -204,27 +204,6 @@ describe('PDF Export Adapter', () => {
     )
   })
 
-  // An Exam's own header replaces the identity line on every test page, with
-  // the paper's ID resolved into it; the first page gets its own.
-  test('draws an Exam’s own header, its ID resolved, on each test page', async () => {
-    const { plans } = plansOf('a custom header, different on the first page')
-    const bytes = await createPublicationPdf(plans, async () => PIXEL_PNG, fonts)
-    const document = await getDocument({ data: bytes, disableWorker: true }).promise
-    const pageText = async (number: number) =>
-      (await (await document.getPage(number)).getTextContent()).items
-        .map((item) => ('str' in item ? item.str : ''))
-        .join(' ')
-        .replace(/\s+/g, ' ')
-    const first = await pageText(1)
-    expect(first).toContain('Springfield High School')
-    expect(first).toContain('ID: A')
-    expect(first).not.toContain('Class:')
-    const second = await pageText(2)
-    expect(second).toContain('Chemistry')
-    expect(second).toContain('ID: A')
-    expect(second).not.toContain('Springfield High School')
-  })
-
   // An Exam's own section wording reaches the PDF, and a part it cleared does
   // not — neither the words nor the default they replaced.
   test('draws reworded section headings and nothing for a cleared one', async () => {

@@ -582,67 +582,6 @@ export const FIXTURES: readonly Fixture[] = [
     { answerKey: true },
   ),
 
-  // An Exam's own header, different on its first page: a school's name and
-  // logo, a bordered table of scores and a borderless row of blanks ending in
-  // the paper's ID, then a single line with the ID on every later page. Two
-  // tall questions put a second page under the later header.
-  fixture(
-    'a custom header, different on the first page',
-    {
-      title: 'Custom header',
-      questions: [
-        open('o1', paragraph(text('Explain osmosis.'))),
-        open('o2', paragraph(text('Explain diffusion.'))),
-      ],
-      header: {
-        differentFirstPage: true,
-        first: [
-          paragraph(text('Springfield High School', mark('strong'))),
-          { type: 'image-block', attrs: { src: `/local-images/${'e'.repeat(64)}`, caption: '', ratio: 0.25 } },
-          {
-            type: 'table',
-            attrs: { borders: true },
-            content: [
-              {
-                type: 'table_header_row',
-                content: [
-                  { type: 'table_header', content: [paragraph(text('Part'))] },
-                  { type: 'table_header', content: [paragraph(text('Score'))] },
-                ],
-              },
-              {
-                type: 'table_row',
-                content: [
-                  { type: 'table_cell', content: [paragraph(text('Short answer'))] },
-                  { type: 'table_cell', content: [paragraph(text('/ 20'))] },
-                ],
-              },
-            ],
-          },
-          {
-            type: 'table',
-            content: [{
-              type: 'table_header_row',
-              content: [
-                { type: 'table_header', content: [paragraph(text('Name: ____________'))] },
-                { type: 'table_header', content: [paragraph({ type: 'exam_id' })] },
-              ],
-            }],
-          },
-        ],
-        later: [paragraph(text('Chemistry — '), { type: 'exam_id' })],
-      },
-    },
-    arrangement(['o1', 'o2']),
-    {
-      images: true,
-      measure: {
-        itemHeight: (item) => (item.kind === 'question' ? 500 : 40),
-        blocksHeight: (blocks) => blocks.length * 40,
-      },
-    },
-  ),
-
   fixture(
     'a plain short-answer question',
     {
