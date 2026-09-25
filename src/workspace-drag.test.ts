@@ -154,12 +154,12 @@ describe('a Question Bank question released over the Working Copy', () => {
       expect(dropIntent(source, withEmpty, { x: 400, y: 1120 })).toEqual({
         kind: 'section-end',
         sectionId: 'empty-1',
-        opensBelow: 'empty-1',
+        opensBelow: null,
       })
       expect(dropIntent(source, withEmpty, { x: 400, y: 1270 })).toEqual({
         kind: 'section-end',
         sectionId: 'empty-2',
-        opensBelow: 'empty-2',
+        opensBelow: null,
       })
     }
   })

@@ -977,20 +977,17 @@ button { cursor: pointer; }
    pointer — so the row you lifted stays findable underneath. */
 .exam-question--dragging { opacity: 0.4; }
 
-/* An empty Question Section, on the sheet: while it is pointed at, or a
-   gesture is aimed at it, a note below its heading says it takes questions.
-   It is drawn over the sheet, never in its flow — the Section prints just its
-   heading, and the sheet is laid out exactly as it prints. */
-.exam-section-hidden[data-empty-section] { position: relative; }
-.exam-section-empty-hint {
-  position: absolute; z-index: 3; left: 0; right: 0; top: calc(100% + 4px);
-  display: flex; align-items: center; justify-content: center; height: 40px;
-  border: 1px dashed #cdb9a6; border-radius: 6px;
-  color: #8a7564; background: rgb(255 253 248 / 92%);
-  font: 600 13px/1.4 Arial, Helvetica, sans-serif; pointer-events: none;
-}
-.exam-section-empty-hint[data-active] {
-  border-style: solid; border-color: #9f5037; color: #9f5037; background: #f7e2d5;
+/* An empty Question Section, on the sheet, while a gesture is aimed at it: a
+   box opens in the flow below its heading, pushing what follows down, to show
+   where the questions will go. At rest the Section is just its heading, as it
+   prints. */
+.exam-section-empty-drop {
+  display: flex; align-items: center; justify-content: center;
+  height: 56px; margin: 0 0 26px; overflow: hidden;
+  border: 1px solid #9f5037; border-radius: 6px;
+  color: #9f5037; background: #f7e2d5;
+  font: 600 13px/1.4 Arial, Helvetica, sans-serif;
+  animation: new-section-open 180ms ease-out;
 }
 
 /* The target that makes a new Question Section, opened beneath the foot of a
@@ -1000,35 +997,26 @@ button { cursor: pointer; }
    gesture is in flight a sheet does not clip what the opened target pushes
    past its foot, so the target is never hidden under the page's edge. */
 .new-section-target {
-  position: relative; display: grid; grid-template-rows: 1fr;
-  margin: 0; border-radius: 6px;
-  animation: new-section-open 200ms ease-out;
+  position: relative;
+  display: flex; align-items: center; justify-content: center;
+  height: 56px; margin: 0 0 26px; overflow: hidden;
+  border: 1px dashed #9f5037; border-radius: 6px;
+  color: #9f5037; background: #fffaf3;
+  font: 600 13px/1.4 Arial, Helvetica, sans-serif;
+  animation: new-section-open 180ms ease-out;
 }
 .new-section-target::before {
-  content: ''; position: absolute; top: 2px;
+  content: ''; position: absolute; top: -14px;
   left: calc(-1 * var(--page-margin)); right: calc(-1 * var(--page-margin));
   border-top: 1px dashed #ddd0c2; pointer-events: none;
 }
-/* The Section a release would make, faint, in the sheet's own markup: the
-   room it takes is the room the Section will. */
-.new-section-ghost { min-height: 0; overflow: hidden; padding-top: 11px; opacity: 0.38; }
-.new-section-ghost .exam-question { cursor: inherit; }
-.new-section-label {
-  position: absolute; inset: 8px -8px 12px; z-index: 1;
-  display: flex; align-items: center; justify-content: center;
-  border: 1px dashed #9f5037; border-radius: 6px;
-  color: #9f5037; background: rgb(255 250 243 / 55%);
-  font: 600 13px/1.4 Arial, Helvetica, sans-serif;
-}
-.new-section-target[data-active] .new-section-label {
-  border-style: solid; background: rgb(247 226 213 / 60%);
-}
+.new-section-target[data-active] { border-style: solid; background: #f7e2d5; }
 @keyframes new-section-open {
-  from { grid-template-rows: 0fr; opacity: 0; }
-  to { grid-template-rows: 1fr; opacity: 1; }
+  from { height: 0; margin-bottom: 0; opacity: 0; }
+  to { height: 56px; margin-bottom: 26px; opacity: 1; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .new-section-target { animation: none; }
+  .new-section-target, .exam-section-empty-drop { animation: none; }
 }
 .question-drag-active .exam-page { overflow: visible; }
 

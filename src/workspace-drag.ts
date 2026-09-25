@@ -59,7 +59,7 @@ export type DropCandidate = {
 }
 
 /** An empty Question Section as a gesture sees it: the box it offers to drop
- *  into. Like any Section, it can have a new Section opened beneath it. */
+ *  into. No new Section is ever opened beneath one. */
 export type EmptySection = {
   sectionId: string
   box: DropBox
@@ -195,7 +195,9 @@ export function dropIntent(
       right: empty.box.right,
     }
     const distance = isInside(empty.box, point) ? 0 : distanceTo(middle, point)
-    consider(distance, { kind: 'section-end', sectionId: empty.sectionId, opensBelow: empty.sectionId })
+    // An empty Section takes what is dropped on it, and offers no new Section
+    // beneath it: it is the new Section a drop there would otherwise make.
+    consider(distance, { kind: 'section-end', sectionId: empty.sectionId, opensBelow: null })
   }
 
   // Still close to an open target, it stays open: moving down onto it must not

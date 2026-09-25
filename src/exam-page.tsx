@@ -58,7 +58,6 @@ import {
   snapWorkSpaceHeight,
   takesWorkSpace,
   WORK_SPACE_LINE_PITCH,
-  newSectionWording,
   questionsInSection,
   sectionsOf,
   workSpaceOf,
@@ -744,6 +743,10 @@ function QuestionView({
   )
 }
 
+/** How long after a Section is moved from its controls the sheet keeps its
+ *  controls where they were, through each pass of repagination. */
+const MOVE_ANCHOR_MS = 1200
+
 /** How far a Section's highlight reaches past its first and last pieces: to
  *  its dashed rule above, and halfway into the gap below. */
 const SECTION_BAND_BLEED = 12
@@ -771,32 +774,14 @@ function sameBand(left: SectionBand, right: SectionBand): boolean {
 }
 
 /** A new-Section target a gesture has opened: the Section it opened beneath,
- *  whether the pointer is over it, which is when a release makes one, and the
- *  Section a release would make, drawn faintly so dropping moves nothing. */
-type NewSectionTargetState = {
-  afterSectionId: string
-  armed: boolean
-  ghost: NewSectionGhost
-}
-
-/** What a new Section would print: the wording of the type of the first
- *  question carried, and the carried questions as the sheet draws them — for
- *  a move within the Exam; a Question Bank question is not drawn yet. */
-type NewSectionGhost = {
-  title: string
-  instructions: string
-  size?: SectionHeadingItem['size']
-  items: readonly QuestionItem[]
-}
+ *  and whether the pointer is over it, which is when a release makes one. */
+type NewSectionTargetState = { afterSectionId: string; armed: boolean }
 
 // The target that makes a new Question Section, opened beneath the foot of a
 // Section once a gesture's line has rested there. It opens in the sheet's flow,
 // between this Section and the next, pushing the next Section's dashed rule
-// down to make room. What it opens is the Section a release would make, drawn
-// faintly in the sheet's own markup — so the room it takes is the room the
-// Section will — and it says what a release over it does before it does it.
-function NewSectionTarget({ afterSectionId, armed, ghost }: NewSectionTargetState) {
-  const styles = sectionHeadingStyles(ghost.size)
+// down to make room, and says what a release over it does before it does it.
+function NewSectionTarget({ afterSectionId, armed }: NewSectionTargetState) {
   return (
     <div
       className="new-section-target"
@@ -804,20 +789,7 @@ function NewSectionTarget({ afterSectionId, armed, ghost }: NewSectionTargetStat
       data-active={armed ? 'true' : undefined}
       aria-hidden="true"
     >
-      <div className="new-section-ghost">
-        <header className="exam-section">
-          {ghost.title && <h2 className="section-title" style={styles.title}>{ghost.title}</h2>}
-          {ghost.instructions && (
-            <p className="section-instructions" style={styles.instructions}>{ghost.instructions}</p>
-          )}
-        </header>
-        {ghost.items.map((item) => (
-          <section className="exam-question" key={item.question.id}>
-            <QuestionContent item={item} />
-          </section>
-        ))}
-      </div>
-      <span className="new-section-label">Drop here to create a new section</span>
+      Drop here to create a new section
     </div>
   )
 }
@@ -890,7 +862,6 @@ function EditableSectionHeading({
   item,
   disabled,
   onChange,
-  emptyHint,
   emptyActive,
   newSectionTarget,
   revealTitle,
@@ -899,9 +870,7 @@ function EditableSectionHeading({
   item: SectionHeadingItem
   disabled: boolean
   onChange: SetSectionHeading
-  /** For an empty Section: whether to say it takes questions — only while it
-   *  is pointed at — and whether a gesture would land in it. */
-  emptyHint: boolean
+  /** For an empty Section: whether a gesture would land in it. */
   emptyActive: boolean
   newSectionTarget: NewSectionTargetState | null
   /** Asked, from the Section's controls, to open its cleared heading. */
@@ -915,15 +884,15 @@ function EditableSectionHeading({
   }
   const showTitle = item.title !== '' || focused === 'title' || revealTitle
   const showInstructions = item.instructions !== '' || focused === 'instructions'
-  // An empty Section prints just its heading, so that is all the sheet draws
-  // of it: its heading is where a gesture drops into it, and only while it is
-  // pointed at, or aimed at, does it say so, drawn over the sheet below the
-  // heading so the page is laid out exactly as it prints.
+  // An empty Section prints just its heading, so at rest that is all the sheet
+  // draws of it, and its heading is where a gesture drops into it. While a
+  // gesture is aimed at it, a box opens in the sheet's flow below the heading,
+  // pushing what follows down, to show where the questions will go.
   const emptyMarks = item.empty
-    ? { 'data-empty-section': '', 'data-active': emptyActive ? 'true' : undefined }
+    ? { 'data-empty-section': '', 'data-section-id': item.sectionId }
     : {}
-  const hint = item.empty && (emptyHint || emptyActive) && (
-    <div className="exam-section-empty-hint" data-active={emptyActive ? 'true' : undefined}>
+  const hint = item.empty && emptyActive && (
+    <div className="exam-section-empty-drop" data-active="true" {...emptyMarks}>
       Drag questions here
     </div>
   )
@@ -931,9 +900,8 @@ function EditableSectionHeading({
   if (!showTitle && !showInstructions) {
     return (
       <>
-        <div className="exam-section-hidden" data-section-id={item.sectionId} {...emptyMarks}>
-          {hint}
-        </div>
+        <div className="exam-section-hidden" {...emptyMarks} data-section-id={item.sectionId} />
+        {hint}
         {opened}
       </>
     )
@@ -943,10 +911,9 @@ function EditableSectionHeading({
     <>
     <header
       className="exam-section exam-section--editable"
-      data-section-id={item.sectionId}
       {...emptyMarks}
+      data-section-id={item.sectionId}
     >
-      {hint}
       {showTitle && (
         <h2 className="section-title" style={styles.title}>
           <SectionHeadingField
@@ -973,6 +940,7 @@ function EditableSectionHeading({
         </p>
       )}
     </header>
+    {hint}
     {opened}
     </>
   )
@@ -1070,7 +1038,6 @@ function PageItemView({
   sectionIdOf,
   newSectionTarget,
   emptySectionActive,
-  emptySectionPointed,
   revealTitleOf,
   onTitleRevealed,
 }: {
@@ -1087,9 +1054,6 @@ function PageItemView({
   newSectionTarget: (item: PageItem) => NewSectionTargetState | null
   /** Whether a gesture would land in this empty Section. */
   emptySectionActive: (sectionId: string) => boolean
-  /** Whether the pointer is in this Section, which an empty one answers by
-   *  saying it takes questions. */
-  emptySectionPointed: (sectionId: string) => boolean
   orderedIds: readonly string[]
   selection: Selection
   onEdit: (questionId: string) => void
@@ -1114,7 +1078,6 @@ function PageItemView({
           item={item}
           disabled={sectionHeadingDisabled}
           onChange={onSectionHeadingChange}
-          emptyHint={emptySectionPointed(item.sectionId)}
           emptyActive={emptySectionActive(item.sectionId)}
           newSectionTarget={newSectionTarget(item)}
           revealTitle={revealTitleOf === item.sectionId}
@@ -1582,7 +1545,46 @@ export function ExamPage({
   // The Section band the pointer is in, anywhere across its rows — never while
   // a gesture is in flight, which has its own feedback to give.
   const [pointedBand, setPointedBand] = useState<SectionBand | null>(null)
-  const pointAt = (clientY: number) => {
+  // A Section just moved from its controls: where its band was, and where on
+  // screen. Once the sheet has repaginated, the Exam is scrolled so its band —
+  // and its controls — are back where they were, under a pointer that has not
+  // moved, ready to be pressed again.
+  //
+  // A move repaginates in more than one pass — once at once, and again as
+  // what it moved is measured afresh — so the Exam is scrolled back into place
+  // after every pass that moves the Section, for as long as the move is recent.
+  const moveAnchor = useRef<{
+    sectionId: string
+    from: SectionBand
+    screenTop: number
+    until: number
+  } | null>(null)
+  useLayoutEffect(() => {
+    const anchor = moveAnchor.current
+    const root = workspace.current
+    if (!anchor || !root) return
+    if (performance.now() > anchor.until) {
+      moveAnchor.current = null
+      return
+    }
+    const band = sectionBands.find(({ sectionId }) => sectionId === anchor.sectionId)
+    if (!band || sameBand(band, anchor.from)) return
+    anchor.from = band
+    const lane = root.closest('.editor-output')
+    const scroller =
+      lane && /auto|scroll/.test(getComputedStyle(lane).overflowY)
+        ? lane
+        : document.scrollingElement
+    if (scroller) {
+      scroller.scrollTop += root.getBoundingClientRect().top + band.top - anchor.screenTop
+    }
+    setPointedBand(band)
+  }, [sectionBands])
+  const pointAt = (clientY: number, target: EventTarget | null) => {
+    // Over the controls themselves, they stay with their Section, however
+    // short it is: reaching down to delete an empty Section must not pass
+    // into the next one first.
+    if (target instanceof Element && target.closest('.section-rail')) return
     const origin = workspace.current?.getBoundingClientRect()
     if (!origin || drag.source) return setPointedBand(null)
     const y = clientY - origin.top
@@ -1603,7 +1605,21 @@ export function ExamPage({
           return {
             canMoveUp: index > 0,
             canMoveDown: index >= 0 && index < sections.length - 1,
-            onMove: (direction) => onMoveSection(sectionId, direction),
+            onMove: (direction) => {
+              // Where this Section's controls are on screen now, so the sheet
+              // can be scrolled to put them back there once it has moved.
+              const band = pointedBand?.sectionId === sectionId ? pointedBand : null
+              const origin = workspace.current?.getBoundingClientRect()
+              moveAnchor.current = band && origin
+                ? {
+                    sectionId,
+                    from: band,
+                    screenTop: origin.top + band.top,
+                    until: performance.now() + MOVE_ANCHOR_MS,
+                  }
+                : null
+              onMoveSection(sectionId, direction)
+            },
             onDelete: () => onDeleteSection(sectionId),
           }
         }
@@ -1618,27 +1634,11 @@ export function ExamPage({
         .filter((id) => sectionOfQuestion.get(id) === opensBelow && !draggedQuestionIds.has(id))
         .at(-1) ?? null
     : null
-  const carriedItems = drag.source?.pane === 'exam-draft'
-    ? orderedIds.flatMap((id) => {
-        const first = drag.source!.questionIds.includes(id) ? piecesOf.get(id)?.first : undefined
-        return first ? [first] : []
-      })
-    : []
-  const ghostWording = newSectionWording(carriedItems[0]?.question.type ?? drag.source?.type ?? 'multiple-choice')
   const newSectionTarget = (item: PageItem): NewSectionTargetState | null => {
     if (!opensBelow) return null
-    const target: NewSectionTargetState = {
-      afterSectionId: opensBelow,
-      armed,
-      ghost: {
-        ...ghostWording,
-        ...(exam.headingSize ? { size: exam.headingSize } : {}),
-        items: carriedItems,
-      },
-    }
-    if (item.kind === 'section-heading') {
-      return item.empty && item.sectionId === opensBelow ? target : null
-    }
+    const target: NewSectionTargetState = { afterSectionId: opensBelow, armed }
+    // An empty Section never has a new Section opened beneath it.
+    if (item.kind === 'section-heading') return null
     if (item.kind !== 'question' || item.question.id !== footQuestionId) return null
     return piecesOf.get(item.question.id)?.last === item ? target : null
   }
@@ -1699,7 +1699,7 @@ export function ExamPage({
       onClick={clearOnBackground}
       onPointerMove={(event) => {
         if (!drag.source && droppedQuestionIds.size > 0) drag.clearDropFeedback()
-        pointAt(event.clientY)
+        pointAt(event.clientY, event.target)
       }}
       onPointerLeave={() => setPointedBand(null)}
     >
@@ -1756,7 +1756,6 @@ export function ExamPage({
                 sectionIdOf={sectionIdOf}
                 newSectionTarget={newSectionTarget}
                 emptySectionActive={emptySectionActive}
-                emptySectionPointed={(sectionId) => !drag.source && pointedBand?.sectionId === sectionId}
                 orderedIds={orderedIds}
                 selection={selection}
                 onEdit={onEdit}
