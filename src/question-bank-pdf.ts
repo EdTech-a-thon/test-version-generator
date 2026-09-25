@@ -13,9 +13,12 @@ import {
 import {
   QUESTION_BANK_ATTACHMENT_DESCRIPTION,
   QUESTION_BANK_ATTACHMENT_NAME,
+  RECORD_PART_TYPE_LABELS,
   RECORD_TYPE_LABELS,
+  partLetter,
   wordBankLettersOf,
   type PreparedQuestionBankExport,
+  type QuestionBankRecordQuestion,
   type SemanticDocument,
   type SemanticNode,
 } from './question-bank-export'
@@ -447,6 +450,53 @@ function drawDocument(context: Context, document: SemanticDocument): void {
   }
 }
 
+/** Lettered choices, the correct one called out, indented by `indent` past
+ *  the margin — a Question's under its stem, a Part's under the Part's. */
+function drawChoices(
+  context: Context,
+  choices: NonNullable<QuestionBankRecordQuestion['choices']>,
+  indent: number,
+): void {
+  choices.forEach((choice, choiceIndex) => {
+    drawPieces(
+      context,
+      [
+        {
+          text: `${String.fromCharCode(65 + choiceIndex)}. `,
+          font: 'bold',
+          size: BODY_SIZE,
+        },
+        ...inlinePieces(choice.content.content),
+        ...(choice.correct
+          ? [
+              {
+                text: '  (Correct answer)',
+                font: 'bold' as const,
+                size: BODY_SIZE,
+              },
+            ]
+          : []),
+      ],
+      { x: MARGIN + indent, width: CONTENT_WIDTH - indent },
+    )
+    for (const image of imagesIn(choice.content.content)) {
+      drawImage(context, image, MARGIN + indent, CONTENT_WIDTH - indent)
+    }
+  })
+}
+
+/** A document's blocks and then its images, indented by `indent`. */
+function drawIndentedDocument(
+  context: Context,
+  document: SemanticDocument,
+  indent: number,
+): void {
+  drawBlocks(context, document.content, { x: MARGIN + indent, width: CONTENT_WIDTH - indent })
+  for (const image of imagesIn(document.content)) {
+    drawImage(context, image, MARGIN + indent, CONTENT_WIDTH - indent)
+  }
+}
+
 export async function createQuestionBankPdf(
   prepared: PreparedQuestionBankExport,
   fontLoader: QuestionBankPdfFontLoader = browserQuestionBankPdfFonts,
@@ -552,34 +602,7 @@ export async function createQuestionBankPdf(
     drawLabel(context, 'Topics', question.topics?.join(', ') || 'None')
     context.y -= 4
     drawDocument(context, question.stem)
-    if (question.choices) {
-      question.choices.forEach((choice, choiceIndex) => {
-        drawPieces(
-          context,
-          [
-            {
-              text: `${String.fromCharCode(65 + choiceIndex)}. `,
-              font: 'bold',
-              size: BODY_SIZE,
-            },
-            ...inlinePieces(choice.content.content),
-            ...(choice.correct
-              ? [
-                  {
-                    text: '  (Correct answer)',
-                    font: 'bold' as const,
-                    size: BODY_SIZE,
-                  },
-                ]
-              : []),
-          ],
-          { x: MARGIN + 18, width: CONTENT_WIDTH - 18 },
-        )
-        for (const image of imagesIn(choice.content.content)) {
-          drawImage(context, image, MARGIN + 18, CONTENT_WIDTH - 18)
-        }
-      })
-    }
+    if (question.choices) drawChoices(context, question.choices, 18)
     if (question.prompts && question.wordBank) {
       // The set as its answer key reads it: each item under the letter it
       // matches, then the lettered Word Bank it was matched against.
@@ -614,6 +637,34 @@ export async function createQuestionBankPdf(
         )
         for (const image of imagesIn(answer.content.content)) {
           drawImage(context, image, MARGIN + 18, CONTENT_WIDTH - 18)
+        }
+      })
+    }
+    if (question.parts) {
+      // The shared material above, then each Part lettered as the test prints it,
+      // with its own choices or Suggested Answer beneath it.
+      if (question.parts.length === 0) {
+        drawText(context, 'No Parts yet.', { font: 'italic' })
+      }
+      question.parts.forEach((part, partIndex) => {
+        context.y -= 3
+        drawPieces(
+          context,
+          [
+            { text: `${partLetter(partIndex)}. `, font: 'bold', size: BODY_SIZE },
+            { text: RECORD_PART_TYPE_LABELS[part.type], font: 'italic', size: BODY_SIZE },
+          ],
+          { x: MARGIN + 18, width: CONTENT_WIDTH - 18 },
+        )
+        drawIndentedDocument(context, part.stem, 36)
+        if (part.choices) drawChoices(context, part.choices, 36)
+        if (part.suggestedAnswer) {
+          drawText(context, 'Suggested Answer', {
+            x: MARGIN + 36,
+            width: CONTENT_WIDTH - 36,
+            font: 'bold',
+          })
+          drawIndentedDocument(context, part.suggestedAnswer, 36)
         }
       })
     }

@@ -8,8 +8,10 @@ import publicSchema020 from '../public/formats/question-bank/0.2.0/schema.json'
 import applicationSchema020 from './question-bank-record-0.2.0.schema.json'
 import publicSchema030 from '../public/formats/question-bank/0.3.0/schema.json'
 import applicationSchema030 from './question-bank-record-0.3.0.schema.json'
-import publicSchema from '../public/formats/question-bank/0.4.0/schema.json'
-import applicationSchema from './question-bank-record-0.4.0.schema.json'
+import publicSchema040 from '../public/formats/question-bank/0.4.0/schema.json'
+import applicationSchema040 from './question-bank-record-0.4.0.schema.json'
+import publicSchema from '../public/formats/question-bank/0.5.0/schema.json'
+import applicationSchema from './question-bank-record-0.5.0.schema.json'
 import {
   QUESTION_BANK_FORMAT_VERSION,
   SUPPORTED_SEMANTIC_MARK_TYPES,
@@ -20,8 +22,10 @@ import {
 } from './question-bank-export'
 import {
   QuestionBankImportError,
+  importedQuestionsFromRecord,
   inspectQuestionBankRecord,
 } from './question-bank-import'
+import { partsOf } from './exam'
 import type { QuestionBankResource } from './question-bank-workspaces'
 
 function fixtureRootFor(version: string): string {
@@ -50,10 +54,10 @@ function schemaEnum(definition: 'node' | 'mark', property: string): string[] {
   return schema.$defs[definition]!.properties[property]!.enum
 }
 
-describe('public Question Bank Record 0.4.0 contract', () => {
+describe('public Question Bank Record 0.5.0 contract', () => {
   test('canonical examples validate independently against the published schema', async () => {
     expect(publicSchema.$id).toBe(
-      'https://testparrot.com/formats/question-bank/0.4.0/schema.json',
+      'https://testparrot.com/formats/question-bank/0.5.0/schema.json',
     )
     expect(
       await Bun.file(
@@ -61,7 +65,7 @@ describe('public Question Bank Record 0.4.0 contract', () => {
           import.meta.dir,
           '..',
           'public',
-          'question-bank-record-0.4.0.schema.json',
+          'question-bank-record-0.5.0.schema.json',
         ),
       ).json(),
     ).toEqual(publicSchema)
@@ -76,6 +80,7 @@ describe('public Question Bank Record 0.4.0 contract', () => {
       'matching.json',
       'media-rich.json',
       'minimal-multiple-choice.json',
+      'multipart.json',
       'pending-images.json',
       'provenance-and-links.json',
       'short-answer.json',
@@ -99,6 +104,7 @@ describe('public Question Bank Record 0.4.0 contract', () => {
       'true-false': 2,
       matching: 0,
       'short-answer': 0,
+      multipart: 0,
     })
     expect(proposal.record.bank.questions[0]).toMatchObject({
       type: 'true-false',
@@ -117,6 +123,7 @@ describe('public Question Bank Record 0.4.0 contract', () => {
       'true-false': 0,
       matching: 2,
       'short-answer': 0,
+      multipart: 0,
     })
     // The second set leaves an item unmatched; that is reported, not refused.
     expect(proposal.summary.questionsWithoutCorrectAnswer).toBe(1)
@@ -140,6 +147,58 @@ describe('public Question Bank Record 0.4.0 contract', () => {
     expect(events!.suggestedAnswer).toBeUndefined()
     expect(terms!.prompts!.map((prompt) => prompt.answer)).toEqual(['q2-a2', undefined])
     expect(terms!.wordBank).toHaveLength(3)
+  })
+
+  test('a Multipart Question keeps its Parts in lettered order, each answering as its own type', async () => {
+    const proposal = await inspectQuestionBankRecord(
+      await Bun.file(join(exampleRoot, 'multipart.json')).bytes(),
+    )
+
+    expect(proposal.summary.questionCounts).toEqual({
+      'multiple-choice': 0,
+      'true-false': 0,
+      matching: 0,
+      'short-answer': 0,
+      multipart: 3,
+    })
+    // The third Multipart question has no Parts yet; that is reported, not refused.
+    expect(proposal.summary.questionsWithoutCorrectAnswer).toBe(1)
+    const [ottoman, liberty, unfinished] = proposal.record.bank.questions
+    // The source line is ordinary stem content, not a field of its own.
+    expect(JSON.stringify(ottoman!.stem)).toContain('Source: “Ottoman Empire (1301–1922),” BBC online')
+    expect(ottoman).toMatchObject({
+      type: 'multipart',
+      difficulty: 'medium',
+      topics: ['Ottoman Empire'],
+      parts: [
+        { id: 'q1-s1', type: 'multiple-choice' },
+        { id: 'q1-s2', type: 'multiple-choice' },
+      ],
+    })
+    expect(ottoman!.parts![0]!.choices!.map((choice) => [choice.id, choice.correct])).toEqual([
+      ['q1-s1-c1', false],
+      ['q1-s1-c2', false],
+      ['q1-s1-c3', false],
+      ['q1-s1-c4', true],
+    ])
+    expect(ottoman!.choices).toBeUndefined()
+    expect(liberty!.parts!.map((part) => part.type)).toEqual([
+      'multiple-choice',
+      'short-answer',
+      'short-answer',
+    ])
+    expect(liberty!.parts![1]!.suggestedAnswer).toMatchObject({ type: 'document' })
+    expect(liberty!.parts![2]!.suggestedAnswer).toBeUndefined()
+    expect(unfinished!.parts).toEqual([])
+
+    const imported = importedQuestionsFromRecord(proposal.record)
+    expect(imported.map((question) => question.type)).toEqual(['multipart', 'multipart', 'multipart'])
+    expect(partsOf(imported[1]!).map((part) => part.type)).toEqual([
+      'multiple-choice',
+      'open',
+      'open',
+    ])
+    expect(partsOf(imported[2]!)).toEqual([])
   })
 
   test('canonical examples pass Test Parrot inspection and retain documented semantics', async () => {
@@ -199,7 +258,7 @@ describe('public Question Bank Record 0.4.0 contract', () => {
       await Bun.file(join(exampleRoot, 'pending-images.json')).bytes(),
     )
 
-    expect(proposal.summary).toMatchObject({ mediaAssets: 0, pendingImages: 6 })
+    expect(proposal.summary).toMatchObject({ mediaAssets: 0, pendingImages: 8 })
     const [inStem, asChoices, shared, byPage] = proposal.record.bank.questions
     expect(inStem!.stem.content[1]).toEqual({
       type: 'block-image',
@@ -216,9 +275,9 @@ describe('public Question Bank Record 0.4.0 contract', () => {
     expect(byPage!.stem.content[1]).toMatchObject({ pending: { page: 4 }, authoredSize: 0.6 })
   })
 
-  test('a Pending Image in a record older than 0.4.0 is refused', async () => {
+  test('a Pending Image in a record older than 0.5.0 is refused', async () => {
     const record = (await fixture(exampleRoot, 'pending-images.json')) as { formatVersion: string }
-    record.formatVersion = '0.3.0'
+    record.formatVersion = '0.4.0'
     try {
       await inspectQuestionBankRecord(new TextEncoder().encode(JSON.stringify(record)))
       throw new Error('unexpectedly conformed')
@@ -236,6 +295,7 @@ describe('public Question Bank Record 0.4.0 contract', () => {
       'bad-reference.json',
       'invalid-media.json',
       'malformed-matching.json',
+      'malformed-multipart.json',
       'malformed-question.json',
       'malformed-true-false.json',
       'pending-empty.json',
@@ -309,6 +369,7 @@ describe('public Question Bank Record 0.4.0 contract', () => {
       'multipleChoiceChoice',
       'matchingPrompt',
       'matchingAnswer',
+      'multipartPart',
       'Exam Layout Plan',
       'Working Copy',
     ])
@@ -337,6 +398,45 @@ describe('public Question Bank Record 0.4.0 contract', () => {
             ],
           },
         },
+        {
+          id: 'local-multipart',
+          type: 'multipart',
+          columns: 2,
+          doc: {
+            type: 'doc',
+            content: [
+              { type: 'paragraph', content: [{ type: 'text', text: 'Read the passage.' }] },
+              {
+                type: 'multipartParts',
+                content: [
+                  {
+                    type: 'multipartPart',
+                    attrs: { id: 'local-part-a', columns: 4 },
+                    content: [
+                      { type: 'multipartPartStem', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Which?' }] }] },
+                      {
+                        type: 'multipleChoice',
+                        content: ['This', 'That'].map((answer, index) => ({
+                          type: 'multipleChoiceChoice',
+                          attrs: { id: `local-choice-${index}`, correct: index === 0 },
+                          content: [{ type: 'paragraph', content: [{ type: 'text', text: answer }] }],
+                        })),
+                      },
+                    ],
+                  },
+                  {
+                    type: 'multipartPart',
+                    attrs: { id: 'local-part-b', columns: 2 },
+                    content: [
+                      { type: 'multipartPartStem', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Why?' }] }] },
+                      { type: 'suggestedAnswer', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Because.' }] }] },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        },
       ],
     }
     const prepared = await prepareQuestionBankExport(bank)
@@ -345,6 +445,65 @@ describe('public Question Bank Record 0.4.0 contract', () => {
       validate(JSON.parse(decoder.decode(prepared.recordBytes))),
       JSON.stringify(validate.errors),
     ).toBe(true)
+  })
+})
+
+// 0.1.0, 0.2.0 and 0.3.0 are retired as producer versions and retained as
+// consumer ones: every Question Bank File a teacher has already shared must
+// still open. Their published contracts are therefore frozen — these are the
+// assertions that keep them that way.
+// 0.1.0 through 0.4.0 are retired as producer versions and retained as
+// consumer ones: every Question Bank File a teacher has already shared must
+// still open. Their published contracts are therefore frozen — these are the
+// assertions that keep them that way.
+describe('retained Question Bank Record 0.4.0 contract', () => {
+  const root040 = fixtureRootFor('0.4.0')
+
+  test('the published 0.4.0 schema is unchanged and still checked in twice', async () => {
+    expect(publicSchema040.$id).toBe(
+      'https://testparrot.com/formats/question-bank/0.4.0/schema.json',
+    )
+    expect(publicSchema040.properties.formatVersion.const).toBe('0.4.0')
+    expect(applicationSchema040).toEqual(publicSchema040)
+    expect(
+      await Bun.file(join(import.meta.dir, '..', 'public', 'question-bank-record-0.4.0.schema.json')).json(),
+    ).toEqual(publicSchema040)
+  })
+
+  test('every 0.4.0 canonical example still imports, migrated to the current version', async () => {
+    const names = await filesIn(join(root040, 'examples'))
+
+    expect(names).toContain('multipart.json')
+    expect(names).not.toContain('pending-images.json')
+    for (const name of names) {
+      const proposal = await inspectQuestionBankRecord(
+        await Bun.file(join(root040, 'examples', name)).bytes(),
+      )
+      expect(proposal.record.formatVersion, name).toBe(QUESTION_BANK_FORMAT_VERSION)
+      expect(proposal.summary.formatVersion, name).toBe('0.4.0')
+    }
+  })
+
+  test('0.4.0 counterexamples are still rejected with their documented errors', async () => {
+    const manifest = (await fixture(join(root040, 'invalid'), 'manifest.json')) as Record<string, string>
+
+    for (const [name, code] of Object.entries(manifest)) {
+      try {
+        await inspectQuestionBankRecord(await Bun.file(join(root040, 'invalid', name)).bytes())
+        throw new Error(`${name} unexpectedly conformed`)
+      } catch (error) {
+        expect(error, name).toBeInstanceOf(QuestionBankImportError)
+        expect((error as QuestionBankImportError).code, name).toBe(code)
+      }
+    }
+  })
+
+  test('a 0.4.0 record cannot hold a Pending Image, since a 0.4.0 consumer would reject one', async () => {
+    const record = (await fixture(exampleRoot, 'pending-images.json')) as { formatVersion: string }
+    record.formatVersion = '0.4.0'
+    const validate = new Ajv2020({ allErrors: true, strict: false }).compile(publicSchema040)
+
+    expect(validate(record)).toBe(false)
   })
 })
 
@@ -359,7 +518,12 @@ describe('retained Question Bank Record 0.3.0 contract', () => {
     expect(applicationSchema030).toEqual(publicSchema030)
     expect(
       await Bun.file(
-        join(import.meta.dir, '..', 'public', 'question-bank-record-0.3.0.schema.json'),
+        join(
+          import.meta.dir,
+          '..',
+          'public',
+          'question-bank-record-0.3.0.schema.json',
+        ),
       ).json(),
     ).toEqual(publicSchema030)
   })
@@ -380,20 +544,24 @@ describe('retained Question Bank Record 0.3.0 contract', () => {
       const proposal = await inspectQuestionBankRecord(
         await Bun.file(join(root030, 'examples', name)).bytes(),
       )
-      expect(proposal.record.formatVersion, name).toBe(QUESTION_BANK_FORMAT_VERSION)
+      expect(proposal.record.formatVersion, name).toBe(
+        QUESTION_BANK_FORMAT_VERSION,
+      )
       expect(proposal.summary.formatVersion, name).toBe('0.3.0')
     }
   })
 
   test('0.3.0 counterexamples are still rejected with their documented errors', async () => {
-    const manifest = (await fixture(join(root030, 'invalid'), 'manifest.json')) as Record<
-      string,
-      string
-    >
+    const manifest = (await fixture(
+      join(root030, 'invalid'),
+      'manifest.json',
+    )) as Record<string, string>
 
     for (const [name, code] of Object.entries(manifest)) {
       try {
-        await inspectQuestionBankRecord(await Bun.file(join(root030, 'invalid', name)).bytes())
+        await inspectQuestionBankRecord(
+          await Bun.file(join(root030, 'invalid', name)).bytes(),
+        )
         throw new Error(`${name} unexpectedly conformed`)
       } catch (error) {
         expect(error, name).toBeInstanceOf(QuestionBankImportError)
@@ -401,12 +569,26 @@ describe('retained Question Bank Record 0.3.0 contract', () => {
       }
     }
   })
+
+  test('a 0.3.0 record cannot hold a Multipart question, since a 0.3.0 consumer would reject one', async () => {
+    const multipart = (await fixture(
+      join(exampleRoot),
+      'multipart.json',
+    )) as QuestionBankRecord & { formatVersion: string }
+    multipart.formatVersion = '0.3.0'
+    const validate = new Ajv2020({ allErrors: true, strict: false }).compile(publicSchema030)
+
+    expect(validate(multipart)).toBe(false)
+    try {
+      await inspectQuestionBankRecord(new TextEncoder().encode(JSON.stringify(multipart)))
+      throw new Error('A 0.3.0 Multipart question unexpectedly conformed')
+    } catch (error) {
+      expect(error).toBeInstanceOf(QuestionBankImportError)
+      expect((error as QuestionBankImportError).code).toBe('invalid-structure')
+    }
+  })
 })
 
-// 0.1.0 and 0.2.0 are retired as producer versions and retained as consumer
-// ones: every Question Bank File a teacher has already shared must still open.
-// Their published contracts are therefore frozen — these are the assertions
-// that keep them that way.
 describe('retained Question Bank Record 0.2.0 contract', () => {
   const root020 = fixtureRootFor('0.2.0')
 
@@ -512,11 +694,18 @@ describe('retained Question Bank Record 0.1.0 contract', () => {
       'true-false',
       'short-answer',
     ])
+    expect(typeEnum(publicSchema030)).toEqual([
+      'multiple-choice',
+      'true-false',
+      'matching',
+      'short-answer',
+    ])
     expect(typeEnum(publicSchema)).toEqual([
       'multiple-choice',
       'true-false',
       'matching',
       'short-answer',
+      'multipart',
     ])
   })
 

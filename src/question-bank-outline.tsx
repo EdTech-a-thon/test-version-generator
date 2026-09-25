@@ -10,7 +10,7 @@
 // whole bank's — the outline describes the bank, not the current filter.
 
 import type { ComponentType } from 'react'
-import { AlignLeft, Library, Link2, ListChecks, ToggleLeft } from 'lucide-react'
+import { AlignLeft, BookOpenText, Library, Link2, ListChecks, ToggleLeft } from 'lucide-react'
 import { TopicSwatch } from './badges'
 import { SECTION_LABELS, SECTION_ORDER, topicsOf, type Question, type QuestionType } from './exam'
 import { topicOptions, type QuestionBankFilter } from './question-bank-view'
@@ -20,6 +20,7 @@ const TYPE_ICONS: Record<QuestionType, ComponentType<{ 'aria-hidden'?: boolean }
   'true-false': ToggleLeft,
   matching: Link2,
   open: AlignLeft,
+  multipart: BookOpenText,
 }
 
 export function QuestionBankOutline({

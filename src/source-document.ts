@@ -10,7 +10,7 @@ import { isPicture, type PageBox } from './picture-rules'
  * prints those tags on a labeled copy for the assistant, and gives back the
  * picture a tag names — or a crop of any page — as PNG bytes for Resolve
  * Images. It never reads Question Content out of the document: that comes only
- * from the record the assistant writes (ADR-0024).
+ * from the record the assistant writes (ADR-0027).
  *
  * Tagging is a pure function of the PDF's bytes, so the same PDF dropped again
  * later gets the same tags, and an assistant's numbers still point at the

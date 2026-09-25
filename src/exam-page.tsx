@@ -25,7 +25,11 @@ import {
   PageItemMeasureView,
   QuestionContent,
   SectionHeadingContent,
+  WorkSpaceView,
+  type IdentityLineEditor,
 } from './page-item-view'
+import { headerLineOf, type HeaderLine } from './page-header'
+import { pageContentStyle } from './export-typography'
 import {
   FOOTER_HEIGHT,
   MAX_WORK_SPACE_HEIGHT,
@@ -38,10 +42,14 @@ import {
   unmeasured,
   type ExportContentSelection,
   type LayoutPlan,
+  type PageHeader,
   type PlannedPage,
   type PageItem,
   type QuestionItem,
+  type SectionHeadingItem,
+  type PlannedPart,
   type PlannedQuestion,
+  type PlannedWorkSpace,
 } from './export-plan'
 import {
   DEFAULT_COLUMNS,
@@ -54,9 +62,17 @@ import {
   type ColumnSetting,
   type Exam,
   type Arrangement,
+  type QuestionType,
   type WorkSpace,
 } from './exam'
 import type { Selection } from './use-selection'
+import {
+  SECTION_INSTRUCTIONS,
+  SECTION_TITLE,
+  sectionHeadingOf,
+  type SectionHeadingChange,
+} from './section-headings'
+import { sectionHeadingStyles } from './export-typography'
 import type { WorkspaceDrag } from './use-workspace-drag'
 import { dropStateOf, type QuestionDropState } from './workspace-drag'
 import {
@@ -69,6 +85,7 @@ import {
   ListRestart,
   Pencil,
   PencilLine,
+  RotateCcw,
   Shuffle,
   SquareDashed,
 } from 'lucide-react'
@@ -153,6 +170,83 @@ const DEFAULT_WORK_SPACE_HEIGHT = 4 * WORK_SPACE_LINE_PITCH
 
 export type SetWorkSpace = (questionIds: readonly string[], patch: Partial<WorkSpace>) => void
 
+/** The Answer columns submenu, for a Multiple Choice question or Part. */
+function columnsMenu(
+  label: string,
+  columns: ColumnSetting,
+  onSelect: (columns: ColumnSetting) => void,
+): MenuItem {
+  return {
+    kind: 'submenu',
+    label,
+    // The parent row shows the current layout before its submenu asks the
+    // teacher to choose another one.
+    icon: <ColumnLayoutIcon columns={columns} withDataAttribute={false} />,
+    items: COLUMN_MENU_OPTIONS.map((option) => ({
+      kind: 'radio',
+      label: option.label,
+      checked: option.value === columns,
+      icon: <ColumnLayoutIcon columns={option.value} />,
+      onSelect: () => onSelect(option.value),
+    })),
+  }
+}
+
+/** The Work space submenu and its Fill toggle, for a Short Answer question or
+ *  Part: `ids` are what the setting applies to. */
+function workSpaceMenu(
+  label: string,
+  fillLabel: string,
+  workSpace: WorkSpace,
+  ids: readonly string[],
+  onSetWorkSpace: SetWorkSpace,
+): MenuItem[] {
+  const present = hasWorkSpace(workSpace)
+  // Picking a style for a question with no room gives it some, so the
+  // choice is visible at once rather than waiting on a drag.
+  const withStyle = (style: WorkSpace['style']) =>
+    onSetWorkSpace(ids, present
+      ? { style }
+      : { style, height: DEFAULT_WORK_SPACE_HEIGHT })
+  return [
+    {
+      kind: 'submenu',
+      label,
+      icon: <PencilLine />,
+      items: [
+        {
+          kind: 'radio',
+          label: 'None',
+          checked: !present,
+          icon: <Ban />,
+          onSelect: () => onSetWorkSpace(ids, { height: 0, fill: false }),
+        },
+        {
+          kind: 'radio',
+          label: 'Blank space',
+          checked: present && workSpace.style === 'blank',
+          icon: <SquareDashed />,
+          onSelect: () => withStyle('blank'),
+        },
+        {
+          kind: 'radio',
+          label: 'Lined space',
+          checked: present && workSpace.style === 'lines',
+          icon: <AlignJustify />,
+          onSelect: () => withStyle('lines'),
+        },
+      ],
+    },
+    {
+      kind: 'checkbox',
+      label: fillLabel,
+      checked: workSpace.fill,
+      icon: <ArrowDownToLine />,
+      onSelect: () => onSetWorkSpace(ids, { fill: !workSpace.fill }),
+    },
+  ]
+}
+
 // One list, however it was opened. The grip beside a question and a right-click
 // on the question itself raise exactly the same actions, which is what makes
 // the grip discoverable rather than a second, lesser control.
@@ -166,12 +260,15 @@ function questionMenuItems({
   onRemove,
   onSetColumns,
   workSpace,
+  workSpaceOfPart,
   onSetWorkSpace,
   selectedQuestionIds,
 }: {
   question: PlannedQuestion
   columns: ColumnSetting
   workSpace: WorkSpace
+  /** A Part's work space on this Exam, as its menu reports it. */
+  workSpaceOfPart: (partId: string) => WorkSpace
   onSetWorkSpace: SetWorkSpace
   onEdit: (questionId: string) => void
   onDuplicate: (questionId: string) => void
@@ -206,71 +303,43 @@ function questionMenuItems({
   if (question.type === 'multiple-choice') {
     items.push(
       { kind: 'separator' },
-      {
-        kind: 'submenu',
-        label: 'Answer columns',
-        // The parent row shows the current layout before its submenu asks the
-        // teacher to choose another one.
-        icon: <ColumnLayoutIcon columns={columns} withDataAttribute={false} />,
-        items: COLUMN_MENU_OPTIONS.map((option) => ({
-          kind: 'radio',
-          label: option.label,
-          checked: option.value === columns,
-          icon: <ColumnLayoutIcon columns={option.value} />,
-          onSelect: () => onSetColumns(actedOnIds, option.value),
-        })),
-      },
+      columnsMenu('Answer columns', columns, (next) => onSetColumns(actedOnIds, next)),
     )
+  }
+  // A Multipart question lays out each Part the way a question of its kind is laid out,
+  // so each Part gets the controls a question of its kind would — for that
+  // Part alone, since Parts of different Multipart questions have nothing to
+  // line up with one another.
+  for (const part of question.parts ?? []) {
+    items.push({ kind: 'separator' })
+    if (part.type === 'multiple-choice') {
+      items.push(
+        columnsMenu(
+          `Part ${part.letter} · Answer columns`,
+          part.grid?.columns ?? DEFAULT_COLUMNS,
+          (next) => onSetColumns([part.id], next),
+        ),
+      )
+    } else {
+      items.push(
+        ...workSpaceMenu(
+          `Part ${part.letter} · Work space`,
+          `Part ${part.letter} · Fill rest of page`,
+          workSpaceOfPart(part.id),
+          [part.id],
+          onSetWorkSpace,
+        ),
+      )
+    }
   }
   // Room for working is a Short Answer question's business, set here on the
   // sheet rather than in the question editor: how much a student needs depends
   // on the test, and on what else shares the page. The store leaves any other
   // Question Type in the selection alone.
   if (takesWorkSpace(question.type)) {
-    const present = hasWorkSpace(workSpace)
-    // Picking a style for a question with no room gives it some, so the
-    // choice is visible at once rather than waiting on a drag.
-    const withStyle = (style: WorkSpace['style']) =>
-      onSetWorkSpace(actedOnIds, present
-        ? { style }
-        : { style, height: DEFAULT_WORK_SPACE_HEIGHT })
     items.push(
       { kind: 'separator' },
-      {
-        kind: 'submenu',
-        label: 'Work space',
-        icon: <PencilLine />,
-        items: [
-          {
-            kind: 'radio',
-            label: 'None',
-            checked: !present,
-            icon: <Ban />,
-            onSelect: () => onSetWorkSpace(actedOnIds, { height: 0, fill: false }),
-          },
-          {
-            kind: 'radio',
-            label: 'Blank space',
-            checked: present && workSpace.style === 'blank',
-            icon: <SquareDashed />,
-            onSelect: () => withStyle('blank'),
-          },
-          {
-            kind: 'radio',
-            label: 'Lined space',
-            checked: present && workSpace.style === 'lines',
-            icon: <AlignJustify />,
-            onSelect: () => withStyle('lines'),
-          },
-        ],
-      },
-      {
-        kind: 'checkbox',
-        label: 'Fill rest of page',
-        checked: workSpace.fill,
-        icon: <ArrowDownToLine />,
-        onSelect: () => onSetWorkSpace(actedOnIds, { fill: !workSpace.fill }),
-      },
+      ...workSpaceMenu('Work space', 'Fill rest of page', workSpace, actedOnIds, onSetWorkSpace),
     )
   }
   items.push(
@@ -504,19 +573,42 @@ function QuestionView({
   const question = item.question
   // The height a work-space drag is showing before it commits, or `null`.
   const [previewHeight, setPreviewHeight] = useState<number | null>(null)
-  const shown: QuestionItem =
+  // The same for one of a Multipart question's Short Answer Parts, by the Part's id.
+  const [partPreview, setPartPreview] = useState<{ partId: string; height: number } | null>(null)
+  const previewed = (space: PlannedWorkSpace, height: number): PlannedWorkSpace => ({
+    ...space,
+    height,
+    lines: space.style === 'lines' ? Math.floor(height / WORK_SPACE_LINE_PITCH) : 0,
+  })
+  const withQuestionPreview: QuestionItem =
     previewHeight === null || !item.workSpace
       ? item
+      : { ...item, workSpace: previewed(item.workSpace, previewHeight) }
+  const shown: QuestionItem =
+    partPreview === null || !withQuestionPreview.parts
+      ? withQuestionPreview
       : {
-          ...item,
-          workSpace: {
-            ...item.workSpace,
-            height: previewHeight,
-            lines: item.workSpace.style === 'lines'
-              ? Math.floor(previewHeight / WORK_SPACE_LINE_PITCH)
-              : 0,
-          },
+          ...withQuestionPreview,
+          parts: withQuestionPreview.parts.map((part) =>
+            part.id === partPreview.partId && part.workSpace
+              ? { ...part, workSpace: previewed(part.workSpace, partPreview.height) }
+              : part,
+          ),
         }
+  // A Short Answer Part's work space, with the bar that sizes it in the gap
+  // below the Part, exactly as a Short Answer question's bar sits below it.
+  const renderPartWorkSpace = (part: PlannedPart, space: PlannedWorkSpace) => (
+    <div className="part-work-space">
+      <WorkSpaceView space={space} />
+      <WorkSpaceHandle
+        label={`Work space for question ${numberLabelOf(question)} part ${part.letter}`}
+        height={item.parts?.find(({ id }) => id === part.id)?.workSpace?.height ?? space.height}
+        onPreview={(height) =>
+          setPartPreview(height === null ? null : { partId: part.id, height })}
+        onCommit={(height) => onSetWorkSpace([part.id], { height, fill: false })}
+      />
+    </div>
+  )
 
   const releasePointer = (event: ReactPointerEvent<HTMLElement>) => {
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
@@ -528,7 +620,7 @@ function QuestionView({
   if (selected) classes.push('exam-question--selected')
   if (dragging) classes.push('exam-question--dragging')
   if (dropped) classes.push('exam-question--dropped')
-  if (previewHeight !== null) classes.push('exam-question--sizing')
+  if (previewHeight !== null || partPreview !== null) classes.push('exam-question--sizing')
 
   return (
     <section
@@ -631,7 +723,11 @@ function QuestionView({
       {item.numbered && (
         <QuestionHandles question={question} onOpenMenu={onOpenMenu} />
       )}
-      <QuestionContent item={shown} showCorrectness />
+      <QuestionContent
+        item={shown}
+        showCorrectness
+        renderPartWorkSpace={renderPartWorkSpace}
+      />
       {item.workSpace && (
         <WorkSpaceHandle
           label={`Work space for question ${numberLabelOf(question)}`}
@@ -641,6 +737,123 @@ function QuestionView({
         />
       )}
     </section>
+  )
+}
+
+/** Rewords a Question Section's heading on this Exam; `null` restores a part. */
+export type SetSectionHeading = (section: QuestionType, change: SectionHeadingChange) => void
+
+// One part of a section heading, typed where it prints. The underline and the
+// field are the Exam title's: a transparent line until hover, the accent once
+// focused. It is a textarea laid over a hidden copy of its own value, so it
+// wraps exactly as the printed text does and the heading keeps the height
+// `dom-measure.ts` measured; the text is a single line, so Enter finishes.
+function SectionHeadingField({
+  label,
+  value,
+  placeholder,
+  disabled,
+  onChange,
+  onFocusChange,
+}: {
+  label: string
+  value: string
+  placeholder: string
+  disabled: boolean
+  onChange: (value: string) => void
+  onFocusChange: (focused: boolean) => void
+}) {
+  return (
+    <span className="section-heading-field" data-value={value || placeholder}>
+      <textarea
+        aria-label={label}
+        className="section-heading-input"
+        rows={1}
+        value={value}
+        placeholder={placeholder}
+        disabled={disabled}
+        spellCheck
+        onChange={(event) => onChange(event.target.value.replace(/\s*\n\s*/g, ' '))}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === 'Escape') {
+            event.preventDefault()
+            event.currentTarget.blur()
+          }
+        }}
+        onFocus={() => onFocusChange(true)}
+        onBlur={() => onFocusChange(false)}
+      />
+    </span>
+  )
+}
+
+// A section heading on the sheet, reworded where it prints. A part the teacher
+// clears stays open to type into while it has focus, and prints nothing once
+// they leave it; a heading cleared of both is kept at no height, with a way to
+// bring it back in the page margin, where the question handles sit.
+function EditableSectionHeading({
+  item,
+  edited,
+  disabled,
+  onChange,
+}: {
+  item: SectionHeadingItem
+  edited: boolean
+  disabled: boolean
+  onChange: SetSectionHeading
+}) {
+  const [focused, setFocused] = useState<'title' | 'instructions' | null>(null)
+  const focus = (part: 'title' | 'instructions') => (on: boolean) =>
+    setFocused((current) => (on ? part : current === part ? null : current))
+  const name = SECTION_TITLE[item.section]
+  const reset = (
+    <div className="section-heading-handles">
+      <button
+        type="button"
+        className="question-handle"
+        aria-label={`Restore the ${name} heading`}
+        title="Restore the default heading and directions"
+        disabled={disabled}
+        onClick={() => onChange(item.section, { title: null, instructions: null })}
+      >
+        <RotateCcw aria-hidden="true" />
+      </button>
+    </div>
+  )
+  const showTitle = item.title !== '' || focused === 'title'
+  const showInstructions = item.instructions !== '' || focused === 'instructions'
+  if (!showTitle && !showInstructions) {
+    return <div className="exam-section-hidden">{reset}</div>
+  }
+  const styles = sectionHeadingStyles(item.size)
+  return (
+    <header className="exam-section exam-section--editable">
+      {edited && reset}
+      {showTitle && (
+        <h2 className="section-title" style={styles.title}>
+          <SectionHeadingField
+            label={`${name} heading`}
+            value={item.title}
+            placeholder={name}
+            disabled={disabled}
+            onChange={(title) => onChange(item.section, { title })}
+            onFocusChange={focus('title')}
+          />
+        </h2>
+      )}
+      {showInstructions && (
+        <p className="section-instructions" style={styles.instructions}>
+          <SectionHeadingField
+            label={`${name} directions`}
+            value={item.instructions}
+            placeholder={SECTION_INSTRUCTIONS[item.section]}
+            disabled={disabled}
+            onChange={(instructions) => onChange(item.section, { instructions })}
+            onFocusChange={focus('instructions')}
+          />
+        </p>
+      )}
+    </header>
   )
 }
 
@@ -658,8 +871,15 @@ function PageItemView({
   onDragMove,
   onDrop,
   onDragEnd,
+  onSectionHeadingChange,
+  sectionHeadingEdited,
+  sectionHeadingDisabled = false,
 }: {
   item: PageItem
+  /** Present in the editor: rewords a section heading where it prints. */
+  onSectionHeadingChange?: SetSectionHeading
+  sectionHeadingEdited?: (section: QuestionType) => boolean
+  sectionHeadingDisabled?: boolean
   orderedIds: readonly string[]
   selection: Selection
   onEdit: (questionId: string) => void
@@ -667,7 +887,7 @@ function PageItemView({
   onSetWorkSpace: SetWorkSpace
   draggedQuestionIds: ReadonlySet<string>
   droppedQuestionIds: ReadonlySet<string>
-  dropState: (questionId: string) => QuestionDropState
+  dropState: (item: QuestionItem) => QuestionDropState
   onDragStart: (
     question: PlannedQuestion,
     element: HTMLElement,
@@ -679,10 +899,15 @@ function PageItemView({
 }) {
   switch (item.kind) {
     case 'section-heading':
-      return (
-        <header className="exam-section">
-          <SectionHeadingContent item={item} />
-        </header>
+      return onSectionHeadingChange ? (
+        <EditableSectionHeading
+          item={item}
+          edited={sectionHeadingEdited?.(item.section) ?? false}
+          disabled={sectionHeadingDisabled}
+          onChange={onSectionHeadingChange}
+        />
+      ) : (
+        <SectionHeadingContent item={item} />
       )
     case 'question':
       return (
@@ -696,7 +921,7 @@ function PageItemView({
           onSetWorkSpace={onSetWorkSpace}
           dragging={draggedQuestionIds.has(item.question.id)}
           dropped={droppedQuestionIds.has(item.question.id) && item.numbered}
-          dropState={dropState(item.question.id)}
+          dropState={dropState(item)}
           onDragStart={onDragStart}
           onDragMove={onDragMove}
           onDrop={onDrop}
@@ -892,7 +1117,7 @@ export function ExportPreview({ plan }: { plan: LayoutPlan }) {
       {plan.pages.map((page) => (
         <article className="exam-page" key={`${page.stream}-${page.header}-${page.number}`}>
           <PageHeaderContent header={page.header} furniture={page.furniture} />
-          <div className="page-content">
+          <div className="page-content" style={pageContentStyle(plan.textSize)}>
             {page.items.map((item) => (
               <PageItemMeasureView key={keyOf(item)} item={item} />
             ))}
@@ -919,6 +1144,8 @@ export function ExamPage({
   onSetColumns,
   onSetWorkSpace,
   onTitleChange,
+  onSectionHeadingChange,
+  onHeaderLineChange,
   titleDisabled = false,
   unsavedDraft = false,
   contentSelection = { test: true, answerKey: true },
@@ -943,6 +1170,10 @@ export function ExamPage({
   onSetWorkSpace: SetWorkSpace
   /** Renames the Exam from its own title line. See `PageHeaderContent`. */
   onTitleChange?: (title: string) => void
+  /** Rewords a section heading from where it prints. See `EditableSectionHeading`. */
+  onSectionHeadingChange?: SetSectionHeading
+  /** Rewords a test page's header line; `null` restores its default. */
+  onHeaderLineChange?: (line: HeaderLine, text: string | null) => void
   titleDisabled?: boolean
   unsavedDraft?: boolean
   contentSelection?: ExportContentSelection
@@ -960,6 +1191,8 @@ export function ExamPage({
   // questions a gesture picks up, and what their markup is — and the pointer
   // capture and page-owned preview that gesture has always used.
   const { draggedQuestionIds, droppedQuestionIds } = drag
+  // The page order when a reorder was lifted. See the landing effect below.
+  const orderAtLift = useRef<string | null>(null)
   const beginDrag = useCallback((
     question: PlannedQuestion,
     element: HTMLElement,
@@ -981,19 +1214,53 @@ export function ExamPage({
     const elements = Array.from(
       workspace.current?.querySelectorAll<HTMLElement>('.exam-question[data-question-id]') ?? [],
     ).filter((candidate) => ids.includes(candidate.dataset.questionId ?? ''))
+    orderAtLift.current = orderedIds.join('\n')
     drag.begin(
       { pane: 'exam-draft', questionIds: ids, type: question.type },
       { elements, bounds: element.getBoundingClientRect(), point },
     )
   }, [drag, exam.questions, orderedIds, selection])
 
-  const questionDropState = useCallback(
-    (questionId: string) => dropStateOf(drag.intent, questionId),
-    [drag.intent],
-  )
+  // A question split across sheets draws its line above on its first piece and
+  // its line below on its last, which is where the drop would actually land.
+  const piecesOf = new Map<string, { first: QuestionItem; last: QuestionItem }>()
+  for (const item of pages.flatMap((page) => page.items)) {
+    if (item.kind !== 'question') continue
+    const pieces = piecesOf.get(item.question.id)
+    if (pieces) pieces.last = item
+    else piecesOf.set(item.question.id, { first: item, last: item })
+  }
+  const questionDropState = (item: QuestionItem): QuestionDropState => {
+    const state = dropStateOf(drag.intent, item.question.id)
+    const pieces = piecesOf.get(item.question.id)
+    if (state === 'before') return pieces?.first === item ? state : null
+    if (state === 'after') return pieces?.last === item ? state : null
+    return null
+  }
+
+  // Following a reordered question to where it landed.
+  //
+  // A drop lands at the nearest legal line, which need not be anywhere near
+  // the pointer — a question flicked into another section goes to the edge of
+  // its own, perhaps sheets away. A reorder repaginates in the same frame, but
+  // the commit that records the drop is still drawing the old order, so this
+  // waits until the page order has actually changed from the one the gesture
+  // lifted, then scrolls the moved question into view. A drop that moved
+  // nothing never changes the order, and scrolls nowhere.
+  useLayoutEffect(() => {
+    if (droppedQuestionIds.size === 0 || orderAtLift.current === null) return
+    if (orderedIds.join('\n') === orderAtLift.current) return
+    orderAtLift.current = null
+    const moved = orderedIds.find((id) => droppedQuestionIds.has(id))
+    if (!moved) return
+    workspace.current
+      ?.querySelector<HTMLElement>(`.exam-question[data-question-id="${CSS.escape(moved)}"]`)
+      ?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+  }, [plan, droppedQuestionIds, orderedIds])
+
   // Revealing a question an authoring action has just put on the Working Copy.
   //
-  // Insertion and Replace change the exam's *content*, and content changes wait
+  // Insertion changes the exam's *content*, and content changes wait
   // for a pause before the page is measured and packed again. So the question
   // is not on the page in the frame the action was taken — it arrives one
   // repagination later, possibly on a different sheet from the one that was in
@@ -1023,6 +1290,8 @@ export function ExamPage({
           : [],
       ),
   )
+  const sectionHeadingEdited = (section: QuestionType) =>
+    sectionHeadingOf(exam.sectionHeadings, section).edited
   // Which question's menu is open, and where it was raised. Held here rather
   // than per question, so opening one menu closes any other by construction.
   const [menu, setMenu] = useState<{
@@ -1064,6 +1333,17 @@ export function ExamPage({
   // repetition — a continuation page's, the answer key's — is that same name
   // shown again, so it is drawn as text rather than as a second field.
   const titleLine = pages.findIndex((page) => page.furniture.title !== null)
+  // Every test page's header line can be typed on, and every later page shows
+  // the one later line: they are the same words printed again.
+  const identityEditorFor = (header: PageHeader): IdentityLineEditor | undefined => {
+    if (!onHeaderLineChange || (header !== 'first' && header !== 'later')) return undefined
+    return {
+      text: headerLineOf(exam.header, header),
+      edited: exam.header?.[header] !== undefined,
+      disabled: titleDisabled,
+      onChange: (text) => onHeaderLineChange(header, text),
+    }
+  }
   const workspaceClasses = ['exam-workspace']
   if (unsavedDraft) workspaceClasses.push('exam-workspace--unsaved')
   if (draggedQuestionIds.size > 0) workspaceClasses.push('exam-workspace--dragging')
@@ -1074,6 +1354,7 @@ export function ExamPage({
       className={workspaceClasses.join(' ')}
       ref={workspace}
       style={PAGE_GEOMETRY}
+      data-drop-zone=""
       data-empty-section={emptySectionOffer ?? undefined}
       data-active={drag.intent?.kind === 'insert-first' ? 'true' : undefined}
       onClick={clearOnBackground}
@@ -1090,10 +1371,15 @@ export function ExamPage({
           <PageHeaderContent
             header={page.header}
             furniture={page.furniture}
+            identityEditor={identityEditorFor(page.header)}
             onTitleChange={index === titleLine ? onTitleChange : undefined}
             titleDisabled={titleDisabled}
           />
-          <div className="page-content" onClick={clearOnBackground}>
+          <div
+            className="page-content"
+            style={pageContentStyle(plan.textSize)}
+            onClick={clearOnBackground}
+          >
             {/* An exam with nothing in it yet offers the first question where
                 the first question will go, rather than leaving a blank sheet
                 and a button in the header as the only way in. It is editing
@@ -1112,6 +1398,9 @@ export function ExamPage({
               <PageItemView
                 key={keyOf(item)}
                 item={item}
+                onSectionHeadingChange={onSectionHeadingChange}
+                sectionHeadingEdited={sectionHeadingEdited}
+                sectionHeadingDisabled={titleDisabled}
                 orderedIds={orderedIds}
                 selection={selection}
                 onEdit={onEdit}
@@ -1164,6 +1453,7 @@ export function ExamPage({
             onRemove,
             onSetColumns,
             workSpace: workSpaceOf(exam, menuQuestion.id),
+            workSpaceOfPart: (partId) => workSpaceOf(exam, partId),
             onSetWorkSpace,
             selectedQuestionIds: [...selection.selectedIds],
           })}

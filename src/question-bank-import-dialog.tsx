@@ -3,6 +3,7 @@ import { Check, ChevronRight, Copy, FileText, ImageIcon, Library, UploadCloud, t
 import extractInstructions from '../public/extract.md?raw'
 import { fillImageTags } from './image-tag-list'
 import {
+  RECORD_PART_TYPE_LABELS,
   RECORD_TYPE_LABELS,
   RECORD_TYPE_ORDER,
   recordDocumentToEditorNodes,
@@ -220,6 +221,22 @@ function readingOfRecordQuestion(
       },
     } : {}),
     ...(question.suggestedAnswer ? { suggestedAnswer: previewDocument(question.suggestedAnswer) } : {}),
+    ...(question.parts ? {
+      parts: question.parts.map((part, index) => ({
+        id: part.id,
+        letter: String.fromCharCode(97 + index),
+        typeLabel: RECORD_PART_TYPE_LABELS[part.type],
+        stem: previewDocument(part.stem),
+        ...(part.choices ? {
+          choices: part.choices.map((choice) => ({
+            id: choice.id,
+            content: previewDocument(choice.content),
+            correct: choice.correct,
+          })),
+        } : {}),
+        ...(part.suggestedAnswer ? { suggestedAnswer: previewDocument(part.suggestedAnswer) } : {}),
+      })),
+    } : {}),
   }
 }
 

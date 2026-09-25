@@ -15,7 +15,7 @@ import { estimatedSize, resolutionOf } from './resolved-pictures'
 import { ownDocumentMedia } from './local-images'
 import { cleanDocument, pendingImageOf, type ProseMirrorJSON } from './question-doc'
 
-const example = join(import.meta.dir, '..', 'public', 'formats', 'question-bank', '0.4.0', 'examples', 'pending-images.json')
+const example = join(import.meta.dir, '..', 'public', 'formats', 'question-bank', '0.5.0', 'examples', 'pending-images.json')
 const proposal = async () => inspectImportRecord(await Bun.file(example).bytes())
 const tags = (...numbers: number[]) => numbers.map((tag) => ({ tag }))
 
@@ -23,34 +23,34 @@ const PAGES = [
   'World History Unit 4. 1. Use the map to name the trading station farthest east!',
   '2. WHICH graph shows a function that is increasing everywhere? 3. Which European power held the most stations on the map?',
   '',
-  '4) Describe   the circuit shown below.',
+  '4) Describe   the circuit shown below. 5. Source: Punch, 1911 (adapted). What is the main idea of this cartoon? Use the chart on page 4 to explain one cause of that decline.',
 ]
 
 describe('checking a record against its Source Document', () => {
   test('matches when every tag exists and the stems are in the document’s text', async () => {
-    expect(checkAgainstSourceDocument(await proposal(), { tags: tags(1, 2, 3, 4), pageText: PAGES })).toEqual({
+    expect(checkAgainstSourceDocument(await proposal(), { tags: tags(1, 2, 3, 4, 5), pageText: PAGES })).toEqual({
       unknownTags: [],
-      stemsChecked: 4,
-      stemsFound: 4,
+      stemsChecked: 5,
+      stemsFound: 5,
       matches: true,
     })
   })
 
   test('warns when the record names a tag the document does not have', async () => {
     const check = checkAgainstSourceDocument(await proposal(), { tags: tags(1, 2), pageText: PAGES })
-    expect(check).toMatchObject({ unknownTags: [3, 4], matches: false })
+    expect(check).toMatchObject({ unknownTags: [3, 4, 5], matches: false })
   })
 
   test('warns when most stems are not in the document', async () => {
     const check = checkAgainstSourceDocument(await proposal(), {
-      tags: tags(1, 2, 3, 4),
+      tags: tags(1, 2, 3, 4, 5),
       pageText: ['Chemistry quiz. Balance each equation.', PAGES[3]!],
     })
-    expect(check).toMatchObject({ stemsChecked: 4, stemsFound: 1, matches: false })
+    expect(check).toMatchObject({ stemsChecked: 5, stemsFound: 2, matches: false })
   })
 
   test('checks only the tags of a document with no text layer', async () => {
-    expect(checkAgainstSourceDocument(await proposal(), { tags: tags(1, 2, 3, 4), pageText: ['', ''] })).toEqual({
+    expect(checkAgainstSourceDocument(await proposal(), { tags: tags(1, 2, 3, 4, 5), pageText: ['', ''] })).toEqual({
       unknownTags: [],
       stemsChecked: 0,
       stemsFound: 0,

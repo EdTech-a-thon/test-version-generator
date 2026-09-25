@@ -34,6 +34,13 @@ export type ExamWorkingCopy = {
    *  Absent means authored order, preserving compatibility with drafts stored
    *  before answer shuffling existed. */
   choiceOrder?: Record<string, string[]>
+  /** This Exam's rewording of its section headings, and the size they print
+   *  at. Exam presentation like `workSpace`; absent means the defaults. */
+  sectionHeadings?: import('./section-headings').SectionHeadings
+  headingSize?: import('./section-headings').HeadingSize
+  textSize?: import('./section-headings').TextSize
+  /** This Exam's own test-page header lines; absent means the default. */
+  header?: import('./page-header').ExamHeader
 }
 
 export function createQuestionBank(): QuestionBank {
@@ -102,10 +109,13 @@ export function withReferenceAdded(
 }
 
 /** Removes references from the Working Copy. The Question Bank is not this
- *  function's business: Remove excludes, it never deletes. */
+ *  function's business: Remove excludes, it never deletes. `partIds` are the
+ *  Parts of any Multipart question among them — only the bank knows what they are — whose
+ *  answer order, columns and work space this Exam set under their own ids. */
 export function withReferencesRemoved(
   draft: ExamWorkingCopy,
   questionIds: readonly string[],
+  partIds: readonly string[] = [],
 ): ExamWorkingCopy {
   const removing = new Set(questionIds)
   const remaining = draft.questionIds.filter((id) => !removing.has(id))
@@ -122,10 +132,10 @@ export function withReferencesRemoved(
   const workSpace = draft.workSpace
     ? { ...draft.workSpace }
     : undefined
-  for (const questionId of removing) {
-    delete choiceOrder?.[questionId]
-    delete columns?.[questionId]
-    delete workSpace?.[questionId]
+  for (const id of [...removing, ...partIds]) {
+    delete choiceOrder?.[id]
+    delete columns?.[id]
+    delete workSpace?.[id]
   }
   return {
     ...draft,
@@ -175,6 +185,14 @@ export function withChoiceOrder(
   return { ...draft, choiceOrder }
 }
 
+/** What a Replace of one Multipart question by another knows about their Parts: every
+ *  Part id of the outgoing question, and which outgoing Part each incoming Part
+ *  stands in for. */
+export type ReplacedParts = {
+  outgoing: readonly string[]
+  pairs: readonly (readonly [outgoingPartId: string, incomingPartId: string])[]
+}
+
 /**
  * One reference Replaced by another, in place.
  *
@@ -192,6 +210,7 @@ export function withReferenceReplaced(
   draft: ExamWorkingCopy,
   outgoingQuestionId: string,
   incomingQuestionId: string,
+  parts: ReplacedParts = { outgoing: [], pairs: [] },
 ): ExamWorkingCopy {
   const index = draft.questionIds.indexOf(outgoingQuestionId)
   if (index < 0 || isInWorkingCopy(draft, incomingQuestionId)) return draft
@@ -218,6 +237,22 @@ export function withReferenceReplaced(
   delete workSpace?.[outgoingQuestionId]
   delete workSpace?.[incomingQuestionId]
   if (outgoingWorkSpace !== undefined) workSpace![incomingQuestionId] = outgoingWorkSpace
+  // A Multipart question's Parts keep the page's shape position by position: each
+  // incoming Part takes the columns and work space of the outgoing Part in the
+  // same place, where the two are the same kind. Answer order starts fresh, as
+  // it does for the question.
+  const carried = new Map(parts.pairs)
+  for (const outgoingPartId of parts.outgoing) {
+    const incomingPartId = carried.get(outgoingPartId)
+    const partColumns = columns?.[outgoingPartId]
+    const partWorkSpace = workSpace?.[outgoingPartId]
+    delete choiceOrder?.[outgoingPartId]
+    delete columns?.[outgoingPartId]
+    delete workSpace?.[outgoingPartId]
+    if (incomingPartId === undefined) continue
+    if (partColumns !== undefined) columns![incomingPartId] = partColumns
+    if (partWorkSpace !== undefined) workSpace![incomingPartId] = partWorkSpace
+  }
   return {
     ...draft,
     questionIds,

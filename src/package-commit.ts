@@ -135,6 +135,10 @@ export function planImport(
       choiceOrder,
       ...(Object.keys(columns).length > 0 ? { columns } : {}),
       ...(Object.keys(workSpace).length > 0 ? { workSpace } : {}),
+      ...(exam.sectionHeadings ? { sectionHeadings: exam.sectionHeadings } : {}),
+      ...(exam.headingSize ? { headingSize: exam.headingSize } : {}),
+      ...(exam.textSize ? { textSize: exam.textSize } : {}),
+      ...(exam.header ? { header: exam.header } : {}),
     }
     return [{
       source: exam.key,

@@ -31,6 +31,7 @@ import {
 } from './export-media'
 import {
   MATCHING_BANK_WIDTH,
+  PART_INDENT,
   printsNumberLine,
   questionIndentOf,
   type AnswerKeyEntryItem,
@@ -40,11 +41,12 @@ import {
   type PlannedBankAnswer,
   type PageFurniture,
   type PageItem,
+  type PlannedPart,
   type PlannedWorkSpace,
   type QuestionItem,
 } from './export-plan'
 import { DIFFICULTY_LABELS, WORK_SPACE_LINE_PITCH } from './exam'
-import { pointsOf } from './export-typography'
+import { bodyScale, pointsOf, sectionHeadingPoints, titlePoints } from './export-typography'
 import type { ProseMirrorJSON } from './question-doc'
 import {
   QUESTION_BANK_ATTACHMENT_DESCRIPTION,
@@ -53,11 +55,17 @@ import {
 
 const PDF_MIME = 'application/pdf'
 const POINTS_PER_PX = 0.75
-const BODY_SIZE = pointsOf('body')
-const BODY_LINE = 16.3
+// The sheet's own body type, which the header line and the section headings'
+// ratios keep whatever the Exam's text size.
+const SHEET_BODY_SIZE = pointsOf('body')
+const SHEET_BODY_LINE = 16.3
+// The body type the plan being drawn prints its content at: the sheet's own,
+// scaled by the Exam's text size. Set for each plan in `createPdf`, whose
+// drawing is synchronous, so no other export can see a plan's size.
+let BODY_SIZE = SHEET_BODY_SIZE
+let BODY_LINE = SHEET_BODY_LINE
 const SMALL_SIZE = pointsOf('small')
 const HEADING_SIZE = pointsOf('sectionTitle')
-const TITLE_SIZE = pointsOf('title')
 const ANSWER_KEY_HEADING_SIZE = pointsOf('answerKeyHeading')
 const INK = rgb(0.2, 0.165, 0.14)
 /** Where the key's answer column starts: past `.answer-key-entry`'s 42px
@@ -683,6 +691,28 @@ function drawMatching(context: DrawContext, set: MatchingSet): void {
   context.y = Math.min(prompts.y, bank.y)
 }
 
+// A Multipart question's Parts, one level in under the Multipart question, as print lays them out
+// (`.multipart-parts-print` in styles.css): 14px below the Multipart question, 18px
+// apart, each opening with its letter in a short letter column of its own.
+const PARTS_GAP_ABOVE = 14
+const PARTS_GAP_BETWEEN = 18
+
+function drawPart(context: DrawContext, part: PlannedPart, x: number, width: number): void {
+  const indent = pt(PART_INDENT)
+  const bodyX = x + indent
+  const bodyWidth = width - indent
+  drawTextLine(
+    context,
+    `${part.letter}.`,
+    { font: 'bold', x, width: indent - 5 },
+  )
+  context.y += BODY_LINE
+  if (part.stem.length > 0) drawBlocks(context, part.stem, { x: bodyX, width: bodyWidth })
+  else context.y -= BODY_LINE
+  if (part.grid) drawChoiceGrid(context, part.grid, bodyX, bodyWidth)
+  if (part.workSpace) drawWorkSpace(context, part.workSpace, bodyX, bodyWidth)
+}
+
 function drawQuestion(context: DrawContext, item: QuestionItem): void {
   const indent = questionIndentOf(item.question) * POINTS_PER_PX
   const bodyX = context.x + indent
@@ -702,17 +732,40 @@ function drawQuestion(context: DrawContext, item: QuestionItem): void {
     // Nothing follows a space that fills its page, so it keeps the foot.
     if (item.workSpace.fill) return
   }
+  const parts = item.parts ?? []
+  for (const [index, part] of parts.entries()) {
+    context.y -= pt(index === 0 ? PARTS_GAP_ABOVE : PARTS_GAP_BETWEEN)
+    drawPart(context, part, bodyX, bodyWidth)
+  }
+  if (parts.at(-1)?.workSpace?.fill) return
   context.y -= 10
 }
 
 function drawItem(context: DrawContext, item: PageItem): void {
   switch (item.kind) {
-    case 'section-heading':
+    case 'section-heading': {
+      // A cleared part draws nothing, and a heading cleared of both draws
+      // nothing at all — the plan packed it at no height.
+      if (!item.title && !item.instructions) return
+      // Line heights grow with the Exam's heading size, as print's ratios do.
+      const size = sectionHeadingPoints(item.size)
       context.y -= 12
-      drawTextLine(context, item.title, { font: 'bold', size: HEADING_SIZE, line: 17 })
-      drawTextLine(context, item.instructions, { size: BODY_SIZE, line: 17 })
+      if (item.title) {
+        drawTextLine(context, item.title, {
+          font: 'bold',
+          size: size.title,
+          line: 17 * (size.title / HEADING_SIZE),
+        })
+      }
+      if (item.instructions) {
+        drawTextLine(context, item.instructions, {
+          size: size.instructions,
+          line: 17 * (size.instructions / SHEET_BODY_SIZE),
+        })
+      }
       context.y -= 8
       return
+    }
     case 'question':
       drawQuestion(context, item)
       return
@@ -798,6 +851,56 @@ function drawAnswerKeyEntry(context: DrawContext, item: AnswerKeyEntryItem): voi
     })
     context.y -= 4
   }
+  // A Multipart question's Parts each take a line under its number, the Part's letter
+  // where a question's number goes and its answer on the blank beside it.
+  for (const part of item.parts ?? []) {
+    ensureRoom(context, BODY_LINE + 2)
+    const partY = context.y
+    const partX = context.x + ANSWER_KEY_ANSWER_X
+    drawTextLine(context, `${part.letter}.`, { x: partX, width: 18 })
+    context.y = partY
+    if (part.answer) drawTextLine(context, part.answer, { font: 'bold', x: partX + 24, width: 42 })
+    else context.y -= BODY_LINE
+    context.page.drawLine({
+      start: { x: partX + 22, y: partY - BODY_LINE + 3 },
+      end: { x: partX + 64, y: partY - BODY_LINE + 3 },
+      thickness: 0.6,
+      color: INK,
+    })
+    context.y = partY - BODY_LINE - 2
+    if (part.suggestedAnswer) {
+      drawBlocks(context, part.suggestedAnswer, {
+        x: partX + 24,
+        width: context.width - ANSWER_KEY_ANSWER_X - 24,
+      })
+      context.y -= 4
+    }
+  }
+}
+
+// An Exam's own header line: its text from the left margin, the ID in bold
+// against the right, as print sets them. It is one line on every output, so
+// text too long for the room the ID leaves is cut short, as print cuts it.
+function drawIdentityLine(context: DrawContext, text: string, label: string): void {
+  const bold = context.fonts.bold
+  const regular = context.fonts.regular
+  const labelWidth = bold.widthOfTextAtSize(label, SHEET_BODY_SIZE)
+  const y = context.y - SHEET_BODY_SIZE
+  context.page.drawText(label, {
+    x: context.x + context.width - labelWidth,
+    y,
+    size: SHEET_BODY_SIZE,
+    font: bold,
+    color: INK,
+  })
+  const room = context.width - labelWidth - 12
+  let shown = text.trimEnd()
+  while (shown && regular.widthOfTextAtSize(shown, SHEET_BODY_SIZE) > room) {
+    shown = shown.slice(0, -1)
+  }
+  if (shown) {
+    context.page.drawText(shown, { x: context.x, y, size: SHEET_BODY_SIZE, font: regular, color: INK })
+  }
 }
 
 function drawFurniture(
@@ -806,18 +909,22 @@ function drawFurniture(
   pageTop: number,
   headerBottom: number,
 ): void {
-  const pieces: InlinePiece[] = []
-  for (const field of furniture.identityFields) {
-    pieces.push({ text: `${field}: __________________  `, font: 'regular', size: SMALL_SIZE })
+  if (furniture.identityLine !== undefined) {
+    drawIdentityLine(context, furniture.identityLine, furniture.arrangementLabel)
+  } else {
+    const pieces: InlinePiece[] = []
+    for (const field of furniture.identityFields) {
+      pieces.push({ text: `${field}: __________________  `, font: 'regular', size: SMALL_SIZE })
+    }
+    pieces.push({ text: furniture.arrangementLabel, font: 'bold', size: SMALL_SIZE })
+    drawInline(context, pieces, { x: context.x, width: context.width, line: 13 })
   }
-  pieces.push({ text: furniture.arrangementLabel, font: 'bold', size: SMALL_SIZE })
-  drawInline(context, pieces, { x: context.x, width: context.width, line: 13 })
   if (furniture.title !== null) {
     const titleContext = { ...context, y: pageTop - 36, bottom: headerBottom }
     drawInline(
       titleContext,
-      [{ text: furniture.title, font: 'bold', size: TITLE_SIZE }],
-      { x: context.x, width: context.width, line: TITLE_SIZE * 1.15 },
+      [{ text: furniture.title, font: 'bold', size: titlePoints(furniture.titleSize) }],
+      { x: context.x, width: context.width, line: titlePoints(furniture.titleSize) * 1.15 },
     )
   }
 }
@@ -871,42 +978,50 @@ async function createPdf(
   document.setTitle(plans[0]?.title ?? '')
   document.setCreator('Test Parrot')
 
-  for (const plan of plans) {
-    for (const planned of plan.pages) {
-      const width = pt(plan.pageSize.width)
-      const height = pt(plan.pageSize.height)
-      const margin = pt(plan.pageSize.margin)
-      const page = document.addPage([width, height])
-      const top = height - margin
-      const headerHeight = planned.header === 'first' || planned.header === 'answer-key'
-        ? pt(84)
-        : pt(42)
-      const footerHeight = pt(36)
-      const context: DrawContext = {
-        document,
-        page,
-        fonts,
-        images,
-        x: margin,
-        y: top,
-        width: pt(plan.pageSize.contentWidth),
-        bottom: margin + footerHeight,
-        pageNumber: planned.number,
+  try {
+    for (const plan of plans) {
+      const scale = bodyScale(plan.textSize)
+      BODY_SIZE = SHEET_BODY_SIZE * scale
+      BODY_LINE = SHEET_BODY_LINE * scale
+      for (const planned of plan.pages) {
+        const width = pt(plan.pageSize.width)
+        const height = pt(plan.pageSize.height)
+        const margin = pt(plan.pageSize.margin)
+        const page = document.addPage([width, height])
+        const top = height - margin
+        const headerHeight = planned.header === 'first' || planned.header === 'answer-key'
+          ? pt(84)
+          : pt(42)
+        const footerHeight = pt(36)
+        const context: DrawContext = {
+          document,
+          page,
+          fonts,
+          images,
+          x: margin,
+          y: top,
+          width: pt(plan.pageSize.contentWidth),
+          bottom: margin + footerHeight,
+          pageNumber: planned.number,
+        }
+        drawFurniture(context, planned.furniture, top, top - headerHeight)
+        context.y = top - headerHeight
+        for (const item of planned.items) drawItem(context, item)
+        const footer = String(planned.furniture.pageNumber)
+        assertSupported(footer, fonts.regular)
+        const footerWidth = fonts.regular.widthOfTextAtSize(footer, SMALL_SIZE)
+        page.drawText(footer, {
+          x: (width - footerWidth) / 2,
+          y: margin,
+          size: SMALL_SIZE,
+          font: fonts.regular,
+          color: INK,
+        })
       }
-      drawFurniture(context, planned.furniture, top, top - headerHeight)
-      context.y = top - headerHeight
-      for (const item of planned.items) drawItem(context, item)
-      const footer = String(planned.furniture.pageNumber)
-      assertSupported(footer, fonts.regular)
-      const footerWidth = fonts.regular.widthOfTextAtSize(footer, SMALL_SIZE)
-      page.drawText(footer, {
-        x: (width - footerWidth) / 2,
-        y: margin,
-        size: SMALL_SIZE,
-        font: fonts.regular,
-        color: INK,
-      })
     }
+  } finally {
+    BODY_SIZE = SHEET_BODY_SIZE
+    BODY_LINE = SHEET_BODY_LINE
   }
   if (attachment !== undefined) {
     // The same attachment identity a Question Bank File uses, so one importer

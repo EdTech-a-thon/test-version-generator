@@ -8,7 +8,7 @@ import { SourceDocumentError, type ImageTag, type SourceDocumentAnalysis } from 
  * Tag, in the order the document reads — and handed back as a labeled copy
  * with a red “IMG n” label just before each tagged picture. It never reads
  * Question Content out of the document: that comes only from the record the
- * assistant writes (ADR-0024).
+ * assistant writes (ADR-0027).
  *
  * A picture's bytes are the image file the document itself keeps, so nothing
  * is rendered or re-encoded to find it. A Word document has no fixed pages, so

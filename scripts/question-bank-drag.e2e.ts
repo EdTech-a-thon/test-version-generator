@@ -3,10 +3,10 @@
 // The drop rule itself is a pure function proven in `src/workspace-drag.test.ts`,
 // and what each authoring action does to the Question Bank and the Working Copy is
 // proven at the store. What is proven here is the part only a browser has: that
-// a gesture starting in one pane reaches a target in the other, that the three
-// zones of a rendered question are where the rule says they are, that an
-// incompatible target offers nothing and does nothing, and that a drop is one
-// undoable authoring action whose result is selected, revealed and highlighted.
+// a gesture starting in one pane reaches a target in the other, that a release
+// anywhere over the Working Copy lands at the nearest legal line and draws that
+// line first, that a release outside it does nothing, and that a drop is one
+// undoable authoring action whose result is selected and scrolled into view.
 
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { seedAuthoringState } from './seed-authoring'
@@ -73,8 +73,8 @@ async function openWorkspace(
 
 type Zone = 'top' | 'centre' | 'bottom'
 
-/** A point inside a rendered question, in one of its three drop zones. The
- *  edges are a bounded band, so 4px in is always inside one. */
+/** A point inside a rendered question: near its top, near its bottom, or at
+ *  its centre. */
 async function zonePoint(target: Locator, zone: Zone) {
   const box = (await target.boundingBox())!
   return {
@@ -157,24 +157,43 @@ test('the top edge of a rendered question Inserts before it', async ({ page }) =
   expect(await renderedIds(page)).toEqual(['mcSpare', 'mc1', 'mc2', 'sa1'])
 })
 
-test('the centre of a rendered question Replaces it', async ({ page }) => {
+test('the centre of a rendered question Inserts at its nearer edge, never Replaces', async ({ page }) => {
   await openWorkspace(page)
 
   await dragBankRowOnto(page, 'Spare choice question', rendered(page, 'mc2'), 'centre')
 
-  // In the outgoing question's exact place, and the same number of questions.
-  expect(await renderedIds(page)).toEqual(['mc1', 'mcSpare', 'sa1'])
-  // Replaced out, not deleted: the Question Content is unchanged in the bank
-  // and available to compose with again.
-  await expect(bank(page).getByRole('listitem')).toHaveCount(QUESTIONS.length)
-  await expect(bankRow(page, 'Enzyme kinetics')).not.toContainText('In exam')
-  await expect(bankRow(page, 'Enzyme kinetics')).toContainText('Enzyme kinetics')
-  await expect(
-    bankRow(page, 'Enzyme kinetics').getByRole('button', { name: /to the exam$/ }),
-  ).toBeVisible()
+  // One more question, and the one under the pointer is still on the exam.
+  expect(await renderedIds(page)).toHaveLength(4)
+  expect(await renderedIds(page)).toContain('mc2')
+  expect(await renderedIds(page)).toContain('mcSpare')
 })
 
-test('feedback tells insertion, replacement, an invalid target and dragging apart', async ({ page }) => {
+test('a question released in another Question Section lands at the nearest edge of its own', async ({ page }) => {
+  await openWorkspace(page)
+
+  // A Short Answer question flicked onto the first Multiple Choice question
+  // goes to the top of the Short Answer section: the closest place it can go.
+  await pickUp(page, 'Spare short answer', await zonePoint(rendered(page, 'mc1'), 'top'))
+  await expect(rendered(page, 'sa1')).toHaveAttribute('data-drop', 'before')
+  await expect(page.locator(`${EXAM_QUESTION}[data-drop]`)).toHaveCount(1)
+  await page.mouse.up()
+
+  expect(await renderedIds(page)).toEqual(['mc1', 'mc2', 'saSpare', 'sa1'])
+})
+
+test('a question released in the margin beside the sheet still lands', async ({ page }) => {
+  await openWorkspace(page)
+
+  const sheet = (await page.locator('.exam-page').first().boundingBox())!
+  const top = await zonePoint(rendered(page, 'mc1'), 'top')
+  await pickUp(page, 'Spare choice question', { x: sheet.x - 8, y: top.y })
+  await expect(rendered(page, 'mc1')).toHaveAttribute('data-drop', 'before')
+  await page.mouse.up()
+
+  expect(await renderedIds(page)).toEqual(['mcSpare', 'mc1', 'mc2', 'sa1'])
+})
+
+test('feedback shows the landing line while dragging, and a release outside the Working Copy abandons', async ({ page }) => {
   await openWorkspace(page)
   const preview = page.locator('.question-drag-preview')
   const root = page.locator('html')
@@ -188,25 +207,23 @@ test('feedback tells insertion, replacement, an invalid target and dragging apar
   await expect(rendered(page, 'mc1')).toHaveAttribute('data-drop', 'before')
   await expect(preview).toHaveAttribute('data-intent-label', 'Insert')
 
-  const centre = await zonePoint(rendered(page, 'mc1'), 'centre')
-  await page.mouse.move(centre.x, centre.y)
-  await expect(rendered(page, 'mc1')).toHaveAttribute('data-drop', 'replace')
-  await expect(preview).toHaveAttribute('data-intent-label', 'Replace')
-
   const bottom = await zonePoint(rendered(page, 'mc1'), 'bottom')
   await page.mouse.move(bottom.x, bottom.y)
   await expect(rendered(page, 'mc1')).toHaveAttribute('data-drop', 'after')
 
-  // A Short Answer position is in another Question Section, so it exposes no
-  // active drop state at all; the cursor is what says the gesture cannot land.
+  // Over a Short Answer question, the line moves to the nearest Multiple
+  // Choice position rather than disappearing.
   const wrongSection = await zonePoint(rendered(page, 'sa1'), 'centre')
   await page.mouse.move(wrongSection.x, wrongSection.y)
+  await expect(rendered(page, 'mc2')).toHaveAttribute('data-drop', 'after')
+  await expect(page.locator(`${EXAM_QUESTION}[data-drop]`)).toHaveCount(1)
+
+  // Back over the Question Bank there is nowhere to land, and the cursor says so.
+  const home = (await bankRow(page, 'Spare choice question').boundingBox())!
+  await page.mouse.move(home.x + 30, home.y + home.height / 2)
   await expect(page.locator(`${EXAM_QUESTION}[data-drop]`)).toHaveCount(0)
   await expect(root).toHaveAttribute('data-drag-intent', 'none')
   await expect(preview).toHaveAttribute('data-intent-label', '')
-  expect(
-    await rendered(page, 'sa1').evaluate((node) => getComputedStyle(node).cursor),
-  ).toBe('no-drop')
 
   // Releasing there changes nothing at all — not the exam, and not the history.
   await page.mouse.up()
@@ -310,7 +327,6 @@ test('dragging inside the Working Copy reorders and never Replaces', async ({ pa
   // Draft the centre of a question is a placement like any other, so there is
   // no Replace anywhere on it.
   await expect(target).toHaveAttribute('data-drop', 'after')
-  await expect(page.locator(`${EXAM_QUESTION}[data-drop="replace"]`)).toHaveCount(0)
   await page.mouse.up()
 
   expect(await renderedIds(page)).toEqual(['mc2', 'mc1', 'sa1'])
@@ -327,10 +343,66 @@ test('a reordering drag stays inside its own Question Section', async ({ page })
   const shortAnswer = await zonePoint(rendered(page, 'sa1'), 'centre')
   await page.mouse.move(shortAnswer.x, shortAnswer.y, { steps: 10 })
 
-  await expect(page.locator(`${EXAM_QUESTION}[data-drop]`)).toHaveCount(0)
+  // Released over the Short Answer section, it goes to the foot of its own.
+  await expect(rendered(page, 'mc2')).toHaveAttribute('data-drop', 'after')
   await page.mouse.up()
 
-  expect(await renderedIds(page)).toEqual(['mc1', 'mc2', 'sa1'])
+  expect(await renderedIds(page)).toEqual(['mc2', 'mc1', 'sa1'])
+})
+
+/** An exam long enough to run past one screen: fourteen Multiple Choice
+ *  questions, then two Short Answer ones below them. */
+async function openLongExam(page: Page) {
+  const many: Question[] = [
+    ...Array.from({ length: 14 }, (_, index) =>
+      question(`l${index}`, `Long question ${index}`, 'multiple-choice'),
+    ),
+    question('s1', 'First short answer', 'open'),
+    question('s2', 'Second short answer', 'open'),
+    question('sSpare', 'Spare short answer', 'open'),
+  ]
+  await seedAuthoringState(page, {
+    questionBank: { questions: many },
+    workingCopy: {
+      title: 'A long exam',
+      questionIds: many.slice(0, 16).map((item) => item.id),
+    },
+    dirty: false,
+  })
+  await expect(examQuestions(page)).toHaveCount(16)
+}
+
+test('a composed question landing off screen is scrolled to', async ({ page }) => {
+  await openLongExam(page)
+  await page.evaluate(() => window.scrollTo(0, 0))
+  await expect(rendered(page, 's1')).not.toBeInViewport()
+
+  // Released at the very top of the exam, among the Multiple Choice questions:
+  // it lands at the top of the Short Answer section, sheets below.
+  await pickUp(page, 'Spare short answer', await zonePoint(rendered(page, 'l0'), 'top'))
+  await page.mouse.up()
+
+  expect((await renderedIds(page)).slice(-3)).toEqual(['sSpare', 's1', 's2'])
+  await expect(rendered(page, 'sSpare')).toBeInViewport()
+})
+
+test('a reordered question landing off screen is scrolled to', async ({ page }) => {
+  await openLongExam(page)
+
+  // Pick the last Short Answer question up, scroll the exam back to its top
+  // while holding it, and release there.
+  const box = (await rendered(page, 's2').boundingBox())!
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2 - 20, { steps: 5 })
+  await page.evaluate(() => window.scrollTo(0, 0))
+  await expect(rendered(page, 's1')).not.toBeInViewport()
+  const top = await zonePoint(rendered(page, 'l0'), 'top')
+  await page.mouse.move(top.x, top.y, { steps: 5 })
+  await page.mouse.up()
+
+  expect((await renderedIds(page)).slice(-2)).toEqual(['s2', 's1'])
+  await expect(rendered(page, 's2')).toBeInViewport()
 })
 
 test('a composed question is selected and revealed after repagination', async ({ page }) => {

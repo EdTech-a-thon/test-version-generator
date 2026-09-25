@@ -1,6 +1,6 @@
 # Question Bank Record 0.2.0 fixtures
 
-Superseded by [`../0.3.0/`](../0.3.0/). Test Parrot no longer writes `0.2.0`
+Superseded by [`../0.4.0/`](../0.4.0/). Test Parrot no longer writes `0.2.0`
 records; these fixtures stay so the tests can prove it still reads them.
 
 - [`schema.json`](schema.json) is a version-pinned copy of the public schema whose

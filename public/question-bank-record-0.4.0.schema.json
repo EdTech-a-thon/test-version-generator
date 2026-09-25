@@ -219,9 +219,6 @@
           "type": "string",
           "pattern": "^sha256:[a-f0-9]{64}$"
         },
-        "pending": {
-          "$ref": "#/$defs/pending"
-        },
         "alt": {
           "type": "string"
         },
@@ -272,23 +269,13 @@
             ]
           },
           "then": {
-            "oneOf": [
-              {
-                "properties": {
-                  "asset": true
-                },
-                "required": [
-                  "asset"
-                ]
-              },
-              {
-                "properties": {
-                  "pending": true
-                },
-                "required": [
-                  "pending"
-                ]
+            "properties": {
+              "asset": {
+                "type": "string"
               }
+            },
+            "required": [
+              "asset"
             ]
           }
         },
@@ -318,23 +305,6 @@
           }
         }
       ]
-    },
-    "pending": {
-      "description": "A Pending Image: the picture is named by the Image Tag printed on it in a labeled copy of the Source Document, or only by its 1-based page, and its bytes are supplied later.",
-      "type": "object",
-      "additionalProperties": false,
-      "minProperties": 1,
-      "maxProperties": 1,
-      "properties": {
-        "image": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "page": {
-          "type": "integer",
-          "minimum": 1
-        }
-      }
     },
     "mediaAsset": {
       "type": "object",
@@ -426,6 +396,83 @@
         }
       }
     },
+    "partChoice": {
+      "type": "object",
+      "required": [
+        "id",
+        "content",
+        "correct"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^q[1-9][0-9]*-s[1-9][0-9]*-c[1-9][0-9]*$"
+        },
+        "content": {
+          "$ref": "#/$defs/document"
+        },
+        "correct": {
+          "type": "boolean"
+        }
+      }
+    },
+    "part": {
+      "type": "object",
+      "required": [
+        "id",
+        "type",
+        "stem"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^q[1-9][0-9]*-s[1-9][0-9]*$"
+        },
+        "type": {
+          "enum": [
+            "multiple-choice",
+            "short-answer"
+          ]
+        },
+        "stem": {
+          "$ref": "#/$defs/document"
+        },
+        "choices": {
+          "type": "array",
+          "minItems": 2,
+          "items": {
+            "$ref": "#/$defs/partChoice"
+          }
+        },
+        "suggestedAnswer": {
+          "$ref": "#/$defs/document"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "multiple-choice"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "choices": {
+                "$ref": "#/$defs/part/properties/choices"
+              }
+            },
+            "required": [
+              "choices"
+            ]
+          }
+        }
+      ]
+    },
     "question": {
       "type": "object",
       "required": [
@@ -443,7 +490,8 @@
             "multiple-choice",
             "true-false",
             "matching",
-            "short-answer"
+            "short-answer",
+            "multipart"
           ]
         },
         "stem": {
@@ -481,6 +529,12 @@
           "minItems": 2,
           "items": {
             "$ref": "#/$defs/wordBankAnswer"
+          }
+        },
+        "parts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/part"
           }
         },
         "suggestedAnswer": {
@@ -560,6 +614,28 @@
             "required": [
               "prompts",
               "wordBank"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "multipart"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "parts": {
+                "$ref": "#/$defs/question/properties/parts"
+              }
+            },
+            "required": [
+              "parts"
             ]
           }
         }

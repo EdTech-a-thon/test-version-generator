@@ -177,6 +177,38 @@ function blockLines(
   // The key's line is a number and, for multiple choice, the letter it earned —
   // bold in print by stylesheet, bold in Word by run property.
   if (has(node, 'answer-key-entry')) {
+    // A Multipart question's Part lines are read on their own, after the entry's own
+    // line, so nothing below looks inside them for the entry's answer.
+    const partsBlock = node.children.find((child) => has(child, 'answer-key-parts'))
+    if (partsBlock) {
+      return [
+        ...blockLines(
+          { ...node, children: node.children.filter((child) => child !== partsBlock) },
+          reader,
+          opener,
+        ),
+        ...partsBlock.children.flatMap((part) => {
+          const answer = find(part, 'answer-key-answer')
+          const letter = find(part, 'answer-key-part-letter')
+          const suggested = find(part, 'answer-key-suggested')
+          const text = answer ? normalizeSpace(textOf(answer)).trim() : ''
+          return [
+            line(
+              'para',
+              renderInline([
+                {
+                  kind: 'text',
+                  text: `${letter ? normalizeSpace(textOf(letter)).trim() : ''} `,
+                  marks: [],
+                },
+                ...(text ? [{ kind: 'text' as const, text, marks: ['strong'] }] : []),
+              ]),
+            ),
+            ...(suggested ? childBlocks(suggested, reader) : []),
+          ]
+        }),
+      ]
+    }
     const answer = find(node, 'answer-key-answer')
     const metadata = find(node, 'answer-key-metadata')
     const suggested = find(node, 'answer-key-suggested')
@@ -223,6 +255,28 @@ function blockLines(
       ? [...opener, { kind: 'text', text: `${text} `, marks: [] }]
       : opener
     return body ? childBlocks(body, reader, cellOpener) : []
+  }
+  // A Multipart question's Part opens with its blank and letter, from its own letter
+  // column, as a question opens with its number — then its stem, then its
+  // choice grid or work space.
+  if (has(node, 'multipart-part-print')) {
+    const letter = find(node, 'part-letter')
+    const body = find(node, 'part-body')
+    const text = letter
+      ? [
+          find(letter, 'answer-blank') ? '_______' : '',
+          normalizeSpace(textOf(letter)).trim(),
+        ].filter(Boolean).join(' ')
+      : ''
+    const partOpener: Segment[] = text ? [{ kind: 'text', text: `${text} `, marks: [] }] : []
+    const stem = body?.children.find((child) => has(child, 'question-stem'))
+    const stemLines = stem ? childBlocks(stem, reader, partOpener) : []
+    return [
+      ...(stemLines.length > 0 ? stemLines : [line('para', renderInline(partOpener))]),
+      ...(body
+        ? childBlocks({ ...body, children: body.children.filter((child) => child !== stem) }, reader)
+        : []),
+    ]
   }
   if (has(node, 'doc-figure')) {
     const lines: ContentLine[] = []

@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { DocView } from './doc-view'
 import {
+  RECORD_PART_TYPE_LABELS,
   RECORD_TYPE_LABELS,
   prepareQuestionBankExport,
   recordDocumentToEditorNodes,
@@ -243,6 +244,47 @@ export function QuestionBankExportDialog({
                         ))}
                       </ol>
                     </div>
+                  )}
+                  {question.parts && (
+                    // The Multipart question is the stem above; its Parts follow,
+                    // lettered as the test prints them.
+                    <ol type="a" className="record-multipart-parts">
+                      {question.parts.map((part) => (
+                        <li key={part.id} aria-label={RECORD_PART_TYPE_LABELS[part.type]}>
+                          <DocView
+                            content={recordDocumentToEditorNodes(part.stem)}
+                          />
+                          {part.choices && (
+                            <ol type="A" className="question-bank-export-choices">
+                              {part.choices.map((choice) => (
+                                <li key={choice.id}>
+                                  <DocView
+                                    content={recordDocumentToEditorNodes(
+                                      choice.content,
+                                    )}
+                                  />
+                                  {choice.correct && (
+                                    <strong className="question-bank-correct">
+                                      Correct answer
+                                    </strong>
+                                  )}
+                                </li>
+                              ))}
+                            </ol>
+                          )}
+                          {part.suggestedAnswer && (
+                            <section>
+                              <h3>Suggested Answer</h3>
+                              <DocView
+                                content={recordDocumentToEditorNodes(
+                                  part.suggestedAnswer,
+                                )}
+                              />
+                            </section>
+                          )}
+                        </li>
+                      ))}
+                    </ol>
                   )}
                   {question.suggestedAnswer && (
                     <section>

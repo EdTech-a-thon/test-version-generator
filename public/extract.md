@@ -10,7 +10,7 @@ Always create one complete UTF-8 JSON file using the **Test Parrot Package `0.1.
 <short-name>.parrot.json
 ```
 
-A package always holds exactly one Question Bank Record `0.4.0` with every converted Question. What else goes in it depends on the source, so triage it first:
+A package always holds exactly one Question Bank Record `0.5.0` with every converted Question. What else goes in it depends on the source, so triage it first:
 
 - **The source is a test** — an exam, quiz, worksheet or any paper a student sits, with its questions in a printed order: also add one Exam Record `0.1.0` that lays the Questions out as the test does (see [Tests](#tests)).
 - **The source is only questions** — a question pool, a study list, a bank exported from elsewhere, anything not laid out as one paper: add no Exam. `exams` is an empty array.
@@ -30,14 +30,15 @@ Do not generate a PDF. Do not return a summary in place of the JSON file.
 
 Use these resources as the source of truth:
 
-- [JSON Schema](./formats/question-bank/0.4.0/schema.json)
-- [Minimal Multiple Choice example](./formats/question-bank/0.4.0/examples/minimal-multiple-choice.json)
-- [True/False example](./formats/question-bank/0.4.0/examples/true-false.json)
-- [Matching example](./formats/question-bank/0.4.0/examples/matching.json)
-- [Short Answer example](./formats/question-bank/0.4.0/examples/short-answer.json)
-- [Complete rich-text example](./formats/question-bank/0.4.0/examples/complete-rich-text.json)
-- [Provenance and links example](./formats/question-bank/0.4.0/examples/provenance-and-links.json)
-- [Pending Images example](./formats/question-bank/0.4.0/examples/pending-images.json)
+- [JSON Schema](./formats/question-bank/0.5.0/schema.json)
+- [Minimal Multiple Choice example](./formats/question-bank/0.5.0/examples/minimal-multiple-choice.json)
+- [True/False example](./formats/question-bank/0.5.0/examples/true-false.json)
+- [Matching example](./formats/question-bank/0.5.0/examples/matching.json)
+- [Multipart example](./formats/question-bank/0.5.0/examples/multipart.json)
+- [Short Answer example](./formats/question-bank/0.5.0/examples/short-answer.json)
+- [Complete rich-text example](./formats/question-bank/0.5.0/examples/complete-rich-text.json)
+- [Provenance and links example](./formats/question-bank/0.5.0/examples/provenance-and-links.json)
+- [Pending Images example](./formats/question-bank/0.5.0/examples/pending-images.json)
 - [Test Parrot Package JSON Schema](./formats/package/0.1.0/schema.json) and [Exam Record JSON Schema](./formats/exam/0.1.0/schema.json)
 - [Package example: a test, with its bank and Exam](./formats/package/0.1.0/examples/bank-and-exam.json)
 - [Package example: questions only, with a bank and no Exam](./formats/package/0.1.0/examples/bank-only.json)
@@ -47,7 +48,7 @@ The Question Bank Record inside the package has this top-level shape:
 ```json
 {
   "format": "test-parrot/question-bank",
-  "formatVersion": "0.4.0",
+  "formatVersion": "0.5.0",
   "generator": {
     "name": "Name of the assistant or conversion tool",
     "version": "Version or model name"
@@ -77,7 +78,7 @@ The file itself is the package, with the Question Bank Record under `questionBan
   },
   "requiredFeatures": [],
   "questionBanks": [
-    { "id": "bank", "record": { "format": "test-parrot/question-bank", "formatVersion": "0.4.0", "...": "the complete Question Bank Record" } }
+    { "id": "bank", "record": { "format": "test-parrot/question-bank", "formatVersion": "0.5.0", "...": "the complete Question Bank Record" } }
   ],
   "exams": [
     {
@@ -98,13 +99,13 @@ The file itself is the package, with the Question Bank Record under `questionBan
 When triage says the source is a test:
 
 - Name the bank after the subject or unit, and name the Exam after the test's own title as printed.
-- Give the Exam one position for every converted Question, in printed order, each naming `"bank": "bank"` and that Question's ID. Use each Question exactly once. An unconverted question gets no position.
+- Give the Exam one position for every converted Question, in printed order, each naming `"bank": "bank"` and that Question's ID. Use each Question exactly once. An unconverted question gets no position. A Multipart question is one Question, so it takes one position, however many source numbers its Parts carried.
 - Write every Question's choices and Word Bank answers into the bank in the order the test prints them. That records the test's answer order, so leave out `answerOrder`: answers print in the order the bank records them, and the answer key's letters stay right.
 - Record `columns` (`1`, `2` or `4`) on a Multiple Choice position only when the source layout makes it clear how many columns its answers are printed in — for example, four answers side by side on one line is `4`. When it is not clear, leave `columns` out. Never put `columns` on any other Question Type.
 - Never add `workSpace`. Room left for writing is not something to guess from a scan; the teacher sets it in Test Parrot.
 - Do not add point values, section headings, instructions, or any other member: the Exam Record has none of these.
 
-Test Parrot always prints Sections in the order Multiple Choice, True/False, Matching, Short Answer. Keep the source's printed order anyway; Test Parrot regroups the Sections itself and keeps the order within each.
+Test Parrot always prints Sections in the order Multiple Choice, True/False, Matching, Short Answer, Multipart. Keep the source's printed order anyway; Test Parrot regroups the Sections itself and keeps the order within each.
 
 ## Completeness is mandatory—but do not force uncertain content
 
@@ -112,19 +113,19 @@ Unless the user explicitly asks for a subset, attempt to convert **every questio
 
 > **If you cannot reliably determine the type of question, do not force it into a specific form. Just leave it and explicitly warn that you could not convert.**
 
-Completeness means accounting for every source question, not pretending every question was converted successfully. Never classify an ambiguous question as Multiple Choice, True/False, Matching or Short Answer merely to make the output appear complete. Leave that question out of the JSON, identify it by source page and visible number or opening words, explain why its type could not be determined, and include it in the final conversion report as unconverted. Ask the user for clarification when possible; after clarification, add the question in its correct form.
+Completeness means accounting for every source question, not pretending every question was converted successfully. Never classify an ambiguous question as Multiple Choice, True/False, Matching, Short Answer or Multipart merely to make the output appear complete. Leave that question out of the JSON, identify it by source page and visible number or opening words, explain why its type could not be determined, and include it in the final conversion report as unconverted. Ask the user for clarification when possible; after clarification, add the question in its correct form.
 
 ### Before conversion
 
 1. Inspect every supplied page, image, table, answer-key section, footnote, continuation, and annotation.
 2. For a long source, process it in batches and maintain a page-coverage and question-count checklist. Do not silently stop because of a context or output limit.
-3. Inventory all questions in authored order. Reconcile the inventory with visible numbering. A matching section counts one source number per item, but is converted as one Question per word bank (see [Matching](#matching)).
+3. Inventory all questions in authored order. Reconcile the inventory with visible numbering. A matching section counts one source number per item, but is converted as one Question per word bank (see [Matching](#matching)). Likewise, questions that share one passage, quote, image or table count one source number each, but are converted as one Multipart Question (see [Multipart](#multipart)).
 4. Record unexplained duplicate or missing numbers as source ambiguities; do not silently renumber them away.
 5. Identify any content that is unreadable or cannot be represented by this format before claiming completion.
 
 ### During conversion
 
-1. Classify a question as `multiple-choice`, `true-false`, `matching` or `short-answer` only when the source supports that classification. Version `0.4.0` supports only those four types. If its type is uncertain or it cannot be represented without material loss, leave it out and report it explicitly; never coerce it into the closest supported type.
+1. Classify a question as `multiple-choice`, `true-false`, `matching`, `short-answer` or `multipart` only when the source supports that classification. Version `0.5.0` supports only those five types. If its type is uncertain or it cannot be represented without material loss, leave it out and report it explicitly; never coerce it into the closest supported type.
 2. Preserve the exact wording, punctuation, capitalization, symbols, units, and meaningful whitespace.
 3. Preserve authored question and choice order.
 4. Preserve paragraphs, headings, blockquotes, lists, code, rules, tables, equations, hard breaks, links, images, captions, and text formatting when present.
@@ -143,11 +144,12 @@ Perform a second pass against the original source and verify all of the followin
 - every converted stem and choice is complete;
 - every supplied answer and correctness indicator was copied accurately;
 - every matching item names the word bank answer the source's key gives it, or none when the key gives none;
+- every block of questions that shares one passage, quote, image or table is one Multipart Question with its Parts in printed order, or is listed as unconverted;
 - correctness was never inferred from general knowledge;
 - all supplied Difficulty and Topics values were preserved;
 - meaningful formatting, especially subscript and superscript, was preserved semantically;
 - every image, caption, table, list, equation, hard break, and safe link was preserved;
-- all Question, choice, item and word bank IDs are unique and sequential;
+- all Question, choice, item, word bank, Part and Part choice IDs are unique and sequential;
 - every meaningful image, including an image used as an answer choice, matching item or word bank answer, is a Pending Image;
 - every picture has its own Pending Image, with side-by-side pictures split rather than merged;
 - every Question covered by shared directions (for example “Use the information above for problems 3 – 5”) repeats the shared pictures in its own stem;
@@ -155,7 +157,7 @@ Perform a second pass against the original source and verify all of the followin
 - every tag in the [image tag list](#image-tags-in-this-document) is accounted for in the conversion report;
 - the Question Bank Record's `media` is an empty array;
 - for a test, the Exam has one position per converted Question, in printed order, each naming an existing Question ID in the package's bank, and no Question twice;
-- for a test, every `columns` value reflects a layout the source makes clear, sits only on a Multiple Choice position, and no position has `workSpace`;
+- for a test, every `columns` value reflects a layout the source makes clear, sits only on a Multiple Choice position (never on a Multipart question), and no position has `workSpace`;
 - the file is a Test Parrot Package with exactly one Question Bank Record, and it holds an Exam only if the source is a test;
 - the final JSON passes the public schema and semantic rules.
 
@@ -163,7 +165,7 @@ If any check fails, fix the record or disclose the precise limitation. Never say
 
 ## Question types
 
-Version `0.4.0` supports `multiple-choice`, `true-false`, `matching`, and `short-answer` Questions. Do not use any of them as a fallback for an unknown, mixed, or unsupported Question Type. In particular, do not turn an uncertain question into Short Answer merely because it has no clearly detected choices, do not turn a two-choice question into True/False unless those two choices really are true and false, and do not turn a matching section into Multiple Choice questions that each repeat the word bank. Leave it unconverted and warn the user instead.
+Version `0.5.0` supports `multiple-choice`, `true-false`, `matching`, `short-answer`, and `multipart` Questions. Do not use any of them as a fallback for an unknown, mixed, or unsupported Question Type. In particular, do not turn an uncertain question into Short Answer merely because it has no clearly detected choices, do not turn a two-choice question into True/False unless those two choices really are true and false, do not turn a matching section into Multiple Choice questions that each repeat the word bank, and do not turn a passage and its questions into separate questions that each repeat the passage — or that leave it out. Leave it unconverted and warn the user instead.
 
 ### Multiple Choice
 
@@ -484,9 +486,165 @@ A Short Answer Question:
 
 A visibly blank stem is valid if the source actually contains a blank stem.
 
+### Multipart
+
+A Multipart question is a stem of shared material — a passage, a quote, a speech, a diagram, a map, a chart, a table, or anything else — followed by the questions, its Parts, that a student answers from it. It typically looks like this in the source:
+
+```text
+Base your answers to questions 12 and 13 on the passage below and on your
+knowledge of social studies.
+
+    The power of the [Ottoman] Empire was waning by 1683 …
+
+        Source: “Ottoman Empire (1301–1922),” BBC online, 2009 (adapted)
+
+12 Which region was controlled by the Ottoman Empire in 1683?
+   (1) Central America        (3) East Asia
+   (2) South Asia             (4) Middle East
+
+13 Based on the passage, identify an issue faced by the Ottoman Empire in the 1600s.
+   (1) The empire became too large to govern.
+   (2) Global trade routes shifted.
+   (3) Rulers were responsive to the needs of the people.
+   (4) Trade increased in the empire.
+```
+
+Convert **the material and every question asked about it as one `multipart` Question**, even though the source numbers each question separately. Each of those questions becomes one **Part** of the Multipart question, in printed order. Do not split the block into one Question per source number, do not repeat the material in several Questions, and never convert a Part as a standalone Question without its material: a student cannot answer it. Test Parrot prints the Multipart question under one number and letters its Parts beneath it (`a.`, `b.`, …).
+
+Recognise a Multipart question by an instruction such as “Base your answers to questions 12 and 13 on …”, “Use the map below to answer questions 4 through 6”, or “Read the passage and answer the questions that follow”, or by any shared material that the following questions refer to. A single question introduced this way (“Base your answer to question 5 on the graph below”) is a Multipart question with one Part.
+
+A Multipart Question:
+
+- has an ID such as `q5`;
+- keeps the shared material in the `stem`: the passage, quote, image, table or diagram, with any source or attribution line (for example “Source: …”, “— Patrick Henry, 1775”, a caption under a map) written as ordinary content in the stem, where the source prints it;
+- leaves out the “Base your answers to questions 12 and 13 …” instruction itself, since it names source numbers that Test Parrot replaces, and it prints its own directions for the Multipart section;
+- has `parts`: the questions asked about the material, in printed order, with IDs such as `q5-s1`, `q5-s2`, and so on;
+- gives `difficulty` and `topics` to the Multipart Question, never to a Part;
+- does not have `choices`, `prompts`, `wordBank` or `suggestedAnswer` of its own — each Part carries its own answers.
+
+Each Part has an `id`, a `type`, and its own `stem`, and its type is one of exactly two:
+
+- A `multiple-choice` Part has at least two `choices` in authored order, with IDs such as `q5-s1-c1`, `q5-s1-c2`, and so on, zero or one of them `correct`, and no `suggestedAnswer`.
+- A `short-answer` Part has no `choices`, and may have a rich-text `suggestedAnswer` only when the source or user supplies one.
+
+Leave the source's question numbers (`12`, `13`) out of each Part's stem, and its choice numbers or letters (`(1)`, `(2)`, `A.`) out of each choice — they are positions, not content. A key of `12: 4` marks the fourth choice of the Part numbered 12. Never infer correctness from general knowledge, and never reorder the Parts: they are lettered in place and often build on one another.
+
+**If any question in the block is not Multiple Choice or Short Answer** — a True/False statement, a matching set, a nested passage, or a question whose type you cannot determine — do not force it into a Part and do not convert the rest of the block without it. Leave the whole block, material and every question, unconverted and list it under **Unconverted Questions** with the reason. Likewise, when you cannot tell which questions a piece of material belongs to, leave that block unconverted and say so.
+
+```json
+{
+  "id": "q5",
+  "type": "multipart",
+  "stem": {
+    "type": "document",
+    "content": [
+      {
+        "type": "blockquote",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "The power of the [Ottoman] Empire was waning by 1683 …"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          {
+            "type": "text",
+            "text": "Source: “Ottoman Empire (1301–1922),” BBC online, 2009 (adapted)"
+          }
+        ]
+      }
+    ]
+  },
+  "topics": ["Ottoman Empire"],
+  "parts": [
+    {
+      "id": "q5-s1",
+      "type": "multiple-choice",
+      "stem": {
+        "type": "document",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "Which region was controlled by the Ottoman Empire in 1683?"
+              }
+            ]
+          }
+        ]
+      },
+      "choices": [
+        { "id": "q5-s1-c1", "content": { "type": "document", "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Central America" }] }] }, "correct": false },
+        { "id": "q5-s1-c2", "content": { "type": "document", "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "South Asia" }] }] }, "correct": false },
+        { "id": "q5-s1-c3", "content": { "type": "document", "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "East Asia" }] }] }, "correct": false },
+        { "id": "q5-s1-c4", "content": { "type": "document", "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Middle East" }] }] }, "correct": true }
+      ]
+    },
+    {
+      "id": "q5-s2",
+      "type": "multiple-choice",
+      "stem": {
+        "type": "document",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "Based on the passage, identify an issue faced by the Ottoman Empire in the 1600s."
+              }
+            ]
+          }
+        ]
+      },
+      "choices": [
+        { "id": "q5-s2-c1", "content": { "type": "document", "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "The empire became too large to govern." }] }] }, "correct": false },
+        { "id": "q5-s2-c2", "content": { "type": "document", "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Global trade routes shifted." }] }] }, "correct": true },
+        { "id": "q5-s2-c3", "content": { "type": "document", "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Rulers were responsive to the needs of the people." }] }] }, "correct": false },
+        { "id": "q5-s2-c4", "content": { "type": "document", "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Trade increased in the empire." }] }] }, "correct": false }
+      ]
+    }
+  ]
+}
+```
+
+A Short Answer Part is written the same way, without `choices`:
+
+```json
+{
+  "id": "q5-s3",
+  "type": "short-answer",
+  "stem": {
+    "type": "document",
+    "content": [
+      {
+        "type": "paragraph",
+        "content": [
+          {
+            "type": "text",
+            "text": "Explain one reason the Ottoman Empire's power was waning by 1683."
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+When the shared material is an image, a map or a chart, put it in the stem as a Pending Image `block-image` (see [Images and Pending Images](#images-and-pending-images)); a table is a `table`. The material belongs to the Multipart question alone: never copy it into a Part's stem.
+
 ## Rich text
 
-Each stem, choice, matching item, word bank answer, and Suggested Answer is a semantic document:
+Each stem, choice, matching item, word bank answer, Part stem, and Suggested Answer is a semantic document:
 
 ```json
 {
@@ -570,7 +728,7 @@ Use `inline-math` or `display-math` with the authored math source for mathematic
 { "type": "inline-math", "source": "x^2 + y^2" }
 ```
 
-The same formatting rules apply inside stems, choices, matching items, word bank answers, and Suggested Answers.
+The same formatting rules apply inside stems, choices, matching items, word bank answers, Multipart Parts, and Suggested Answers.
 
 ## Links
 
@@ -640,6 +798,8 @@ A Question may have:
 - `difficulty`: `easy`, `medium`, or `hard`;
 - `topics`: an ordered array of strings.
 
+A Multipart Part never has either: they belong to its Multipart Question.
+
 A bank may have:
 
 - `description`;
@@ -650,7 +810,7 @@ Include only information explicitly present in the source or supplied by the use
 
 ## Final validation and delivery
 
-Validate the package against the [package schema](./formats/package/0.1.0/schema.json), its Question Bank Record against the [Question Bank Record schema](./formats/question-bank/0.4.0/schema.json), and any Exam against the [Exam Record schema](./formats/exam/0.1.0/schema.json). Schema validation alone is not sufficient: also verify Question cardinality, unique IDs, that every matching `answer` names an ID in the same Question's `wordBank`, safe links, and that every Pending Image follows the rules above.
+Validate the package against the [package schema](./formats/package/0.1.0/schema.json), its Question Bank Record against the [Question Bank Record schema](./formats/question-bank/0.5.0/schema.json), and any Exam against the [Exam Record schema](./formats/exam/0.1.0/schema.json). Schema validation alone is not sufficient: also verify Question cardinality, unique IDs, that every matching `answer` names an ID in the same Question's `wordBank`, that every Multipart Part is Multiple Choice with at least two choices or Short Answer with none, safe links, and that every Pending Image follows the rules above.
 
 Relevant import limits include:
 
@@ -676,7 +836,7 @@ Also include a concise conversion report containing:
 - source pages/images inspected;
 - whether triage treated the source as a test (the package has an Exam) or as questions only (no Exam), and for a test which Multiple Choice positions were given `columns`;
 - total Questions converted;
-- counts by Question Type (a matching set is one Question; also give its item count);
+- counts by Question Type (a matching set is one Question; also give its item count; a Multipart question is one Question; also give its Part count);
 - whether answer correctness was supplied or left incomplete;
 - every image tag, and which Questions and answers use it as a picture, or how it was transcribed instead;
 - every ambiguity, omission, normalization, or unsupported element—or “None” when there were none;

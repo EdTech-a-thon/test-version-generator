@@ -4,6 +4,7 @@
 import {
   SECTION_LABELS,
   choicesOf,
+  partsOf,
   promptsOf,
   topicsOf,
   type Difficulty,
@@ -24,6 +25,16 @@ export type QuestionReadingContent = {
     wordBank: { id: string; content: ProseMirrorJSON[] }[]
   }
   suggestedAnswer?: ProseMirrorJSON[]
+  /** A Multipart question's Parts, lettered as the test prints them, each with its own
+   *  answers; the shared material is `stem`. */
+  parts?: {
+    id: string
+    letter: string
+    typeLabel: string
+    stem: ProseMirrorJSON[]
+    choices?: { id: string; content: ProseMirrorJSON[]; correct: boolean }[]
+    suggestedAnswer?: ProseMirrorJSON[]
+  }[]
 }
 
 const childNodes = (node: ProseMirrorJSON): ProseMirrorJSON[] =>
@@ -43,6 +54,27 @@ export function readingOfQuestion(question: Question): QuestionReadingContent {
       ...(question.suggestedAnswer
         ? { suggestedAnswer: childNodes(question.suggestedAnswer) }
         : {}),
+    }
+  }
+  if (question.type === 'multipart') {
+    return {
+      ...base,
+      parts: partsOf(question).map((part, index) => ({
+        id: part.id,
+        letter: bankLetter(index).toLowerCase(),
+        typeLabel: SECTION_LABELS[part.type],
+        stem: part.stem,
+        ...(part.type === 'multiple-choice'
+          ? {
+              choices: part.choices.map((choice) => ({
+                id: choice.id,
+                content: childNodes(choice.node),
+                correct: choice.correct,
+              })),
+            }
+          : {}),
+        ...(part.suggestedAnswer ? { suggestedAnswer: childNodes(part.suggestedAnswer) } : {}),
+      })),
     }
   }
   if (question.type === 'matching') {

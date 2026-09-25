@@ -11,5 +11,5 @@ The prose contract is in
 All conforming records can be inspected through Test Parrot's public
 record-import boundary.
 
-[`../0.3.0/`](../0.3.0/), [`../0.2.0/`](../0.2.0/) and [`../0.1.0/`](../0.1.0/) are the superseded
-versions Test Parrot still reads.
+[`../0.3.0/`](../0.3.0/), [`../0.2.0/`](../0.2.0/) and [`../0.1.0/`](../0.1.0/)
+are the superseded versions Test Parrot still reads.

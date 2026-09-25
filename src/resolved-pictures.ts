@@ -48,13 +48,14 @@ const shareOf = (box: PageBox) => Math.max(0, Math.min(1, (box.right - box.left)
  * a picture a third of the way across its page prints a third of the way
  * across the sheet. The size is a share of what the picture fits its lane at
  * — its own width, or the lane's when it is wider — so that is what it is
- * measured against. Only a picture in a Question's own lane is sized: an
- * answer's cell is narrower by however many columns the Exam gives it, and a
- * picture fitting its cell is already the size the cell allows.
+ * measured against. Only a picture in a Question's own lane — its stem, a
+ * Part's stem, a Suggested Answer — is sized: an answer's cell is narrower by
+ * however many columns the Exam gives it, and a picture fitting its cell is
+ * already the size the cell allows.
  */
 export function estimatedSize(picture: ResolvedPicture, occurrence: Pick<PendingImageOccurrence, 'where'>): number | undefined {
   if (picture.pageShare === undefined) return undefined
-  if (occurrence.where !== 'Question' && occurrence.where !== 'Suggested Answer') return undefined
+  if (/Answer [A-Z]|^Item |^Word Bank /.test(occurrence.where)) return undefined
   const printed = picture.pageShare * PAGE_WIDTH
   const fitted = Math.min(picture.asset.width, PAGE_CONTENT_WIDTH)
   const size = Math.round((printed / fitted) * 100) / 100

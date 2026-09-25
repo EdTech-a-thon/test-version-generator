@@ -226,6 +226,7 @@ const DIFFICULTY_OPTIONS: FilterOption<DifficultyFilter>[] = [
 
 const SORT_OPTIONS: readonly FilterOption<QuestionBankSort>[] = [
   { value: 'newest', label: 'Newest' },
+  { value: 'oldest', label: 'Oldest' },
   { value: 'type', label: 'Question Type' },
   { value: 'difficulty', label: 'Difficulty' },
   { value: 'topic', label: 'Topic' },
@@ -610,6 +611,8 @@ export function QuestionBankPane({
                   <span className="question-bank-row-meta">
                     <span className="question-bank-row-type">
                       {SECTION_LABELS[question.type]}
+                      {preview.parts !== undefined
+                        && ` · ${preview.parts} ${preview.parts === 1 ? 'part' : 'parts'}`}
                     </span>
                     {question.difficulty && (
                       <DifficultyBadge difficulty={question.difficulty} />

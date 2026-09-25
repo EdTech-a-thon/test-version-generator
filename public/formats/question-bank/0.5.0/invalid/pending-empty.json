@@ -1,6 +1,6 @@
 {
   "format": "test-parrot/question-bank",
-  "formatVersion": "0.4.0",
+  "formatVersion": "0.5.0",
   "generator": {
     "name": "Contract Fixture Publisher",
     "version": "1.0.0"
@@ -27,9 +27,7 @@
             {
               "type": "block-image",
               "alt": "A picture",
-              "pending": {
-                "image": 0
-              }
+              "pending": {}
             }
           ]
         }

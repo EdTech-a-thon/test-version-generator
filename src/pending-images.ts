@@ -1,9 +1,10 @@
 import { bankLetter } from './matching'
-import type {
-  PendingImageReference,
-  QuestionBankRecordQuestion,
-  SemanticDocument,
-  SemanticNode,
+import {
+  partLetter,
+  type PendingImageReference,
+  type QuestionBankRecordQuestion,
+  type SemanticDocument,
+  type SemanticNode,
 } from './question-bank-export'
 import type { ParsedQuestionBankRecord } from './question-bank-import'
 import type { ImportProposal } from './package-import'
@@ -68,6 +69,20 @@ function partsOf(question: QuestionBankRecordQuestion): Part[] {
     ...(question.suggestedAnswer
       ? [{ id: 'suggested-answer', where: 'Suggested Answer', document: question.suggestedAnswer }]
       : []),
+    ...(question.parts ?? []).flatMap((part, index) => {
+      const where = `Part ${partLetter(index)}`
+      return [
+        { id: part.id, where, document: part.stem },
+        ...(part.choices ?? []).map((choice, choiceIndex) => ({
+          id: choice.id,
+          where: `${where}, Answer ${bankLetter(choiceIndex)}`,
+          document: choice.content,
+        })),
+        ...(part.suggestedAnswer
+          ? [{ id: `${part.id}-suggested-answer`, where: `${where}, Suggested Answer`, document: part.suggestedAnswer }]
+          : []),
+      ]
+    }),
   ]
 }
 
@@ -149,6 +164,20 @@ function mapPendingImages(
       : {}),
     ...(question.suggestedAnswer
       ? { suggestedAnswer: resolveDocument(question.id, 'suggested-answer', question.suggestedAnswer) }
+      : {}),
+    ...(question.parts
+      ? {
+          parts: question.parts.map((part) => ({
+            ...part,
+            stem: resolveDocument(question.id, part.id, part.stem),
+            ...(part.choices
+              ? { choices: part.choices.map((choice) => ({ ...choice, content: resolveDocument(question.id, choice.id, choice.content) })) }
+              : {}),
+            ...(part.suggestedAnswer
+              ? { suggestedAnswer: resolveDocument(question.id, `${part.id}-suggested-answer`, part.suggestedAnswer) }
+              : {}),
+          })),
+        }
       : {}),
   }))
   return { ...record, bank: { ...record.bank, questions } }
@@ -329,10 +358,25 @@ export function pendingImagesOfQuestions(questions: readonly EditorQuestion[]): 
           ...(typeof attrs.caption === 'string' && attrs.caption ? { caption: attrs.caption } : {}),
         })
       }
+      // A Multipart question's Parts are lettered, and so are the answers
+      // inside each: “Part b, Answer C”.
       const answers = editorChildren(node).filter((child) => child.type === 'multipleChoiceChoice')
+      const parts = editorChildren(node).filter((child) => child.type === 'multipartPart')
+      const within = (place: string) => (where === 'Question' ? place : `${where}, ${place}`)
       for (const child of editorChildren(node)) {
         const letter = answers.indexOf(child)
-        visit(part, child, letter >= 0 ? `Answer ${bankLetter(letter)}` : where)
+        const partIndex = parts.indexOf(child)
+        visit(
+          part,
+          child,
+          letter >= 0
+            ? within(`Answer ${bankLetter(letter)}`)
+            : partIndex >= 0
+              ? `Part ${partLetter(partIndex)}`
+              : child.type === 'suggestedAnswer' && where !== 'Question'
+                ? within('Suggested Answer')
+                : where,
+        )
       }
     }
     visit('doc', question.doc, 'Question')

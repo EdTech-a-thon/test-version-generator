@@ -98,13 +98,16 @@ import { storedPicture } from './resolved-pictures'
 import { pendingImagesOfQuestions, withStoredPictures, type PendingImageResolution, type StoredPicture } from './pending-images'
 import {
   AlignLeft,
+  BookOpenText,
   Check,
   CircleDot,
   FileType2,
   FolderOpen,
   Gauge,
+  Heading,
   Import,
   History,
+  Library,
   ListChecks,
   ToggleLeft,
   Link2,
@@ -117,10 +120,18 @@ import {
   Tags,
   Trash2,
   TriangleAlert,
+  Type as TypeIcon,
   Undo2,
   X,
 } from 'lucide-react'
 import { ContextMenu, type MenuPoint } from './context-menu'
+import {
+  DEFAULT_HEADING_SIZE,
+  DEFAULT_TEXT_SIZE,
+  HEADING_SIZES,
+  HEADING_SIZE_LABELS,
+  TEXT_SIZES,
+} from './section-headings'
 import { BEFORE_NAVIGATE_EVENT, useRoute } from './use-route'
 import { Footer } from './site-chrome'
 import { HomePage } from './home-page'
@@ -151,6 +162,16 @@ import { questionBankCollection, type QuestionBankCollectionItem } from './resou
 import { QuestionBankExportDialog } from './question-bank-export-dialog'
 import { QuestionBankImportDialog } from './question-bank-import-dialog'
 import {
+  keepMultipartParts,
+  multipartMode,
+  multipartPartSchema,
+  multipartPartStemSchema,
+  multipartPartStemView,
+  multipartPartView,
+  multipartPartsSchema,
+  multipartPartsView,
+} from './multipart'
+import {
   keepSuggestedAnswer,
   suggestedAnswerMode,
   suggestedAnswerSchema,
@@ -164,9 +185,19 @@ const QUESTION_TYPE_ICONS: Record<QuestionType, ReactNode> = {
   'true-false': <ToggleLeft />,
   matching: <Link2 />,
   open: <AlignLeft />,
+  multipart: <BookOpenText />,
 }
 
 const STORAGE_NOTICE_DURATION = 8_000
+
+/** The Exam's menu bar, in the order a document's menus are read. */
+const DOCUMENT_MENUS = ['file', 'edit', 'format'] as const
+type DocumentMenuKind = (typeof DOCUMENT_MENUS)[number]
+const DOCUMENT_MENU_LABELS: Record<DocumentMenuKind, string> = {
+  file: 'File',
+  edit: 'Edit',
+  format: 'Format',
+}
 
 /**
  * One line of a question's front matter: an icon and a label on the left, and
@@ -404,6 +435,7 @@ function CrepeQuestion({
   suggestedAnswer = false,
   fixedChoices = false,
   matching = false,
+  multipart = false,
 }: {
   value: ProseMirrorJSON
   onChange: (doc: ProseMirrorJSON) => void
@@ -415,6 +447,9 @@ function CrepeQuestion({
   /** Whether the question is a matching set, whose prompts and Word Bank are
    *  kept on the page the way a Suggested Answer block is. */
   matching?: boolean
+  /** Whether the question is a Multipart question, whose Parts box is kept on the page
+   *  the way a matching set is. */
+  multipart?: boolean
 }) {
   useEditor((root) => {
     const safeValue = cleanDocument(value)
@@ -454,7 +489,11 @@ function CrepeQuestion({
         // stops blinking there, and reads as a stray mark left in the text.
         [Crepe.Feature.Cursor]: { virtual: false },
         [Crepe.Feature.ImageBlock]: { onUpload: saveImage },
-        [Crepe.Feature.Placeholder]: { text: 'Write the question…' },
+        [Crepe.Feature.Placeholder]: {
+          text: multipart
+            ? 'Write the shared material: a passage, quote, image or table…'
+            : 'Write the question…',
+        },
         [Crepe.Feature.Toolbar]: {
           buildToolbar: (builder) => {
             builder
@@ -487,6 +526,7 @@ function CrepeQuestion({
       .use(multipleChoiceMode(true, fixedChoices))
       .use(suggestedAnswerMode(suggestedAnswer))
       .use(matchingMode(matching))
+      .use(multipartMode(multipart))
       .use(subscriptSchema)
       .use(superscriptSchema)
       .use(scriptKeymap)
@@ -513,6 +553,13 @@ function CrepeQuestion({
       .use(keepMatching)
       .use(pendingImageBlockView)
       .use(pendingInlineImageView)
+      .use(multipartPartsSchema)
+      .use(multipartPartSchema)
+      .use(multipartPartStemSchema)
+      .use(multipartPartsView)
+      .use(multipartPartView)
+      .use(multipartPartStemView)
+      .use(keepMultipartParts)
     // Make the whole multiple-choice block — or matching set — the drag target
     // instead of a single answer row: never offer a handle for a choice, prompt
     // or Word Bank answer itself, so Crepe's handle climbs to the block.
@@ -539,7 +586,18 @@ function CrepeQuestion({
             || node?.type?.name === 'matchingPrompt'
             || node?.type?.name === 'matchingAnswer'
             || node?.type?.name === 'suggestedAnswer'
+            || node?.type?.name === 'multipartParts'
+            || node?.type?.name === 'multipartPart'
+            || node?.type?.name === 'multipartPartStem'
           ) return false
+          // A Part's answers belong to that Part, and a Part is moved with
+          // its own controls, so nothing inside the box offers a handle of
+          // its own but the blocks a stem or an answer is written in.
+          if (node?.type?.name === 'multipleChoice') {
+            for (let depth = pos.depth; depth > 0; depth -= 1) {
+              if (pos.node(depth).type.name === 'multipartPart') return false
+            }
+          }
           // A True/False question's pair is not the teacher's to move: it has
           // one place in the question and no second place to put it.
           if (fixedChoices && node?.type?.name === 'multipleChoice') return false
@@ -577,7 +635,6 @@ function QuestionDialog({
   isNew,
   topicSuggestions,
   ownerName,
-  usage,
   onCancel,
   onSave,
   onDelete,
@@ -588,7 +645,6 @@ function QuestionDialog({
    *  the spelling they used last time rather than inventing a near-duplicate. */
   topicSuggestions: readonly string[]
   ownerName?: string
-  usage?: readonly QuestionUsage[]
   onCancel: () => void
   onSave: (question: Question) => Promise<void>
   onDelete?: () => void
@@ -724,23 +780,7 @@ function QuestionDialog({
           }}
         />}
         <header className="dialog-header">
-          <div>
-            <h2>{isNew ? 'Add question' : 'Edit question'}</h2>
-            {!isNew && ownerName && <p className="question-owner">Question Bank: {ownerName}</p>}
-          </div>
-          {!isNew && usage && (
-            <details className="question-usage">
-              <summary>Used in {usage.length} {usage.length === 1 ? 'Exam' : 'Exams'}</summary>
-              {usage.length === 0 ? <p>Not used in any Exams.</p> : <ul>
-                {usage.map((item) => <li key={item.examId}>
-                  <strong>{item.title}</strong>{' — '}
-                  {item.saved && item.workingCopy
-                    ? 'saved state and Working Copy'
-                    : item.saved ? 'saved state' : 'Working Copy'}
-                </li>)}
-              </ul>}
-            </details>
-          )}
+          <h2>{isNew ? 'Add question' : 'Edit question'}</h2>
         </header>
         {/* The question's front matter, indented to the document's own margin
             because it is the head of the question rather than a strip bolted
@@ -748,6 +788,15 @@ function QuestionDialog({
             created and the answer choices below depend on it. Difficulty and
             Topics are optional and both open blank. */}
         <div className="front-matter">
+          {ownerName && (
+            <div className="front-matter-field">
+              <span className="front-matter-label">
+                <Library />
+                Question Bank
+              </span>
+              <span className="front-matter-value front-matter-stated">{ownerName}</span>
+            </div>
+          )}
           <div className="front-matter-field">
             <span className="front-matter-label">
               <FileType2 />
@@ -791,6 +840,7 @@ function QuestionDialog({
             suggestedAnswer={type === 'open'}
             fixedChoices={type === 'true-false'}
             matching={type === 'matching'}
+            multipart={type === 'multipart'}
             onReady={(readDocument) => {
               readEditorDocument.current = readDocument
             }}
@@ -1126,7 +1176,6 @@ function QuestionBankWorkspace({
       isNew={!bank.questions.some((question) => question.id === editing.id)}
       topicSuggestions={topicOptions({ questions: bank.questions })}
       ownerName={bank.name}
-      usage={usage}
       onCancel={() => setEditing(null)}
       onDelete={bank.questions.some(({ id }) => id === editing.id) ? () => setConfirmingDeletion(true) : undefined}
       onSave={async (question) => {
@@ -1787,7 +1836,7 @@ function ExamEditor({
   const [storageNotice, setStorageNotice] = useState<string | null>(null)
   const [choosingExam, setChoosingExam] = useState(false)
   const [documentMenu, setDocumentMenu] = useState<{
-    kind: 'file' | 'edit'
+    kind: DocumentMenuKind
     point: MenuPoint
   } | null>(null)
   const closeExportHistory = useCallback(() => {
@@ -1859,9 +1908,9 @@ function ExamEditor({
   }, [storageNotice])
   // One composition, however it was asked for.
   //
-  // A pointer gesture, the row's Add button and the row menu's Insert and
-  // Replace are four ways of saying the same three things, so they say them
-  // here: exactly one call to the authoring boundary, then the incoming
+  // A pointer gesture and the row's Add button are two ways of saying the same
+  // thing, so they say it here: exactly one call to the authoring boundary,
+  // then the incoming
   // question becomes the selected one and is queued to be revealed. That is
   // what makes the paths yield the same Question Bank and Working Copy state
   // rather than merely similar ones — and what stops a question composed one
@@ -1882,12 +1931,6 @@ function ExamEditor({
     if (questions.length === 0) return
     store.addManyToWorkingCopy(questions, targetQuestionId, placement)
     selectAndReveal(questions.at(-1)!.id)
-  }
-  const replaceInWorkingCopy = (outgoingQuestionId: string, incoming: Question) => {
-    store.replaceInWorkingCopy(outgoingQuestionId, incoming)
-    // Necessary rather than merely tidy: the outgoing question is off the exam
-    // now, and a selection pointing at it names no position on the Working Copy.
-    selectAndReveal(incoming.id)
   }
   const shuffleSelectedQuestions = (questionIds: readonly string[]) => {
     store.shuffleSelectedQuestions(questionIds)
@@ -1917,9 +1960,7 @@ function ExamEditor({
     })
     if (intent.kind === 'insert') {
       addManyToWorkingCopy(questions, intent.targetQuestionId, intent.placement)
-    } else if (intent.kind === 'replace' && questions.length === 1) {
-      replaceInWorkingCopy(intent.outgoingQuestionId, questions[0]!)
-    } else if (intent.kind === 'insert-first') {
+    } else {
       addManyToWorkingCopy(questions)
     }
   })
@@ -2215,7 +2256,7 @@ function ExamEditor({
               onChange={(event) => store.setTitle(event.target.value)}
             />
             <nav className="document-menus" aria-label="Exam menus">
-              {(['file', 'edit'] as const).map((kind) => (
+              {DOCUMENT_MENUS.map((kind) => (
                 <button
                   key={kind}
                   type="button"
@@ -2229,7 +2270,7 @@ function ExamEditor({
                       : { kind, point: { x: bounds.left, y: bounds.bottom + 4 } })
                   }}
                 >
-                  {kind === 'file' ? 'File' : 'Edit'}
+                  {DOCUMENT_MENU_LABELS[kind]}
                 </button>
               ))}
             </nav>
@@ -2312,8 +2353,37 @@ function ExamEditor({
 
       {documentMenu && <ContextMenu
         point={documentMenu.point}
-        ariaLabel={`${documentMenu.kind === 'file' ? 'File' : 'Edit'} menu`}
-        items={documentMenu.kind === 'file' ? [
+        ariaLabel={`${DOCUMENT_MENU_LABELS[documentMenu.kind]} menu`}
+        items={documentMenu.kind === 'format' ? [
+          // How the Exam's page is set, as distinct from what is on it. Every
+          // setting here is this Exam's presentation, saved and undone with it.
+          {
+            kind: 'submenu',
+            label: 'Heading size',
+            icon: <Heading />,
+            items: HEADING_SIZES.map((size) => ({
+              kind: 'radio' as const,
+              label: HEADING_SIZE_LABELS[size],
+              checked: (state.workingCopy.headingSize ?? DEFAULT_HEADING_SIZE) === size,
+              onSelect: () => {
+                if (!isHistoricalBrowsing) store.setHeadingSize(size)
+              },
+            })),
+          },
+          {
+            kind: 'submenu',
+            label: 'Text size',
+            icon: <TypeIcon />,
+            items: TEXT_SIZES.map((size) => ({
+              kind: 'radio' as const,
+              label: HEADING_SIZE_LABELS[size],
+              checked: (state.workingCopy.textSize ?? DEFAULT_TEXT_SIZE) === size,
+              onSelect: () => {
+                if (!isHistoricalBrowsing) store.setTextSize(size)
+              },
+            })),
+          },
+        ] : documentMenu.kind === 'file' ? [
           {
             kind: 'action',
             label: 'Open Exam',
@@ -2494,6 +2564,8 @@ function ExamEditor({
             revealQuestionId={revealQuestionId}
             onRevealed={clearReveal}
             onTitleChange={(title) => store.setTitle(title)}
+            onSectionHeadingChange={(section, change) => store.setSectionHeading(section, change)}
+            onHeaderLineChange={(line, text) => store.setHeaderLine(line, text)}
             titleDisabled={isHistoricalBrowsing}
             onEdit={(questionId) => {
               const question = bankQuestionById(state.questionBank, questionId)
@@ -2586,7 +2658,6 @@ function ExamEditor({
           isNew={!bankQuestionById(state.questionBank, editing.question.id)}
           topicSuggestions={topicOptions(state.questionBank)}
           ownerName={editing.owner?.name}
-          usage={editing.usage}
           onCancel={() => setEditing(null)}
           onDelete={bankQuestionById(state.questionBank, editing.question.id) ? () => {
             void (async () => {

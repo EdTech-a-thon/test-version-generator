@@ -1,6 +1,6 @@
 {
   "format": "test-parrot/question-bank",
-  "formatVersion": "0.4.0",
+  "formatVersion": "0.5.0",
   "generator": {
     "name": "Contract Fixture Publisher",
     "version": "1.0.0"
@@ -192,6 +192,118 @@
             }
           ]
         }
+      },
+      {
+        "id": "q5",
+        "type": "multipart",
+        "stem": {
+          "type": "document",
+          "content": [
+            {
+              "type": "block-image",
+              "pending": {
+                "image": 5
+              },
+              "alt": "Political cartoon of a ship labelled Empire sinking",
+              "caption": "The Sinking Empire, 1911"
+            },
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Source: Punch, 1911 (adapted)"
+                }
+              ]
+            }
+          ]
+        },
+        "topics": [
+          "Imperialism"
+        ],
+        "parts": [
+          {
+            "id": "q5-s1",
+            "type": "multiple-choice",
+            "stem": {
+              "type": "document",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "What is the main idea of this cartoon?"
+                    }
+                  ]
+                }
+              ]
+            },
+            "choices": [
+              {
+                "id": "q5-s1-c1",
+                "content": {
+                  "type": "document",
+                  "content": [
+                    {
+                      "type": "paragraph",
+                      "content": [
+                        {
+                          "type": "text",
+                          "text": "Empires were growing stronger."
+                        }
+                      ]
+                    }
+                  ]
+                },
+                "correct": false
+              },
+              {
+                "id": "q5-s1-c2",
+                "content": {
+                  "type": "document",
+                  "content": [
+                    {
+                      "type": "paragraph",
+                      "content": [
+                        {
+                          "type": "text",
+                          "text": "An empire was in decline."
+                        }
+                      ]
+                    }
+                  ]
+                },
+                "correct": true
+              }
+            ]
+          },
+          {
+            "id": "q5-s2",
+            "type": "short-answer",
+            "stem": {
+              "type": "document",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Use the chart on page 4 to explain one cause of that decline."
+                    }
+                  ]
+                },
+                {
+                  "type": "block-image",
+                  "pending": {
+                    "page": 4
+                  },
+                  "alt": "Bar chart of imperial trade, 1880 to 1910"
+                }
+              ]
+            }
+          }
+        ]
       }
     ]
   },

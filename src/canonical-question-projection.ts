@@ -1,5 +1,5 @@
 import { choiceIdOf, choiceNodesOf } from './question-doc'
-import type { Question } from './exam'
+import { partsOf, type Question } from './exam'
 import type { AuthoringState, SavedState } from './exam-store'
 import type { ExamWorkingCopy, QuestionBank } from './question-bank'
 
@@ -28,6 +28,25 @@ function withoutChoiceArrangement(draft: ExamWorkingCopy, questionId: string): E
   return { ...draft, choiceOrder }
 }
 
+/** The ids of the Parts whose answers changed identity between two revisions
+ *  of a Multipart question — a Part added, removed, or given a different set of choices.
+ *  Their answer arrangements no longer describe anything, exactly as a
+ *  question's does not. */
+function partsWithNewChoices(left: Question | undefined, right: Question): string[] {
+  const before = new Map((left ? partsOf(left) : []).map((part) => [part.id, part]))
+  return partsOf(right).flatMap((part) => {
+    const prior = before.get(part.id)
+    const same = prior
+      && prior.choices.length === part.choices.length
+      && prior.choices.every((choice) => part.choices.some(({ id }) => id === choice.id))
+    return same ? [] : [part.id]
+  })
+}
+
+function withoutPartArrangements(draft: ExamWorkingCopy, partIds: readonly string[]): ExamWorkingCopy {
+  return partIds.reduce(withoutChoiceArrangement, draft)
+}
+
 /** Apply one already-durable canonical edit to one Exam projection. This is not
  * an Exam command: dirty state and all unrelated Working Copy presentation are
  * retained exactly, and a changed choice identity set merely drops the now
@@ -40,18 +59,23 @@ export function withCanonicalQuestionProjection(
   const prior = working.questionBank.questions.find((candidate) => candidate.id === question.id)
     ?? saved?.questionBank.questions.find((candidate) => candidate.id === question.id)
   const stableChoices = sameStableChoiceIds(prior, question)
+  const changedParts = partsWithNewChoices(prior, question)
   const nextWorkingBank = withQuestion(working.questionBank, question)
   const nextSavedBank = saved ? withQuestion(saved.questionBank, question) : null
+  const project = (draft: ExamWorkingCopy) => withoutPartArrangements(
+    stableChoices ? draft : withoutChoiceArrangement(draft, question.id),
+    changedParts,
+  )
   return {
     working: {
       ...working,
       questionBank: nextWorkingBank,
-      workingCopy: stableChoices ? working.workingCopy : withoutChoiceArrangement(working.workingCopy, question.id),
+      workingCopy: project(working.workingCopy),
     },
     saved: saved ? {
       ...saved,
       questionBank: nextSavedBank!,
-      workingCopy: stableChoices ? saved.workingCopy : withoutChoiceArrangement(saved.workingCopy, question.id),
+      workingCopy: project(saved.workingCopy),
     } : null,
   }
 }

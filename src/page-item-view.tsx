@@ -11,10 +11,13 @@
 // reads a page's furniture: a header, a footer and a page number belong to the
 // page, not to the items on it.
 
-import { Check } from 'lucide-react'
+import type { ReactNode } from 'react'
+import { TITLE_PX, sectionHeadingStyles } from './export-typography'
+import { Check, RotateCcw } from 'lucide-react'
 import { DifficultyBadge, TopicBadge } from './badges'
 import { DocView } from './doc-view'
 import {
+  hasCompactNumber,
   printsNumberLine,
   type AnswerKeyEntryItem,
   type AnswerKeySectionItem,
@@ -22,6 +25,7 @@ import {
   type MatchingSet,
   type PageFurniture,
   type PlannedBankAnswer,
+  type PlannedPart,
   type PlannedWorkSpace,
   type PageHeader,
   type PageItem,
@@ -189,6 +193,36 @@ export function WorkSpaceView({ space }: { space: PlannedWorkSpace }) {
   )
 }
 
+// One Part of a Multipart question, drawn the way a question of its kind is, one level
+// in: a short letter column — no answer blank, for either kind — then its
+// stem, its choice grid or its work space. `renderWorkSpace` lets the sheet wrap a Short Answer Part's space in
+// the handle that sizes it.
+export function PartContent({
+  part,
+  showCorrectness = false,
+  renderWorkSpace,
+}: {
+  part: PlannedPart
+  showCorrectness?: boolean
+  renderWorkSpace?: (part: PlannedPart, space: PlannedWorkSpace) => ReactNode
+}) {
+  return (
+    <div className="multipart-part-print" data-part-id={part.id} data-part-type={part.type}>
+      <div className="part-letter">
+        <span className="part-count">{part.letter}.</span>
+      </div>
+      <div className="part-body">
+        <DocView className="question-stem" content={part.stem} />
+        {part.grid && <ChoiceGridView grid={part.grid} showCorrectness={showCorrectness} />}
+        {part.workSpace
+          && (renderWorkSpace
+            ? renderWorkSpace(part, part.workSpace)
+            : <WorkSpaceView space={part.workSpace} />)}
+      </div>
+    </div>
+  )
+}
+
 // A question, or the piece of one this page carries. The number column is drawn
 // either way so a continued question's text stays in the same place down the
 // page; only the first piece puts a number and an answer blank in it — and a
@@ -196,20 +230,25 @@ export function WorkSpaceView({ space }: { space: PlannedWorkSpace }) {
 export function QuestionContent({
   item,
   showCorrectness = false,
+  renderPartWorkSpace,
 }: {
   item: QuestionItem
   /** Correct-answer feedback is authoring chrome, never export content. */
   showCorrectness?: boolean
+  /** The sheet's own drawing of a Short Answer Part's work space, with its
+   *  sizing handle; everywhere else the space is drawn plain. */
+  renderPartWorkSpace?: (part: PlannedPart, space: PlannedWorkSpace) => ReactNode
 }) {
   const numbered = printsNumberLine(item)
   return (
     <>
-      {/* A Short Answer question has no blank to make room for, so its
-          column holds the number alone — `questionIndentOf` in export-plan.ts
-          is the same width for the adapters. */}
+      {/* A Short Answer question has no blank to make room for, nor does a
+          Multipart question, which prints none, so its column holds the
+          number alone — `questionIndentOf` in export-plan.ts is the same width
+          for the adapters. */}
       <div
         className={
-          item.question.type === 'open'
+          hasCompactNumber(item.question.type)
             ? 'question-number question-number--compact'
             : 'question-number'
         }
@@ -225,6 +264,18 @@ export function QuestionContent({
           <ChoiceGridView grid={item.grid} showCorrectness={showCorrectness} />
         )}
         {item.workSpace && <WorkSpaceView space={item.workSpace} />}
+        {item.parts && item.parts.length > 0 && (
+          <div className="multipart-parts-print">
+            {item.parts.map((part) => (
+              <PartContent
+                key={part.id}
+                part={part}
+                showCorrectness={showCorrectness}
+                renderWorkSpace={renderPartWorkSpace}
+              />
+            ))}
+          </div>
+        )}
       </div>
       {item.matching && (
         <MatchingSetView set={item.matching} showCorrectness={showCorrectness} />
@@ -233,12 +284,18 @@ export function QuestionContent({
   )
 }
 
+// A cleared part prints nothing — not an empty line — and a heading cleared of
+// both prints nothing at all, so it measures, and packs, at no height.
 export function SectionHeadingContent({ item }: { item: SectionHeadingItem }) {
+  if (!item.title && !item.instructions) return null
+  const styles = sectionHeadingStyles(item.size)
   return (
-    <>
-      <h2 className="section-title">{item.title}</h2>
-      <p className="section-instructions">{item.instructions}</p>
-    </>
+    <header className="exam-section">
+      {item.title && <h2 className="section-title" style={styles.title}>{item.title}</h2>}
+      {item.instructions && (
+        <p className="section-instructions" style={styles.instructions}>{item.instructions}</p>
+      )}
+    </header>
   )
 }
 
@@ -266,6 +323,24 @@ export function AnswerKeyEntry({ item }: { item: AnswerKeyEntryItem }) {
       {item.suggestedAnswer && (
         <DocView className="answer-key-suggested" content={item.suggestedAnswer} />
       )}
+      {item.parts && (
+        <div className="answer-key-parts">
+          {item.parts.map((part) => (
+            <div className="answer-key-part" key={part.letter}>
+              <span className="answer-key-part-letter">{part.letter}.</span>
+              <span
+                className="answer-key-answer"
+                aria-label={part.answer ?? 'Blank answer'}
+              >
+                {part.answer}
+              </span>
+              {part.suggestedAnswer && (
+                <DocView className="answer-key-suggested" content={part.suggestedAnswer} />
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -281,14 +356,88 @@ export function AnswerKeyEntry({ item }: { item: AnswerKeyEntryItem }) {
 // decisions, so the DOCX adapter prints exactly the same ones. The header
 // variant survives only as a class, because how tall each variant is remains a
 // layout constant that CSS and packing must agree on.
+// What the header line prints left of the ID. A plan recorded before the line
+// was text carries only its fields, which print as ruled blanks as they did.
+function IdentityText({ furniture }: { furniture: PageFurniture }) {
+  if (furniture.identityLine !== undefined) {
+    return <span className="identity-line">{furniture.identityLine}</span>
+  }
+  return (
+    <>
+      {furniture.identityFields.map((field) => (
+        <span className="identity-field" key={field}>
+          {field}:
+          <span className="identity-blank" />
+        </span>
+      ))}
+    </>
+  )
+}
+
+/** Where a header line is reworded: its current text, whether it departs from
+ *  the default, and the change — `null` restoring the default. */
+export type IdentityLineEditor = {
+  text: string
+  edited: boolean
+  disabled: boolean
+  onChange: (text: string | null) => void
+}
+
+// The header line on the sheet, reworded where it prints. Like the title, it
+// is always the field: the line is plain text, so the field reads exactly as
+// it prints, and a click puts the caret where it lands. Enter or Escape
+// finishes. The ID beside it is never part of it.
+function EditableIdentityText({ editor }: { editor: IdentityLineEditor }) {
+  return (
+    <span className="identity-edit">
+      {editor.edited && (
+        <span className="identity-handles">
+          <button
+            type="button"
+            className="question-handle"
+            aria-label="Restore the default header"
+            title="Restore the default header"
+            disabled={editor.disabled}
+            onClick={() => editor.onChange(null)}
+          >
+            <RotateCcw aria-hidden="true" />
+          </button>
+        </span>
+      )}
+      {/* Sized by a mirrored copy of its value, like the title's field, so the
+          underline is as wide as the words and not the page. */}
+      <span className="identity-input-field" data-value={editor.text || ' '}>
+        <input
+          aria-label="Header printed on the exam"
+          className="identity-input"
+          size={1}
+          value={editor.text}
+          disabled={editor.disabled}
+          spellCheck
+          onChange={(event) => editor.onChange(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === 'Escape') {
+              event.preventDefault()
+              event.currentTarget.blur()
+            }
+          }}
+        />
+      </span>
+    </span>
+  )
+}
+
 export function PageHeaderContent({
   header,
   furniture,
+  identityEditor,
   onTitleChange,
   titleDisabled = false,
 }: {
   header: PageHeader
   furniture: PageFurniture
+  /** Present only in the editor, on test pages: rewords this page's line. */
+  identityEditor?: IdentityLineEditor
   /** Present only in the editor. The Exam's name is furniture on its own first
    *  page, so it can be typed there as well as in the document bar — one
    *  value, two places to reach it. Every other caller (measurement, print
@@ -300,16 +449,18 @@ export function PageHeaderContent({
   return (
     <header className={`page-header page-header--${header}`}>
       <div className="page-identity">
-        {furniture.identityFields.map((field) => (
-          <span className="identity-field" key={field}>
-            {field}:
-            <span className="identity-blank" />
-          </span>
-        ))}
+        {identityEditor ? (
+          <EditableIdentityText editor={identityEditor} />
+        ) : (
+          <IdentityText furniture={furniture} />
+        )}
         <span className="page-id">{furniture.arrangementLabel}</span>
       </div>
       {furniture.title !== null && (
-        <h1 className="exam-title">
+        <h1
+          className="exam-title"
+          style={furniture.titleSize ? { fontSize: TITLE_PX[furniture.titleSize] } : undefined}
+        >
           {onTitleChange ? (
             // The underline belongs to the name, not to the width of the
             // page: the mirrored value behind the input is what sizes it, so
@@ -343,9 +494,7 @@ export function PageItemMeasureView({ item }: { item: PageItem }) {
   switch (item.kind) {
     case 'section-heading':
       return (
-        <header className="exam-section">
-          <SectionHeadingContent item={item} />
-        </header>
+        <SectionHeadingContent item={item} />
       )
     case 'question':
       return (

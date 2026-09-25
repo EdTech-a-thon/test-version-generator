@@ -73,7 +73,7 @@ describe('the waiting import', () => {
   })
 })
 
-const example = join(import.meta.dir, '..', 'public', 'formats', 'question-bank', '0.4.0', 'examples', 'pending-images.json')
+const example = join(import.meta.dir, '..', 'public', 'formats', 'question-bank', '0.5.0', 'examples', 'pending-images.json')
 
 async function storedMediaHashes(): Promise<string[]> {
   const database = await new Promise<IDBDatabase>((resolve, reject) => {
@@ -117,6 +117,9 @@ describe('committing an import with Pending Images', () => {
       [2, 'Answer C', { image: 4 }],
       [3, 'Question', { image: 1 }],
       [4, 'Question', { page: 4 }],
+      // A Multipart question's shared picture, and one in a Part.
+      [5, 'Question', { image: 5 }],
+      [5, 'Part b', { page: 4 }],
     ])
     const map = await mediaAssetOf(PIXEL_PNG.data, 'image/png')
     // IMG 1 is resolved everywhere it is used; IMG 2–4 and the page are left.

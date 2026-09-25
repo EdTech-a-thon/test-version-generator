@@ -100,7 +100,7 @@ export function assistantPackage() {
       id: 'history',
       record: {
         format: 'test-parrot/question-bank',
-        formatVersion: '0.4.0',
+        formatVersion: '0.5.0',
         generator: { name: 'Assistant', version: '1' },
         requiredFeatures: [],
         bank: { name: 'Trading Stations', questions },

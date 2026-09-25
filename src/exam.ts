@@ -17,14 +17,29 @@ import {
   emptyDoc,
   matchingBankNodesOf,
   matchingPromptNodesOf,
+  partAnswerNodeOf,
+  partStemNodesOf,
   promptAnswerIdOf,
+  multipartPartNodesOf,
   withFreshChoiceIds,
   type ProseMirrorJSON,
 } from './question-doc'
 import { newMultipleChoiceNode, newTrueFalseNode } from './multiple-choice'
+import type { HeadingSize, SectionHeadings, TextSize } from './section-headings'
+import type { ExamHeader } from './page-header'
 import { newMatchingNode } from './matching'
+import { newMultipartPartsNode } from './multipart'
 
-export type QuestionType = 'multiple-choice' | 'true-false' | 'matching' | 'open'
+export type QuestionType =
+  | 'multiple-choice'
+  | 'true-false'
+  | 'matching'
+  | 'open'
+  | 'multipart'
+
+/** What a Part of a Multipart question can be: Multiple Choice, or Short Answer — the
+ *  `'open'` type's internal name, as for a whole question. */
+export type PartType = 'multiple-choice' | 'open'
 
 /** Whether a question of this type answers with choices a teacher picks from.
  *  True/False answers with choices too — two fixed ones — so anything that
@@ -69,6 +84,7 @@ export const SECTION_LABELS: Record<QuestionType, string> = {
   'true-false': 'True/False',
   matching: 'Matching',
   open: 'Short answer',
+  multipart: 'Multipart',
 }
 
 /** How each Difficulty is written wherever a teacher sees it, so the popup that
@@ -102,6 +118,17 @@ export type Exam = {
    *  Question may want a quarter page on one test and none on another. Absent
    *  means no work space anywhere. */
   workSpace?: Record<string, WorkSpace>
+  /** This Exam's own wording for its section headings, where it departs from
+   *  the defaults. Absent means every section says what it always has. See
+   *  `section-headings.ts`. */
+  sectionHeadings?: SectionHeadings
+  /** How large every section heading prints. Absent means `'normal'`. */
+  headingSize?: HeadingSize
+  /** How large its questions and answers print. Absent means `'normal'`. */
+  textSize?: TextSize
+  /** This Exam's own test-page header lines, where they depart from the
+   *  default blanks. See `page-header.ts`. */
+  header?: ExamHeader
 }
 
 /** What a work space prints as: an empty area, or ruled writing lines. */
@@ -194,19 +221,40 @@ export type Prompt = {
   node: ProseMirrorJSON
 }
 
+// One Part of a Multipart question, read out of its document: its stable id, what it
+// asks for, its own stem, and — for a Multiple Choice Part — its answers and
+// the columns they lay out in, or — for a Short Answer Part — its Suggested
+// Answer. Parts are never Questions of their own: they print lettered under
+// their question's one number, and the Question Bank keeps them together.
+export type Part = {
+  id: string
+  type: PartType
+  stem: ProseMirrorJSON[]
+  choices: Choice[]
+  columns: ColumnSetting
+  /** A Short Answer Part's Suggested Answer as a document, when it has one. */
+  suggestedAnswer?: ProseMirrorJSON
+}
+
 // Sections are derived from question type, never stored, and always appear in
-// this order. `'open'` is the section a school test calls "Short Answer".
+// this order. `'open'` is the section a school test calls "Short Answer". A
+// Multipart prints last, in a section of its own, because its Parts mix types
+// and a Section holds one.
 export const SECTION_ORDER: readonly QuestionType[] = [
   'multiple-choice',
   'true-false',
   'matching',
   'open',
+  'multipart',
 ]
 
 export const DEFAULT_EXAM_TITLE = 'Untitled Exam'
 
 function newQuestionDoc(type: QuestionType): ProseMirrorJSON {
   if (type === 'open') return structuredClone(emptyDoc)
+  if (type === 'multipart') {
+    return { type: 'doc', content: [{ type: 'paragraph' }, newMultipartPartsNode()] }
+  }
   const answers =
     type === 'true-false'
       ? newTrueFalseNode()
@@ -371,6 +419,80 @@ export function choicesOf(question: Question): Choice[] {
     correct: choiceIsCorrect(node),
     node,
   }))
+}
+
+function isBlankDocument(doc: ProseMirrorJSON | undefined): boolean {
+  const content = Array.isArray(doc?.content) ? (doc.content as ProseMirrorJSON[]) : []
+  return content.every(
+    (node) =>
+      node.type === 'paragraph'
+      && !(Array.isArray(node.content) && node.content.length > 0),
+  )
+}
+
+// A Multipart question's Parts in authored order — the order they are lettered in on
+// every arrangement. Empty for any other question type.
+export function partsOf(question: Question): Part[] {
+  if (question.type !== 'multipart') return []
+  return multipartPartNodesOf(question.doc).map((node) => {
+    const answer = partAnswerNodeOf(node)
+    const attrs = (node.attrs ?? {}) as Record<string, unknown>
+    const columns = attrs.columns
+    const type: PartType = answer?.type === 'suggestedAnswer' ? 'open' : 'multiple-choice'
+    const part: Part = {
+      id: choiceIdOf(node),
+      type,
+      stem: partStemNodesOf(node),
+      choices:
+        type === 'multiple-choice'
+          ? choiceNodesOf({ content: answer ? [answer] : [] }).map((choice) => ({
+              id: choiceIdOf(choice),
+              correct: choiceIsCorrect(choice),
+              node: choice,
+            }))
+          : [],
+      columns: columns === 1 || columns === 2 || columns === 4 ? columns : DEFAULT_COLUMNS,
+    }
+    if (type === 'open' && answer) {
+      const suggested: ProseMirrorJSON = {
+        type: 'doc',
+        content: Array.isArray(answer.content) ? answer.content : [],
+      }
+      if (!isBlankDocument(suggested)) part.suggestedAnswer = suggested
+    }
+    return part
+  })
+}
+
+/** The one Part with this id among an Exam's Multipart questions, along with
+ *  the question that holds it. */
+export function partById(
+  exam: Pick<Exam, 'questions'>,
+  partId: string,
+): { question: Question; part: Part } | undefined {
+  for (const question of exam.questions) {
+    const part = partsOf(question).find(({ id }) => id === partId)
+    if (part) return { question, part }
+  }
+  return undefined
+}
+
+/** Every key an Exam's presentation settings may file under for this
+ *  question: its own id, and each of its Parts' ids. Answer order, answer
+ *  columns and Work Space are set per Part on a Multipart question, so removing or
+ *  replacing the Multipart question has to reach them all. */
+export function presentationIdsOf(question: Question): string[] {
+  return [question.id, ...partsOf(question).map((part) => part.id)]
+}
+
+/** A Multiple Choice Part's answers in the order this arrangement puts them
+ *  in, keyed in `choiceOrder` by the Part's id as a question's are by its own. */
+export function orderedPartChoices(part: Part, arrangement: Arrangement): Choice[] {
+  const byId = new Map(part.choices.map((choice) => [choice.id, choice]))
+  return reconcileOrder(
+    arrangement.choiceOrder[part.id] ?? [],
+    part.choices.map((choice) => choice.id),
+  ).map((id) => byId.get(id)!)
 }
 
 // A matching set's prompts in authoring order — the order they are numbered
@@ -550,8 +672,10 @@ export function shuffleSelectedQuestions(
 }
 
 /**
- * Shuffles the answers of every selected eligible Multiple Choice question and
- * the Word Bank of every selected matching set, independently. The Question
+ * Shuffles the answers of every selected eligible Multiple Choice question, the
+ * Word Bank of every selected matching set, and the answers of every Multiple
+ * Choice Part of a selected Multipart question, independently. A Multipart question's Parts
+ * themselves never move: they are lettered in place. The Question
  * Content is not changed: this records an order of stable choice ids in the
  * arrangement alone, so correctness remains on the choice it was authored on
  * and every prompt still names the same answer under its new letter.
@@ -573,9 +697,24 @@ export function shuffleSelectedAnswers(
   let choiceOrder = arrangement.choiceOrder
   let changed = false
 
+  // Everything whose answers may vary: each eligible question, and each
+  // Multiple Choice Part of a selected Multipart question, which Varies as a Multiple
+  // Choice question does under the Part's own id.
+  const targets: { id: string; current: Choice[] }[] = []
   for (const question of exam.questions) {
-    if (!selected.has(question.id) || !variesAnswers(question.type)) continue
-    const current = orderedChoices(question, arrangement)
+    if (!selected.has(question.id)) continue
+    if (question.type === 'multipart') {
+      for (const part of partsOf(question)) {
+        if (part.type === 'multiple-choice') {
+          targets.push({ id: part.id, current: orderedPartChoices(part, arrangement) })
+        }
+      }
+    } else if (variesAnswers(question.type)) {
+      targets.push({ id: question.id, current: orderedChoices(question, arrangement) })
+    }
+  }
+
+  for (const { id, current } of targets) {
     if (current.length < 2) continue
 
     const shuffled = current.map((choice) => choice.id)
@@ -591,7 +730,7 @@ export function shuffleSelectedAnswers(
     }
 
     if (!changed) choiceOrder = { ...choiceOrder }
-    choiceOrder[question.id] = shuffled
+    choiceOrder[id] = shuffled
     changed = true
   }
 

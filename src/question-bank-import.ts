@@ -1,17 +1,21 @@
 import Ajv2020, { type ErrorObject } from 'ajv/dist/2020'
-import type { Question, QuestionType } from './exam'
+import { DEFAULT_COLUMNS, type Question, type QuestionType } from './exam'
 import type { ProseMirrorJSON } from './question-doc'
 import questionBankSchema010 from './question-bank-record-0.1.0.schema.json'
 import questionBankSchema020 from './question-bank-record-0.2.0.schema.json'
 import questionBankSchema030 from './question-bank-record-0.3.0.schema.json'
 import questionBankSchema040 from './question-bank-record-0.4.0.schema.json'
+import questionBankSchema050 from './question-bank-record-0.5.0.schema.json'
 import {
   QUESTION_BANK_ATTACHMENT_DESCRIPTION,
   QUESTION_BANK_FORMAT,
   QUESTION_BANK_FORMAT_VERSION,
+  RECORD_PART_TYPE_LABELS,
   RECORD_TYPE_LABELS,
+  partLetter,
   recordDocumentToEditorNodes,
   type QuestionBankRecord,
+  type QuestionBankRecordPart,
   type QuestionBankRecordQuestion,
   type QuestionBankRecordQuestionType,
   type SemanticDocument,
@@ -113,9 +117,11 @@ export type QuestionBankImportProposal = {
     bankName: string
     questionCounts: Record<QuestionBankRecordQuestionType, number>
     topics: string[]
-    /** Questions that answer with choices but have none marked correct, and
-     *  matching sets with an item left unmatched. That is conforming — a bank
-     *  may be shared mid-authoring — so it is reported rather than refused. */
+    /** Questions that answer with choices but have none marked correct,
+     *  matching sets with an item left unmatched, and Multipart questions with no Parts or
+     *  with a Multiple Choice Part none of whose choices is correct. That is
+     *  conforming — a bank may be shared mid-authoring — so it is reported
+     *  rather than refused. */
     questionsWithoutCorrectAnswer: number
     mediaAssets: number
     /** Images that name an Image Tag or a page of a Source Document instead
@@ -129,18 +135,20 @@ export type QuestionBankImportProposal = {
 
 /** The local Question Type each record Question Type reads as — the inverse of
  *  the exporter's `RECORD_TYPES`. */
-const LOCAL_TYPES: Record<QuestionBankRecordQuestionType, QuestionType> = {
+export const LOCAL_TYPES: Record<QuestionBankRecordQuestionType, QuestionType> = {
   'multiple-choice': 'multiple-choice',
   'true-false': 'true-false',
   matching: 'matching',
   'short-answer': 'open',
+  multipart: 'multipart',
 }
 
 /** Where each package-local id of one record Question landed locally. */
 export type ImportedQuestionIdentity = {
   question: Question
   /** Choice ids for Multiple Choice and True/False; Word Bank ids for
-   *  Matching. Answer order in an Exam Record is written in these. */
+   *  Matching; Part ids and every Part's choice ids for a Multipart question. Answer
+   *  order in an Exam Record is written in these. */
   answers: ReadonlyMap<string, string>
 }
 
@@ -173,6 +181,59 @@ function importedMatching(
   }
 }
 
+/** A Multipart question's Parts box: each Part given a fresh local id, its stem, then
+ *  its answer component — a Multiple Choice Part's choices, each with a fresh
+ *  id, or a Short Answer Part's Suggested Answer, which stays inside the
+ *  document beside the stem it answers, unlike a Short Answer question's. A
+ *  Part's answer columns are not in the record, so it starts with the
+ *  editor's default, as a new Part does. */
+function importedParts(
+  parts: readonly QuestionBankRecordPart[],
+  createId: () => string,
+  answerIds: Map<string, string>,
+): ProseMirrorJSON {
+  return {
+    type: 'multipartParts',
+    content: parts.map((part) => {
+      const id = createId()
+      answerIds.set(part.id, id)
+      return {
+        type: 'multipartPart',
+        attrs: { id, columns: DEFAULT_COLUMNS },
+        content: [
+          { type: 'multipartPartStem', content: blocksOrBlank(part.stem) },
+          part.type === 'multiple-choice'
+            ? {
+                type: 'multipleChoice',
+                content: (part.choices ?? []).map((choice) => {
+                  const choiceId = createId()
+                  answerIds.set(choice.id, choiceId)
+                  return {
+                    type: 'multipleChoiceChoice',
+                    attrs: { id: choiceId, correct: choice.correct },
+                    content: recordDocumentToEditorNodes(choice.content),
+                  }
+                }),
+              }
+            : {
+                type: 'suggestedAnswer',
+                content: part.suggestedAnswer
+                  ? blocksOrBlank(part.suggestedAnswer)
+                  : [{ type: 'paragraph' }],
+              },
+        ],
+      }
+    }),
+  }
+}
+
+/** A document's blocks, or one empty paragraph for a visibly blank one — a
+ *  Part's stem and Suggested Answer each hold at least one block. */
+function blocksOrBlank(document: SemanticDocument): ProseMirrorJSON[] {
+  const blocks = recordDocumentToEditorNodes(document)
+  return blocks.length > 0 ? blocks : [{ type: 'paragraph' }]
+}
+
 /** Map a validated portable record into fresh local authoring identities,
  *  keyed by each Question's package-local id so an Exam Record travelling
  *  beside it can be pointed at what was made. */
@@ -193,7 +254,9 @@ export function importedQuestionIdentities(
         content:
           question.type === 'matching'
             ? [...stem, importedMatching(question, createId, answers)]
-            : question.choices
+            : question.type === 'multipart'
+              ? [...stem, importedParts(question.parts ?? [], createId, answers)]
+              : question.choices
               ? [
                   ...stem,
                   {
@@ -244,6 +307,7 @@ const validate010 = ajv.compile(questionBankSchema010)
 const validate020 = ajv.compile(questionBankSchema020)
 const validate030 = ajv.compile(questionBankSchema030)
 const validate040 = ajv.compile(questionBankSchema040)
+const validate050 = ajv.compile(questionBankSchema050)
 
 function schemaMessage(errors: ErrorObject[] | null | undefined): string {
   const first = errors?.[0]
@@ -320,6 +384,27 @@ function copyQuestion(question: QuestionBankRecordQuestion): QuestionBankRecordQ
           })),
         }
       : {}),
+    ...(question.parts !== undefined
+      ? {
+          parts: question.parts.map((part) => ({
+            id: part.id,
+            type: part.type,
+            stem: copyDocument(part.stem),
+            ...(part.choices !== undefined
+              ? {
+                  choices: part.choices.map((choice) => ({
+                    id: choice.id,
+                    content: copyDocument(choice.content),
+                    correct: choice.correct,
+                  })),
+                }
+              : {}),
+            ...(part.suggestedAnswer !== undefined
+              ? { suggestedAnswer: copyDocument(part.suggestedAnswer) }
+              : {}),
+          })),
+        }
+      : {}),
     ...(question.suggestedAnswer !== undefined
       ? { suggestedAnswer: copyDocument(question.suggestedAnswer) }
       : {}),
@@ -356,10 +441,10 @@ function malformedPendingImage(
     if (typeof node !== 'object' || node === null || !('pending' in node)) continue
     const { type, pending, asset } = node as { type?: unknown; pending?: unknown; asset?: unknown }
     if (type !== 'inline-image' && type !== 'block-image') continue
-    if (sourceVersion !== '0.4.0') {
+    if (sourceVersion !== '0.5.0') {
       return new QuestionBankImportError(
         'invalid-question',
-        `Pending Images need Question Bank Record 0.4.0; this record declares ${sourceVersion}.`,
+        `Pending Images need Question Bank Record 0.5.0; this record declares ${sourceVersion}.`,
       )
     }
     if (typeof pending === 'object' && pending !== null && Object.keys(pending).length === 0) {
@@ -457,10 +542,10 @@ function parseWith(
 /**
  * Every retained version migrates forward without rewriting anything. 0.2.0
  * added `true-false` to 0.1.0, 0.3.0 added `matching` to 0.2.0, and 0.4.0
- * added Pending Images to 0.3.0; none can appear in an older record, and no
- * version changed anything an older record already says — so a record that
- * satisfies an older schema is already a conforming 0.4.0 record once its
- * version is restated.
+ * added `multipart` to 0.3.0, and 0.5.0 added Pending Images to 0.4.0; none
+ * can appear in an older record, and no version changed anything an older
+ * record already says — so a record that satisfies an older schema is already
+ * a conforming 0.5.0 record once its version is restated.
  */
 const parser010: Parser = (value) => parseWith(validate010, '0.1.0', value)
 
@@ -470,6 +555,8 @@ const parser030: Parser = (value) => parseWith(validate030, '0.3.0', value)
 
 const parser040: Parser = (value) => parseWith(validate040, '0.4.0', value)
 
+const parser050: Parser = (value) => parseWith(validate050, '0.5.0', value)
+
 /** Exact versions only: adding compatibility requires adding an explicit parser or migration. */
 export const SUPPORTED_QUESTION_BANK_VERSIONS: Readonly<Record<string, Parser>> =
   Object.freeze({
@@ -477,6 +564,7 @@ export const SUPPORTED_QUESTION_BANK_VERSIONS: Readonly<Record<string, Parser>> 
     '0.2.0': parser020,
     '0.3.0': parser030,
     '0.4.0': parser040,
+    '0.5.0': parser050,
   })
 
 const utf8 = new TextDecoder('utf-8', { fatal: true })
@@ -714,6 +802,7 @@ async function validateSemantics(
     'true-false': 0,
     matching: 0,
     'short-answer': 0,
+    multipart: 0,
   }
 
   for (const question of record.bank.questions) {
@@ -733,7 +822,60 @@ async function validateSemantics(
         `${RECORD_TYPE_LABELS[question.type]} Question “${question.id}” cannot contain matching items or a Word Bank.`,
       )
     }
-    if (question.type === 'short-answer') {
+    if (question.type !== 'multipart' && question.parts !== undefined) {
+      throw new QuestionBankImportError(
+        'invalid-question',
+        `${RECORD_TYPE_LABELS[question.type]} Question “${question.id}” cannot contain Multipart Parts.`,
+      )
+    }
+    if (question.type === 'multipart') {
+      // The Multipart question answers nothing itself: every answer belongs to a Part,
+      // and a Part obeys the rules of the Question Type it is named for. A
+      // Multipart question with no Parts, or with a Multiple Choice Part none of whose
+      // choices is correct, is incomplete — conforming, but reported.
+      if (question.choices !== undefined || question.suggestedAnswer !== undefined) {
+        throw new QuestionBankImportError(
+          'invalid-question',
+          `Multipart Question “${question.id}” cannot contain choices or a Suggested Answer of its own; each Part carries its own.`,
+        )
+      }
+      const parts = question.parts ?? []
+      let incomplete = parts.length === 0
+      parts.forEach((part, partIndex) => {
+        const where = `Part ${partLetter(partIndex)} (“${part.id}”) of Multipart Question “${question.id}”`
+        const label = RECORD_PART_TYPE_LABELS[part.type]
+        if (part.type === 'short-answer') {
+          if (part.choices !== undefined) {
+            throw new QuestionBankImportError(
+              'invalid-question',
+              `${where} is ${label} and cannot contain choices.`,
+            )
+          }
+          return
+        }
+        if (!part.choices || part.choices.length < 2) {
+          throw new QuestionBankImportError(
+            'invalid-question',
+            `${where} is ${label} and must have at least two choices.`,
+          )
+        }
+        const correct = part.choices.filter((choice) => choice.correct).length
+        if (correct > 1) {
+          throw new QuestionBankImportError(
+            'invalid-question',
+            `${where} is ${label} and may have at most one correct choice.`,
+          )
+        }
+        if (correct === 0) incomplete = true
+        if (part.suggestedAnswer !== undefined) {
+          throw new QuestionBankImportError(
+            'invalid-question',
+            `${where} is ${label} and cannot contain a Suggested Answer.`,
+          )
+        }
+      })
+      if (incomplete) questionsWithoutCorrectAnswer += 1
+    } else if (question.type === 'short-answer') {
       if (question.choices !== undefined) {
         throw new QuestionBankImportError(
           'invalid-question',
@@ -819,12 +961,21 @@ async function validateSemantics(
       ids.add(part.id)
       return part.content
     }
+    // A Multipart Part claims its own id, then brings its stem, its choices
+    // and its Suggested Answer under the Question's node and depth limits:
+    // the limits bound the whole Question, however it is divided.
+    const partDocuments = (part: QuestionBankRecordPart): SemanticDocument[] => [
+      claimed({ id: part.id, content: part.stem }),
+      ...(part.choices?.map(claimed) ?? []),
+      ...(part.suggestedAnswer ? [part.suggestedAnswer] : []),
+    ]
     const documents = [
       question.stem,
       ...(question.suggestedAnswer ? [question.suggestedAnswer] : []),
       ...(question.choices?.map(claimed) ?? []),
       ...(question.prompts?.map(claimed) ?? []),
       ...(question.wordBank?.map(claimed) ?? []),
+      ...(question.parts?.flatMap(partDocuments) ?? []),
     ]
     let questionNodes = 0
     for (const document of documents) {

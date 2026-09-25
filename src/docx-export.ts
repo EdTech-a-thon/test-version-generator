@@ -54,7 +54,13 @@ import {
   type TabStopDefinition,
 } from 'docx'
 import { arrangementRange } from './export-preparation'
-import { EXAM_FONT, halfPointsOf } from './export-typography'
+import {
+  bodyHalfPoints,
+  EXAM_FONT,
+  halfPointsOf,
+  sectionHeadingHalfPoints,
+  titleHalfPoints,
+} from './export-typography'
 import {
   authoredImageRatio,
   authoredImageWidth,
@@ -72,6 +78,7 @@ import {
   MATCHING_BANK_WIDTH,
   PAGE_CONTENT_WIDTH,
   printsNumberLine,
+  PART_INDENT,
   type AnswerKeyEntryItem,
   type AnswerKeySectionItem,
   type ChoiceGrid,
@@ -83,6 +90,7 @@ import {
   type PageItem,
   type PlannedBankAnswer,
   type PlannedPage,
+  type PlannedPart,
   type PlannedWorkSpace,
   type QuestionItem,
 } from './export-plan'
@@ -666,12 +674,17 @@ const NO_BORDERS = {
 // column count, the plan's rows, the plan's cells — including the empty ones
 // where the last column runs out of answers. On paper this is a layout, not a
 // table, which is why every border is off.
-function choiceGridTable(grid: ChoiceGrid, build: BuildContext): Table {
-  const cellWidth = CHOICE_AREA_WIDTH / grid.columns
+function choiceGridTable(
+  grid: ChoiceGrid,
+  build: BuildContext,
+  areaWidth = CHOICE_AREA_WIDTH,
+  indentPx = QUESTION_INDENT_PX,
+): Table {
+  const cellWidth = areaWidth / grid.columns
   return new Table({
-    width: { size: twips(CHOICE_AREA_WIDTH), type: WidthType.DXA },
+    width: { size: twips(areaWidth), type: WidthType.DXA },
     columnWidths: gridOf(Array.from({ length: grid.columns }, () => cellWidth)),
-    indent: { size: QUESTION_INDENT, type: WidthType.DXA },
+    indent: { size: twips(indentPx), type: WidthType.DXA },
     borders: NO_BORDERS,
     rows: grid.cells.map(
       (row) =>
@@ -855,6 +868,38 @@ function questionContent(
     ...(item.grid ? [choiceGridTable(item.grid, build)] : []),
     ...(item.matching ? matchingContent(item.matching, build) : []),
     ...(item.workSpace ? workSpaceParagraphs(item.workSpace, indent) : []),
+    ...(item.parts ?? []).flatMap((part) =>
+      partContent(part, questionIndentOf(item.question), build),
+    ),
+  ]
+}
+
+// A Multipart question's Part, one level in: its letter hanging off its own letter column inside the Multipart question's body,
+// then its choice grid or its work space, as a question of its kind prints.
+function partContent(
+  part: PlannedPart,
+  multipartIndentPx: number,
+  build: BuildContext,
+): (Paragraph | Table)[] {
+  const indentPx = multipartIndentPx + PART_INDENT
+  const indent = twips(indentPx)
+  const prefix: ParagraphChild[] = [
+    new TextRun({
+      text: `${part.letter}.\t`,
+    }),
+  ]
+  const context: BlockContext = {
+    indent,
+    hanging: twips(PART_INDENT),
+    prefix,
+  }
+  const stem = blocks(part.stem, context, { ...build, contentWidth: PAGE_CONTENT_WIDTH - indentPx })
+  return [
+    ...(stem.length > 0 ? stem : [new Paragraph(paragraphOptions(context, { children: prefix }))]),
+    ...(part.grid
+      ? [choiceGridTable(part.grid, build, PAGE_CONTENT_WIDTH - indentPx, indentPx)]
+      : []),
+    ...(part.workSpace ? workSpaceParagraphs(part.workSpace, indent) : []),
   ]
 }
 
@@ -892,9 +937,24 @@ function answerKeyEntry(item: AnswerKeyEntryItem, build: BuildContext): (Paragra
     ],
   })
   // A Suggested Answer starts under the blank, on the lines below the entry.
-  return item.suggestedAnswer
-    ? [entry, ...blocks(item.suggestedAnswer, { indent: ANSWER_KEY_ANSWER_INDENT }, build)]
-    : [entry]
+  const suggested = item.suggestedAnswer
+    ? blocks(item.suggestedAnswer, { indent: ANSWER_KEY_ANSWER_INDENT }, build)
+    : []
+  // A Multipart question's Parts each take a line under its number: the Part's letter,
+  // then its answer in bold, then any Suggested Answer beneath.
+  const parts = (item.parts ?? []).flatMap((part) => [
+    new Paragraph({
+      indent: { left: ANSWER_KEY_ANSWER_INDENT },
+      children: [
+        new TextRun({ text: `${part.letter}. ` }),
+        ...(part.answer ? [new TextRun({ text: part.answer, bold: true })] : []),
+      ],
+    }),
+    ...(part.suggestedAnswer
+      ? blocks(part.suggestedAnswer, { indent: ANSWER_KEY_ANSWER_INDENT + twips(32) }, build)
+      : []),
+  ])
+  return [entry, ...suggested, ...parts]
 }
 
 function itemContent(
@@ -902,21 +962,39 @@ function itemContent(
   build: BuildContext,
 ): (Paragraph | Table)[] {
   switch (item.kind) {
-    case 'section-heading':
+    case 'section-heading': {
+      // Heading 1 already is `'normal'`; any other size is stated on the runs,
+      // from the same table print reads. The directions always state theirs:
+      // the body style follows the Exam's text size, and they do not.
+      const sized = item.size && item.size !== 'normal'
+        ? sectionHeadingHalfPoints(item.size)
+        : null
+      // A cleared part prints no paragraph, not an empty one.
       return [
-        new Paragraph({
-          text: item.title,
-          heading: HeadingLevel.HEADING_1,
-          // The plan's own keep decision, not a second guess at one.
-          keepNext: item.keepWithNext,
-          spacing: { before: 120, after: 60 },
-        }),
-        new Paragraph({
-          children: [new TextRun({ text: item.instructions, italics: true })],
-          keepNext: item.keepWithNext,
-          spacing: { after: 160 },
-        }),
+        ...(item.title
+          ? [new Paragraph({
+              ...(sized
+                ? { children: [new TextRun({ text: item.title, size: sized.title })] }
+                : { text: item.title }),
+              heading: HeadingLevel.HEADING_1,
+              // The plan's own keep decision, not a second guess at one.
+              keepNext: item.keepWithNext,
+              spacing: { before: 120, after: 60 },
+            })]
+          : []),
+        ...(item.instructions
+          ? [new Paragraph({
+              children: [new TextRun({
+                text: item.instructions,
+                italics: true,
+                size: sized ? sized.instructions : halfPointsOf('body'),
+              })],
+              keepNext: item.keepWithNext,
+              spacing: { after: 160 },
+            })]
+          : []),
       ]
+    }
     case 'question':
       return questionContent(item, build)
     case 'answer-key-heading':
@@ -960,7 +1038,23 @@ const IDENTITY_ID_RESERVE = 64
 function identityLine(furniture: PageFurniture): Paragraph {
   // Bold by style, as `.page-id` is bold by class: page furniture, not an
   // authored strong mark.
-  const id = new TextRun({ text: furniture.arrangementLabel, style: OUTPUT_ID_STYLE })
+  const id = new TextRun({
+    text: furniture.arrangementLabel,
+    style: OUTPUT_ID_STYLE,
+    size: halfPointsOf('body'),
+  })
+  if (furniture.identityLine !== undefined) {
+    // An Exam's own line: its text, then the ID against a right stop.
+    return new Paragraph({
+      children: [
+        new TextRun({ text: furniture.identityLine, size: halfPointsOf('body') }),
+        new TextRun({ children: [new Tab()] }),
+        id,
+      ],
+      tabStops: [{ type: TabStopType.RIGHT, position: twips(PAGE_CONTENT_WIDTH) }],
+      spacing: { after: 60 },
+    })
+  }
   const fields = furniture.identityFields
   if (fields.length === 0) {
     return new Paragraph({ children: [id], alignment: AlignmentType.RIGHT, spacing: { after: 60 } })
@@ -994,7 +1088,13 @@ function headerParagraphs(furniture: PageFurniture): Paragraph[] {
       : [
           // Print sets the title flush left, as it does every heading.
           new Paragraph({
-            text: furniture.title,
+            ...(furniture.titleSize
+              ? {
+                  children: [
+                    new TextRun({ text: furniture.title, size: titleHalfPoints(furniture.titleSize) }),
+                  ],
+                }
+              : { text: furniture.title }),
             heading: HeadingLevel.TITLE,
             spacing: { after: 120 },
           }),
@@ -1080,7 +1180,9 @@ export function createExamDocxDocument(
     // than the sheet it was planned on.
     styles: {
       default: {
-        document: { run: { font: EXAM_FONT, size: halfPointsOf('body') } },
+        // The Exam's text size is its body type; the header line and the
+        // directions state the sheet's own.
+        document: { run: { font: EXAM_FONT, size: bodyHalfPoints(first?.textSize) } },
         title: { run: { font: EXAM_FONT, size: halfPointsOf('title'), bold: true } },
         heading1: { run: { font: EXAM_FONT, size: halfPointsOf('sectionTitle'), bold: true } },
         heading2: { run: { font: EXAM_FONT, size: halfPointsOf('sectionTitle'), bold: true } },

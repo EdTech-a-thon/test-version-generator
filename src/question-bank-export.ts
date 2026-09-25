@@ -1,5 +1,6 @@
 import {
   choicesOf,
+  partsOf,
   promptsOf,
   topicsOf,
   type Difficulty,
@@ -16,7 +17,7 @@ import {
 import type { QuestionBankResource } from './question-bank-workspaces'
 
 export const QUESTION_BANK_FORMAT = 'test-parrot/question-bank'
-export const QUESTION_BANK_FORMAT_VERSION = '0.4.0'
+export const QUESTION_BANK_FORMAT_VERSION = '0.5.0'
 export const QUESTION_BANK_ATTACHMENT_NAME = 'pdfcx.json'
 export const QUESTION_BANK_ATTACHMENT_DESCRIPTION = 'pdf-canonical-extraction'
 
@@ -92,6 +93,7 @@ export type QuestionBankRecordQuestionType =
   | 'true-false'
   | 'matching'
   | 'short-answer'
+  | 'multipart'
 
 /** How each record Question Type is written wherever a teacher reads one — the
  *  export preview, the import preview, and the Question Bank File's own pages. */
@@ -100,6 +102,7 @@ export const RECORD_TYPE_LABELS: Record<QuestionBankRecordQuestionType, string> 
   'true-false': 'True/False',
   matching: 'Matching',
   'short-answer': 'Short Answer',
+  multipart: 'Multipart',
 }
 
 /** The order a summary counts the Question Types off in — the order a test
@@ -109,6 +112,7 @@ export const RECORD_TYPE_ORDER: readonly QuestionBankRecordQuestionType[] = [
   'true-false',
   'matching',
   'short-answer',
+  'multipart',
 ]
 
 /** One item of a matching set. `answer` is the package-local id of the Word
@@ -130,6 +134,33 @@ export function wordBankLettersOf(
   )
 }
 
+/** What a Part of a Multipart question can be. A Part is never True/False,
+ *  Matching or Multipart itself. */
+export type QuestionBankRecordPartType = 'multiple-choice' | 'short-answer'
+
+/** One lettered Part of a Multipart question: its own stem, then the choices of a
+ *  Multiple Choice Part or the optional Suggested Answer of a Short Answer
+ *  one. Answer columns and Work Space are Exam presentation, as they are for a
+ *  whole Question, so neither is written here. */
+export type QuestionBankRecordPart = {
+  id: string
+  type: QuestionBankRecordPartType
+  stem: SemanticDocument
+  choices?: { id: string; content: SemanticDocument; correct: boolean }[]
+  suggestedAnswer?: SemanticDocument
+}
+
+/** How each Part type is written wherever a teacher reads one. */
+export const RECORD_PART_TYPE_LABELS: Record<QuestionBankRecordPartType, string> = {
+  'multiple-choice': 'Multiple Choice',
+  'short-answer': 'Short Answer',
+}
+
+/** A Part's letter from its position, the way a test prints it: `a`, `b`, … */
+export function partLetter(index: number): string {
+  return bankLetter(index).toLowerCase()
+}
+
 export type QuestionBankRecordQuestion = {
   id: string
   type: QuestionBankRecordQuestionType
@@ -139,6 +170,8 @@ export type QuestionBankRecordQuestion = {
   choices?: { id: string; content: SemanticDocument; correct: boolean }[]
   prompts?: QuestionBankRecordPrompt[]
   wordBank?: { id: string; content: SemanticDocument }[]
+  /** A Multipart question's Parts, in lettered order; `stem` is the shared material. */
+  parts?: QuestionBankRecordPart[]
   suggestedAnswer?: SemanticDocument
 }
 
@@ -341,6 +374,10 @@ function semanticNode(node: ProseMirrorJSON, mediaIds: ReadonlyMap<string, strin
     case 'matchingPrompt':
     case 'matchingAnswer':
       throw new Error('Matching structure must remain separate from its stem.')
+    case 'multipartParts':
+    case 'multipartPart':
+    case 'multipartPartStem':
+      throw new Error('Multipart Parts must remain separate from their question’s stem.')
     case 'image':
     case 'image-block':
       return imageSemanticNode(node, mediaIds)
@@ -361,11 +398,12 @@ function semanticDocument(
 /** The local Question Type each record Question Type is written as. The one
  *  place the two vocabularies meet on the way out; `LOCAL_TYPES` in the
  *  importer is its inverse. */
-const RECORD_TYPES: Record<QuestionType, QuestionBankRecordQuestionType> = {
+export const RECORD_TYPES: Record<QuestionType, QuestionBankRecordQuestionType> = {
   'multiple-choice': 'multiple-choice',
   'true-false': 'true-false',
   matching: 'matching',
   open: 'short-answer',
+  multipart: 'multipart',
 }
 
 function portableQuestion(
@@ -425,6 +463,44 @@ function portableQuestion(
         id: answerIds.get(answer.id)!,
         content: semanticDocument(childNodes(answer.node), mediaIds),
       })),
+    }
+  }
+  if (question.type === 'multipart') {
+    // The stem is the Multipart question; each Part follows it under an id of its own.
+    // Parts are lettered where they stand, so they keep authored order.
+    return {
+      ...base,
+      parts: partsOf(question).map((part, partIndex): QuestionBankRecordPart => {
+        const id = `q${index + 1}-s${partIndex + 1}`
+        const where = `Question ${index + 1}, Part ${partLetter(partIndex)}`
+        const stem = semanticDocument(part.stem, mediaIds)
+        if (part.type === 'open') {
+          return {
+            id,
+            type: 'short-answer',
+            stem,
+            ...(part.suggestedAnswer
+              ? { suggestedAnswer: semanticDocument(childNodes(part.suggestedAnswer), mediaIds) }
+              : {}),
+          }
+        }
+        if (part.choices.length < 2) {
+          throw new Error(`${where} must have at least two choices.`)
+        }
+        if (part.choices.filter((choice) => choice.correct).length > 1) {
+          throw new Error(`${where} must have zero or one correct choice.`)
+        }
+        return {
+          id,
+          type: 'multiple-choice',
+          stem,
+          choices: part.choices.map((choice, choiceIndex) => ({
+            id: `${id}-c${choiceIndex + 1}`,
+            content: semanticDocument(childNodes(choice.node), mediaIds),
+            correct: choice.correct,
+          })),
+        }
+      }),
     }
   }
   const choices = choicesOf(question)
