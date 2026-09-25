@@ -59,7 +59,8 @@ export type WorkspaceDrag = {
  *  reader so the markup and the reader cannot drift. */
 export const DROP_ZONE_SELECTOR = '[data-drop-zone]'
 const QUESTION_PIECE_SELECTOR = '.exam-question[data-question-id]'
-/** An empty Question Section's drop box on the sheet. */
+/** An empty Question Section's heading on the sheet, which is where a gesture
+ *  drops into it. */
 export const EMPTY_SECTION_SELECTOR = '[data-empty-section]'
 /** The new-Section target, while it is open beneath a Section. */
 export const NEW_SECTION_SELECTOR = '[data-new-section-after]'

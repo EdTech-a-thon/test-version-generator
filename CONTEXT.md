@@ -146,7 +146,7 @@ The line an Exam prints at the top of each test page, beside the paper's ID. By 
 _Avoid_: Letterhead, banner, identity line
 
 **Question Section**:
-An ordered group of Questions within an Exam, of any Question Type, fixed in the Exam and its exported output. An Exam's Sections print in whatever order the teacher arranges them, and every Question in an Exam belongs to exactly one Section. A Section has its own Section Heading and Section Directions, and an emptied Section stays on the exam sheet as a place to put Questions until the teacher deletes it, but is omitted from exported output; deleting a Section Removes its Questions. Every heading on an Exam, its title included, prints at one of three sizes, and its questions and answers at one of three text sizes chosen apart from the headings. The Answer Key groups its entries by Section and uses the test's headings.
+An ordered group of Questions within an Exam, of any Question Type, fixed in the Exam and its exported output. An Exam's Sections print in whatever order the teacher arranges them, and every Question in an Exam belongs to exactly one Section. A Section has its own Section Heading and Section Directions, and an emptied Section stays, and prints its heading and directions, until the teacher deletes it — so the sheet and the paper always put every Question on the same page; deleting a Section Removes its Questions. Every heading on an Exam, its title included, prints at one of three sizes, and its questions and answers at one of three text sizes chosen apart from the headings. The Answer Key groups its entries by Section and uses the test's headings.
 _Avoid_: Question category, type section
 
 **Section Heading**:

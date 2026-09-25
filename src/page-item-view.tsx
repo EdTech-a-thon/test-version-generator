@@ -290,9 +290,7 @@ export function QuestionContent({
 // A cleared part prints nothing — not an empty line — and a heading cleared of
 // both prints nothing at all, so it measures, and packs, at no height.
 export function SectionHeadingContent({ item }: { item: SectionHeadingItem }) {
-  if (!item.title && !item.instructions) {
-    return item.empty ? <EmptySectionBox item={item} /> : null
-  }
+  if (!item.title && !item.instructions) return null
   const styles = sectionHeadingStyles(item.size)
   return (
     <>
@@ -302,29 +300,7 @@ export function SectionHeadingContent({ item }: { item: SectionHeadingItem }) {
           <p className="section-instructions" style={styles.instructions}>{item.instructions}</p>
         )}
       </header>
-      {item.empty && <EmptySectionBox item={item} />}
     </>
-  )
-}
-
-/** Where an empty Question Section takes questions on the exam sheet. Only the sheet plans an empty Section, so this is never exported; it
- *  is drawn here, with the heading, so the sheet measures the room it takes. */
-export function EmptySectionBox({
-  item,
-  active = false,
-}: {
-  item: SectionHeadingItem
-  active?: boolean
-}) {
-  return (
-    <div
-      className="exam-section-empty"
-      data-empty-section=""
-      data-section-id={item.sectionId}
-      data-active={active ? 'true' : undefined}
-    >
-      Drag questions here
-    </div>
   )
 }
 

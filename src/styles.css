@@ -977,18 +977,21 @@ button { cursor: pointer; }
    pointer — so the row you lifted stays findable underneath. */
 .exam-question--dragging { opacity: 0.4; }
 
-/* An empty Question Section on the sheet: a box its own type drops into. It
-   is planned for the sheet only, and measured with its heading, so it takes
-   the room it is drawn in; exported output never has one. */
-.exam-section-empty {
-  display: flex; align-items: center; justify-content: center;
-  height: 56px; margin: 0 0 26px; border: 1.5px dashed #cdb9a6; border-radius: 6px;
-  color: #8a7564; font: 600 13px/1.4 Arial, Helvetica, sans-serif;
+/* An empty Question Section, on the sheet: while it is pointed at, or a
+   gesture is aimed at it, a note below its heading says it takes questions.
+   It is drawn over the sheet, never in its flow — the Section prints just its
+   heading, and the sheet is laid out exactly as it prints. */
+.exam-section-hidden[data-empty-section] { position: relative; }
+.exam-section-empty-hint {
+  position: absolute; z-index: 3; left: 0; right: 0; top: calc(100% + 4px);
+  display: flex; align-items: center; justify-content: center; height: 40px;
+  border: 1px dashed #cdb9a6; border-radius: 6px;
+  color: #8a7564; background: rgb(255 253 248 / 92%);
+  font: 600 13px/1.4 Arial, Helvetica, sans-serif; pointer-events: none;
 }
-.exam-section-empty[data-active] {
+.exam-section-empty-hint[data-active] {
   border-style: solid; border-color: #9f5037; color: #9f5037; background: #f7e2d5;
 }
-.exam-section-empty-wrap { position: relative; }
 
 /* The target that makes a new Question Section, opened beneath the foot of a
    Section once a gesture's line has rested there. It opens in the sheet's flow,

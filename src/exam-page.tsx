@@ -22,7 +22,6 @@ import {
   AnswerKeyHeading,
   AnswerKeySection,
   PageHeaderContent,
-  EmptySectionBox,
   PageItemMeasureView,
   QuestionContent,
   SectionHeadingContent,
@@ -891,6 +890,7 @@ function EditableSectionHeading({
   item,
   disabled,
   onChange,
+  emptyHint,
   emptyActive,
   newSectionTarget,
   revealTitle,
@@ -899,7 +899,9 @@ function EditableSectionHeading({
   item: SectionHeadingItem
   disabled: boolean
   onChange: SetSectionHeading
-  /** Whether a gesture would land in this Section's empty box. */
+  /** For an empty Section: whether to say it takes questions — only while it
+   *  is pointed at — and whether a gesture would land in it. */
+  emptyHint: boolean
   emptyActive: boolean
   newSectionTarget: NewSectionTargetState | null
   /** Asked, from the Section's controls, to open its cleared heading. */
@@ -913,19 +915,26 @@ function EditableSectionHeading({
   }
   const showTitle = item.title !== '' || focused === 'title' || revealTitle
   const showInstructions = item.instructions !== '' || focused === 'instructions'
-  // An empty Section keeps a box to drop into, and the new-Section target a
-  // gesture opens beneath it.
-  const empty = item.empty && (
-    <div className="exam-section-empty-wrap">
-      <EmptySectionBox item={item} active={emptyActive} />
-      {newSectionTarget && <NewSectionTarget {...newSectionTarget} />}
+  // An empty Section prints just its heading, so that is all the sheet draws
+  // of it: its heading is where a gesture drops into it, and only while it is
+  // pointed at, or aimed at, does it say so, drawn over the sheet below the
+  // heading so the page is laid out exactly as it prints.
+  const emptyMarks = item.empty
+    ? { 'data-empty-section': '', 'data-active': emptyActive ? 'true' : undefined }
+    : {}
+  const hint = item.empty && (emptyHint || emptyActive) && (
+    <div className="exam-section-empty-hint" data-active={emptyActive ? 'true' : undefined}>
+      Drag questions here
     </div>
   )
+  const opened = newSectionTarget && <NewSectionTarget {...newSectionTarget} />
   if (!showTitle && !showInstructions) {
     return (
       <>
-        <div className="exam-section-hidden" data-section-id={item.sectionId} />
-        {empty}
+        <div className="exam-section-hidden" data-section-id={item.sectionId} {...emptyMarks}>
+          {hint}
+        </div>
+        {opened}
       </>
     )
   }
@@ -935,7 +944,9 @@ function EditableSectionHeading({
     <header
       className="exam-section exam-section--editable"
       data-section-id={item.sectionId}
+      {...emptyMarks}
     >
+      {hint}
       {showTitle && (
         <h2 className="section-title" style={styles.title}>
           <SectionHeadingField
@@ -962,7 +973,7 @@ function EditableSectionHeading({
         </p>
       )}
     </header>
-    {empty}
+    {opened}
     </>
   )
 }
@@ -1059,6 +1070,7 @@ function PageItemView({
   sectionIdOf,
   newSectionTarget,
   emptySectionActive,
+  emptySectionPointed,
   revealTitleOf,
   onTitleRevealed,
 }: {
@@ -1073,8 +1085,11 @@ function PageItemView({
   sectionIdOf: (questionId: string) => string
   /** The new-Section target a gesture has opened beneath this item, if any. */
   newSectionTarget: (item: PageItem) => NewSectionTargetState | null
-  /** Whether a gesture would land in this empty Section's box. */
+  /** Whether a gesture would land in this empty Section. */
   emptySectionActive: (sectionId: string) => boolean
+  /** Whether the pointer is in this Section, which an empty one answers by
+   *  saying it takes questions. */
+  emptySectionPointed: (sectionId: string) => boolean
   orderedIds: readonly string[]
   selection: Selection
   onEdit: (questionId: string) => void
@@ -1099,6 +1114,7 @@ function PageItemView({
           item={item}
           disabled={sectionHeadingDisabled}
           onChange={onSectionHeadingChange}
+          emptyHint={emptySectionPointed(item.sectionId)}
           emptyActive={emptySectionActive(item.sectionId)}
           newSectionTarget={newSectionTarget(item)}
           revealTitle={revealTitleOf === item.sectionId}
@@ -1218,7 +1234,7 @@ function usePaginatedExam(
 ): LayoutPlan {
   const { test, answerKey } = selection
   const [plan, setPlan] = useState<LayoutPlan>(() =>
-    planExport({ exam, arrangement, selection, measure: unmeasured, emptySections: true }),
+    planExport({ exam, arrangement, selection, measure: unmeasured }),
   )
   const measured = useRef(false)
   // What the last pagination was for, so this one can tell an edit from a
@@ -1239,7 +1255,6 @@ function usePaginatedExam(
         arrangement,
         selection: { test, answerKey },
         measure: domMeasure,
-        emptySections: true,
       }),
     )
     const schedule = () => {
@@ -1741,6 +1756,7 @@ export function ExamPage({
                 sectionIdOf={sectionIdOf}
                 newSectionTarget={newSectionTarget}
                 emptySectionActive={emptySectionActive}
+                emptySectionPointed={(sectionId) => !drag.source && pointedBand?.sectionId === sectionId}
                 orderedIds={orderedIds}
                 selection={selection}
                 onEdit={onEdit}

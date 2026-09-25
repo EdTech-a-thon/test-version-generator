@@ -703,7 +703,7 @@ describe('Question Sections on the Working Copy', () => {
     expect(sectionContents(store)).toEqual([[m2.id, m1.id, o1.id, m4.id], [], [m3.id]])
   })
 
-  test('a Section a move empties stays on the sheet, and is omitted from export', async () => {
+  test('a Section a move empties stays, on the sheet and in export alike', async () => {
     const { store, m1, m2, o1, m3, m4, first, second } = await twoMultipleChoiceSections()
 
     store.moveInWorkingCopy([m1.id, m2.id], { kind: 'section-end', sectionId: second })
@@ -725,7 +725,7 @@ describe('Question Sections on the Working Copy', () => {
       ),
     )
     expect(printedSections.length).toBeGreaterThan(0)
-    expect(printedSections).not.toContain(first)
+    expect(printedSections).toContain(first)
   })
 
   test('a new-Section target makes one Section, worded for the first question moving, directly below the one given', async () => {

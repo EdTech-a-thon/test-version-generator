@@ -262,8 +262,8 @@ export type SectionHeadingItem = {
   /** The Exam's heading size, present only when it is not `'normal'` — so an
    *  Exam that never chose one plans exactly as it always did. */
   size?: HeadingSize
-  /** A Section with no questions, planned only for the exam sheet, where it is
-   *  a place to put some. Exported output never carries one. */
+  /** A Section with no questions yet. It prints like any other; the sheet
+   *  also offers it as a place to put some. */
   empty?: true
 }
 
@@ -738,35 +738,29 @@ function deriveQuestion(
   }
 }
 
-// The Exam's Sections in their own order. A Section with no questions is
-// omitted entirely from exported output — heading, directions and all — and is
-// planned only for the exam sheet, which asks for it, as somewhere to put
-// questions.
-function deriveItems(
-  exam: Exam,
-  arrangement: Arrangement,
-  emptySections = false,
-): PageItem[] {
+// The Exam's Sections in their own order. A Section with no questions still
+// prints its heading and directions, on the sheet and on paper alike, so
+// every question lands on the same page in both — a Section that showed on the
+// sheet but vanished from the export would move questions between pages.
+function deriveItems(exam: Exam, arrangement: Arrangement): PageItem[] {
   const items: PageItem[] = []
   let number = 1
   for (const section of sectionsOf(exam)) {
     const questions = questionsInSection(exam, arrangement, section.id)
-    if (questions.length > 0 || emptySections) {
-      // A part the teacher cleared is an empty string: it prints nothing, and
-      // a heading cleared of both still holds its place in the plan — at no
-      // height — so the sheet can offer to bring it back.
-      items.push({
-        kind: 'section-heading',
-        sectionId: section.id,
-        title: section.title,
-        instructions: section.instructions,
-        keepWithNext: true,
-        ...(questions.length === 0 ? { empty: true as const } : {}),
-        ...(exam.headingSize && exam.headingSize !== DEFAULT_HEADING_SIZE
-          ? { size: exam.headingSize }
-          : {}),
-      })
-    }
+    // A part the teacher cleared is an empty string: it prints nothing, and a
+    // heading cleared of both still holds its place in the plan — at no height
+    // — so the sheet can offer to bring it back.
+    items.push({
+      kind: 'section-heading',
+      sectionId: section.id,
+      title: section.title,
+      instructions: section.instructions,
+      keepWithNext: true,
+      ...(questions.length === 0 ? { empty: true as const } : {}),
+      ...(exam.headingSize && exam.headingSize !== DEFAULT_HEADING_SIZE
+        ? { size: exam.headingSize }
+        : {}),
+    })
     for (const question of questions) {
       const planned = deriveQuestion(exam, question, arrangement, number)
       items.push(wholeQuestion(planned))
@@ -1244,9 +1238,8 @@ export function buildExportDocument(
   arrangement: Arrangement,
   selection: ExportContentSelection,
   version?: string,
-  emptySections = false,
 ): ExportDocument {
-  const test = deriveItems(exam, arrangement, emptySections)
+  const test = deriveItems(exam, arrangement)
   return {
     title: exam.title,
     arrangement: {
@@ -1305,9 +1298,6 @@ export type PlanRequest = {
   /** The shuffled Version this paper is, named on every page; absent for the
    *  Working Copy's own arrangement, which prints no label. */
   version?: string
-  /** Plan empty Sections too, as the exam sheet does, where each is a place to
-   *  put questions. Never set for anything exported. */
-  emptySections?: boolean
 }
 
 /** Layout resolution, on its own: an Export Document onto sheets. Keeping the
@@ -1369,10 +1359,6 @@ export function planExport({
   selection,
   measure,
   version,
-  emptySections,
 }: PlanRequest): LayoutPlan {
-  return resolveLayout(
-    buildExportDocument(exam, arrangement, selection, version, emptySections),
-    measure,
-  )
+  return resolveLayout(buildExportDocument(exam, arrangement, selection, version), measure)
 }

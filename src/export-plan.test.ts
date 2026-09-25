@@ -1545,6 +1545,7 @@ describe('stored Question Sections', () => {
       ['A', 'Warm Up'],
       ['B', 'Short Answer'],
       ['C', ''],
+      ['D', 'True/False'],
     ])
     expect(plannedQuestions(pages).map(({ id, number }) => [id, number])).toEqual([
       ['m1', 1],
@@ -1557,6 +1558,7 @@ describe('stored Question Sections', () => {
     const mixed: Exam = {
       ...exam,
       questions: [...exam.questions, trueFalse('t1', 'false')],
+      sections: exam.sections!.slice(0, 1),
       sectionOf: { m1: 'A', o1: 'A', m2: 'A', t1: 'A' },
     }
     const pages = render(mixed, arrangementOf(['o1', 't1', 'm2', 'm1']))
@@ -1580,23 +1582,22 @@ describe('stored Question Sections', () => {
       ])
   })
 
-  test('an empty Section is omitted from exported output', () => {
+  test('an empty Section prints its heading and directions, but has no group in the answer key', () => {
     const document = buildExportDocument(exam, arrangement, WHOLE_DOCUMENT)
     expect(
       document.test.some((item) => item.kind === 'section-heading' && item.sectionId === 'D'),
-    ).toBe(false)
+    ).toBe(true)
     expect(
       document.answerKey.some((item) => item.kind === 'answer-key-section' && item.sectionId === 'D'),
     ).toBe(false)
   })
 
-  test('the exam sheet asks for an empty Section too, marked as empty', () => {
+  test('the sheet and the export plan an empty Section alike, marked as empty', () => {
     const sheet = planExport({
       exam,
       arrangement,
       selection: STUDENT_TEST,
       measure: unmeasured,
-      emptySections: true,
     })
     const planned = sheet.pages
       .flatMap((page) => page.items)
