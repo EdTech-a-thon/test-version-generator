@@ -38,8 +38,12 @@ export type PendingImageOccurrence = {
   label?: string
 }
 
-/** Key → the Media Asset that fills it. Absent keys stay Pending Images. */
-export type PendingImageResolution = ReadonlyMap<string, MediaAssetDeclaration>
+/** The picture that fills a Pending Image, and the Authored Image Size it
+ *  arrives at when its size on the Source Document's page is known. */
+export type ResolvedImage = { asset: MediaAssetDeclaration; authoredSize?: number }
+
+/** Key → the picture that fills it. Absent keys stay Pending Images. */
+export type PendingImageResolution = ReadonlyMap<string, ResolvedImage>
 
 type Part = { id: string; where: string; document: SemanticDocument }
 
@@ -112,26 +116,20 @@ export function pendingImagesOf(
     .flatMap((bank) => pendingImagesOfRecord(bank.id, bank.record))
 }
 
-/** A bank's record with every resolved Pending Image made an ordinary image
- *  of its Media Asset, declared once however many places use it. Unresolved
- *  ones are left exactly as they were. */
-export function withResolvedImages(
+/** A bank's record with each Pending Image replaced by what `change` makes
+ *  of it, given its key. */
+function mapPendingImages(
   bankId: string,
   record: ParsedQuestionBankRecord,
-  resolution: PendingImageResolution,
+  change: (key: string, node: SemanticNode) => SemanticNode,
 ): ParsedQuestionBankRecord {
-  const declared = new Map(record.media.map((asset) => [asset.id, asset]))
   const resolveDocument = (questionId: string, partId: string, document: SemanticDocument): SemanticDocument => {
     let index = 0
     const visit = (node: SemanticNode): SemanticNode => {
       if ((node.type === 'inline-image' || node.type === 'block-image') && node.pending) {
-        const asset = resolution.get(keyOf(bankId, questionId, partId, index))
+        const key = keyOf(bankId, questionId, partId, index)
         index += 1
-        if (!asset) return node
-        declared.set(asset.id, asset)
-        const { pending: _pending, ...rest } = node
-        void _pending
-        return { ...rest, asset: asset.id }
+        return change(key, node)
       }
       return node.content ? { ...node, content: node.content.map(visit) } : node
     }
@@ -153,7 +151,51 @@ export function withResolvedImages(
       ? { suggestedAnswer: resolveDocument(question.id, 'suggested-answer', question.suggestedAnswer) }
       : {}),
   }))
-  return { ...record, bank: { ...record.bank, questions }, media: [...declared.values()] }
+  return { ...record, bank: { ...record.bank, questions } }
+}
+
+/** A bank's record with every resolved Pending Image made an ordinary image
+ *  of its Media Asset, declared once however many places use it. Unresolved
+ *  ones are left exactly as they were. */
+export function withResolvedImages(
+  bankId: string,
+  record: ParsedQuestionBankRecord,
+  resolution: PendingImageResolution,
+): ParsedQuestionBankRecord {
+  const declared = new Map(record.media.map((asset) => [asset.id, asset]))
+  const resolved = mapPendingImages(bankId, record, (key, node) => {
+    const picture = resolution.get(key)
+    if (!picture) return node
+    declared.set(picture.asset.id, picture.asset)
+    const { pending: _pending, ...rest } = node
+    void _pending
+    return {
+      ...rest,
+      asset: picture.asset.id,
+      ...(picture.authoredSize !== undefined ? { authoredSize: picture.authoredSize } : {}),
+    }
+  })
+  return { ...resolved, media: [...declared.values()] }
+}
+
+/**
+ * A bank's record with each Pending Image's key written beside what it names,
+ * for a preview that has to know which picture is which after the record has
+ * become editor documents. Only a preview reads it: nothing that is stored or
+ * exported ever carries it.
+ */
+export function withPendingKeys(bankId: string, record: ParsedQuestionBankRecord): ParsedQuestionBankRecord {
+  return mapPendingImages(bankId, record, (key, node) => ({
+    ...node,
+    pending: { ...node.pending, key } as unknown as PendingImageReference,
+  }))
+}
+
+/** The key `withPendingKeys` wrote into an editor image node, if any. */
+export function pendingKeyOf(node: ProseMirrorJSON): string | undefined {
+  const attrs = node.attrs as Record<string, unknown> | null | undefined
+  const pending = attrs?.pending as { key?: unknown } | null | undefined
+  return typeof pending?.key === 'string' ? pending.key : undefined
 }
 
 function hex(bytes: ArrayBuffer): string {
@@ -299,19 +341,22 @@ export function pendingImagesOfQuestions(questions: readonly EditorQuestion[]): 
   })
 }
 
+/** A stored picture's source, and the Authored Image Size it arrives at. */
+export type StoredPicture = { src: string; ratio?: number }
+
 /** A stored Question with each resolved Pending Image given its stored
  *  picture's source, found by the same keys `pendingImagesOfQuestions` gave. */
-export function withStoredPictures<Q extends EditorQuestion>(question: Q, sources: ReadonlyMap<string, string>): Q {
+export function withStoredPictures<Q extends EditorQuestion>(question: Q, sources: ReadonlyMap<string, StoredPicture>): Q {
   const resolve = (part: 'doc' | 'suggestedAnswer', document: ProseMirrorJSON): ProseMirrorJSON => {
     let index = 0
     const visit = (node: ProseMirrorJSON): ProseMirrorJSON => {
       if (pendingImageOf(node)) {
-        const src = sources.get(`${question.id}/${part}/${index}`)
+        const picture = sources.get(`${question.id}/${part}/${index}`)
         index += 1
-        if (!src) return node
+        if (!picture) return node
         const { pending: _pending, ...attrs } = node.attrs as Record<string, unknown>
         void _pending
-        return { ...node, attrs: { ...attrs, src } }
+        return { ...node, attrs: { ...attrs, src: picture.src, ...(picture.ratio !== undefined ? { ratio: picture.ratio } : {}) } }
       }
       return Array.isArray(node.content) ? { ...node, content: editorChildren(node).map(visit) } : node
     }

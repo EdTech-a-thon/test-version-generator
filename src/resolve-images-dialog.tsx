@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
-import type { MediaAssetDeclaration, PendingImageOccurrence } from './pending-images'
+import type { PendingImageOccurrence, PendingImageResolution } from './pending-images'
 import { ResolveImages } from './resolve-images'
-import { acceptedPictures, prefilledPictures, type Resolutions, type ResolvingSource } from './resolved-pictures'
+import { prefilledPictures, resolutionOf, type Resolutions, type ResolvingSource } from './resolved-pictures'
 
 /**
  * Resolve Images reopened after an import, for Pending Images that remain.
@@ -16,8 +16,8 @@ export function ResolveImagesDialog({
 }: {
   occurrences: readonly PendingImageOccurrence[]
   onClose: () => void
-  /** Store the accepted pictures, by occurrence key. */
-  onResolve: (pictures: ReadonlyMap<string, MediaAssetDeclaration>) => Promise<void>
+  /** Store the chosen pictures, by occurrence key. */
+  onResolve: (pictures: PendingImageResolution) => Promise<void>
 }) {
   const [source, setSource] = useState<ResolvingSource | null>(null)
   const [resolutions, setResolutions] = useState<Resolutions>(new Map())
@@ -38,7 +38,7 @@ export function ResolveImagesDialog({
       const analysis = await analyzeSourceDocument(bytes)
       const next = { fileName: file.name, bytes, pageCount: analysis.pageCount, tags: analysis.tags }
       setSource(next)
-      const filled = await prefilledPictures(occurrences.filter(({ key }) => !resolutions.has(key)), next, true)
+      const filled = await prefilledPictures(occurrences.filter(({ key }) => !resolutions.has(key)), next)
       setResolutions((current) => new Map([...filled, ...current]))
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'That PDF could not be read.')
@@ -47,12 +47,12 @@ export function ResolveImagesDialog({
     }
   }
 
-  const accepted = acceptedPictures(resolutions)
+  const chosen = resolutionOf(resolutions, occurrences)
   const done = async () => {
     setSaving(true)
     setError(null)
     try {
-      await onResolve(accepted)
+      await onResolve(chosen)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'The pictures could not be saved.')
       setSaving(false)
@@ -85,7 +85,7 @@ export function ResolveImagesDialog({
         </div>
         <footer className="dialog-actions">
           <button type="button" className="secondary-button" disabled={saving} onClick={onClose}>Cancel</button>
-          <button type="button" className="primary-button" disabled={saving || filling || accepted.size === 0} onClick={() => void done()}>
+          <button type="button" className="primary-button" disabled={saving || filling || chosen.size === 0} onClick={() => void done()}>
             {saving ? 'Saving…' : 'Use these pictures'}
           </button>
         </footer>

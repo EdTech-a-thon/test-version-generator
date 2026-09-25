@@ -16,14 +16,15 @@ import { pendingImageOf, type PendingImageReference, type ProseMirrorJSON } from
  */
 
 /** Dispatched, bubbling, by a “picture needed” block's Resolve button. The
- *  listener resolves it by calling `apply` with an owned image source. */
+ *  listener resolves it by calling `apply` with an owned image source, and
+ *  the Authored Image Size it arrives at when that is known. */
 export const RESOLVE_IMAGE_EVENT = 'test-parrot:resolve-image'
 
 export type ResolveImageRequest = {
   pending: PendingImageReference
   alt: string
   caption: string
-  apply: (src: string) => void
+  apply: (src: string, ratio?: number) => void
 }
 
 const withPending = <Spec extends { attrs?: Record<string, unknown> }>(prev: (ctx: Ctx) => Spec) => (ctx: Ctx): Spec => {
@@ -59,12 +60,14 @@ function pendingView(node: ProseMirrorNode, view: EditorView, getPos: () => numb
       pending,
       alt: String(node.attrs.alt ?? ''),
       caption: String(node.attrs.caption ?? ''),
-      apply: (src) => {
+      apply: (src, ratio) => {
         const pos = getPos()
         if (pos === undefined) return
         const current = view.state.doc.nodeAt(pos)
         if (!current) return
-        view.dispatch(view.state.tr.setNodeMarkup(pos, undefined, { ...current.attrs, src, pending: null }))
+        // Only a block image has a size of its own; an inline one follows its line.
+        const sized = ratio !== undefined && 'ratio' in current.attrs ? { ratio } : {}
+        view.dispatch(view.state.tr.setNodeMarkup(pos, undefined, { ...current.attrs, src, pending: null, ...sized }))
       },
     }
     dom.dispatchEvent(new CustomEvent(RESOLVE_IMAGE_EVENT, { bubbles: true, detail }))

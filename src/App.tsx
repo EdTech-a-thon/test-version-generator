@@ -95,7 +95,7 @@ import {
 } from './pending-image-view'
 import { ResolveImagesDialog } from './resolve-images-dialog'
 import { storedPicture } from './resolved-pictures'
-import { pendingImagesOfQuestions, withStoredPictures, type MediaAssetDeclaration } from './pending-images'
+import { pendingImagesOfQuestions, withStoredPictures, type PendingImageResolution, type StoredPicture } from './pending-images'
 import {
   AlignLeft,
   Check,
@@ -719,7 +719,7 @@ function QuestionDialog({
           onClose={() => setResolving(null)}
           onResolve={async (pictures) => {
             const picture = pictures.get('picture')
-            if (picture) resolving.apply(await storedPicture(picture))
+            if (picture) resolving.apply(await storedPicture(picture.asset), picture.authoredSize)
             setResolving(null)
           }}
         />}
@@ -1540,9 +1540,11 @@ function QuestionBankPage({
   const [detailsBusy, setDetailsBusy] = useState(false)
   const [resolvingPictures, setResolvingPictures] = useState(false)
   const pendingPictures = useMemo(() => pendingImagesOfQuestions(bank.questions), [bank.questions])
-  const resolvePictures = async (pictures: ReadonlyMap<string, MediaAssetDeclaration>) => {
-    const sources = new Map<string, string>()
-    for (const [key, picture] of pictures) sources.set(key, await storedPicture(picture))
+  const resolvePictures = async (pictures: PendingImageResolution) => {
+    const sources = new Map<string, StoredPicture>()
+    for (const [key, picture] of pictures) {
+      sources.set(key, { src: await storedPicture(picture.asset), ...(picture.authoredSize !== undefined ? { ratio: picture.authoredSize } : {}) })
+    }
     let updated = bank
     for (const question of bank.questions) {
       const resolved = withStoredPictures(question, sources)

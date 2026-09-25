@@ -1,94 +1,60 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
-import { Crop, ImagePlus, Images, Upload } from 'lucide-react'
-import type { MediaAssetDeclaration, PendingImageOccurrence } from './pending-images'
+import { Crop, ImagePlus, Images, Trash2, Upload } from 'lucide-react'
+import type { PendingImageOccurrence } from './pending-images'
 import {
+  cropChoice,
+  originName,
   pendingName,
+  pictureSource,
+  placeName,
+  sharingTag,
+  tagChoice,
   tagPicture,
+  uploadChoice,
   type ResolvedPicture,
   type Resolutions,
   type ResolvingSource,
 } from './resolved-pictures'
 import type { ImageTag, PageBox } from './source-document'
+import { namedPage, usePictureChoice, type PictureChoice } from './picture-choice'
 
 /**
- * Resolve Images: the step where a teacher confirms or replaces the picture
- * for each Pending Image — the tagged picture from their Source Document,
- * another of its pictures, a crop of any of its pages, or an uploaded file —
- * or leaves it for later. It ends an import that leaves Pending Images, and is
- * reopened later from a “picture needed” block. It only decides: what it
- * returns is a picture per Pending Image, which the caller writes.
+ * Resolve Images: where a teacher confirms or replaces the picture for each
+ * Pending Image — the tagged picture from their Source Document, another of
+ * its pictures, a crop of any of its pages, or an uploaded file — or leaves it
+ * for later. An import shows it beside the picture in its preview; afterwards
+ * it is reopened from a “picture needed” block as a list. It only decides:
+ * what it returns is a picture per Pending Image, which the caller writes.
  */
 
-const SUPPORTED = new Set(['image/png', 'image/jpeg', 'image/webp'])
-
-async function uploadedPicture(file: File): Promise<MediaAssetDeclaration> {
-  const { mediaAssetOf } = await import('./pending-images')
-  const type = file.type.toLowerCase()
-  if (SUPPORTED.has(type)) {
-    return mediaAssetOf(new Uint8Array(await file.arrayBuffer()), type as MediaAssetDeclaration['mimeType'])
-  }
-  if (!type.startsWith('image/') || type === 'image/svg+xml') throw new Error('Choose a PNG, JPEG or WebP picture.')
-  // Any other picture the browser can draw is normalized to PNG.
-  const bitmap = await createImageBitmap(file)
-  try {
-    const canvas = document.createElement('canvas')
-    canvas.width = bitmap.width
-    canvas.height = bitmap.height
-    canvas.getContext('2d')?.drawImage(bitmap, 0, 0)
-    const png = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'))
-    if (!png) throw new Error('This picture could not be read.')
-    return mediaAssetOf(new Uint8Array(await png.arrayBuffer()), 'image/png')
-  } finally {
-    bitmap.close()
-  }
-}
-
-const pictureSource = (asset: MediaAssetDeclaration) => `data:${asset.mimeType};base64,${asset.bytes}`
-
-const placeName = (occurrence: PendingImageOccurrence) =>
-  occurrence.label ?? (occurrence.where === 'Question'
-    ? `Question ${occurrence.questionNumber}`
-    : `Question ${occurrence.questionNumber}, ${occurrence.where}`)
-
 function statusOf(occurrence: PendingImageOccurrence, picture: ResolvedPicture | undefined, source: ResolvingSource | null) {
-  if (picture) {
-    const from =
-      picture.origin.kind === 'tag'
-        ? `IMG ${picture.origin.tag} from ${source?.fileName ?? 'your PDF'}`
-        : picture.origin.kind === 'crop'
-          ? `Cropped from page ${picture.origin.page}`
-          : `Uploaded ${picture.origin.name}`
-    return picture.accepted ? from : `${from} — not accepted yet`
+  if (picture) return originName(picture, source)
+  const { pending } = occurrence
+  if ('image' in pending && source && !source.tags.some(({ tag }) => tag === pending.image)) {
+    return `Picture needed: ${source.fileName} has no IMG ${pending.image}`
   }
-  if ('image' in occurrence.pending && source && !source.tags.some(({ tag }) => tag === (occurrence.pending as { image: number }).image)) {
-    return `Picture needed: ${source.fileName} has no IMG ${occurrence.pending.image}`
-  }
-  return `Picture needed (${pendingName(occurrence.pending)})`
+  return `Picture needed (${pendingName(pending)})`
 }
 
-/** Which page a picker or a crop opens on: the one the Pending Image names. */
-function namedPage(occurrence: PendingImageOccurrence, source: ResolvingSource): number {
-  if ('page' in occurrence.pending) return Math.min(source.pageCount, occurrence.pending.page)
-  const image = occurrence.pending.image
-  return source.tags.find(({ tag }) => tag === image)?.page ?? 1
-}
-
-function TagChooser({
+export function TagChooser({
   source,
   page,
+  current,
   onChoose,
 }: {
   source: ResolvingSource
   page: number
+  /** The tag whose picture is in place now. */
+  current?: number
   onChoose: (tag: ImageTag) => void
 }) {
   const [thumbnails, setThumbnails] = useState<ReadonlyMap<number, string>>(new Map())
   useEffect(() => {
-    let current = true
+    let live = true
     void Promise.all(
       source.tags.map(async (tag) => [tag.tag, pictureSource(await tagPicture(source, tag))] as const),
-    ).then((entries) => { if (current) setThumbnails(new Map(entries)) }, () => undefined)
-    return () => { current = false }
+    ).then((entries) => { if (live) setThumbnails(new Map(entries)) }, () => undefined)
+    return () => { live = false }
   }, [source])
   const pages = [...new Set(source.tags.map((tag) => tag.page))].sort((a, b) =>
     a === page ? -1 : b === page ? 1 : a - b,
@@ -100,7 +66,13 @@ function TagChooser({
         <h5>Page {number}</h5>
         <div>
           {source.tags.filter((tag) => tag.page === number).map((tag) => (
-            <button key={tag.tag} type="button" aria-label={`Use IMG ${tag.tag}`} onClick={() => onChoose(tag)}>
+            <button
+              key={tag.tag}
+              type="button"
+              aria-label={`Use IMG ${tag.tag}`}
+              aria-pressed={current === tag.tag}
+              onClick={() => onChoose(tag)}
+            >
               {thumbnails.get(tag.tag) ? <img src={thumbnails.get(tag.tag)} alt="" /> : <span className="resolve-image-thumb-loading" />}
               <span>IMG {tag.tag}</span>
             </button>
@@ -111,7 +83,7 @@ function TagChooser({
   </div>
 }
 
-function PageCropper({
+export function PageCropper({
   source,
   startPage,
   onCrop,
@@ -128,17 +100,17 @@ function PageCropper({
   const drag = useRef<{ x: number; y: number } | null>(null)
   const frame = useRef<HTMLDivElement>(null)
   useEffect(() => {
-    let current = true
+    let live = true
     setImage(null)
     setBox(null)
     void import('./source-document')
       .then(({ renderSourcePage, browserRaster }) => renderSourcePage(source.bytes, page, browserRaster))
       .then((png) => {
-        if (!current) return
+        if (!live) return
         const blob = new Blob([png.slice().buffer as ArrayBuffer], { type: 'image/png' })
         setImage(URL.createObjectURL(blob))
       }, () => undefined)
-    return () => { current = false }
+    return () => { live = false }
   }, [source, page])
   useEffect(() => () => { if (image) URL.revokeObjectURL(image) }, [image])
 
@@ -199,8 +171,127 @@ function PageCropper({
   </div>
 }
 
-type Panel = { key: string; kind: 'choose' | 'crop' } | null
+/**
+ * Everything a teacher can do about one Pending Image: see where its picture
+ * came from, pick another of the Source Document's pictures, crop one from a
+ * page, upload one, or leave it for later.
+ */
+export function PictureChoices({
+  occurrence,
+  occurrences,
+  source,
+  resolutions,
+  choice,
+  onCrop,
+  onSourceFile,
+  chooserOpen = true,
+  described = true,
+}: {
+  occurrence: PendingImageOccurrence
+  occurrences: readonly PendingImageOccurrence[]
+  source: ResolvingSource | null
+  resolutions: Resolutions
+  choice: PictureChoice
+  /** Where cropping happens, when it is not here: a page is best cropped
+   *  somewhere larger than a list row or a rail. */
+  onCrop?: () => void
+  /** Offered when there is no Source Document: the teacher drops it again to
+   *  take pictures from it. */
+  onSourceFile?: (file: File) => void
+  chooserOpen?: boolean
+  /** Whether to say what the picture shows, when nothing around it does. */
+  described?: boolean
+}) {
+  const [choosing, setChoosing] = useState(chooserOpen)
+  const [cropping, setCropping] = useState(false)
+  const picture = resolutions.get(occurrence.key)
+  const others = sharingTag(occurrences, occurrence)
+  const name = placeName(occurrence)
+  const tags = source?.tags.length ?? 0
+  return <div className="picture-choices">
+    {described && (occurrence.caption || occurrence.alt) && <p className="resolve-image-description">{occurrence.caption || occurrence.alt}</p>}
+    <p className="resolve-image-status">{choice.working === occurrence.key ? 'Working…' : statusOf(occurrence, picture, source)}</p>
+    {others.length > 0 && (
+      <label className="resolve-image-share">
+        <input
+          type="checkbox"
+          checked={choice.shared(occurrence)}
+          onChange={(event) => choice.share(occurrence, event.target.checked)}
+        />
+        <span>Change the {others.length === 1 ? 'other place' : `${others.length} other places`} that {others.length === 1 ? 'uses' : 'use'} {pendingName(occurrence.pending)} too</span>
+      </label>
+    )}
+    {!source && onSourceFile && (
+      <label className="resolve-images-source">
+        <ImagePlus aria-hidden="true" />
+        <span>Drop your original PDF here to take pictures from it, or upload this picture.</span>
+        <input
+          type="file"
+          accept="application/pdf,.pdf"
+          aria-label="Your original PDF"
+          onChange={(event) => {
+            const file = event.target.files?.[0]
+            event.target.value = ''
+            if (file) onSourceFile(file)
+          }}
+        />
+      </label>
+    )}
+    {source && tags > 0 && !chooserOpen && (
+      <button type="button" className="secondary-button" aria-expanded={choosing} onClick={() => setChoosing(!choosing)}>
+        <Images aria-hidden="true" />{picture ? 'Choose another picture' : 'Choose a picture'}
+      </button>
+    )}
+    {source && choosing && (
+      <TagChooser
+        source={source}
+        page={namedPage(occurrence, source)}
+        current={picture?.origin.kind === 'tag' ? picture.origin.tag : undefined}
+        onChoose={(tag) => void choice.run(occurrence, () => tagChoice(source, tag)).then((done) => { if (done && !chooserOpen) setChoosing(false) })}
+      />
+    )}
+    <div className="resolve-image-actions">
+      {source && (
+        <button
+          type="button"
+          className="secondary-button"
+          aria-expanded={onCrop ? undefined : cropping}
+          onClick={() => (onCrop ? onCrop() : setCropping(!cropping))}
+        >
+          <Crop aria-hidden="true" />Crop from a page
+        </button>
+      )}
+      <label className="secondary-button resolve-image-upload">
+        <Upload aria-hidden="true" />Upload a file
+        <input
+          type="file"
+          accept="image/png,image/jpeg,image/webp,image/*"
+          aria-label={`Upload a picture for ${name}`}
+          onChange={(event) => {
+            const file = event.target.files?.[0]
+            event.target.value = ''
+            if (file) void choice.run(occurrence, () => uploadChoice(file))
+          }}
+        />
+      </label>
+      {picture && (
+        <button type="button" className="secondary-button" onClick={() => choice.set(occurrence, null)}>
+          <Trash2 aria-hidden="true" />Leave for later
+        </button>
+      )}
+    </div>
+    {cropping && source && !onCrop && (
+      <PageCropper
+        source={source}
+        startPage={namedPage(occurrence, source)}
+        onCancel={() => setCropping(false)}
+        onCrop={(page, box) => void choice.run(occurrence, () => cropChoice(source, page, box)).then((done) => { if (done) setCropping(false) })}
+      />
+    )}
+  </div>
+}
 
+/** Every remaining Pending Image as a list, for resolving after an import. */
 export function ResolveImages({
   occurrences,
   source,
@@ -213,52 +304,12 @@ export function ResolveImages({
   source: ResolvingSource | null
   resolutions: Resolutions
   onChange: (next: Resolutions) => void
-  /** Offered when there is no Source Document: the teacher drops it again to
-   *  take pictures from it. */
   onSourceFile?: (file: File) => void
   /** Whether tagged pictures are still being taken from the document. */
   filling?: boolean
 }) {
-  const [panel, setPanel] = useState<Panel>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [working, setWorking] = useState<string | null>(null)
-  const [shareAll, setShareAll] = useState<Record<string, boolean>>({})
-
-  /** The places a change to one Pending Image offers to change with it: the
-   *  others naming the same tag. */
-  const sharing = (occurrence: PendingImageOccurrence) =>
-    'image' in occurrence.pending
-      ? occurrences.filter(
-          (other) => other.key !== occurrence.key && 'image' in other.pending && other.pending.image === (occurrence.pending as { image: number }).image,
-        )
-      : []
-
-  const set = (occurrence: PendingImageOccurrence, picture: ResolvedPicture | null) => {
-    const next = new Map(resolutions)
-    const keys = [occurrence.key, ...((shareAll[occurrence.key] ?? true) ? sharing(occurrence).map(({ key }) => key) : [])]
-    for (const key of keys) {
-      if (picture) next.set(key, picture)
-      else next.delete(key)
-    }
-    onChange(next)
-  }
-
-  const run = async (occurrence: PendingImageOccurrence, make: () => Promise<ResolvedPicture>) => {
-    setError(null)
-    setWorking(occurrence.key)
-    try {
-      set(occurrence, await make())
-      setPanel(null)
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'That picture could not be used.')
-    } finally {
-      setWorking(null)
-    }
-  }
-
-  const filled = occurrences.filter(({ key }) => resolutions.has(key))
-  const acceptedCount = filled.filter(({ key }) => resolutions.get(key)!.accepted).length
-  const unaccepted = filled.length - acceptedCount
+  const choice = usePictureChoice(occurrences, resolutions, onChange)
+  const ready = occurrences.filter(({ key }) => resolutions.has(key)).length
 
   return <section className="resolve-images" aria-labelledby="resolve-images-heading">
     <header className="resolve-images-head">
@@ -267,18 +318,10 @@ export function ResolveImages({
         <p role="status">
           {filling
             ? 'Taking pictures from your PDF…'
-            : `${acceptedCount} of ${occurrences.length} ${occurrences.length === 1 ? 'picture' : 'pictures'} ready.`}
+            : `${ready} of ${occurrences.length} ${occurrences.length === 1 ? 'picture' : 'pictures'} ready.`}
           {' '}Any left unresolved stay as “picture needed” and can be added later.
         </p>
       </div>
-      <button
-        type="button"
-        className="secondary-button"
-        disabled={unaccepted === 0}
-        onClick={() => onChange(new Map([...resolutions].map(([key, picture]) => [key, { ...picture, accepted: true }])))}
-      >
-        Accept all
-      </button>
     </header>
     {!source && onSourceFile && (
       <label className="resolve-images-source">
@@ -296,14 +339,12 @@ export function ResolveImages({
         />
       </label>
     )}
-    {error && <p className="home-error" role="alert">{error}</p>}
+    {choice.error && <p className="home-error" role="alert">{choice.error}</p>}
     <ol className="resolve-images-list">
       {occurrences.map((occurrence) => {
         const picture = resolutions.get(occurrence.key)
-        const others = sharing(occurrence)
         const name = placeName(occurrence)
-        const open = panel?.key === occurrence.key ? panel.kind : null
-        return <li key={occurrence.key} className="resolve-image" aria-label={name} data-accepted={picture?.accepted ? 'true' : undefined}>
+        return <li key={occurrence.key} className="resolve-image" aria-label={name} data-accepted={picture ? 'true' : undefined}>
           <div className="resolve-image-picture">
             {picture
               ? <img src={pictureSource(picture.asset)} alt={occurrence.alt ?? `Picture for ${name}`} />
@@ -311,71 +352,14 @@ export function ResolveImages({
           </div>
           <div className="resolve-image-body">
             <h4>{name}</h4>
-            {(occurrence.caption || occurrence.alt) && <p className="resolve-image-description">{occurrence.caption || occurrence.alt}</p>}
-            <p className="resolve-image-status">{working === occurrence.key ? 'Working…' : statusOf(occurrence, picture, source)}</p>
-            {others.length > 0 && (
-              <label className="resolve-image-share">
-                <input
-                  type="checkbox"
-                  checked={shareAll[occurrence.key] ?? true}
-                  onChange={(event) => setShareAll({ ...shareAll, [occurrence.key]: event.target.checked })}
-                />
-                <span>Change the {others.length === 1 ? 'other place' : `${others.length} other places`} that {others.length === 1 ? 'uses' : 'use'} {pendingName(occurrence.pending)} too</span>
-              </label>
-            )}
-            <div className="resolve-image-actions">
-              {picture && !picture.accepted && (
-                <button type="button" className="primary-button" onClick={() => set(occurrence, { ...picture, accepted: true })}>Accept</button>
-              )}
-              {source && source.tags.length > 0 && (
-                <button type="button" className="secondary-button" aria-expanded={open === 'choose'} onClick={() => setPanel(open === 'choose' ? null : { key: occurrence.key, kind: 'choose' })}>
-                  <Images aria-hidden="true" />{picture ? 'Choose another picture' : 'Choose a picture'}
-                </button>
-              )}
-              {source && (
-                <button type="button" className="secondary-button" aria-expanded={open === 'crop'} onClick={() => setPanel(open === 'crop' ? null : { key: occurrence.key, kind: 'crop' })}>
-                  <Crop aria-hidden="true" />Crop from a page
-                </button>
-              )}
-              <label className="secondary-button resolve-image-upload">
-                <Upload aria-hidden="true" />Upload a file
-                <input
-                  type="file"
-                  accept="image/png,image/jpeg,image/webp,image/*"
-                  aria-label={`Upload a picture for ${name}`}
-                  onChange={(event) => {
-                    const file = event.target.files?.[0]
-                    event.target.value = ''
-                    if (file) void run(occurrence, async () => ({ asset: await uploadedPicture(file), origin: { kind: 'upload', name: file.name }, accepted: true }))
-                  }}
-                />
-              </label>
-              {picture && (
-                <button type="button" className="secondary-button" onClick={() => set(occurrence, null)}>Leave for later</button>
-              )}
-            </div>
-            {open === 'choose' && source && (
-              <TagChooser
-                source={source}
-                page={namedPage(occurrence, source)}
-                onChoose={(tag) => void run(occurrence, async () => ({ asset: await tagPicture(source, tag), origin: { kind: 'tag', tag: tag.tag }, accepted: true }))}
-              />
-            )}
-            {open === 'crop' && source && (
-              <PageCropper
-                source={source}
-                startPage={namedPage(occurrence, source)}
-                onCancel={() => setPanel(null)}
-                onCrop={(page, box) => void run(occurrence, async () => {
-                  const [{ cropSourcePage, browserRaster }, { mediaAssetOf }] = await Promise.all([
-                    import('./source-document'),
-                    import('./pending-images'),
-                  ])
-                  const png = await cropSourcePage(source.bytes, page, box, browserRaster)
-                  return { asset: await mediaAssetOf(png, 'image/png'), origin: { kind: 'crop', page }, accepted: true }
-                })}
-              />
-            )}
+            <PictureChoices
+              occurrence={occurrence}
+              occurrences={occurrences}
+              source={source}
+              resolutions={resolutions}
+              choice={choice}
+              chooserOpen={false}
+            />
           </div>
         </li>
       })}

@@ -1,5 +1,5 @@
-import { useEffect, useId, useMemo, useRef, useState } from 'react'
-import { Check, ChevronRight, Copy, FileText, Library, UploadCloud, type LucideIcon } from 'lucide-react'
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
+import { Check, ChevronRight, Copy, FileText, ImageIcon, Library, UploadCloud, type LucideIcon } from 'lucide-react'
 import extractInstructions from '../public/extract.md?raw'
 import { fillImageTags } from './image-tag-list'
 import {
@@ -14,7 +14,7 @@ import { TopicBadge } from './badges'
 import type { Question } from './exam'
 import { QuestionReading } from './question-reading'
 import type { QuestionReadingContent } from './question-reading-content'
-import type { ProseMirrorJSON } from './question-doc'
+import { pendingImageOf, type ProseMirrorJSON } from './question-doc'
 import type { ImportProposal, ProposedBank, ProposedExam } from './package-import'
 import {
   deniedBanksOf,
@@ -32,9 +32,30 @@ import { planExport, type LayoutPlan } from './export-plan'
 import { domMeasure } from './dom-measure'
 import { ExportPreview } from './exam-page'
 import { inspectUploadedFile, isRecordFile, needsConversion as fileNeedsConversion } from './question-bank-upload'
-import { checkAgainstSourceDocument, pendingImagesOf, type PendingImageResolution, type SourceDocumentCheck } from './pending-images'
-import { ResolveImages } from './resolve-images'
-import { acceptedPictures, prefilledPictures, type Resolutions, type ResolvingSource } from './resolved-pictures'
+import {
+  checkAgainstSourceDocument,
+  pendingImagesOf,
+  pendingKeyOf,
+  withPendingKeys,
+  type PendingImageOccurrence,
+  type PendingImageResolution,
+  type SourceDocumentCheck,
+} from './pending-images'
+import { PageCropper, PictureChoices } from './resolve-images'
+import { namedPage, usePictureChoice } from './picture-choice'
+import {
+  cropChoice,
+  estimatedSize,
+  originName,
+  pictureSource,
+  placeName,
+  prefilledPictures,
+  resolutionOf,
+  type ResolvedPicture,
+  type Resolutions,
+  type ResolvingSource,
+} from './resolved-pictures'
+import { PictureSlotContext, type PictureSlot } from './picture-slot'
 import { discardWaitingImport, readWaitingImport, type WaitingImport } from './waiting-import'
 import { SourceDocumentSteps } from './source-document-steps'
 import { kindOfFile, startWaitingImport } from './source-file'
@@ -74,19 +95,38 @@ function RailHead({ kind, name, allowed }: { kind: Kind; name: string; allowed: 
   </header>
 }
 
+/** A picture the preview draws in a Pending Image's place. */
+type PreviewPicture = { src: string; ratio?: number }
+
 /**
- * Point a preview document's images at the bytes the file carries.
+ * Point a preview document's images at the bytes the file carries, and each
+ * Pending Image at the picture chosen for it.
  *
  * `recordDocumentToEditorNodes` addresses an image as `/local-images/<hash>`,
  * which resolves only for media that already lives here. Nothing has been
  * imported yet, so the preview would draw every image broken; the file's own
  * Media Assets are the only copy that exists, and they are already base64.
+ * A Pending Image carries its key (`withPendingKeys`), which the preview keeps
+ * as `pictureKey` so that clicking it opens that picture's choices.
  */
 function resolveMedia(
   node: ProseMirrorJSON,
   sources: ReadonlyMap<string, string>,
+  pictures: ReadonlyMap<string, PreviewPicture>,
 ): ProseMirrorJSON {
   const attrs = node.attrs as Record<string, unknown> | null | undefined
+  const key = pendingKeyOf(node)
+  if (key) {
+    const picture = pictures.get(key)
+    const { pending: _pending, ...rest } = attrs ?? {}
+    void _pending
+    return {
+      ...node,
+      attrs: picture
+        ? { ...rest, src: picture.src, ...(picture.ratio !== undefined ? { ratio: picture.ratio } : {}), pictureKey: key }
+        : { ...rest, pending: pendingImageOf(node), pictureKey: key },
+    }
+  }
   const resolved =
     attrs && typeof attrs.src === 'string' ? sources.get(attrs.src) : undefined
   return {
@@ -95,7 +135,7 @@ function resolveMedia(
     ...(Array.isArray(node.content)
       ? {
           content: (node.content as ProseMirrorJSON[]).map((child) =>
-            resolveMedia(child, sources),
+            resolveMedia(child, sources, pictures),
           ),
         }
       : {}),
@@ -124,6 +164,7 @@ async function examPreviewPlan(
   proposal: ImportProposal,
   examKey: string,
   sources: ReadonlyMap<string, string>,
+  pictures: ReadonlyMap<string, PreviewPicture>,
 ): Promise<LayoutPlan | null> {
   // Loaded on demand, like the importer: it brings the record parsers.
   const { planImport } = await import('./package-commit')
@@ -133,7 +174,7 @@ async function examPreviewPlan(
   if (!planned || planned.saved.workingCopy.questionIds.length === 0) return null
   const resolve = (question: Question): Question => ({
     ...question,
-    doc: resolveMedia(question.doc, sources),
+    doc: resolveMedia(question.doc, sources, pictures),
   })
   const { exam, arrangement } = selectedExam(
     { questions: planned.saved.questionBank.questions.map(resolve) },
@@ -213,20 +254,24 @@ function ExamPreview({
   proposal,
   exam,
   sources,
+  pictures,
 }: {
   proposal: ImportProposal
   exam: ProposedExam
   sources: ReadonlyMap<string, string>
+  pictures: ReadonlyMap<string, PreviewPicture>
 }) {
   const [plan, setPlan] = useState<LayoutPlan | null | 'loading'>('loading')
+  // Another Test starts from nothing; a changed picture keeps the pages on
+  // screen, where the teacher is looking, until they are laid out again.
+  useEffect(() => setPlan('loading'), [exam.key])
   useEffect(() => {
     let current = true
-    setPlan('loading')
-    examPreviewPlan(proposal, exam.key, sources)
+    examPreviewPlan(proposal, exam.key, sources, pictures)
       .catch(() => null)
       .then((next) => { if (current) setPlan(next) })
     return () => { current = false }
-  }, [proposal, exam.key, sources])
+  }, [proposal, exam.key, sources, pictures])
   return plan === 'loading'
     ? <p className="bank-import-empty" role="status">Laying out pages…</p>
     : plan
@@ -257,7 +302,7 @@ function examTypeCounts(
 }
 
 /** One bank's facts, in the rows the Question Bank import has always shown. */
-function BankSummary({ bank }: { bank: ProposedBank }) {
+function BankSummary({ bank, picturesNeeded }: { bank: ProposedBank; picturesNeeded: number }) {
   const { record, summary } = bank
   return <>
     <dl className="bank-import-summary">
@@ -273,10 +318,16 @@ function BankSummary({ bank }: { bank: ProposedBank }) {
           <dd>{summary.questionsWithoutCorrectAnswer}</dd>
         </div>
       )}
-      {summary.pendingImages > 0 && (
+      {summary.pendingImages > picturesNeeded && (
+        <div>
+          <dt>Pictures filled in</dt>
+          <dd>{summary.pendingImages - picturesNeeded}</dd>
+        </div>
+      )}
+      {picturesNeeded > 0 && (
         <div className="is-warning">
           <dt>Pictures needed</dt>
-          <dd>{summary.pendingImages}</dd>
+          <dd>{picturesNeeded}</dd>
         </div>
       )}
       <div>
@@ -345,6 +396,60 @@ function TabLink({
   </button>
 }
 
+/**
+ * A Pending Image in the preview, drawn with the picture chosen for it — or
+ * as “picture needed” — and a badge saying which. Clicking it opens its
+ * choices in the rail. The badge sits over the picture, taking up no room, so
+ * the page lays out as it will print.
+ */
+function PreviewPictureButton({
+  occurrence,
+  resolved,
+  source,
+  inline,
+  selected,
+  onPick,
+  children,
+}: {
+  occurrence: PendingImageOccurrence
+  resolved: ResolvedPicture | undefined
+  source: ResolvingSource | null
+  inline: boolean
+  selected: boolean
+  onPick: () => void
+  children: ReactNode
+}) {
+  const badge = !resolved
+    ? 'Add a picture'
+    : resolved.origin.kind === 'tag'
+      ? `Detected image · IMG ${resolved.origin.tag}`
+      : resolved.origin.kind === 'crop'
+        ? `Cropped from page ${resolved.origin.page}`
+        : 'Uploaded'
+  return <span
+    className="preview-picture"
+    data-inline={inline ? 'true' : undefined}
+    data-state={resolved ? 'filled' : 'needed'}
+    data-selected={selected ? 'true' : undefined}
+    role="button"
+    tabIndex={0}
+    aria-pressed={selected}
+    aria-label={`${placeName(occurrence)}: ${resolved ? originName(resolved, source) : 'picture needed'}. Change picture`}
+    onClick={(event) => {
+      event.stopPropagation()
+      onPick()
+    }}
+    onKeyDown={(event) => {
+      if (event.key !== 'Enter' && event.key !== ' ') return
+      event.preventDefault()
+      onPick()
+    }}
+  >
+    {children}
+    <span className="preview-picture-badge" aria-hidden="true">{badge}</span>
+  </span>
+}
+
 const focusKey = (focus: Focus) => (focus.kind === 'bank' ? `bank:${focus.id}` : `exam:${focus.key}`)
 
 export function QuestionBankImportDialog({
@@ -395,8 +500,11 @@ export function QuestionBankImportDialog({
   /** Set when the file under review was paired with the waiting import: how
    *  well it matches the Source Document. */
   const [paired, setPaired] = useState<SourceDocumentCheck | null>(null)
-  const [resolving, setResolving] = useState(false)
   const [filling, setFilling] = useState(false)
+  /** The Pending Image whose choices the rail shows, picked in the preview,
+   *  and whether its page is being cropped in the preview's place. */
+  const [picked, setPicked] = useState<string | null>(null)
+  const [cropping, setCropping] = useState(false)
   const [resolutions, setResolutions] = useState<Resolutions>(new Map())
   /** A Source Document dropped into Resolve Images for a file that was not
    *  paired with a waiting import. Used for this import only, never kept. */
@@ -410,6 +518,13 @@ export function QuestionBankImportDialog({
   const busy = phase !== 'choose'
   const busyRef = useRef(busy)
   busyRef.current = busy
+  const backOutRef = useRef<() => boolean>(() => false)
+  backOutRef.current = () => {
+    if (cropping) setCropping(false)
+    else if (picked) setPicked(null)
+    else return false
+    return true
+  }
   useModalScrollLock()
 
   useEffect(() => {
@@ -430,6 +545,8 @@ export function QuestionBankImportDialog({
     const keydown = (event: KeyboardEvent) => {
       if (event.key === 'Escape' && !busyRef.current) {
         event.preventDefault()
+        // A picture's choices close before the dialog does.
+        if (backOutRef.current()) return
         onClose()
         return
       }
@@ -518,7 +635,8 @@ export function QuestionBankImportDialog({
     setPhase('inspecting')
     setProposal(null)
     setPaired(null)
-    setResolving(false)
+    setPicked(null)
+    setCropping(false)
     setResolutions(new Map())
     setSuppliedSource(null)
     setError(null)
@@ -565,7 +683,8 @@ export function QuestionBankImportDialog({
     setProposal(null)
     setSelection(null)
     setPaired(null)
-    setResolving(false)
+    setPicked(null)
+    setCropping(false)
     setResolutions(new Map())
     setError(null)
   }
@@ -580,10 +699,10 @@ export function QuestionBankImportDialog({
   }, [])
 
   const sources = useMemo(() => (proposal ? mediaSources(proposal) : new Map<string, string>()), [proposal])
-  const previewDocument = useMemo(
-    () => (document: SemanticDocument) =>
-      recordDocumentToEditorNodes(document).map((node) => resolveMedia(node, sources)),
-    [sources],
+  /** The proposal the preview draws: each Pending Image knows its key. */
+  const previewProposal = useMemo(
+    () => proposal && { ...proposal, banks: proposal.banks.map((bank) => ({ ...bank, record: withPendingKeys(bank.id, bank.record) })) },
+    [proposal],
   )
 
   const bankName = (id: string) => {
@@ -601,6 +720,44 @@ export function QuestionBankImportDialog({
   )
   const resolvingSource: ResolvingSource | null = paired && waiting ? waiting : suppliedSource
   const mismatch = paired !== null && !paired.matches
+  const choice = usePictureChoice(occurrences, resolutions, setResolutions)
+  const pickedOccurrence = occurrences.find(({ key }) => key === picked)
+
+  /** Each Pending Image's picture, at the size it will be imported at. */
+  const pictures = useMemo(() => {
+    const drawn = new Map<string, PreviewPicture>()
+    for (const occurrence of occurrences) {
+      const picture = resolutions.get(occurrence.key)
+      if (!picture) continue
+      const ratio = estimatedSize(picture, occurrence)
+      drawn.set(occurrence.key, { src: pictureSource(picture.asset), ...(ratio !== undefined ? { ratio } : {}) })
+    }
+    return drawn
+  }, [occurrences, resolutions])
+  const previewDocument = useMemo(
+    () => (document: SemanticDocument) =>
+      recordDocumentToEditorNodes(document).map((node) => resolveMedia(node, sources, pictures)),
+    [sources, pictures],
+  )
+
+  /** Take every tagged picture out of the Source Document, for each Pending
+   *  Image that has none yet. */
+  const fill = (source: ResolvingSource) => {
+    const unfilled = occurrences.filter(({ key }) => !resolutions.has(key))
+    if (unfilled.length === 0) return
+    setFilling(true)
+    void prefilledPictures(unfilled, source)
+      .then((filled) => setResolutions((current) => new Map([...filled, ...current])))
+      .finally(() => setFilling(false))
+  }
+  // The pictures are filled in as soon as the file is shown — unless it seems
+  // to come from another test, when the teacher asks for them.
+  const filledFor = useRef<unknown>(null)
+  useEffect(() => {
+    if (!proposal || !resolvingSource || mismatch || filledFor.current === proposal) return
+    filledFor.current = proposal
+    fill(resolvingSource)
+  })
 
   const supplySource = async (file: File) => {
     setError(null)
@@ -611,7 +768,7 @@ export function QuestionBankImportDialog({
       const analysis = await analyzeSourceDocument(bytes)
       const source = { fileName: file.name, bytes, pageCount: analysis.pageCount, tags: analysis.tags }
       setSuppliedSource(source)
-      const filled = await prefilledPictures(occurrences.filter(({ key }) => !resolutions.has(key)), source, true)
+      const filled = await prefilledPictures(occurrences.filter(({ key }) => !resolutions.has(key)), source)
       setResolutions((current) => new Map([...filled, ...current]))
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'That PDF could not be read.')
@@ -620,24 +777,13 @@ export function QuestionBankImportDialog({
     }
   }
 
-  const startResolving = () => {
-    setResolving(true)
-    if (!resolvingSource) return
-    const unfilled = occurrences.filter(({ key }) => !resolutions.has(key))
-    if (unfilled.length === 0) return
-    setFilling(true)
-    void prefilledPictures(unfilled, resolvingSource, !mismatch)
-      .then((filled) => setResolutions((current) => new Map([...filled, ...current])))
-      .finally(() => setFilling(false))
-  }
-
   const confirm = async () => {
     if (!proposal || !selection || busy || !importable) return
     setPhase('saving')
     setError(null)
     try {
       await onImport(proposal, selection, {
-        resolution: resolving ? acceptedPictures(resolutions) : new Map(),
+        resolution: resolutionOf(resolutions, occurrences),
         finishesWaitingImport: paired !== null,
       })
     } catch (reason) {
@@ -656,8 +802,31 @@ export function QuestionBankImportDialog({
   const entryId = (item: Focus) => `${listId}-${focusKey(item)}`
   const showItem = (next: Focus, moveFocus = false) => {
     setFocus(next)
+    setPicked(null)
+    setCropping(false)
     if (moveFocus) requestAnimationFrame(() => document.getElementById(entryId(next))?.focus())
   }
+
+  const pick = (key: string) => {
+    setPicked(key)
+    setCropping(false)
+  }
+  const slot: PictureSlot = (key, picture, inline) => {
+    const occurrence = occurrences.find((candidate) => candidate.key === key)
+    if (!occurrence) return picture
+    const resolved = resolutions.get(key)
+    return <PreviewPictureButton
+      occurrence={occurrence}
+      resolved={resolved}
+      source={resolvingSource}
+      inline={inline}
+      selected={picked === key}
+      onPick={() => pick(key)}
+    >
+      {picture}
+    </PreviewPictureButton>
+  }
+  const detected = occurrences.filter(({ key }) => resolutions.has(key)).length
 
   /** One kind's entries in the Import List: a section that opens and closes,
    *  headed by how many of that kind are coming, with a checkbox per item for
@@ -713,7 +882,6 @@ export function QuestionBankImportDialog({
         className={[
           'bank-import-dialog',
           proposal ? 'bank-import-dialog--review' : '',
-          proposal && resolving ? 'bank-import-dialog--resolve' : '',
         ]
           .filter(Boolean)
           .join(' ')}
@@ -841,26 +1009,20 @@ export function QuestionBankImportDialog({
                 : ''}
               You can import it anyway, or choose another file.
             </p>
-            <button type="button" className="secondary-button" disabled={busy} onClick={chooseAnother}>
-              Choose another file
-            </button>
+            <span className="bank-import-assist-actions">
+              {resolvingSource && occurrences.some(({ key }) => !resolutions.has(key)) && (
+                <button type="button" className="secondary-button" disabled={busy || filling} onClick={() => fill(resolvingSource)}>
+                  Use its pictures anyway
+                </button>
+              )}
+              <button type="button" className="secondary-button" disabled={busy} onClick={chooseAnother}>
+                Choose another file
+              </button>
+            </span>
           </div>
         )}
 
-        {proposal && selection && resolving && (
-          <div className="bank-import-resolve">
-            <ResolveImages
-              occurrences={occurrences}
-              source={resolvingSource}
-              resolutions={resolutions}
-              onChange={setResolutions}
-              onSourceFile={(file) => void supplySource(file)}
-              filling={filling}
-            />
-          </div>
-        )}
-
-        {proposal && selection && focus && !resolving && (
+        {proposal && selection && focus && (
           <section className="bank-import-body" aria-label="Import confirmation">
             <nav className="bank-import-list" aria-labelledby={`${listId}-heading`}>
               <header>
@@ -902,11 +1064,69 @@ export function QuestionBankImportDialog({
               data-kind={focusedExam ? 'exam' : 'bank'}
               aria-label={focusedExam ? 'Test preview' : 'Question Bank preview'}
             >
-              {focusedBank && <BankPreview bank={focusedBank} previewDocument={previewDocument} />}
-              {focusedExam && <ExamPreview proposal={proposal} exam={focusedExam} sources={sources} />}
+              {occurrences.length > 0 && !cropping && (
+                <p className="bank-import-picture-hint" role="status">
+                  <ImageIcon aria-hidden="true" />
+                  <span>
+                    {filling
+                      ? `Finding your pictures in ${resolvingSource?.fileName ?? 'your PDF'}…`
+                      : detected > 0
+                        ? `${detected === occurrences.length ? `All ${plural(detected, 'picture')}` : `${detected} of ${plural(occurrences.length, 'picture')}`} detected from ${resolvingSource?.fileName ?? 'your PDF'}. Click a picture to change it.`
+                        : `${plural(occurrences.length, 'picture')} needed. Click one to add it, or add them after importing.`}
+                  </span>
+                </p>
+              )}
+              {cropping && pickedOccurrence && resolvingSource
+                ? <PageCropper
+                    key={pickedOccurrence.key}
+                    source={resolvingSource}
+                    startPage={namedPage(pickedOccurrence, resolvingSource)}
+                    onCancel={() => setCropping(false)}
+                    onCrop={(page, box) =>
+                      void choice
+                        .run(pickedOccurrence, () => cropChoice(resolvingSource, page, box))
+                        .then((done) => { if (done) setCropping(false) })}
+                  />
+                : <PictureSlotContext.Provider value={slot}>
+                    {focusedBank && previewProposal && (
+                      <BankPreview
+                        bank={previewProposal.banks.find(({ id }) => id === focusedBank.id)!}
+                        previewDocument={previewDocument}
+                      />
+                    )}
+                    {focusedExam && previewProposal && (
+                      <ExamPreview proposal={previewProposal} exam={focusedExam} sources={sources} pictures={pictures} />
+                    )}
+                  </PictureSlotContext.Provider>}
             </div>
 
-            {focusedBank && (() => {
+            {pickedOccurrence && (
+              <aside className="bank-import-controls bank-import-picture" aria-label={`Picture for ${placeName(pickedOccurrence)}`}>
+                <header className="bank-import-rail-head" data-kind="picture">
+                  <p><ImageIcon aria-hidden="true" />Picture</p>
+                  {/* Named by what it shows: a Test numbers its Questions by
+                      Section, so the bank's number would name another one. */}
+                  <h3>{pickedOccurrence.caption || pickedOccurrence.alt || 'Picture'}</h3>
+                </header>
+                {choice.error && <p className="home-error" role="alert">{choice.error}</p>}
+                <PictureChoices
+                  key={pickedOccurrence.key}
+                  occurrence={pickedOccurrence}
+                  occurrences={occurrences}
+                  source={resolvingSource}
+                  resolutions={resolutions}
+                  choice={choice}
+                  onCrop={() => setCropping(true)}
+                  described={false}
+                  onSourceFile={(file) => void supplySource(file)}
+                />
+                <button type="button" className="primary-button bank-import-picture-done" onClick={() => { setPicked(null); setCropping(false) }}>
+                  Done
+                </button>
+              </aside>
+            )}
+
+            {!pickedOccurrence && focusedBank && (() => {
               const bank = focusedBank
               const chosen = selection.banks[bank.id]!
               const name = bank.record.bank.name || 'Untitled Question Bank'
@@ -919,7 +1139,10 @@ export function QuestionBankImportDialog({
               >
                 <RailHead kind="bank" name={name} allowed={chosen.allowed} />
 
-                <BankSummary bank={bank} />
+                <BankSummary
+                  bank={bank}
+                  picturesNeeded={occurrences.filter(({ bankId, key }) => bankId === bank.id && !resolutions.has(key)).length}
+                />
 
                 {proposal.exams.length > 0 && <section className="bank-import-uses">
                   <h4>Used by</h4>
@@ -984,7 +1207,7 @@ export function QuestionBankImportDialog({
               </aside>
             })()}
 
-            {focusedExam && (() => {
+            {!pickedOccurrence && focusedExam && (() => {
               const exam = focusedExam
               const chosen = selection.exams[exam.key]!
               const name = exam.name || 'Untitled Test'
@@ -1053,12 +1276,7 @@ export function QuestionBankImportDialog({
           >
             {waiting && !proposal ? 'Close' : 'Cancel'}
           </button>
-          {proposal && selection && resolving && (
-            <button type="button" className="secondary-button" disabled={busy} onClick={() => setResolving(false)}>
-              Back
-            </button>
-          )}
-          {proposal && selection && (occurrences.length === 0 || resolving) && (
+          {proposal && selection && (
             <button
               type="button"
               className="primary-button"
@@ -1067,16 +1285,6 @@ export function QuestionBankImportDialog({
               onClick={() => void confirm()}
             >
               {phase === 'saving' ? 'Importing…' : mismatch ? 'Import anyway' : 'Import'}
-            </button>
-          )}
-          {proposal && selection && occurrences.length > 0 && !resolving && (
-            <button
-              type="button"
-              className="primary-button"
-              disabled={busy || !importable}
-              onClick={startResolving}
-            >
-              {mismatch ? 'Continue anyway' : 'Resolve Images'}
             </button>
           )}
         </footer>

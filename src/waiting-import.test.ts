@@ -121,7 +121,7 @@ describe('committing an import with Pending Images', () => {
     const map = await mediaAssetOf(PIXEL_PNG.data, 'image/png')
     // IMG 1 is resolved everywhere it is used; IMG 2–4 and the page are left.
     const resolution = new Map(
-      occurrences.filter(({ pending }) => 'image' in pending && pending.image === 1).map(({ key }) => [key, map]),
+      occurrences.filter(({ pending }) => 'image' in pending && pending.image === 1).map(({ key }) => [key, { asset: map }]),
     )
     await saveWaitingImport(waiting('history.pdf'))
 

@@ -49,7 +49,7 @@ An image in imported Question Content that names an Image Tag, or only a page, o
 _Avoid_: Placeholder image, dummy image
 
 **Resolve Images**:
-The step where a teacher confirms or replaces the Media Asset for each Pending Image, choosing from the Source Document's images, a crop of one of its pages, or an uploaded file. It ends an import that leaves Pending Images, and can be reopened later while any remain by supplying the Source Document again.
+The step where a teacher confirms or replaces the Media Asset for each Pending Image, choosing from the Source Document's images, a crop of one of its pages, or an uploaded file. In an import it happens in the preview itself: every tagged picture is already in place, marked as detected, and clicking any picture offers the others. It can be reopened later while any remain by supplying the Source Document again.
 _Avoid_: Image doctor, image review
 
 **Account Backup**:
@@ -64,7 +64,7 @@ An optional, free-form label describing subject matter assessed by a question. A
 _Avoid_: Concept
 
 **Authored Image Size**:
-The width a teacher assigns to a block image relative to its printable container, such as the Question Content lane or an answer-choice cell. It preserves the image's intrinsic aspect ratio.
+The width a teacher assigns to a block image relative to its printable container, such as the Question Content lane or an answer-choice cell. It preserves the image's intrinsic aspect ratio. A picture taken from a Source Document for a Question's own content arrives at about the width it had on its page.
 _Avoid_: Image ratio, image height
 
 **Exam**:

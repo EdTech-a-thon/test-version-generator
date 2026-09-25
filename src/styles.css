@@ -2723,3 +2723,35 @@ button { cursor: pointer; }
   .resolve-image { grid-template-columns: 1fr; }
   .source-document-steps li { flex-direction: column; align-items: flex-start; }
 }
+
+/* A Pending Image in the import preview: the picture as it will print, with a
+   badge saying where it came from. The badge floats over the picture's corner
+   and takes up no room, so the pages lay out exactly as they will print. */
+.doc-figure:has(> .preview-picture) { position: relative; }
+.preview-picture { cursor: pointer; }
+.preview-picture[data-inline] { position: relative; display: inline-block; }
+.preview-picture:focus-visible { outline: none; }
+.preview-picture > img, .preview-picture > .picture-needed { transition: outline-color 120ms; outline: 2px solid transparent; outline-offset: 2px; }
+.preview-picture:hover > img, .preview-picture:hover > .picture-needed,
+.preview-picture:focus-visible > img, .preview-picture:focus-visible > .picture-needed { outline: 2px dashed var(--paper-accent); }
+.preview-picture[data-selected] > img, .preview-picture[data-selected] > .picture-needed { outline: 3px solid var(--paper-accent); }
+.preview-picture-badge {
+  position: absolute; top: 6px; left: 6px; z-index: 1; padding: 2px 8px; border-radius: 999px;
+  background: var(--easy-ink); color: #fff; font: 600 11px/1.5 system-ui, sans-serif; letter-spacing: 0.01em;
+  white-space: nowrap; pointer-events: none; box-shadow: 0 1px 3px rgb(0 0 0 / 25%);
+}
+.preview-picture[data-state='needed'] .preview-picture-badge { background: var(--paper-accent); }
+.preview-picture[data-inline] .preview-picture-badge { top: auto; bottom: calc(100% + 2px); left: 0; }
+
+.bank-import-picture-hint {
+  display: flex; align-items: center; gap: 8px; max-width: 680px; margin: 0 auto 16px; padding: 9px 13px;
+  border: 1px solid var(--easy-line); border-radius: 8px; background: var(--easy-wash); color: var(--easy-ink); font-size: 13px;
+}
+.bank-import-picture-hint svg { flex: none; width: 16px; height: 16px; }
+.bank-import-preview > .resolve-image-cropper { max-width: 720px; margin: 0 auto; }
+.bank-import-picture .picture-choices { display: grid; gap: 4px; }
+.bank-import-picture .resolve-image-chooser { margin-top: 4px; }
+.bank-import-picture .resolve-image-chooser button { width: calc(50% - 4px); box-sizing: border-box; }
+.bank-import-picture .resolve-image-actions { margin-top: 8px; }
+.bank-import-picture-done { align-self: flex-start; }
+.resolve-image-chooser button[aria-pressed='true'] { border: 2px solid var(--paper-accent); padding: 5px; }

@@ -4,7 +4,8 @@ import { assistantPackage, picture, sourceDocument } from './pending-images-fixt
 /**
  * Importing a converted test's pictures from the teacher's own PDF: drop the
  * PDF, hand the labeled copy and instructions to an assistant, drop back what
- * it wrote, and resolve every Pending Image — the tagged ones already filled.
+ * it wrote, and check its pictures in the Test itself — the tagged ones
+ * already there — changing any from the picture.
  */
 
 test('a converted test gets its pictures from the teacher’s own PDF', async ({ page, context }) => {
@@ -42,20 +43,39 @@ test('a converted test gets its pictures from the teacher’s own PDF', async ({
     buffer: assistantPackage(),
   })
   await expect(dialog.getByRole('alert')).toHaveCount(0)
-  await dialog.getByRole('button', { name: 'Resolve Images' }).click()
 
-  const resolve = dialog.getByRole('region', { name: 'Resolve Images' })
-  const row = (name: string) => resolve.getByRole('listitem', { name, exact: true })
-  await expect(row('Question 1')).toContainText('IMG 1 from unit-test.pdf')
-  await expect(row('Question 2')).toContainText('IMG 1 from unit-test.pdf')
-  await expect(row('Question 3')).toContainText('IMG 2 from unit-test.pdf')
-  await expect(row('Question 1').getByRole('img', { name: 'Map of trading stations' })).toBeVisible()
-  await expect(row('Question 4')).toContainText('Picture needed (page 2)')
-  await expect(resolve.getByRole('status')).toContainText('3 of 5 pictures ready.')
+  // The tagged pictures are already in the Test, in place; the rest say so.
+  const preview = dialog.getByLabel('Test preview')
+  const hint = preview.getByRole('status').filter({ hasText: /picture/ })
+  await expect(hint).toHaveText('3 of 5 pictures detected from unit-test.pdf. Click a picture to change it.', { timeout: 30000 })
+  const pictureIn = (question: string) => preview.getByRole('button', { name: new RegExp(`^${question}: `) })
+  await expect(pictureIn('Question 1')).toHaveAccessibleName('Question 1: IMG 1 from unit-test.pdf. Change picture')
+  await expect(pictureIn('Question 1')).toContainText('Detected image · IMG 1')
+  await expect(pictureIn('Question 1').locator('img')).toHaveAttribute('src', /^data:image\/png;base64,/)
+  await expect(pictureIn('Question 3')).toContainText('Detected image · IMG 2')
+  await expect(pictureIn('Question 4')).toHaveAccessibleName('Question 4: picture needed. Change picture')
+  await expect(pictureIn('Question 4').getByRole('img', { name: 'Picture needed: page 2' })).toBeVisible()
 
-  // The line-drawn circuit has no tag: crop it from the page it is on.
-  await row('Question 4').getByRole('button', { name: 'Crop from a page' }).click()
-  const cropper = row('Question 4').getByRole('group', { name: 'Crop a picture from a page' })
+  // Clicking a picture opens its choices in the rail. Question 2 shares IMG 1
+  // with Question 1; it can take another picture on its own.
+  await pictureIn('Question 2').click()
+  const rail = dialog.getByRole('complementary', { name: 'Picture for Question 2' })
+  await expect(rail).toContainText('IMG 1 from unit-test.pdf')
+  await rail.getByLabel('Change the other place that uses IMG 1 too').uncheck()
+  await expect(rail.getByRole('button', { name: 'Use IMG 1' })).toHaveAttribute('aria-pressed', 'true')
+  await rail.getByRole('button', { name: 'Use IMG 2' }).click()
+  await expect(pictureIn('Question 2')).toContainText('Detected image · IMG 2')
+  await expect(pictureIn('Question 1')).toContainText('Detected image · IMG 1')
+  // Putting it back leaves the Test as the AI wrote it.
+  await rail.getByRole('button', { name: 'Use IMG 1' }).click()
+  await expect(pictureIn('Question 2')).toContainText('Detected image · IMG 1')
+
+  // The line-drawn circuit has no tag: crop it from the page it is on, which
+  // opens where the Test was, large enough to crop.
+  await pictureIn('Question 4').click()
+  const circuit = dialog.getByRole('complementary', { name: 'Picture for Question 4' })
+  await circuit.getByRole('button', { name: 'Crop from a page' }).click()
+  const cropper = dialog.getByRole('group', { name: 'Crop a picture from a page' })
   await expect(cropper).toContainText('Page 2 of 2')
   const pageImage = cropper.getByRole('img', { name: 'Page 2' })
   await expect(pageImage.locator('img')).toBeVisible()
@@ -66,8 +86,11 @@ test('a converted test gets its pictures from the teacher’s own PDF', async ({
   await page.mouse.move(box.x + box.width * 0.6, box.y + box.height * 0.76, { steps: 5 })
   await page.mouse.up()
   await cropper.getByRole('button', { name: 'Use this crop' }).click()
-  await expect(row('Question 4')).toContainText('Cropped from page 2')
-  await expect(resolve.getByRole('status')).toContainText('4 of 5 pictures ready.')
+  await expect(cropper).toBeHidden()
+  await expect(pictureIn('Question 4')).toContainText('Cropped from page 2')
+  await expect(hint).toHaveText('4 of 5 pictures detected from unit-test.pdf. Click a picture to change it.')
+  await circuit.getByRole('button', { name: 'Done' }).click()
+  await expect(circuit).toBeHidden()
 
   await dialog.getByRole('button', { name: 'Import', exact: true }).click()
   await expect(page).toHaveURL(/\/editor\?exam=/)
@@ -75,6 +98,14 @@ test('a converted test gets its pictures from the teacher’s own PDF', async ({
   // Four pictures arrived; the cell diagram is still needed.
   const sheet = page.locator('.exam-question')
   await expect(sheet).toHaveCount(5)
+  // The circuit took half its page's width, so it takes about that much of
+  // the sheet, not all of it.
+  const circuitQuestion = sheet.filter({ hasText: 'Describe the circuit drawn below' })
+  await expect(circuitQuestion.locator('img')).toBeVisible()
+  const lane = (await circuitQuestion.boundingBox())!.width
+  const drawn = (await circuitQuestion.locator('img').boundingBox())!.width
+  expect(drawn / lane).toBeGreaterThan(0.5)
+  expect(drawn / lane).toBeLessThan(0.8)
   const needed = page.locator('.exam-question').filter({ hasText: 'Label the parts of the cell' })
   await expect(needed.getByRole('img', { name: 'Picture needed: page 2' })).toBeVisible()
   await expect(page.getByRole('img', { name: /^Picture needed/ })).toHaveCount(1)
