@@ -17,12 +17,18 @@ function withoutQuestionReferences(
       ([id]) => !questionIds.has(id),
     ),
   );
+  // A deleted Question leaves its Section; the Section itself stays, as an
+  // emptied Section always does.
+  const sectionOf = Object.fromEntries(
+    Object.entries(draft.sectionOf ?? {}).filter(([id]) => !questionIds.has(id)),
+  );
   return {
     ...draft,
     questionIds: remaining,
     ...(draft.columns === undefined ? {} : { columns }),
     ...(draft.workSpace === undefined ? {} : { workSpace }),
     ...(draft.choiceOrder === undefined ? {} : { choiceOrder }),
+    ...(draft.sectionOf === undefined ? {} : { sectionOf }),
   };
 }
 

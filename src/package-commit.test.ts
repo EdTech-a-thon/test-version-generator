@@ -2,7 +2,8 @@ import 'fake-indexeddb/auto'
 import { IDBFactory } from 'fake-indexeddb'
 import { beforeEach, describe, expect, test } from 'bun:test'
 import { join } from 'node:path'
-import { choicesOf, type Question } from './exam'
+import { choicesOf, questionsInSection, sectionsOf, type Question } from './exam'
+import { selectedExam } from './selected-exam'
 import { createExamWorkspaceService } from './exam-workspaces'
 import { initialSelection, setBankAllowed, setBankTarget, setExamAllowed } from './import-selection'
 import { inspectImportRecord, type ImportProposal } from './package-import'
@@ -174,6 +175,80 @@ describe('committing an import', () => {
     const workspace = await banks.workspace({ examId: result.createdExamIds[0]! })
     // In the order the Exam first uses them: Forces, then Cells.
     expect(workspace).toMatchObject({ openBankIds: [forcesId, cellsId], activeBankId: forcesId })
+  })
+
+  // The bank-and-exam example's bank, carrying an Exam of the given record.
+  async function withExamRecord(exam: Record<string, unknown>): Promise<ImportProposal> {
+    const example = await Bun.file(join(examples, 'bank-and-exam.json')).json()
+    return inspectImportRecord(new TextEncoder().encode(JSON.stringify({ ...example, exams: [exam] })))
+  }
+
+  test('an Exam Record 0.3.0’s Sections are stored under fresh ids, empty ones and cleared wording included', async () => {
+    const { banks, exams } = services()
+    const proposal = await withExamRecord({
+      format: 'test-parrot/exam',
+      formatVersion: '0.3.0',
+      name: 'Sectioned',
+      sections: [
+        { type: 'multiple-choice', title: 'Part 1' },
+        { type: 'short-answer', instructions: '' },
+        { type: 'multiple-choice', title: 'Part 2', instructions: 'Circle one.' },
+        { type: 'matching', title: '', instructions: '' },
+      ],
+      positions: [
+        { question: { bank: 'cells', question: 'q1' }, section: 0 },
+        { question: { bank: 'cells', question: 'q5' }, section: 1 },
+        { question: { bank: 'cells', question: 'q2' }, section: 2 },
+      ],
+    })
+    const result = await banks.commitImport(proposal, initialSelection(proposal))
+    const [q1, q2, , , q5] = (await banks.read(result.createdBankIds[0]!))!.questions
+    const { working, saved } = await examState(exams, result.createdExamIds[0]!)
+    const copy = working!.workingCopy
+    expect(saved!.workingCopy).toEqual(copy)
+
+    expect(copy.questionIds).toEqual([q1!.id, q5!.id, q2!.id])
+    const ids = copy.sections!.map(({ id }) => id)
+    expect(new Set(ids).size).toBe(4)
+    expect(copy.sections).toEqual([
+      { id: ids[0]!, type: 'multiple-choice', title: 'Part 1' },
+      { id: ids[1]!, type: 'open', instructions: '' },
+      { id: ids[2]!, type: 'multiple-choice', title: 'Part 2', instructions: 'Circle one.' },
+      { id: ids[3]!, type: 'matching', title: '', instructions: '' },
+    ])
+    expect(copy.sectionOf).toEqual({ [q1!.id]: ids[0], [q5!.id]: ids[1], [q2!.id]: ids[2] })
+    expect(copy).not.toHaveProperty('sectionHeadings')
+
+    const { exam, arrangement } = selectedExam(working!.questionBank, copy)
+    expect(sectionsOf(exam).map((section) => questionsInSection(exam, arrangement, section.id).map(({ id }) => id)))
+      .toEqual([[q1!.id], [q5!.id], [q2!.id], []])
+  })
+
+  test('an Exam Record 0.2.0 still imports with per-type wording, its Sections derived', async () => {
+    const { banks, exams } = services()
+    const proposal = await withExamRecord({
+      format: 'test-parrot/exam',
+      formatVersion: '0.2.0',
+      name: 'Older',
+      sectionHeadings: { 'short-answer': { title: 'Essays', instructions: '' } },
+      positions: [
+        { question: { bank: 'cells', question: 'q5' } },
+        { question: { bank: 'cells', question: 'q1' } },
+      ],
+    })
+    const result = await banks.commitImport(proposal, initialSelection(proposal))
+    const [q1, , , , q5] = (await banks.read(result.createdBankIds[0]!))!.questions
+    const { working } = await examState(exams, result.createdExamIds[0]!)
+    const copy = working!.workingCopy
+    expect(copy.questionIds).toEqual([q1!.id, q5!.id])
+    expect(copy.sectionHeadings).toEqual({ open: { title: 'Essays', instructions: '' } })
+    expect(copy).not.toHaveProperty('sections')
+    expect(copy).not.toHaveProperty('sectionOf')
+    const { exam } = selectedExam(working!.questionBank, copy)
+    expect(sectionsOf(exam)).toEqual([
+      { id: 'multiple-choice', type: 'multiple-choice' },
+      { id: 'open', type: 'open', title: 'Essays', instructions: '' },
+    ])
   })
 
   test('a failure partway through changes nothing', async () => {

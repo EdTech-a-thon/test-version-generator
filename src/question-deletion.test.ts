@@ -68,6 +68,29 @@ test("an aborted durable deletion leaves visible store state and history unchang
   expect(before.dirty).toBe(true);
 });
 
+test("forced deletion takes a Question out of its Section and keeps the emptied Section", () => {
+  const sectioned = (base: AuthoringState): AuthoringState => ({
+    ...base,
+    workingCopy: {
+      ...base.workingCopy,
+      sections: [
+        { id: "first", type: "open", title: "Essays" },
+        { id: "second", type: "open" },
+      ],
+      sectionOf: { a: "first", b: "second", c: "second" },
+    },
+  });
+  const working = sectioned(state(["a", "b", "c"], false));
+  const saved: SavedState = sectioned(state(["a", "b", "c"], false));
+
+  const deleted = withoutQuestions(working, saved, new Set(["a", "b"]));
+
+  expect(deleted.working.workingCopy.sectionOf).toEqual({ c: "second" });
+  expect(deleted.working.workingCopy.sections).toEqual(working.workingCopy.sections);
+  expect(deleted.saved?.workingCopy.sectionOf).toEqual({ c: "second" });
+  expect(deleted.working.dirty).toBe(false);
+});
+
 test("forced deletion can resolve a deletion-only Working Copy difference", () => {
   const working = state([], true);
   const saved: SavedState = state(["a"], false);

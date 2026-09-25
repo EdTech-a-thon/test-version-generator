@@ -4,12 +4,13 @@ import {
   hasWorkSpace,
   orderedChoices,
   orderedQuestions,
+  sectionIdOf,
+  sectionsOf,
   takesWorkSpace,
   workSpaceOf,
   type Arrangement,
   type Exam,
   type Question,
-  type QuestionType,
 } from './exam'
 import type { PreparedExport } from './export-preparation'
 import {
@@ -26,6 +27,7 @@ import {
   PACKAGE_FORMAT_VERSION,
   type ExamRecord,
   type ExamRecordPosition,
+  type ExamRecordSection,
   type TestParrotPackage,
 } from './package-import'
 
@@ -112,11 +114,18 @@ export async function examPackage({
   // columns and Work Space are not carried yet — Exam Record 0.1.0 keys
   // presentation by Question and has nowhere to put a Part's — so the
   // imported Exam gives each Part its defaults.
+  // Every Section travels, empty ones included, in print order and in the
+  // record's own vocabulary, where a Short Answer section is
+  // `'short-answer'`. `sectionsOf` has already folded an Exam's legacy
+  // per-type wording into its derived Sections.
+  const sections = sectionsOf(exam)
+  const sectionIndex = new Map(sections.map((section, index) => [section.id, index]))
   const positions = printed.map((question): ExamRecordPosition => {
     const ids = recordIds.get(question.id)!
     const space = workSpaceOf(exam, question.id)
     return {
       question: { bank: ids.bank, question: ids.question },
+      section: sectionIndex.get(sectionIdOf(exam, question))!,
       ...(question.type === 'multiple-choice' ? { columns: columnsOf(question) } : {}),
       ...(question.type === 'multiple-choice' || question.type === 'matching'
         ? { answerOrder: orderedChoices(question, arrangement).map(({ id }) => ids.answers.get(id)!) }
@@ -124,19 +133,15 @@ export async function examPackage({
       ...(takesWorkSpace(question.type) && hasWorkSpace(space) ? { workSpace: { ...space } } : {}),
     }
   })
-  // Section wording travels in the record's own vocabulary, where a Short
-  // Answer section is `'short-answer'`.
-  const sectionHeadings = Object.fromEntries(
-    Object.entries(exam.sectionHeadings ?? {}).map(([type, heading]) => [
-      RECORD_TYPES[type as QuestionType],
-      { ...heading },
-    ]),
-  )
   const examRecord: ExamRecord = {
     format: EXAM_FORMAT,
     formatVersion: EXAM_FORMAT_VERSION,
     name: exam.title,
-    ...(Object.keys(sectionHeadings).length > 0 ? { sectionHeadings } : {}),
+    sections: sections.map((section): ExamRecordSection => ({
+      type: RECORD_TYPES[section.type],
+      ...(section.title !== undefined ? { title: section.title } : {}),
+      ...(section.instructions !== undefined ? { instructions: section.instructions } : {}),
+    })),
     ...(exam.headingSize && exam.headingSize !== 'normal' ? { headingSize: exam.headingSize } : {}),
     ...(exam.textSize && exam.textSize !== 'normal' ? { textSize: exam.textSize } : {}),
     ...(exam.header ? { header: { ...exam.header } } : {}),

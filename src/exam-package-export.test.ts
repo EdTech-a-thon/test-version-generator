@@ -3,8 +3,11 @@ import {
   choicesOf,
   orderedChoices,
   orderedQuestions,
+  questionsInSection,
+  sectionsOf,
   type Arrangement,
   type Exam,
+  type ExamSection,
   type Question,
 } from './exam'
 import { unmeasured } from './export-plan'
@@ -268,7 +271,8 @@ describe('a Multipart question in an Exam package', () => {
     const carried = await examPackage({ exam: sheet, arrangement: order, ownerOf: async () => null, loadMedia: noImages })
 
     // Per-Part answer order and columns are not carried yet: the position is bare.
-    expect(carried.exams[0]!.positions).toEqual([{ question: { bank: 'bank-1', question: 'q1' } }])
+    expect(carried.exams[0]!.positions).toEqual([{ question: { bank: 'bank-1', question: 'q1' }, section: 0 }])
+    expect(carried.exams[0]!.sections).toEqual([{ type: 'multipart' }])
     const proposal = await inspectImportRecord(new TextEncoder().encode(JSON.stringify(carried)))
     expect(proposal.banks[0]!.record.bank.questions[0]).toMatchObject({
       type: 'multipart',
@@ -277,7 +281,7 @@ describe('a Multipart question in an Exam package', () => {
     expect(proposal.exams[0]!.positions).toHaveLength(1)
   })
 
-  test('carries the Exam’s section wording, heading size and header lines, in the record’s vocabulary, and imports them again', async () => {
+  test('carries a derived Exam’s legacy section wording on its Sections, with heading size and header lines, and imports them again', async () => {
     const worded: Exam = {
       ...exam,
       sectionHeadings: {
@@ -291,34 +295,98 @@ describe('a Multipart question in an Exam package', () => {
     const carried = await examPackage({ exam: worded, arrangement, ownerOf, loadMedia: noImages })
     // A Short Answer section is `short-answer` in the record, `open` in the app.
     expect(carried.exams[0]).toMatchObject({
-      formatVersion: '0.2.0',
-      sectionHeadings: {
-        'short-answer': { title: 'Essays', instructions: '' },
-        matching: { title: 'Vocabulary' },
-      },
+      formatVersion: '0.3.0',
+      sections: [
+        { type: 'multiple-choice' },
+        { type: 'matching', title: 'Vocabulary' },
+        { type: 'short-answer', title: 'Essays', instructions: '' },
+      ],
       headingSize: 'small',
       header: { first: 'Student: ____  Period: __', later: '' },
       textSize: 'large',
     })
+    expect(carried.exams[0]).not.toHaveProperty('sectionHeadings')
 
     const proposal = await inspectImportRecord(new TextEncoder().encode(JSON.stringify(carried)))
     let next = 0
     const plan = planImport(proposal, initialSelection(proposal), () => `local-${next++}`)
-    const { exam: imported } = selectedExam(
+    const { exam: imported, arrangement: importedOrder } = selectedExam(
       plan.exams[0]!.saved.questionBank,
       plan.exams[0]!.saved.workingCopy,
     )
-    expect(imported.sectionHeadings).toEqual(worded.sectionHeadings)
+    expect(withoutIds(sectionsOf(imported))).toEqual(withoutIds(sectionsOf(worded)))
+    expect(printed(imported, importedOrder)).toEqual(printed(worded, arrangement))
     expect(imported.headingSize).toBe('small')
     expect(imported.header).toEqual(worded.header)
     expect(imported.textSize).toBe('large')
   })
 
-  test('an Exam that keeps the default headings writes nothing about them', async () => {
+  test('an Exam that keeps the default headings writes no wording and no sizes', async () => {
     const carried = await examPackage({ exam, arrangement, ownerOf, loadMedia: noImages })
+    expect(carried.exams[0]!.sections).toEqual([
+      { type: 'multiple-choice' },
+      { type: 'matching' },
+      { type: 'short-answer' },
+    ])
     expect(carried.exams[0]).not.toHaveProperty('sectionHeadings')
     expect(carried.exams[0]).not.toHaveProperty('headingSize')
     expect(carried.exams[0]).not.toHaveProperty('header')
     expect(carried.exams[0]).not.toHaveProperty('textSize')
+  })
+})
+
+const withoutIds = (sections: readonly ExamSection[]) => sections.map((section) => ({ type: section.type, ...(section.title !== undefined ? { title: section.title } : {}), ...(section.instructions !== undefined ? { instructions: section.instructions } : {}) }))
+
+describe('an Exam’s stored Sections in its package', () => {
+  // Two Multiple Choice Sections with their own headings, a Short Answer
+  // Section between them whose directions are cleared, and an emptied
+  // Matching Section that is kept but prints nothing.
+  const sectioned: Exam = {
+    ...exam,
+    sections: [
+      { id: 'warm-up', type: 'multiple-choice', title: 'Warm-up' },
+      { id: 'written', type: 'open', instructions: '' },
+      { id: 'challenge', type: 'multiple-choice', title: 'Challenge', instructions: 'Show your reasoning.' },
+      { id: 'empty', type: 'matching', title: '' },
+    ],
+    sectionOf: {
+      'cells-1': 'challenge',
+      'forces-2': 'warm-up',
+      'forces-1': 'written',
+      // The matching set is left to its type's last Section.
+    },
+  }
+  const sheet: Exam = { ...sectioned, questions: sectioned.questions.filter(({ id }) => id !== 'cells-2') }
+
+  test('travel in print order, empty ones included, each position naming its Section', async () => {
+    const carried = await examPackage({ exam: sheet, arrangement, ownerOf, loadMedia: noImages })
+    const record = carried.exams[0]!
+    expect(record.formatVersion).toBe('0.3.0')
+    expect(record.sections).toEqual([
+      { type: 'multiple-choice', title: 'Warm-up' },
+      { type: 'short-answer', instructions: '' },
+      { type: 'multiple-choice', title: 'Challenge', instructions: 'Show your reasoning.' },
+      { type: 'matching', title: '' },
+    ])
+    expect(record.positions.map(({ section }) => section)).toEqual([0, 1, 2])
+  })
+
+  test('import again as the same Sections under fresh ids, printing the same sheet', async () => {
+    const carried = await examPackage({ exam: sheet, arrangement, ownerOf, loadMedia: noImages })
+    const proposal = await inspectImportRecord(new TextEncoder().encode(JSON.stringify(carried)))
+    let next = 0
+    const plan = planImport(proposal, initialSelection(proposal), () => `local-${next++}`)
+    const { exam: imported, arrangement: importedOrder } = selectedExam(
+      plan.exams[0]!.saved.questionBank,
+      plan.exams[0]!.saved.workingCopy,
+    )
+    expect(withoutIds(sectionsOf(imported))).toEqual(withoutIds(sectionsOf(sheet)))
+    expect(sectionsOf(imported).map(({ id }) => id)).not.toContain('warm-up')
+    expect(printed(imported, importedOrder)).toEqual(printed(sheet, arrangement))
+    expect(
+      sectionsOf(imported).map((section) => questionsInSection(imported, importedOrder, section.id).map(text)),
+    ).toEqual(
+      sectionsOf(sheet).map((section) => questionsInSection(sheet, arrangement, section.id).map(text)),
+    )
   })
 })
