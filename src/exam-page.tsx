@@ -59,6 +59,7 @@ import {
   snapWorkSpaceHeight,
   takesWorkSpace,
   WORK_SPACE_LINE_PITCH,
+  newSectionWording,
   questionsInSection,
   sectionsOf,
   workSpaceOf,
@@ -745,7 +746,7 @@ function QuestionView({
 }
 
 /** How far a Section's highlight reaches past its first and last pieces: to
- *  its dotted rule above, and halfway into the gap below. */
+ *  its dashed rule above, and halfway into the gap below. */
 const SECTION_BAND_BLEED = 12
 
 /** One sheet's stretch of a Section, as drawn: from its sheet's top edge, for
@@ -771,14 +772,32 @@ function sameBand(left: SectionBand, right: SectionBand): boolean {
 }
 
 /** A new-Section target a gesture has opened: the Section it opened beneath,
- *  and whether the pointer is over it, which is when a release makes one. */
-type NewSectionTargetState = { afterSectionId: string; armed: boolean }
+ *  whether the pointer is over it, which is when a release makes one, and the
+ *  Section a release would make, drawn faintly so dropping moves nothing. */
+type NewSectionTargetState = {
+  afterSectionId: string
+  armed: boolean
+  ghost: NewSectionGhost
+}
+
+/** What a new Section would print: the wording of the type of the first
+ *  question carried, and the carried questions as the sheet draws them — for
+ *  a move within the Exam; a Question Bank question is not drawn yet. */
+type NewSectionGhost = {
+  title: string
+  instructions: string
+  size?: SectionHeadingItem['size']
+  items: readonly QuestionItem[]
+}
 
 // The target that makes a new Question Section, opened beneath the foot of a
 // Section once a gesture's line has rested there. It opens in the sheet's flow,
-// between this Section and the next, pushing the next Section's dotted rule
-// down to make room, and says what a release over it does before it does it.
-function NewSectionTarget({ afterSectionId, armed }: NewSectionTargetState) {
+// between this Section and the next, pushing the next Section's dashed rule
+// down to make room. What it opens is the Section a release would make, drawn
+// faintly in the sheet's own markup — so the room it takes is the room the
+// Section will — and it says what a release over it does before it does it.
+function NewSectionTarget({ afterSectionId, armed, ghost }: NewSectionTargetState) {
+  const styles = sectionHeadingStyles(ghost.size)
   return (
     <div
       className="new-section-target"
@@ -786,7 +805,20 @@ function NewSectionTarget({ afterSectionId, armed }: NewSectionTargetState) {
       data-active={armed ? 'true' : undefined}
       aria-hidden="true"
     >
-      Drop here to create a new section
+      <div className="new-section-ghost">
+        <header className="exam-section">
+          {ghost.title && <h2 className="section-title" style={styles.title}>{ghost.title}</h2>}
+          {ghost.instructions && (
+            <p className="section-instructions" style={styles.instructions}>{ghost.instructions}</p>
+          )}
+        </header>
+        {ghost.items.map((item) => (
+          <section className="exam-question" key={item.question.id}>
+            <QuestionContent item={item} />
+          </section>
+        ))}
+      </div>
+      <span className="new-section-label">Drop here to create a new section</span>
     </div>
   )
 }
@@ -863,7 +895,6 @@ function EditableSectionHeading({
   newSectionTarget,
   revealTitle,
   onRevealed,
-  onHover,
 }: {
   item: SectionHeadingItem
   disabled: boolean
@@ -874,7 +905,6 @@ function EditableSectionHeading({
   /** Asked, from the Section's controls, to open its cleared heading. */
   revealTitle: boolean
   onRevealed: () => void
-  onHover: (sectionId: string | null) => void
 }) {
   const [focused, setFocused] = useState<'title' | 'instructions' | null>(null)
   const focus = (part: 'title' | 'instructions') => (on: boolean) => {
@@ -905,8 +935,6 @@ function EditableSectionHeading({
     <header
       className="exam-section exam-section--editable"
       data-section-id={item.sectionId}
-      onPointerEnter={() => onHover(item.sectionId)}
-      onPointerLeave={() => onHover(null)}
     >
       {showTitle && (
         <h2 className="section-title" style={styles.title}>
@@ -1033,7 +1061,6 @@ function PageItemView({
   emptySectionActive,
   revealTitleOf,
   onTitleRevealed,
-  onHoverSection,
 }: {
   item: PageItem
   /** Present in the editor: rewords a section heading where it prints. */
@@ -1048,8 +1075,6 @@ function PageItemView({
   newSectionTarget: (item: PageItem) => NewSectionTargetState | null
   /** Whether a gesture would land in this empty Section's box. */
   emptySectionActive: (sectionId: string) => boolean
-  /** Points at a Section through its heading, or at none. */
-  onHoverSection: (sectionId: string | null) => void
   orderedIds: readonly string[]
   selection: Selection
   onEdit: (questionId: string) => void
@@ -1078,7 +1103,6 @@ function PageItemView({
           newSectionTarget={newSectionTarget(item)}
           revealTitle={revealTitleOf === item.sectionId}
           onRevealed={onTitleRevealed}
-          onHover={onHoverSection}
         />
       ) : (
         <SectionHeadingContent item={item} />
@@ -1484,7 +1508,7 @@ export function ExamPage({
   )
   const sectionIdOf = (questionId: string) => sectionOfQuestion.get(questionId) ?? ''
   // Where each Section is drawn: one band per sheet it appears on, across the
-  // paper's whole width, from just above its heading — its dotted rule — to
+  // paper's whole width, from just above its heading — its dashed rule — to
   // where the next Section begins, or just below its last piece. Read off the
   // rendered pieces, since a Section may run across several sheets and the
   // plan knows nothing of where they are drawn. Each band is kept both from
@@ -1550,8 +1574,9 @@ export function ExamPage({
     const band = sectionBands.find(({ top, bottom }) => y >= top && y < bottom) ?? null
     setPointedBand((current) => (current && band && sameBand(current, band) ? current : band))
   }
-  // The Section pointed at through its heading or its controls, whose every
-  // band is highlighted so the teacher sees what it holds.
+  // The Section pointed at through its controls, whose every band is
+  // highlighted so the teacher sees what they would move or delete. Editing
+  // its heading highlights nothing.
   const [hoveredSectionId, setHoveredSectionId] = useState<string | null>(null)
   const highlightedSectionId = drag.source ? null : hoveredSectionId
   // A cleared heading its controls asked to open, until its field has focus.
@@ -1578,9 +1603,24 @@ export function ExamPage({
         .filter((id) => sectionOfQuestion.get(id) === opensBelow && !draggedQuestionIds.has(id))
         .at(-1) ?? null
     : null
+  const carriedItems = drag.source?.pane === 'exam-draft'
+    ? orderedIds.flatMap((id) => {
+        const first = drag.source!.questionIds.includes(id) ? piecesOf.get(id)?.first : undefined
+        return first ? [first] : []
+      })
+    : []
+  const ghostWording = newSectionWording(carriedItems[0]?.question.type ?? drag.source?.type ?? 'multiple-choice')
   const newSectionTarget = (item: PageItem): NewSectionTargetState | null => {
     if (!opensBelow) return null
-    const target = { afterSectionId: opensBelow, armed }
+    const target: NewSectionTargetState = {
+      afterSectionId: opensBelow,
+      armed,
+      ghost: {
+        ...ghostWording,
+        ...(exam.headingSize ? { size: exam.headingSize } : {}),
+        items: carriedItems,
+      },
+    }
     if (item.kind === 'section-heading') {
       return item.empty && item.sectionId === opensBelow ? target : null
     }
@@ -1701,7 +1741,6 @@ export function ExamPage({
                 sectionIdOf={sectionIdOf}
                 newSectionTarget={newSectionTarget}
                 emptySectionActive={emptySectionActive}
-                onHoverSection={setHoveredSectionId}
                 orderedIds={orderedIds}
                 selection={selection}
                 onEdit={onEdit}
@@ -1721,7 +1760,7 @@ export function ExamPage({
         </article>
       ))}
 
-      {pointedBand && sectionControls && (
+      {pointedBand && sectionControls && !drag.source && (
         <SectionRail
           controls={sectionControls(pointedBand.sectionId)}
           hidden={(() => {

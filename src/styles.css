@@ -992,28 +992,37 @@ button { cursor: pointer; }
 
 /* The target that makes a new Question Section, opened beneath the foot of a
    Section once a gesture's line has rested there. It opens in the sheet's flow,
-   pushing the next Section — dotted rule and all — down to make room, with a
-   dotted rule of its own above it where the new Section would begin. While a
+   pushing the next Section — dashed rule and all — down to make room, with a
+   dashed rule of its own above it where the new Section would begin. While a
    gesture is in flight a sheet does not clip what the opened target pushes
    past its foot, so the target is never hidden under the page's edge. */
 .new-section-target {
-  position: relative;
-  display: flex; align-items: center; justify-content: center;
-  height: 56px; margin: 0 0 26px;
-  border: 1.5px dashed #9f5037; border-radius: 6px;
-  color: #9f5037; background: #fffaf3;
-  font: 600 13px/1.4 Arial, Helvetica, sans-serif;
-  animation: new-section-open 180ms ease-out;
+  position: relative; display: grid; grid-template-rows: 1fr;
+  margin: 0; border-radius: 6px;
+  animation: new-section-open 200ms ease-out;
 }
 .new-section-target::before {
-  content: ''; position: absolute; top: -14px;
+  content: ''; position: absolute; top: 2px;
   left: calc(-1 * var(--page-margin)); right: calc(-1 * var(--page-margin));
-  border-top: 1px dotted #b9a390; pointer-events: none;
+  border-top: 1px dashed #ddd0c2; pointer-events: none;
 }
-.new-section-target[data-active] { border-style: solid; background: #f7e2d5; }
+/* The Section a release would make, faint, in the sheet's own markup: the
+   room it takes is the room the Section will. */
+.new-section-ghost { min-height: 0; overflow: hidden; padding-top: 11px; opacity: 0.38; }
+.new-section-ghost .exam-question { cursor: inherit; }
+.new-section-label {
+  position: absolute; inset: 8px -8px 12px; z-index: 1;
+  display: flex; align-items: center; justify-content: center;
+  border: 1px dashed #9f5037; border-radius: 6px;
+  color: #9f5037; background: rgb(255 250 243 / 55%);
+  font: 600 13px/1.4 Arial, Helvetica, sans-serif;
+}
+.new-section-target[data-active] .new-section-label {
+  border-style: solid; background: rgb(247 226 213 / 60%);
+}
 @keyframes new-section-open {
-  from { height: 0; margin-bottom: 0; opacity: 0; }
-  to { height: 56px; margin-bottom: 26px; opacity: 1; }
+  from { grid-template-rows: 0fr; opacity: 0; }
+  to { grid-template-rows: 1fr; opacity: 1; }
 }
 @media (prefers-reduced-motion: reduce) {
   .new-section-target { animation: none; }
@@ -1033,14 +1042,14 @@ button { cursor: pointer; }
 .section-rail .question-handle { width: 24px; height: 24px; }
 .section-rail .question-handle:disabled { opacity: 0.35; cursor: default; background: transparent; }
 
-/* Where each Section begins, on the sheet only: a dotted rule just above its
+/* Where each Section begins, on the sheet only: a dashed rule just above its
    heading, across the paper's whole width, margins included — drawn outside
    the flow so the page is laid out exactly as it prints. */
 .exam-section--editable::before,
 .exam-section-hidden::before {
   content: ''; position: absolute; top: -9px;
   left: calc(-1 * var(--page-margin)); right: calc(-1 * var(--page-margin));
-  border-top: 1px dotted #b9a390; pointer-events: none;
+  border-top: 1px dashed #ddd0c2; pointer-events: none;
 }
 .exam-section-hidden::before { top: -8px; }
 
