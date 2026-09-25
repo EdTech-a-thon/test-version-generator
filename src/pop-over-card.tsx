@@ -150,11 +150,11 @@ function body(question: Question, format: CopyFormat, onFormat: (format: CopyFor
       }
     }
     case 'true-false':
-      // The pair is never printed, so there is no answer half: the blank is
-      // the answer, and it leads the stem.
+      // No answer half: the T and F a student circles lead the stem, as the
+      // test prints them before the number.
       return {
         controls: null,
-        stem: <div className="pop-over-led"><Blank />{stem}</div>,
+        stem: <div className="pop-over-led"><span className="pop-over-marks" aria-hidden="true">T  F</span>{stem}</div>,
         answers: null,
       }
     case 'matching': {

@@ -25,7 +25,7 @@ A compact, read-only, always-on-top window of Question Banks, kept beside anothe
 _Avoid_: Popup, mini mode, floating bank
 
 **Copy**:
-To put Questions' student-facing Question Content on the clipboard, or drag it, ready for another document: stems, answer choices, Items and Word Bank or Parts, lettered and laid out as a test prints them and unnumbered, with pictures embedded and mathematics as pictures or, for Microsoft Word, as MathML. It never carries correctness, a Suggested Answer, Question Metadata or Work Space, and it changes nothing; Duplicate is what creates a new Question.
+To put Questions' student-facing Question Content on the clipboard, or drag it, ready for another document: stems, answer choices, the T and F to circle, Items and Word Bank or Parts, lettered and laid out as a test prints them and unnumbered, with pictures embedded and mathematics as pictures or, for Microsoft Word, as MathML. It never carries correctness, a Suggested Answer, Question Metadata or Work Space, and it changes nothing; Duplicate is what creates a new Question.
 _Avoid_: Duplicate (for putting a Question on the clipboard), export
 
 **Question Bank File**:

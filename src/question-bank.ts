@@ -160,16 +160,15 @@ export function withReferencesRemoved(
 
 /** The Working Copy with a structural edit's Sections written back: every
  *  Section stored, every question placed, and its references in the order the
- *  Sections print them. Once Sections are stored, the legacy per-type wording
- *  has moved onto them and is dropped. */
+ *  Sections print them. The legacy per-type wording stays: the Sections made
+ *  from it no longer read it, but a Section begun later for a type the Exam
+ *  had none of starts from what the teacher wrote for that type. */
 export function withSectionLayout(
   draft: ExamWorkingCopy,
   layout: import('./exam').SectionLayout,
 ): ExamWorkingCopy {
-  const rest: ExamWorkingCopy = { ...draft }
-  delete rest.sectionHeadings
   return {
-    ...withReferenceOrder(rest, layout.questionOrder),
+    ...withReferenceOrder(draft, layout.questionOrder),
     sections: layout.sections,
     sectionOf: layout.sectionOf,
   }

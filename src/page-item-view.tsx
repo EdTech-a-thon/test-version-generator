@@ -17,6 +17,7 @@ import { Check, RotateCcw } from 'lucide-react'
 import { DifficultyBadge, TopicBadge } from './badges'
 import { DocView } from './doc-view'
 import {
+  hasLegacyAnswerBlank,
   hasMarks,
   printsNumberLine,
   type AnswerKeyEntryItem,
@@ -247,13 +248,15 @@ export function QuestionContent({
           for the adapters. */}
       <div
         className={
-          hasMarks(item.question.type)
-            ? 'question-number question-number--marks'
-            : 'question-number'
+          hasLegacyAnswerBlank(item.question)
+            ? 'question-number question-number--legacy-blank'
+            : hasMarks(item.question.type)
+              ? 'question-number question-number--marks'
+              : 'question-number'
         }
       >
         {numbered && item.question.marks.length > 0 && (
-          <span className="question-marks" aria-label="Circle one">
+          <span className="question-marks" aria-label={hasLegacyAnswerBlank(item.question) ? undefined : 'Circle one'}>
             {item.question.marks.map((mark) => (
               <span key={mark} className="question-mark">{mark}</span>
             ))}

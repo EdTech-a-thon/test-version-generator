@@ -2881,14 +2881,18 @@ export default function App({
     setEditorId(targetId)
   }, [editorStore, workspaces])
   // Home and both collections read the account afresh each time they are
-  // shown: every screen is reached without a document load, so what they were
-  // handed at start is out of date as soon as anything has been edited.
+  // shown: moving between them and a Question Bank page loads no document, so
+  // what they were handed at start is out of date once a bank is edited. Only
+  // Home sweeps away untouched placeholders, as it always has; reading is all
+  // the collections do.
   useEffect(() => {
     if (route !== '/' && route !== '/exams' && route !== '/question-banks') return
     let current = true
     void (async () => {
-      await workspaces.cleanupPristine({ includeActive: true })
-      await bankWorkspaces.cleanupPristine({ includeActive: true })
+      if (route === '/') {
+        await workspaces.cleanupPristine({ includeActive: true })
+        await bankWorkspaces.cleanupPristine({ includeActive: true })
+      }
       const [recent, recentBanks] = await Promise.all([
         workspaces.recent(),
         bankWorkspaces.recent(),
@@ -2905,20 +2909,11 @@ export default function App({
     })()
     return () => { current = false }
   }, [route, workspaces, bankWorkspaces])
-  // Opening an Exam loads its store here and then moves to the editor, which
-  // is what `main.tsx` does for an `/editor?exam=` launch.
-  const openExam = useCallback((id: string) => {
-    void (async () => {
-      if (!await workspaces.open(id)) {
-        setHomeError('That Exam is unavailable on this device.')
-        return
-      }
-      const opened = await loadExamStore(workspaces.backendFor(id))
-      setEditorStore(opened)
-      setEditorId(id)
-      navigate('/editor')
-    })()
-  }, [workspaces])
+  // The editor is entered and left by loading a document, as `main.tsx`
+  // expects: it reads the Exam from storage afresh, and the browser's own
+  // leave-page guard stands between the teacher and an unsaved Working Copy.
+  // The Question Bank Pop-over closes with that load (ADR-0030).
+  const openExam = (id: string) => window.location.assign(`/editor?exam=${id}`)
   const openBank = useCallback((id: string) => navigate(`/question-bank?id=${id}`), [])
   const newExam = () => { void workspaces.create().then((exam) => openExam(exam.id)) }
   const newBank = () => { void bankWorkspaces.create().then((bank) => openBank(bank.id)) }
@@ -2943,25 +2938,6 @@ export default function App({
     })
     return () => { current = false }
   }, [bankWorkspaces, onBankPage, pageBankReady, search])
-  // Back to a bare `/editor` after it has been left, with nothing loaded:
-  // restore the Exam it was last on, as a reload of it does.
-  useEffect(() => {
-    if (route !== '/editor' || editorStore) return
-    let current = true
-    void (async () => {
-      const active = await bankWorkspaces.activeEditor()
-      if (!current) return
-      if (!active || !await workspaces.exists(active.resourceId) || !await workspaces.open(active.resourceId)) {
-        replaceRoute('/')
-        return
-      }
-      const restored = await loadExamStore(workspaces.backendFor(active.resourceId))
-      if (!current) return
-      setEditorStore(restored)
-      setEditorId(active.resourceId)
-    })()
-    return () => { current = false }
-  }, [bankWorkspaces, editorStore, route, workspaces])
   const importDialog = inspectingBankFile && <QuestionBankImportDialog
     key={`${droppedBankFile ? `${droppedBankFile.name}:${droppedBankFile.lastModified}` : 'chosen'}:${importTargetBankId ?? ''}:${importWaitingId ?? ''}`}
     initialFile={droppedBankFile ?? undefined}
@@ -3085,13 +3061,8 @@ export default function App({
     }}
     onHome={() => {
     void workspaces.activeId().then(async (id) => {
-      // An Exam nobody touched is disposable; the editor forgets it rather
-      // than restoring it on the way back.
-      if (id && await workspaces.removePristine(id)) {
-        setEditorStore(null)
-        setEditorId(null)
-      }
-      navigate('/')
+      if (id) await workspaces.removePristine(id)
+      window.location.assign('/')
     })
   }} /></> : globalChrome
 }

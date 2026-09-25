@@ -890,6 +890,9 @@ button { cursor: pointer; }
    circles, sit before its number in a wider one. `questionIndentOf` in
    export-plan.ts holds the same widths for the adapters. */
 .exam-question:has(> .question-number--marks) { grid-template-columns: 64px 1fr; }
+/* An Export Record made before Sections were stored reprints the answer blank
+   its questions had, in the column it had (`questionIndentOf`). */
+.exam-question:has(> .question-number--legacy-blank) { grid-template-columns: 92px 1fr; }
 .exam-question, .exam-question * { -webkit-user-drag: none; }
 .exam-question:active { cursor: grabbing; }
 
@@ -3256,6 +3259,7 @@ button.pop-over-chip-option[aria-pressed='true'] svg { visibility: visible; }
 .pop-over-answers .doc-content p { margin: 0; }
 .pop-over-led { display: flex; gap: 5px; align-items: baseline; }
 .pop-over-blank { flex: none; color: #9c8977; letter-spacing: -1px; }
+.pop-over-marks { flex: none; font-weight: 700; white-space: pre; }
 .pop-over-items { display: grid; gap: 1px; margin: 3px 0 0; padding: 0; list-style: none; }
 .pop-over-items li { display: flex; gap: 5px; align-items: baseline; }
 .pop-over-items .doc-content p { margin: 0; }

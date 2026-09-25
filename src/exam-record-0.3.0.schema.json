@@ -22,7 +22,7 @@
       "type": "string"
     },
     "sections": {
-      "description": "The Exam's Question Sections, in the order they print. A Section holds Questions of any type. A Section no position belongs to is kept, but prints nothing.",
+      "description": "The Exam's Question Sections, in the order they print. A Section holds Questions of any type. A Section no position belongs to is kept, and prints its heading and directions with nothing under them.",
       "type": "array",
       "items": {
         "$ref": "#/$defs/section"

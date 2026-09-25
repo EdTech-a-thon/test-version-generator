@@ -74,14 +74,14 @@ describe('Copy', () => {
     expect(copied(planets, { columns: 4 })).toBe('Which planet is largest?\nA. Mars\nB. Jupiter\nC. Venus\nD. Earth')
   })
 
-  test('a True/False question pastes as a blank before its stem, never the fixed pair', () => {
+  test('a True/False question pastes with the T and F to circle before its stem, as the test prints them', () => {
     const value = question(
       'true-false',
       paragraph(text('The sun is a star.')),
       paragraph(),
       choices(choice('t', true, 'True'), choice('f', false, 'False')),
     )
-    expect(copied(value)).toBe('_____ The sun is a star.')
+    expect(copied(value)).toBe('T  F  The sun is a star.')
   })
 
   test('a Matching set pastes its directions, lettered Word Bank and blank-led Items, never which answer each names', () => {

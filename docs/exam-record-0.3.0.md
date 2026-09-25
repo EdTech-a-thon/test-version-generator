@@ -38,7 +38,7 @@ A Question Section is an ordered group of Questions of any Question Type under a
 | `instructions` | yes      | The Section's directions, as the teacher wrote them. At most 2000 characters. |
 
 - A Section may hold Questions of several types, in any order.
-- A Section no position belongs to is conforming. It is kept on import, so a teacher can put Questions in it, but prints nothing on the test or the Answer Key.
+- A Section no position belongs to is conforming. It is kept on import, so a teacher can put Questions in it. It prints its heading and directions on the test with nothing under them, and has no group in the Answer Key.
 - Both members are always written out in full; there is no default wording to fall back on. Test Parrot begins a new Section's wording from the defaults of the type of the first Question put in it, but that is editing behaviour, not part of the record.
 - An empty string is a part the teacher cleared: it prints nothing. A Section whose `title` and `instructions` are both empty prints no heading at all.
 - Importers keep the members as given.

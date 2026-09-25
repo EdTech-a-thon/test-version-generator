@@ -1,8 +1,8 @@
 // Copy: Questions on the clipboard, or dragged, ready to land in another
 // document.
 //
-// What travels is what a student reads — the stem, lettered answers, a Word
-// Bank and blank-led Items, lettered Parts — unnumbered, so the document it
+// What travels is what a student reads — the stem, lettered answers, the T
+// and F to circle, a Word Bank and blank-led Items, lettered Parts — unnumbered, so the document it
 // lands in numbers it. Correctness, a Suggested Answer, Question Metadata and
 // Work Space never travel (see CONTEXT.md, "Copy", and ADR-0030).
 //
@@ -16,7 +16,7 @@
 
 import { bankLetter } from './matching'
 import { authoredImageRatio, authoredImageWidth } from './export-media'
-import { layOutColumns, MATCHING_BESIDE_LIMIT } from './export-plan'
+import { layOutColumns, MATCHING_BESIDE_LIMIT, TRUE_FALSE_MARKS } from './export-plan'
 import { pendingImageOf, stemNodesOf, type ProseMirrorJSON } from './question-doc'
 import { choicesOf, partsOf, promptsOf, type ColumnSetting, type Question } from './exam'
 
@@ -73,8 +73,12 @@ export type CopyMedia = {
 
 export const NO_MEDIA: CopyMedia = { pictures: new Map(), mathml: new Map() }
 
-/** The blank a True/False question, or a Matching Item, is answered in. */
+/** The blank a Matching Item is answered in. */
 export const ANSWER_BLANK = '_____ '
+
+/** What leads a True/False question: the T and F a student circles, as the
+ *  test prints them before its number. */
+export const TRUE_FALSE_LEAD = `${TRUE_FALSE_MARKS.join('  ')}  `
 
 /** One ruled line for a written answer. */
 export const ANSWER_RULE = '_'.repeat(64)
@@ -124,8 +128,8 @@ export function copyBlocksOf(question: Question, format: CopyFormat = {}): CopyB
   const content = (node: ProseMirrorJSON) => childrenOf(node)
   switch (question.type) {
     case 'true-false':
-      // The pair is never printed; the blank asks for a T or an F.
-      return [line(stem, ANSWER_BLANK)]
+      // The pair is never printed as answers; a student circles T or F.
+      return [line(stem, TRUE_FALSE_LEAD)]
     case 'multiple-choice':
       return [
         ...(stem.length > 0 ? [line(stem)] : []),

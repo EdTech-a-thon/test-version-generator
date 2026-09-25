@@ -166,7 +166,7 @@ describe('writing back Sections', () => {
     expect(removed.sectionOf).toEqual({ q2: 'A', q3: 'B' })
   })
 
-  test('stores every Section, every placement and the order, and drops the legacy per-type wording', () => {
+  test('stores every Section, every placement and the order, and keeps the legacy per-type wording', () => {
     const draft = { ...draftOf(), sectionHeadings: { open: { title: 'Essays' } } }
     const laidOut = withSectionLayout(draft, {
       sections: [{ id: 'open', title: 'Essays', instructions: '' }, { id: 'B', title: 'Short Answer', instructions: '' }],
@@ -178,6 +178,8 @@ describe('writing back Sections', () => {
       questionIds: ['q1', 'q3', 'q2'],
       sections: [{ id: 'open', title: 'Essays', instructions: '' }, { id: 'B', title: 'Short Answer', instructions: '' }],
       sectionOf: { q1: 'open', q2: 'B', q3: 'open' },
+      // Kept, for a Section begun later for a type the Exam has none of.
+      sectionHeadings: { open: { title: 'Essays' } },
     })
   })
 })

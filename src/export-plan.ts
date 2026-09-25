@@ -517,14 +517,30 @@ const QUESTION_NUMBER_COLUMN_WIDTH = 34
 const MARKS_QUESTION_NUMBER_COLUMN_WIDTH = 64
 const QUESTION_NUMBER_COLUMN_GAP = 6
 
+/** The answer blank a Multiple Choice or True/False question printed before
+ *  its number until Sections were stored (ADR-0029). No new plan carries it;
+ *  an Export Record made before then does, and reprints exactly as it was. */
+export const LEGACY_ANSWER_BLANK = '_______'
+/** The number column that blank printed in (`.question-number--legacy-blank`). */
+const LEGACY_QUESTION_NUMBER_COLUMN_WIDTH = 92
+
+/** Whether a planned question is one an Export Record kept from before
+ *  Sections were stored, printing an answer blank before its number. */
+export function hasLegacyAnswerBlank(question: { marks?: readonly string[] }): boolean {
+  return question.marks?.includes(LEGACY_ANSWER_BLANK) ?? false
+}
+
 /** Where a question's body starts, in pixels from the content edge: past the
  *  number column and its gap. Every adapter indents a question by this. */
-export function questionIndentOf(question: Pick<PlannedQuestion, 'type'>): number {
-  return (
-    (hasMarks(question.type)
+export function questionIndentOf(
+  question: Pick<PlannedQuestion, 'type'> & { marks?: readonly string[] },
+): number {
+  const column = hasLegacyAnswerBlank(question)
+    ? LEGACY_QUESTION_NUMBER_COLUMN_WIDTH
+    : hasMarks(question.type)
       ? MARKS_QUESTION_NUMBER_COLUMN_WIDTH
-      : QUESTION_NUMBER_COLUMN_WIDTH) + QUESTION_NUMBER_COLUMN_GAP
-  )
+      : QUESTION_NUMBER_COLUMN_WIDTH
+  return column + QUESTION_NUMBER_COLUMN_GAP
 }
 
 /** Whether a question's number column carries marks a student circles before
@@ -1277,6 +1293,29 @@ export const US_LETTER: PageSize = {
   height: PAGE_HEIGHT,
   margin: PAGE_MARGIN,
   contentWidth: PAGE_CONTENT_WIDTH,
+}
+
+/**
+ * A Layout Plan as an Export Record stored it, read by this version. A record
+ * is never rewritten (ADR-0014), so one made before Sections were stored
+ * (ADR-0029) still says whether each question printed an answer blank, and
+ * names its Sections by Question Type: here the blank becomes the mark it
+ * printed as, and the type the Section's id, so it reprints as it did.
+ */
+export function readStoredLayoutPlan(plan: LayoutPlan): LayoutPlan {
+  const upgraded = (item: PageItem): PageItem => {
+    const legacy = item as PageItem & { section?: string }
+    if ((item.kind === 'section-heading' || item.kind === 'answer-key-section')
+      && typeof item.sectionId !== 'string') {
+      return { ...item, sectionId: String(legacy.section ?? '') }
+    }
+    if (item.kind === 'question' && !Array.isArray(item.question.marks)) {
+      const { answerBlank, ...question } = item.question as PlannedQuestion & { answerBlank?: boolean }
+      return { ...item, question: { ...question, marks: answerBlank ? [LEGACY_ANSWER_BLANK] : [] } }
+    }
+    return item
+  }
+  return { ...plan, pages: plan.pages.map((page) => ({ ...page, items: page.items.map(upgraded) })) }
 }
 
 export type LayoutPlan = {

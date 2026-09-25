@@ -338,11 +338,10 @@ export type ExamStore = {
    * a copy already committed to the owning Question Bank. */
   duplicateInWorkingCopy(questionId: string, duplicate?: Question): void
   /** References an unused Question Bank record from the Working Copy. With no
-   *  target it goes to the end of the last Section of its type, or a new
-   *  Section at the end of the Exam; with one, it goes there. A question
-   *  already referenced is left where it is: a reference occurs at most once.
-   *  A target in a Section of another type is refused: a Section holds one
-   *  type. */
+   *  target it goes to the end of the last Section, or starts the first
+   *  Section of an Exam that has none; with one, it goes there, whatever the
+   *  Section already holds. A question already referenced is left where it
+   *  is: a reference occurs at most once. */
   addToWorkingCopy(question: string | Question, target?: SectionTarget | null): void
   /** Adds several unused records in the supplied order as one undoable
    *  composition. Used by filtered Add all and multi-row bank drags; a question
@@ -351,9 +350,10 @@ export type ExamStore = {
     questions: readonly (string | Question)[],
     target?: SectionTarget | null,
   ): void
-  /** Moves references to a target: beside a question or at the end of a
-   *  Section, where only the questions of its type move, or into new Sections
-   *  directly below one. A Section a move empties stays. */
+  /** Moves references to a target: beside a question, at the end of a
+   *  Section, or into a new Section directly below one. A Section holds
+   *  Questions of any type, so every requested question moves. A Section a
+   *  move empties stays. */
   moveInWorkingCopy(questionIds: readonly string[], target: SectionTarget): void
   /** Shuffles selected references only among their current positions, within
    *  each Question Section. Every eligible section changes order in this one
@@ -540,7 +540,7 @@ function withQuestionsAdded(
     // An Exam with nothing on it: whatever arrives, however it was asked for,
     // starts its first Section, in the order given, worded for the first of
     // them.
-    const section: ExamSection = { id: crypto.randomUUID(), ...newSectionWording(added[0]!.type) }
+    const section: ExamSection = { id: crypto.randomUUID(), ...newSectionWording(added[0]!.type, workingCopy.sectionHeadings) }
     workingCopy = withSectionLayout(workingCopy, {
       sections: [section],
       sectionOf: Object.fromEntries(added.map(({ id }) => [id, section.id])),

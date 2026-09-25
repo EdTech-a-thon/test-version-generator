@@ -111,6 +111,10 @@ export function PopOverProvider({
       }, { once: true })
       viewRef.current = opened
       setView(opened)
+    }, () => {
+      // Refused — the click's permission to open a window had lapsed, or the
+      // browser declined. Nothing opens, and nothing is left waiting to.
+      if (!viewRef.current) setRequest(null)
     })
   }, [])
   const value = useMemo(() => ({ supported, open }), [open, supported])

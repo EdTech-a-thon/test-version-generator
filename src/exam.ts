@@ -130,8 +130,8 @@ export type Exam = {
    *  per Question Type (see `sectionsOf`). */
   sections?: ExamSection[]
   /** Which Section each question belongs to, by question id. A question with
-   *  no entry, or one naming a Section that is gone or of another type, belongs
-   *  to the last Section of its type. */
+   *  no entry, or one naming a Section that is gone, belongs to the last
+   *  Section. */
   sectionOf?: Record<string, string>
   /** The wording an Exam written before Sections were stored gave each type's
    *  one Section. Read only for derived Sections; a stored Section carries its
@@ -409,9 +409,18 @@ export type ExamSection = {
 }
 
 /** The heading and directions a new Section begins with: those of the type of
- *  the first Question put in it. */
-export function newSectionWording(type: QuestionType): Pick<ExamSection, 'title' | 'instructions'> {
-  return { title: SECTION_TITLE[type], instructions: SECTION_INSTRUCTIONS[type] }
+ *  the first Question put in it — as the teacher reworded them for that type
+ *  before Sections were stored, when they did, so wording written for a type
+ *  the Exam had no Questions of yet is not lost when it first gets one. */
+export function newSectionWording(
+  type: QuestionType,
+  legacy?: SectionHeadings,
+): Pick<ExamSection, 'title' | 'instructions'> {
+  const heading = legacy?.[type]
+  return {
+    title: heading?.title ?? SECTION_TITLE[type],
+    instructions: heading?.instructions ?? SECTION_INSTRUCTIONS[type],
+  }
 }
 
 /** A stored Section as this build reads it, or `null` when it cannot be read.
@@ -602,7 +611,7 @@ export function placeQuestions(
         : members.findIndex(({ section }) => section.id === target.afterSectionId) + 1
     if (at === 0) return null
     next.splice(at, 0, {
-      section: { id: newSectionId(), ...newSectionWording(typeById.get(moving[0]!)!) },
+      section: { id: newSectionId(), ...newSectionWording(typeById.get(moving[0]!)!, exam.sectionHeadings) },
       ids: moving,
     })
     return layoutOf(next)

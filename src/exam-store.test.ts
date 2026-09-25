@@ -894,7 +894,8 @@ describe('Question Sections on the Working Copy', () => {
     store.addToWorkingCopy(spare!.id)
 
     const { workingCopy } = store.getState()
-    expect(workingCopy.sectionHeadings).toBeUndefined()
+    // Kept: nothing the teacher wrote is thrown away by storing Sections.
+    expect(workingCopy.sectionHeadings).toEqual({ open: { title: 'Essays', instructions: '' } })
     expect(workingCopy.sections).toEqual([
       { id: 'multiple-choice', ...newSectionWording('multiple-choice') },
       { id: 'open', title: 'Essays', instructions: '' },
@@ -904,6 +905,36 @@ describe('Question Sections on the Working Copy', () => {
     store.undo()
     expect(store.getState().workingCopy.sectionHeadings).toEqual({
       open: { title: 'Essays', instructions: '' },
+    })
+  })
+
+  test('wording written before Sections were stored, for a type the Exam had none of, begins that type\'s first Section', () => {
+    const [choice, essay] = [createQuestion('multiple-choice'), createQuestion('open')]
+    const legacy = { open: { title: 'Essays', instructions: 'Write in full sentences.' } }
+
+    // An Exam with nothing on it yet: its first Question starts its first Section.
+    const empty: AuthoringState = {
+      questionBank: { questions: [choice!, essay!] },
+      workingCopy: { title: 'Legacy', questionIds: [], sectionHeadings: legacy },
+      dirty: false,
+    }
+    const first = createExamStore({ backend: memory(empty), initial: empty })
+    first.addToWorkingCopy(essay!.id)
+    expect(first.getState().workingCopy.sections).toEqual([
+      { id: expect.any(String), title: 'Essays', instructions: 'Write in full sentences.' },
+    ])
+
+    // An Exam with other Questions: a new Section for this type starts from it too.
+    const other: AuthoringState = {
+      questionBank: { questions: [choice!, essay!] },
+      workingCopy: { title: 'Legacy', questionIds: [choice!.id], sectionHeadings: legacy },
+      dirty: false,
+    }
+    const second = createExamStore({ backend: memory(other), initial: other })
+    second.addToWorkingCopy(essay!.id, { kind: 'new-section', afterSectionId: null })
+    expect(second.getState().workingCopy.sections?.at(-1)).toMatchObject({
+      title: 'Essays',
+      instructions: 'Write in full sentences.',
     })
   })
 })
