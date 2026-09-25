@@ -18,7 +18,7 @@ A Section is created only by putting a Question somewhere no existing Section ca
 
 A drag never splits a Section, and a Question is never offered a place inside a Section of another type.
 
-A Section is removed only on purpose. An emptied Section stays on the sheet, where it can take another Question, and it prints its heading and directions: if the editor shows it, the paper shows it. Automatic removal was rejected because dragging the last Question out of a Section and then dragging a new one in is ordinary editing and should not destroy the Section's wording. Each Section has up and down arrows to move it past a neighbour, and a delete button that Removes its Questions. Both can be undone, so deleting asks for no confirmation.
+A Section is removed only on purpose. An emptied Section stays on the sheet, where it can take another Question, but is omitted from the student test and the Answer Key, as an empty Section always was. Automatic removal was rejected because dragging the last Question out of a Section and then dragging a new one in is ordinary editing and should not destroy the Section's wording. Each Section has up and down arrows to move it past a neighbour, and a delete button that Removes its Questions. Both can be undone, so deleting asks for no confirmation.
 
 Replace is withdrawn. It existed so that a Question could take another's position without crossing a Section boundary. Dragging now only inserts, and this supersedes ADR-0011's manual Replace. Vary and export Versions (ADR-0028) shuffle Questions only within their own Section. The Answer Key groups its entries by Section.
 
