@@ -223,7 +223,7 @@ function blockHtml(node: ProseMirrorJSON, media: CopyMedia, lead: string, indent
           return `<${tag} style="border:1px solid #000;padding:2pt 4pt">${childrenOf(cell).map((child) => blockHtml(child, media, '', 0)).join('')}</${tag}>`
         }).join('')}</tr>`,
       ).join('')
-      return `${lead ? `${open}</p>` : ''}<table style="border-collapse:collapse"><tbody>${rows}</tbody></table>`
+      return `${lead ? `${open}</p>` : ''}<table style="width:100%;border-collapse:collapse;table-layout:fixed"><tbody>${rows}</tbody></table>`
     }
     default:
       // Anything unrecognised gives up its children rather than disappearing,

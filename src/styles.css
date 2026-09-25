@@ -1284,6 +1284,10 @@ button { cursor: pointer; }
 .doc-figure figcaption { font-size: 13px; font-style: italic; }
 .doc-table { border-collapse: collapse; }
 .doc-table td, .doc-table th { padding: 3px 8px; border: 1px solid #b9a893; }
+/* Read in full on the Question Bank page and in the Pop-over, a table spans
+   its lane with equal columns, as the Question editor and the DOCX export lay
+   it out; left to size itself it shrinks to its shortest content. */
+.question-reading .doc-table { width: 100%; table-layout: fixed; }
 .doc-math--block { display: block; margin: 6px 0; text-align: center; }
 
 .dialog-backdrop {
@@ -3090,16 +3094,20 @@ a.import-card-main:hover .exam-sheet, a.import-card-main:focus-visible .exam-she
 .pop-over-body { margin: 0; background: var(--app-ground); }
 .pop-over { display: flex; flex-direction: column; height: 100vh; font-size: 13px; }
 .pop-over-loading, .pop-over-empty { margin: 16px 12px; color: #7a6a5c; font-size: 13px; }
+/* The strip overlaps the rule under it by a pixel and the open tab paints
+   over that pixel, so the open tab and its bank are one surface, with no line
+   between them — as the Exam editor's bank tabs are. */
 .pop-over-tabs {
-  flex: none; display: flex; align-items: flex-end; gap: 2px; padding: 6px 6px 0;
-  border-bottom: 1px solid var(--bank-frame-line); background: var(--bank-chrome);
+  position: relative; z-index: 1; flex: none; display: flex; align-items: flex-end; gap: 2px;
+  margin-bottom: -1px; padding: 6px 6px 0; background: var(--bank-chrome);
+  box-shadow: inset 0 -1px var(--bank-frame-line);
 }
 .pop-over-tabs [role='tablist'] { display: flex; gap: 2px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
 .pop-over-tab {
   display: flex; align-items: center; min-width: 0; max-width: 150px;
   border: 1px solid transparent; border-bottom: 0; border-radius: 6px 6px 0 0;
 }
-.pop-over-tab[data-active] { border-color: var(--bank-frame-line); background: var(--app-ground); margin-bottom: -1px; }
+.pop-over-tab[data-active] { border-color: var(--bank-frame-line); background: var(--app-ground); }
 .pop-over-tab button {
   border: 0; background: transparent; color: #5b4839; font-size: 12px; cursor: pointer;
 }
@@ -3115,24 +3123,45 @@ a.import-card-main:hover .exam-sheet, a.import-card-main:focus-visible .exam-she
 .pop-over-add:hover, .pop-over-add[aria-pressed='true'] { background: #dccbb4; }
 .pop-over-add svg { width: 15px; height: 15px; }
 
-.pop-over-bank, .pop-over-picker { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.pop-over-bank, .pop-over-picker {
+  flex: 1; min-height: 0; display: flex; flex-direction: column;
+  border-top: 1px solid var(--bank-frame-line);
+}
 .pop-over-controls { flex: none; display: flex; gap: 6px; padding: 8px 8px 0; }
 .pop-over-filters-button {
   display: inline-flex; align-items: center; gap: 5px; padding: 5px 8px;
   border: 1px solid #ddcdb9; border-radius: 6px; color: #5b4839; background: #fffdf8; font-size: 12px;
 }
-.pop-over-filters-button[data-active] { border-color: #b99a78; background: #f3e4d1; }
+.pop-over-filters-button[data-active], .pop-over-filters-button[aria-expanded='true'] { border-color: #b99a78; background: #f3e4d1; }
 .pop-over-filters-button svg { width: 13px; height: 13px; }
-.pop-over-filters {
-  flex: none; display: flex; flex-wrap: wrap; align-items: flex-start; gap: 6px 14px;
-  margin: 6px 8px 0; padding: 8px 10px; border: 1px solid var(--paper-outline); border-radius: 8px;
-  background: #fffdf8;
+/* The filter row: one chip per filter, Notion-style, each opening its own
+   short list. A chip that is filtering says so in its label. */
+.pop-over-filters { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin: 6px 8px 0; }
+.pop-over-chip { position: relative; }
+.pop-over-chip > button {
+  display: inline-flex; align-items: center; gap: 3px; max-width: 220px; padding: 3px 6px 3px 8px;
+  border: 1px solid #ddcdb9; border-radius: 999px; color: #5b4839; background: #fffdf8;
+  font-size: 12px; white-space: nowrap; cursor: pointer;
 }
-.pop-over-filter-group { display: grid; gap: 2px; margin: 0; padding: 0; border: 0; }
-.pop-over-filter-group legend { padding: 0 0 2px; color: var(--paper-ink-soft); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
-.pop-over-filter-group label { display: flex; align-items: center; gap: 5px; font-size: 12px; }
-.pop-over-sort { display: grid; gap: 3px; color: var(--paper-ink-soft); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
-.pop-over-sort select { font-size: 12px; font-weight: 400; text-transform: none; letter-spacing: 0; }
+.pop-over-chip > button:hover { border-color: #cdb9a6; background: #f7ede0; }
+.pop-over-chip > button[data-active] { border-color: #b99a78; color: #3d3027; background: #f3e4d1; }
+.pop-over-chip > button strong { overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
+.pop-over-chip > button svg { flex: none; width: 12px; height: 12px; }
+.pop-over-chip-menu {
+  position: absolute; top: calc(100% + 4px); left: 0; z-index: 10;
+  display: grid; min-width: 170px; max-height: 260px; padding: 4px; overflow-y: auto;
+  border: 1px solid var(--paper-outline); border-radius: 8px; background: #fffdf8;
+  box-shadow: 0 8px 24px rgb(91 68 47 / 18%);
+}
+.pop-over-chip-menu[data-align='end'] { right: 0; left: auto; }
+.pop-over-chip-option {
+  display: flex; align-items: center; gap: 7px; padding: 5px 7px; border: 0; border-radius: 5px;
+  color: #332a24; background: transparent; font-size: 12px; text-align: left; cursor: pointer;
+}
+.pop-over-chip-option:hover { background: #f5eade; }
+button.pop-over-chip-option svg { width: 12px; height: 12px; visibility: hidden; }
+button.pop-over-chip-option[aria-pressed='true'] svg { visibility: visible; }
+.pop-over-filters .bank-filter-clear { padding: 3px 6px; font-size: 12px; }
 .pop-over-hint { flex: none; margin: 6px 10px 4px; color: #8a7868; font-size: 11px; }
 
 .pop-over-cards {
@@ -3141,7 +3170,7 @@ a.import-card-main:hover .exam-sheet, a.import-card-main:focus-visible .exam-she
 }
 .question-reading.pop-over-card {
   position: relative; padding: 8px 10px; border: 1px solid var(--paper-outline); border-radius: 8px;
-  background: #fffdf8; cursor: copy; font-size: 12px;
+  background: #fffdf8; cursor: pointer; font-size: 12px;
   transition: border-color .12s ease, box-shadow .12s ease;
 }
 .pop-over-card:hover, .pop-over-card:focus-visible { border-color: #cdb9a6; box-shadow: 0 2px 6px rgb(91 68 47 / 12%); }

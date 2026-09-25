@@ -16,7 +16,7 @@ import {
   type ReactNode,
 } from 'react'
 import { createPortal } from 'react-dom'
-import { Check, CircleAlert, Copy, Plus, Search, SlidersHorizontal, X } from 'lucide-react'
+import { Check, ChevronDown, CircleAlert, Copy, Plus, Search, SlidersHorizontal, X } from 'lucide-react'
 import type { Question } from './exam'
 import type { ProseMirrorJSON } from './question-doc'
 import { QuestionReading } from './question-reading'
@@ -31,7 +31,6 @@ import {
   isFilterActive,
   topicOptions,
   type QuestionBankFilter,
-  type QuestionBankSort,
 } from './question-bank-view'
 import {
   closeBankTab,
@@ -343,22 +342,83 @@ function BankPicker({
   </section>
 }
 
-function Checkboxes<T extends string>({
-  legend,
+/** What a chip says it is filtering on: nothing, the one value, or how many. */
+function chipSummary(labels: readonly string[]): string | undefined {
+  if (labels.length === 0) return undefined
+  return labels.length <= 2 ? labels.join(', ') : `${labels.length} selected`
+}
+
+/**
+ * One filter, as a chip in the row under the search: its name and what it is
+ * set to, opening a short list of values beneath it. The list is kept inside
+ * the Pop-over's own document and turned leftwards when the narrow window has
+ * no room for it on the right.
+ */
+function FilterChip({
+  label,
+  summary,
+  children,
+}: {
+  label: string
+  summary?: string
+  children: (close: () => void) => ReactNode
+}) {
+  const [open, setOpen] = useState(false)
+  const [alignEnd, setAlignEnd] = useState(false)
+  const chip = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const element = chip.current
+    if (!open || !element) return
+    const document = element.ownerDocument
+    const view = document.defaultView
+    if (view) setAlignEnd(element.getBoundingClientRect().left + 200 > view.innerWidth - 8)
+    const onPointerDown = (event: PointerEvent) => {
+      if (!element.contains(event.target as Node)) setOpen(false)
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [open])
+  return <div className="pop-over-chip" ref={chip}>
+    <button
+      type="button"
+      aria-expanded={open}
+      aria-haspopup="true"
+      data-active={summary ? 'true' : undefined}
+      onClick={() => setOpen((current) => !current)}
+    >
+      {label}
+      {summary && <>: <strong>{summary}</strong></>}
+      <ChevronDown aria-hidden="true" />
+    </button>
+    {open && <div className="pop-over-chip-menu" role="group" aria-label={label} data-align={alignEnd ? 'end' : undefined}>
+      {children(() => setOpen(false))}
+    </div>}
+  </div>
+}
+
+/** A chip whose values combine: any number ticked, shown with OR. */
+function ChoiceChip<T extends string>({
+  label,
   options,
   selected,
   onChange,
 }: {
-  legend: string
+  label: string
   options: readonly { value: T; label: string }[]
   selected: readonly T[]
   onChange: (values: T[]) => void
 }) {
-  if (options.length === 0) return null
-  return <fieldset className="pop-over-filter-group">
-    <legend>{legend}</legend>
-    {options.map((option) => (
-      <label key={option.value}>
+  const labels = options.filter((option) => selected.includes(option.value)).map((option) => option.label)
+  return <FilterChip label={label} summary={chipSummary(labels)}>
+    {() => options.map((option) => (
+      <label key={option.value} className="pop-over-chip-option">
         <input
           type="checkbox"
           checked={selected.includes(option.value)}
@@ -369,7 +429,7 @@ function Checkboxes<T extends string>({
         {option.label}
       </label>
     ))}
-  </fieldset>
+  </FilterChip>
 }
 
 function PopOverBank({
@@ -383,7 +443,9 @@ function PopOverBank({
   filter: QuestionBankFilter
   onFilterChange: (filter: QuestionBankFilter) => void
 }) {
-  const [filtersOpen, setFiltersOpen] = useState(false)
+  // Open from the start when something is already filtered, so a filter
+  // is never in force out of sight.
+  const [filtersOpen, setFiltersOpen] = useState(() => isFilterActive(filter) || (filter.sort ?? 'newest') !== 'newest')
   const copying = useQuestionCopy()
   const questions = browseQuestionBank(bank, filter)
   const shown = usePictureSources(bank.questions)
@@ -413,38 +475,50 @@ function PopOverBank({
       </button>
     </div>
     {filtersOpen && <div className="pop-over-filters">
-      <Checkboxes
-        legend="Question Type"
+      <ChoiceChip
+        label="Question Type"
         options={TYPE_OPTIONS}
         selected={filter.types}
         onChange={(types) => onFilterChange({ ...filter, types })}
       />
-      <Checkboxes
-        legend="Difficulty"
+      <ChoiceChip
+        label="Difficulty"
         options={DIFFICULTY_OPTIONS}
         selected={filter.difficulties}
         onChange={(difficulties) => onFilterChange({ ...filter, difficulties })}
       />
-      <Checkboxes
-        legend="Topic"
+      {/* Only the Topics the bank has, and no chip at all when it has none. */}
+      {topicOptions(bank).length > 0 && <ChoiceChip
+        label="Topic"
         options={topicOptions(bank).map((topic) => ({ value: topic, label: topic }))}
         selected={filter.topics}
         onChange={(topics) => onFilterChange({ ...filter, topics })}
-      />
-      <label className="pop-over-sort">
-        Sort
-        <select
-          value={filter.sort ?? 'newest'}
-          onChange={(event) => onFilterChange({ ...filter, sort: event.target.value as QuestionBankSort })}
-        >
-          {SORT_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-        </select>
-      </label>
+      />}
+      <FilterChip
+        label="Sort"
+        summary={SORT_OPTIONS.find((option) => option.value === (filter.sort ?? 'newest'))?.label}
+      >
+        {(close) => SORT_OPTIONS.map((option) => (
+          <button
+            key={option.value}
+            type="button"
+            className="pop-over-chip-option"
+            aria-pressed={(filter.sort ?? 'newest') === option.value}
+            onClick={() => {
+              onFilterChange({ ...filter, sort: option.value })
+              close()
+            }}
+          >
+            <Check aria-hidden="true" />
+            {option.label}
+          </button>
+        ))}
+      </FilterChip>
       {isFilterActive(filter) && <button
         type="button"
         className="bank-filter-clear"
         onClick={() => onFilterChange({ ...NO_FILTER, sort: filter.sort ?? 'newest' })}
-      >Clear filters</button>}
+      >Clear</button>}
     </div>}
     <p className="pop-over-hint">Click a Question to copy it.</p>
     {questions.length === 0
