@@ -10,7 +10,7 @@ Always create one complete UTF-8 JSON file using the **Test Parrot Package `0.1.
 <short-name>.parrot.json
 ```
 
-A package always holds exactly one Question Bank Record `0.3.0` with every converted Question. What else goes in it depends on the source, so triage it first:
+A package always holds exactly one Question Bank Record `0.4.0` with every converted Question. What else goes in it depends on the source, so triage it first:
 
 - **The source is a test** — an exam, quiz, worksheet or any paper a student sits, with its questions in a printed order: also add one Exam Record `0.1.0` that lays the Questions out as the test does (see [Tests](#tests)).
 - **The source is only questions** — a question pool, a study list, a bank exported from elsewhere, anything not laid out as one paper: add no Exam. `exams` is an empty array.
@@ -30,14 +30,14 @@ Do not generate a PDF. Do not return a summary in place of the JSON file.
 
 Use these resources as the source of truth:
 
-- [JSON Schema](./formats/question-bank/0.3.0/schema.json)
-- [Minimal Multiple Choice example](./formats/question-bank/0.3.0/examples/minimal-multiple-choice.json)
-- [True/False example](./formats/question-bank/0.3.0/examples/true-false.json)
-- [Matching example](./formats/question-bank/0.3.0/examples/matching.json)
-- [Short Answer example](./formats/question-bank/0.3.0/examples/short-answer.json)
-- [Complete rich-text example](./formats/question-bank/0.3.0/examples/complete-rich-text.json)
-- [Provenance and links example](./formats/question-bank/0.3.0/examples/provenance-and-links.json)
-- [Media-rich example](./formats/question-bank/0.3.0/examples/media-rich.json)
+- [JSON Schema](./formats/question-bank/0.4.0/schema.json)
+- [Minimal Multiple Choice example](./formats/question-bank/0.4.0/examples/minimal-multiple-choice.json)
+- [True/False example](./formats/question-bank/0.4.0/examples/true-false.json)
+- [Matching example](./formats/question-bank/0.4.0/examples/matching.json)
+- [Short Answer example](./formats/question-bank/0.4.0/examples/short-answer.json)
+- [Complete rich-text example](./formats/question-bank/0.4.0/examples/complete-rich-text.json)
+- [Provenance and links example](./formats/question-bank/0.4.0/examples/provenance-and-links.json)
+- [Pending Images example](./formats/question-bank/0.4.0/examples/pending-images.json)
 - [Test Parrot Package JSON Schema](./formats/package/0.1.0/schema.json) and [Exam Record JSON Schema](./formats/exam/0.1.0/schema.json)
 - [Package example: a test, with its bank and Exam](./formats/package/0.1.0/examples/bank-and-exam.json)
 - [Package example: questions only, with a bank and no Exam](./formats/package/0.1.0/examples/bank-only.json)
@@ -47,7 +47,7 @@ The Question Bank Record inside the package has this top-level shape:
 ```json
 {
   "format": "test-parrot/question-bank",
-  "formatVersion": "0.3.0",
+  "formatVersion": "0.4.0",
   "generator": {
     "name": "Name of the assistant or conversion tool",
     "version": "Version or model name"
@@ -61,7 +61,7 @@ The Question Bank Record inside the package has this top-level shape:
 }
 ```
 
-Do not add application database IDs, local paths, timestamps, page numbers, layout coordinates, OCR confidence, or conversational notes to the record. A test's layout belongs in its Exam Record, and only in the members that format defines.
+Do not add application database IDs, local paths, timestamps, page numbers, layout coordinates, OCR confidence, or conversational notes to the record. The only exception is the `pending` member of a Pending Image (see [Images and Pending Images](#images-and-pending-images)). A test's layout belongs in its Exam Record, and only in the members that format defines.
 
 ## The package
 
@@ -77,7 +77,7 @@ The file itself is the package, with the Question Bank Record under `questionBan
   },
   "requiredFeatures": [],
   "questionBanks": [
-    { "id": "bank", "record": { "format": "test-parrot/question-bank", "formatVersion": "0.3.0", "...": "the complete Question Bank Record" } }
+    { "id": "bank", "record": { "format": "test-parrot/question-bank", "formatVersion": "0.4.0", "...": "the complete Question Bank Record" } }
   ],
   "exams": [
     {
@@ -124,7 +124,7 @@ Completeness means accounting for every source question, not pretending every qu
 
 ### During conversion
 
-1. Classify a question as `multiple-choice`, `true-false`, `matching` or `short-answer` only when the source supports that classification. Version `0.3.0` supports only those four types. If its type is uncertain or it cannot be represented without material loss, leave it out and report it explicitly; never coerce it into the closest supported type.
+1. Classify a question as `multiple-choice`, `true-false`, `matching` or `short-answer` only when the source supports that classification. Version `0.4.0` supports only those four types. If its type is uncertain or it cannot be represented without material loss, leave it out and report it explicitly; never coerce it into the closest supported type.
 2. Preserve the exact wording, punctuation, capitalization, symbols, units, and meaningful whitespace.
 3. Preserve authored question and choice order.
 4. Preserve paragraphs, headings, blockquotes, lists, code, rules, tables, equations, hard breaks, links, images, captions, and text formatting when present.
@@ -148,8 +148,12 @@ Perform a second pass against the original source and verify all of the followin
 - meaningful formatting, especially subscript and superscript, was preserved semantically;
 - every image, caption, table, list, equation, hard break, and safe link was preserved;
 - all Question, choice, item and word bank IDs are unique and sequential;
-- every image reference resolves to exactly one Media Asset;
-- every Media Asset is referenced;
+- every meaningful image, including an image used as an answer choice, matching item or word bank answer, is a Pending Image;
+- every picture has its own Pending Image, with side-by-side pictures split rather than merged;
+- every Question covered by shared directions (for example “Use the information above for problems 3 – 5”) repeats the shared pictures in its own stem;
+- every Pending Image names the tag printed on its picture, or its page when the picture has no tag;
+- every tag in the [image tag list](#image-tags-in-this-document) is accounted for in the conversion report;
+- the Question Bank Record's `media` is an empty array;
 - for a test, the Exam has one position per converted Question, in printed order, each naming an existing Question ID in the package's bank, and no Question twice;
 - for a test, every `columns` value reflects a layout the source makes clear, sits only on a Multiple Choice position, and no position has `workSpace`;
 - the file is a Test Parrot Package with exactly one Question Bank Record, and it holds an Exam only if the source is a test;
@@ -159,7 +163,7 @@ If any check fails, fix the record or disclose the precise limitation. Never say
 
 ## Question types
 
-Version `0.3.0` supports `multiple-choice`, `true-false`, `matching`, and `short-answer` Questions. Do not use any of them as a fallback for an unknown, mixed, or unsupported Question Type. In particular, do not turn an uncertain question into Short Answer merely because it has no clearly detected choices, do not turn a two-choice question into True/False unless those two choices really are true and false, and do not turn a matching section into Multiple Choice questions that each repeat the word bank. Leave it unconverted and warn the user instead.
+Version `0.4.0` supports `multiple-choice`, `true-false`, `matching`, and `short-answer` Questions. Do not use any of them as a fallback for an unknown, mixed, or unsupported Question Type. In particular, do not turn an uncertain question into Short Answer merely because it has no clearly detected choices, do not turn a two-choice question into True/False unless those two choices really are true and false, and do not turn a matching section into Multiple Choice questions that each repeat the word bank. Leave it unconverted and warn the user instead.
 
 ### Multiple Choice
 
@@ -588,46 +592,46 @@ Only absolute HTTP and HTTPS links are allowed. Preserve both the visible label 
 
 Reject or report `javascript:`, `data:`, `file:`, relative, and custom-scheme links. Do not silently make an unsafe link importable by changing its destination.
 
-## Images and Media Assets
+## Images and Pending Images
 
-If an image is meaningful Question Content—for example, a diagram the Question asks about—preserve it. Do not replace it with an invented description.
+If an image is meaningful Question Content—for example, a graph or diagram the Question asks about, or a picture used as an answer choice—preserve it. Do not replace it with an invented description.
 
-An image node references bytes using a content-addressed ID:
+**Do not create Media Assets, and never write base64.** Instead, write a **Pending Image**: an image node that names the picture by its tag. Test Parrot takes the picture from the original file when the teacher imports the JSON.
+
+**The PDF you were given may be a labeled copy**, and the [image tag list](#image-tags-in-this-document) below says whether it is. In a labeled copy, Test Parrot has printed a small red tag, such as **IMG 3**, in the top-left corner of every image embedded in the document. The tags are not part of the source: never copy a tag into Question Content, `alt`, or `caption`, and describe each picture as if its tag were not there.
 
 ```json
 {
   "type": "block-image",
-  "asset": "sha256:<sha256 of decoded original image bytes>",
-  "alt": "Useful alternative text",
-  "caption": "Caption from the source",
-  "authoredSize": 0.75
-}
-```
-
-Each distinct referenced image must appear exactly once in the top-level `media` array:
-
-```json
-{
-  "id": "sha256:<same digest>",
-  "mimeType": "image/png",
-  "width": 1200,
-  "height": 800,
-  "bytes": "<strict base64 of the original image bytes>"
+  "pending": { "image": 3 },
+  "alt": "Map of European trading stations in Africa and Asia around 1750",
+  "caption": "Major European Trading Stations and Possessions in Africa and Asia c. 1750"
 }
 ```
 
 Rules:
 
-- Supported formats are PNG, JPEG, and WebP.
-- `width` and `height` are positive intrinsic pixel dimensions, each no more than 20,000.
-- `bytes` is strict base64 of the original supported image bytes.
-- The ID digest is SHA-256 of the decoded image bytes, not of the base64 text.
-- Every image reference must resolve, and every declared asset must be referenced.
-- Preserve optional `alt`, `caption`, and `authoredSize` from `0.05` through `1`.
-- Normalize another raster format to PNG only when necessary and disclose that conversion.
-- Do not include SVG.
+- A Pending Image has a `pending` member and **no `asset` member**.
+- `pending` holds `image`: the number on the tag printed on that picture. Read the number from the tag; do not count images yourself.
+- A picture with no tag, such as a diagram drawn with lines or a picture on a scanned page, gets `"pending": { "page": <n> }` instead, where `n` is the 1-based page of the file as a PDF viewer counts it. Do not add coordinates or any other location.
+- **Not every tag is a picture.** Test Parrot tags every embedded image, and some documents store a reading passage, a table, an equation, or a caption as an image. Transcribe those as ordinary content—text, a table, or math—exactly as you would if they were typed, and do not write a Pending Image for their tag. A tagged image that holds only words, such as a boxed reading passage with its source line, is text: transcribe every word, including the source line, and repeat a shared passage in every Question that uses it. Write a Pending Image for such a tag only if you cannot read its words reliably, and say so in the conversion report.
+- Put the Pending Image exactly where the picture belongs: in the `stem` when the picture belongs to the question, or in the choice's `content` when the picture is that answer choice.
+- **Write one Pending Image per picture.** Two graphs side by side, such as “Graph of f” and “Graph of g”, are two pictures and need two Pending Images, in reading order. When you cannot tell whether something is one picture or several, write several: an extra Pending Image is easy for the teacher to fill, and a missing one is not.
+- **Repeat shared pictures.** When one picture serves several Questions, every one of those Questions gets its own copy of the Pending Image, with the same tag number. Directions such as “Use the information above for problems 3 – 5” mean that Questions 3, 4, and 5 each start their stem with the pictures that directions refer to, even though the source prints them once.
+- Put caption text printed beside or below the picture in `caption`, even if the source shows the caption as an image.
+- Give every Pending Image useful `alt` text describing what the picture shows. `authoredSize` from `0.05` through `1` is optional.
+- Use `block-image` for a picture that stands on its own line, including a picture that is an answer choice's whole content. Use `inline-image` only for a small picture inside a line of text.
+- Leave the Question Bank Record's `media` array empty: `"media": []`.
 
-If the assistant cannot access or encode an essential image, it must identify the affected question and tell the user the conversion is incomplete. It must not omit the image silently.
+**Equations are not images.** Many documents store equations as small pictures. Write every equation as `inline-math` or `display-math` with its source, never as a Pending Image. Likewise, write text that the source shows as a picture, such as a caption or a heading, as text.
+
+If you cannot tell where an essential picture is, identify the affected question and tell the user the conversion is incomplete. Do not omit the image silently.
+
+### Image tags in this document
+
+{{IMAGE_TAGS}}
+
+In the conversion report, account for every tag listed here: which Questions and answers use it as a picture, or that it was transcribed as text, a table, or math, or that it is not Question Content (for example, a logo).
 
 ## Question Metadata and provenance
 
@@ -646,7 +650,7 @@ Include only information explicitly present in the source or supplied by the use
 
 ## Final validation and delivery
 
-Validate the package against the [package schema](./formats/package/0.1.0/schema.json), its Question Bank Record against the [Question Bank Record schema](./formats/question-bank/0.3.0/schema.json), and any Exam against the [Exam Record schema](./formats/exam/0.1.0/schema.json). Schema validation alone is not sufficient: also verify Question cardinality, unique IDs, that every matching `answer` names an ID in the same Question's `wordBank`, safe links, resolved media references, and decoded image properties.
+Validate the package against the [package schema](./formats/package/0.1.0/schema.json), its Question Bank Record against the [Question Bank Record schema](./formats/question-bank/0.4.0/schema.json), and any Exam against the [Exam Record schema](./formats/exam/0.1.0/schema.json). Schema validation alone is not sufficient: also verify Question cardinality, unique IDs, that every matching `answer` names an ID in the same Question's `wordBank`, safe links, and that every Pending Image follows the rules above.
 
 Relevant import limits include:
 
@@ -674,7 +678,7 @@ Also include a concise conversion report containing:
 - total Questions converted;
 - counts by Question Type (a matching set is one Question; also give its item count);
 - whether answer correctness was supplied or left incomplete;
-- number of embedded Media Assets;
+- every image tag, and which Questions and answers use it as a picture, or how it was transcribed instead;
 - every ambiguity, omission, normalization, or unsupported element—or “None” when there were none;
 - an **Unconverted Questions** section listing each source page and question identifier, opening words, and the reason it could not be converted—or “None” when every question was converted.
 

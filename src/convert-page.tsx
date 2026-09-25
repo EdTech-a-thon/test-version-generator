@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Check, ClipboardCheck, Copy } from 'lucide-react'
 import extractInstructions from '../public/extract.md?raw'
+import { fillImageTags } from './image-tag-list'
 import { LandingHeader } from './landing-page'
 import { Footer, Link } from './site-chrome'
 
@@ -22,8 +23,10 @@ const ASSISTANTS = [
 
 type AssistantId = (typeof ASSISTANTS)[number]['id']
 
+/** Copied from here, the instructions go with no labeled copy: a teacher who
+ *  wants pictures filled in drops their PDF into the import first. */
 function copyInstructions(): Promise<void> {
-  return navigator.clipboard.writeText(extractInstructions)
+  return navigator.clipboard.writeText(fillImageTags(extractInstructions, null))
 }
 
 function StepMark({ number, done }: { number: number; done: boolean }) {
