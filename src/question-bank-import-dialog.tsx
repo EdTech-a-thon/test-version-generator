@@ -32,6 +32,7 @@ import { selectedExam } from './selected-exam'
 import { planExport, type LayoutPlan } from './export-plan'
 import { domMeasure } from './dom-measure'
 import { ExportPreview } from './exam-page'
+import { ImportError } from './import-error'
 import { inspectUploadedFile, isRecordFile, needsConversion as fileNeedsConversion } from './question-bank-upload'
 import {
   checkAgainstSourceDocument,
@@ -511,6 +512,8 @@ export function QuestionBankImportDialog({
   const [focus, setFocus] = useState<Focus | null>(null)
   const [existingBanks, setExistingBanks] = useState<readonly { id: string; name: string }[]>([])
   const [error, setError] = useState<string | null>(null)
+  /** Whether the file that failed was one an AI made, which it can fix. */
+  const [aiMade, setAiMade] = useState(false)
   // A file this app cannot read at all — a scan, a screenshot, a PDF that
   // did not come from here — is not a broken import, it is a test that has
   // not been converted yet. That failure is answered with the way to convert
@@ -614,8 +617,9 @@ export function QuestionBankImportDialog({
     })
   }, [proposal])
 
-  const failed = (reason: unknown) => {
+  const failed = (reason: unknown, fromAi = false) => {
     setNeedsConversion(fileNeedsConversion(reason))
+    setAiMade(fromAi)
     setError(
       reason instanceof Error && reason.message
         ? reason.message
@@ -663,6 +667,7 @@ export function QuestionBankImportDialog({
     setResolutions(new Map())
     setSuppliedSource(null)
     setError(null)
+    setAiMade(false)
     setNeedsConversion(false)
     setInspected({ fileName: file.name, kind: 'record' })
     void (async () => {
@@ -686,7 +691,7 @@ export function QuestionBankImportDialog({
       } catch (reason) {
         const code = reason instanceof Error && 'code' in reason ? reason.code : null
         if (!isRecordFile(file) && code === 'missing-attachment') return startConverting(file)
-        failed(reason)
+        failed(reason, isRecordFile(file))
         setPhase('choose')
       }
     })()
@@ -998,7 +1003,7 @@ export function QuestionBankImportDialog({
           {phase === 'inspecting' && <p role="status">Validating file…</p>}
           {phase === 'analyzing' && <p role="status">Finding the pictures in your test…</p>}
           {phase === 'saving' && <p role="status">Importing…</p>}
-          {error && !needsConversion && <p className="home-error" role="alert">{error}</p>}
+          {error && !needsConversion && <ImportError message={error} aiMade={aiMade} />}
         </div>
 
         {proposal && mismatch && waiting && (

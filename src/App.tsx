@@ -3003,12 +3003,13 @@ export default function App({
     const waitingId = new URLSearchParams(window.location.search).get('id') ?? ''
     // A file dropped on a waiting import's page is the AI's answer to it.
     return <>
-      <BankFileDropTarget onFile={(file) => openImport(file, null, waitingId)} />
+      <BankFileDropTarget onFile={(file) => setConvertDrop({ file, id: Date.now() })} />
       {importDialog}
       <WaitingImportPage
         id={waitingId}
         persistentStorage={storageStatus}
         revision={importRevision}
+        dropped={convertDrop}
         onReturnedFile={(file) => openImport(file, null, waitingId)}
       />
     </>

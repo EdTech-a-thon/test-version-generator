@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { ClipboardCheck, UploadCloud } from 'lucide-react'
 import extractInstructions from '../public/extract.md?raw'
 import { fillImageTags } from './image-tag-list'
+import { ImportError } from './import-error'
 import { routeImportFile } from './import-file-route'
 import { TEST_FILE_TYPES } from './source-file'
 import { navigate } from './use-route'
@@ -22,7 +23,7 @@ export function ImportFileDrop({
   onOpenImport: (file: File, waitingImportId?: string) => void
 }) {
   const [reading, setReading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<{ message: string; aiMade?: boolean } | null>(null)
   const [justCopied, setJustCopied] = useState(false)
   useEffect(() => {
     if (!justCopied) return
@@ -35,7 +36,7 @@ export function ImportFileDrop({
     setReading(true)
     const route = await routeImportFile(file)
     setReading(false)
-    if (route.to === 'error') return setError(route.message)
+    if (route.to === 'error') return setError(route)
     if (route.to === 'import') return onOpenImport(file)
     const id = route.to === 'waiting' ? route.waiting.id : route.waitingImportId
     navigate(`/import?id=${encodeURIComponent(id)}`)
@@ -50,7 +51,7 @@ export function ImportFileDrop({
   })
 
   return <>
-    {error && <p className="home-error" role="alert">{error}</p>}
+    {error && <ImportError message={error.message} aiMade={error.aiMade} />}
     <label className="bank-import-drop convert-drop">
       <input
         type="file"

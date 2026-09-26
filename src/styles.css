@@ -1976,6 +1976,14 @@ button { cursor: pointer; }
 .home-empty h2 { margin: 0 0 8px; font-size: 18px; }
 .home-empty p { margin: 0; color: #6e5b4d; }
 .home-error { margin: 0 0 18px; padding: 12px 14px; border: 1px solid var(--paper-danger-line); border-radius: 7px; color: var(--paper-danger); background: var(--paper-danger-wash); }
+.import-error p { margin: 0; }
+/* The way back to the AI that made the file, under what went wrong with it. */
+.import-error-fix {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 10px;
+  padding-top: 10px; border-top: 1px solid var(--paper-danger-line); color: var(--paper-ink-soft); font-size: 13px;
+}
+.import-error-fix .secondary-button { flex: none; }
+@media (max-width: 560px) { .import-error-fix { flex-direction: column; align-items: stretch; } }
 
 /* An empty shelf. The dots are the page's own ground showing through a space a
    card has not been put in yet, so it is drawn as an outline rather than as a

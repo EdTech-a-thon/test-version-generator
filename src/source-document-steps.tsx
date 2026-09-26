@@ -69,6 +69,7 @@ export function SourceDocumentSteps({
   busy = false,
   named = false,
   noted = true,
+  problem,
 }: {
   waiting: WaitingImport
   /** The file the AI gave back, dropped or chosen here. */
@@ -82,6 +83,8 @@ export function SourceDocumentSteps({
   /** Whether to say what was found in the file, where nothing around the
    *  steps does. */
   noted?: boolean
+  /** What went wrong with the last file given back, shown under its drop. */
+  problem?: ReactNode
 }) {
   const [copied, setCopied] = useState(false)
   const [choosing, setChoosing] = useState(false)
@@ -248,6 +251,7 @@ export function SourceDocumentSteps({
       <span>or click to choose it</span>
     </label>
 
+    {problem}
     {error && <p className="home-error" role="alert">{error}</p>}
     {onStartOver && <p className="source-steps-foot">
       <button type="button" className="link-button" disabled={busy} onClick={onStartOver}>Start over with another file</button>
