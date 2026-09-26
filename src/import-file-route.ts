@@ -23,10 +23,18 @@ export type ImportFileRoute =
   | { to: 'waiting'; waiting: WaitingImport }
   | { to: 'answer'; waitingImportId: string }
   | { to: 'import' }
-  | { to: 'error'; message: string }
+  /** `aiMade` when the file is one an AI made and can make again. */
+  | { to: 'error'; message: string; aiMade?: boolean }
 
 export const NO_MATCHING_IMPORT_MESSAGE =
   'This file doesn’t match any test waiting in Imports. Drop the test it was made from first, then this file.'
+
+/** What a teacher pastes back into the chat that made a file Test Parrot
+ *  cannot import: the error, framed as a request the AI can act on without
+ *  being told anything else. */
+export function aiFixRequest(message: string): string {
+  return `Test Parrot couldn’t import the file you made. It said:\n\n${message}\n\nPlease fix the file and give it back to me.`
+}
 
 /** The import in progress a file from an AI most clearly answers, if any. */
 export async function bestWaitingImport(
@@ -49,7 +57,7 @@ export async function routeImportFile(file: File): Promise<ImportFileRoute> {
     try {
       proposal = await inspectUploadedFile(file)
     } catch (reason) {
-      return { to: 'error', message: reasonOf(reason, 'This file could not be read.') }
+      return { to: 'error', message: reasonOf(reason, 'This file could not be read.'), aiMade: true }
     }
     const match = await bestWaitingImport(proposal)
     if (match) return { to: 'answer', waitingImportId: match.source.id }

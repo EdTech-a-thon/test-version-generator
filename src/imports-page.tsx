@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ChevronLeft, ChevronRight, Clock, EllipsisVertical, FileImage, FileJson, FileText, FolderOpen, ImageIcon, Library, Trash2 } from 'lucide-react'
 import { AppShell } from './app-shell'
 import type { PersistentStorageStatus } from './durable-storage'
@@ -15,6 +15,8 @@ import { Link } from './site-chrome'
 import { ContextMenu, type MenuItem, type MenuPoint } from './context-menu'
 import { SourceDocumentSteps } from './source-document-steps'
 import { ImportFileDrop } from './import-file-drop'
+import { ImportError } from './import-error'
+import { inspectUploadedFile, isRecordFile } from './question-bank-upload'
 
 /**
  * The Imports section: every import this browser has started. Those still
@@ -328,24 +330,59 @@ function WaitingFacts({ waiting }: { waiting: WaitingImport }) {
 
 /** One import still waiting, continued where it was left: its first page and
  *  what is known about it beside the steps and the drop for the file the AI
- *  gives back. */
+ *  gives back.
+ *
+ *  The file the AI gives back is read here before the import dialog opens: a
+ *  file that cannot be imported is answered on this page, beside the steps
+ *  that fix it, rather than in a dialog over them. */
 export function WaitingImportPage({
   id,
   persistentStorage,
   revision,
+  dropped,
   onReturnedFile,
 }: {
   id: string
   persistentStorage: PersistentStorageStatus
   revision: number
+  /** A file dropped anywhere on the page, taken as if dropped on the zone. */
+  dropped: { file: File; id: number } | null
+  /** A returned file that reads, for the import dialog to review. */
   onReturnedFile: (file: File) => void
 }) {
   const [waiting, setWaiting] = useState<WaitingImport | null | 'loading'>('loading')
+  const [reading, setReading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   useEffect(() => {
     let current = true
     void readWaitingImport(id).then((found) => { if (current) setWaiting(found) }, () => { if (current) setWaiting(null) })
     return () => { current = false }
   }, [id, revision])
+
+  const take = async (file: File) => {
+    setError(null)
+    // Only the AI's JSON is checked here. Anything else — a Test Parrot PDF,
+    // or another test — is the dialog's to sort out, as it always was.
+    if (isRecordFile(file)) {
+      setReading(true)
+      try {
+        await inspectUploadedFile(file)
+      } catch (reason) {
+        setError(reason instanceof Error && reason.message ? reason.message : 'This file could not be read.')
+        return
+      } finally {
+        setReading(false)
+      }
+    }
+    onReturnedFile(file)
+  }
+  // A drop made before this page was shown was never meant for it.
+  const taken = useRef(dropped?.id ?? null)
+  useEffect(() => {
+    if (!dropped || taken.current === dropped.id) return
+    taken.current = dropped.id
+    void take(dropped.file)
+  })
   const name = waiting && waiting !== 'loading' ? waiting.fileName : 'Import'
   return <AppShell
     crumbs={[{ label: 'Home', href: '/' }, { label: 'Imports', href: '/imports' }, { label: name }]}
@@ -362,7 +399,13 @@ export function WaitingImportPage({
               <WaitingPreview key={waiting.id} waiting={waiting} />
               <WaitingFacts waiting={waiting} />
             </aside>
-            <SourceDocumentSteps waiting={waiting} noted={false} onReturnedFile={onReturnedFile} />
+            <SourceDocumentSteps
+              waiting={waiting}
+              noted={false}
+              busy={reading}
+              onReturnedFile={(file) => void take(file)}
+              problem={error && <ImportError message={error} aiMade />}
+            />
           </div>
         : <div className="home-empty">
             <h2>This import is no longer waiting</h2>
