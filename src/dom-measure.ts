@@ -27,6 +27,7 @@ import { PAGE_CONTENT_WIDTH, type Measure, type PageItem } from './export-plan'
 import { BODY_PX } from './export-typography'
 import { PageItemMeasureView } from './page-item-view'
 import type { TextSize } from './section-headings'
+import type { ProseMirrorJSON } from './question-doc'
 
 let host: HTMLElement | null | undefined
 
@@ -86,9 +87,44 @@ function itemHeight(item: PageItem, textSize?: TextSize): number {
   // Fractional, unlike `scrollHeight`: the heights of a dozen items are summed
   // against a fixed box, and a rounded pixel each would be a rounded page.
   const height = element.getBoundingClientRect().height
+  // A picture whose bytes have not arrived measures as nothing. Its height is
+  // an underestimate, so it is used — a page cannot wait — but never
+  // remembered: remembered, it outlived the picture's arrival, and a page of
+  // maps planned as a page of captions printed its questions off the sheet.
+  const pending = [...element.querySelectorAll('img')].some((image) => !image.complete)
+  if (pending) return height
   if (heights.size >= HEIGHT_CACHE_LIMIT) heights.clear()
   heights.set(key, height)
   return height
+}
+
+// Pictures already loaded or on their way, by source.
+const loading = new Map<string, Promise<void>>()
+
+/**
+ * Load every picture in `sources`, so that a page measured afterwards measures
+ * them at their real size. A picture this document has loaded is laid out at
+ * its size the moment an `<img>` names it, which is what lets `itemHeight`
+ * measure synchronously. A picture that fails to load is given up on rather
+ * than waited for: it prints as nothing, and measures as nothing.
+ */
+function loadImages(sources: Iterable<string>): Promise<void> {
+  if (typeof Image === 'undefined') return Promise.resolve()
+  const waits: Promise<void>[] = []
+  for (const source of sources) {
+    if (!source) continue
+    let wait = loading.get(source)
+    if (!wait) {
+      const image = new Image()
+      image.src = source
+      // A failure is not remembered: a picture just imported may not be
+      // servable yet, and is asked for again next time.
+      wait = image.decode().catch(() => { loading.delete(source) })
+      loading.set(source, wait)
+    }
+    waits.push(wait)
+  }
+  return Promise.all(waits).then(() => {})
 }
 
 // Throw the remembered heights away, for when the same markup would now measure
@@ -99,7 +135,25 @@ function invalidate(): void {
   heights.clear()
 }
 
-export const domMeasure: Measure & { invalidate(): void } = {
+/** Every picture source in question documents, stems and answers alike. */
+export function imageSourcesOfDocuments(documents: Iterable<ProseMirrorJSON | undefined>): string[] {
+  const sources = new Set<string>()
+  const visit = (node: ProseMirrorJSON) => {
+    if (node.type === 'image' || node.type === 'image-block') {
+      const src = (node.attrs as Record<string, unknown> | undefined)?.src
+      if (typeof src === 'string' && src) sources.add(src)
+    }
+    if (Array.isArray(node.content)) for (const child of node.content as ProseMirrorJSON[]) visit(child)
+  }
+  for (const document of documents) if (document) visit(document)
+  return [...sources]
+}
+
+export const domMeasure: Measure & {
+  invalidate(): void
+  loadImages(sources: Iterable<string>): Promise<void>
+} = {
   itemHeight,
   invalidate,
+  loadImages,
 }

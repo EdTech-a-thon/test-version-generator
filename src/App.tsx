@@ -96,7 +96,7 @@ import {
 } from './export-preparation'
 import { ExportDialog, ReExportDialog } from './export-dialog'
 import { DEFAULT_VERSION_COUNT, maxVersionCount, NO_SHUFFLE, seededRandom } from './export-versions'
-import { domMeasure } from './dom-measure'
+import { domMeasure, imageSourcesOfDocuments } from './dom-measure'
 import { ownDocumentMedia, saveImage } from './local-images'
 import { configurePastedImages, settlePendingMedia } from './pasted-images'
 import {
@@ -2500,6 +2500,11 @@ function ExamEditor({
           initialError={exportDialog.error ?? previewError}
           onSubmit={async (configuration, onProgress) => {
             const { withExamPackage } = await import('./exam-package-export')
+            // Pages are planned from measured heights, and a picture still
+            // loading measures as nothing.
+            await domMeasure.loadImages(imageSourcesOfDocuments(
+              exam.questions.flatMap((question) => [question.doc, question.suggestedAnswer]),
+            ))
             await runPreparedExport(await withExamPackage(prepareForPublication(configuration, onProgress), {
               exam,
               arrangement,
