@@ -5,6 +5,7 @@ import { imageSchema } from '@milkdown/kit/preset/commonmark'
 import type { Node as ProseMirrorNode } from '@milkdown/kit/prose/model'
 import type { EditorView, NodeViewConstructor } from '@milkdown/kit/prose/view'
 import { $viewAsync } from '@milkdown/kit/utils'
+import { pictureView } from './picture-view'
 import { pendingImageOf, type PendingImageReference, type ProseMirrorJSON } from './question-doc'
 
 /**
@@ -24,7 +25,7 @@ export type ResolveImageRequest = {
   pending: PendingImageReference
   alt: string
   caption: string
-  apply: (src: string, ratio?: number) => void
+  apply: (src: string, size?: number) => void
 }
 
 const withPending = <Spec extends { attrs?: Record<string, unknown> }>(prev: (ctx: Ctx) => Spec) => (ctx: Ctx): Spec => {
@@ -60,13 +61,13 @@ function pendingView(node: ProseMirrorNode, view: EditorView, getPos: () => numb
       pending,
       alt: String(node.attrs.alt ?? ''),
       caption: String(node.attrs.caption ?? ''),
-      apply: (src, ratio) => {
+      apply: (src, size) => {
         const pos = getPos()
         if (pos === undefined) return
         const current = view.state.doc.nodeAt(pos)
         if (!current) return
         // Only a block image has a size of its own; an inline one follows its line.
-        const sized = ratio !== undefined && 'ratio' in current.attrs ? { ratio } : {}
+        const sized = size !== undefined && 'size' in current.attrs ? { size } : {}
         view.dispatch(view.state.tr.setNodeMarkup(pos, undefined, { ...current.attrs, src, pending: null, ...sized }))
       },
     }
@@ -82,8 +83,9 @@ function pendingView(node: ProseMirrorNode, view: EditorView, getPos: () => numb
   }
 }
 
-/** Crepe's view for every image, except a Pending Image's. Registered after
- *  Crepe's, which it wraps, and before the editor view that reads them. */
+/** Crepe's view for every inline image, and ours for every block picture
+ *  (`picture-view.ts`), except a Pending Image's. Registered after Crepe's,
+ *  which it wraps, and before the editor view that reads them. */
 function wrapping(type: typeof imageBlockSchema.node, inline: boolean) {
   return $viewAsync(type, async (ctx) => {
     await new Promise((resolve) => setTimeout(resolve, 0))
@@ -91,9 +93,11 @@ function wrapping(type: typeof imageBlockSchema.node, inline: boolean) {
     const wrapped: NodeViewConstructor = (node, view, getPos, ...rest) =>
       node.attrs.pending
         ? pendingView(node, view, getPos, inline)
-        : inner
-          ? inner(node, view, getPos, ...rest)
-          : (null as unknown as ReturnType<NodeViewConstructor>)
+        : !inline
+          ? pictureView(node, view, getPos)
+          : inner
+            ? inner(node, view, getPos, ...rest)
+            : (null as unknown as ReturnType<NodeViewConstructor>)
     return wrapped
   })
 }

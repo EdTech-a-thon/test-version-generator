@@ -15,7 +15,7 @@ import { estimatedSize, resolutionOf } from './resolved-pictures'
 import { ownDocumentMedia } from './local-images'
 import { cleanDocument, pendingImageOf, type ProseMirrorJSON } from './question-doc'
 
-const example = join(import.meta.dir, '..', 'public', 'formats', 'question-bank', '0.6.0', 'examples', 'pending-images.json')
+const example = join(import.meta.dir, '..', 'public', 'formats', 'question-bank', '0.7.0', 'examples', 'pending-images.json')
 const proposal = async () => inspectImportRecord(await Bun.file(example).bytes())
 const tags = (...numbers: number[]) => numbers.map((tag) => ({ tag }))
 
@@ -104,9 +104,9 @@ describe('saving a Question with Pending Images', () => {
       ['question-1/doc/0', 'Question', { image: 3 }],
       ['question-1/doc/1', 'Answer A', { page: 2 }],
     ])
-    const resolved = withStoredPictures(stored, new Map([['question-1/doc/1', { src: `/local-images/${'c'.repeat(64)}`, ratio: 0.4 }]]))
+    const resolved = withStoredPictures(stored, new Map([['question-1/doc/1', { src: `/local-images/${'c'.repeat(64)}`, size: 0.4 }]]))
     expect(pendingImagesOfQuestions([resolved]).map(({ pending }) => pending)).toEqual([{ image: 3 }])
-    expect(JSON.stringify(resolved)).toMatch(new RegExp(`"src":"/local-images/${'c'.repeat(64)}"[^}]*"ratio":0.4}`))
+    expect(JSON.stringify(resolved)).toMatch(new RegExp(`"src":"/local-images/${'c'.repeat(64)}"[^}]*"size":0.4}`))
   })
 })
 
@@ -144,8 +144,8 @@ describe('sizing a picture from its page', () => {
     // A third of a Letter page, cropped at 300 DPI: wider than the lane, so
     // its size is a share of the lane.
     expect(estimatedSize(crop(850, 1 / 3), { where: 'Question' })).toBe(0.4)
-    // A small embedded image narrower than the lane is sized against itself.
-    expect(estimatedSize(crop(400, 0.25), { where: 'Question' })).toBe(0.51)
+    // A small embedded image narrower than the lane is a share of it too.
+    expect(estimatedSize(crop(400, 0.25), { where: 'Question' })).toBe(0.3)
   })
 
   test('leaves a picture that filled its page, an upload, and a matching set’s pictures at the size they fit', () => {
@@ -211,7 +211,26 @@ describe('sizing a picture from its page', () => {
     const first = occurrences[0]!
     const resolution = resolutionOf(new Map([[first.key, crop(850, 1 / 3)]]), occurrences)
     const plan = planImport(found, initialSelection(found), (() => { let next = 0; return () => `id-${next++}` })(), resolution)
-    expect(JSON.stringify(plan.banks[0]!.questions[0]!.doc)).toContain('"ratio":0.4}')
+    expect(JSON.stringify(plan.banks[0]!.questions[0]!.doc)).toContain('"size":0.4}')
+  })
+
+  test('the estimated size replaces the legacy ratio a 0.6.0 Pending Image was written with', async () => {
+    const record = await Bun.file(example).json()
+    record.formatVersion = '0.6.0'
+    record.bank.questions[0].stem.content[1].authoredSize = 0.8
+    const found = await inspectImportRecord(new TextEncoder().encode(JSON.stringify(record)))
+    const occurrences = pendingImagesOf(found)
+    const first = occurrences[0]!
+    const ids = () => { let next = 0; return () => `id-${next++}` }
+
+    const sized = planImport(found, initialSelection(found), ids(), resolutionOf(new Map([[first.key, crop(850, 1 / 3)]]), occurrences))
+    const sizedDoc = JSON.stringify(sized.banks[0]!.questions[0]!.doc)
+    expect(sizedDoc).toContain('"size":0.4}')
+    expect(sizedDoc).not.toContain('"ratio"')
+
+    // Left unsized by its resolution, it keeps the size its record gave it.
+    const unsized = planImport(found, initialSelection(found), ids(), resolutionOf(new Map([[first.key, crop(850)]]), occurrences))
+    expect(JSON.stringify(unsized.banks[0]!.questions[0]!.doc)).toContain('"ratio":0.8}')
   })
 })
 

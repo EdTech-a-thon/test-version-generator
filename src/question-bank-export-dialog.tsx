@@ -7,6 +7,7 @@ import {
   recordDocumentToEditorNodes,
   wordBankLettersOf,
   type PreparedQuestionBankExport,
+  type SemanticDocument,
 } from './question-bank-export'
 import type { QuestionBankResource } from './question-bank-workspaces'
 
@@ -116,6 +117,10 @@ export function QuestionBankExportDialog({
     }
   }
 
+  // A crop's shape comes from its picture's size, which the record's media knows.
+  const previewNodes = (document: SemanticDocument) =>
+    recordDocumentToEditorNodes(document, prepared?.record.media)
+
   return (
     <div className="dialog-backdrop" role="presentation">
       <section
@@ -195,14 +200,14 @@ export function QuestionBankExportDialog({
                     </div>
                   </dl>
                   <DocView
-                    content={recordDocumentToEditorNodes(question.stem)}
+                    content={previewNodes(question.stem)}
                   />
                   {question.choices && (
                     <ol type="A" className="question-bank-export-choices">
                       {question.choices.map((choice) => (
                         <li key={choice.id}>
                           <DocView
-                            content={recordDocumentToEditorNodes(
+                            content={previewNodes(
                               choice.content,
                             )}
                           />
@@ -229,7 +234,7 @@ export function QuestionBankExportDialog({
                               {wordBankLettersOf(question).get(prompt.answer ?? '') ?? '—'}
                             </span>
                             <DocView
-                              content={recordDocumentToEditorNodes(prompt.content)}
+                              content={previewNodes(prompt.content)}
                             />
                           </li>
                         ))}
@@ -238,7 +243,7 @@ export function QuestionBankExportDialog({
                         {question.wordBank.map((answer) => (
                           <li key={answer.id}>
                             <DocView
-                              content={recordDocumentToEditorNodes(answer.content)}
+                              content={previewNodes(answer.content)}
                             />
                           </li>
                         ))}
@@ -252,14 +257,14 @@ export function QuestionBankExportDialog({
                       {question.parts.map((part) => (
                         <li key={part.id} aria-label={RECORD_PART_TYPE_LABELS[part.type]}>
                           <DocView
-                            content={recordDocumentToEditorNodes(part.stem)}
+                            content={previewNodes(part.stem)}
                           />
                           {part.choices && (
                             <ol type="A" className="question-bank-export-choices">
                               {part.choices.map((choice) => (
                                 <li key={choice.id}>
                                   <DocView
-                                    content={recordDocumentToEditorNodes(
+                                    content={previewNodes(
                                       choice.content,
                                     )}
                                   />
@@ -276,7 +281,7 @@ export function QuestionBankExportDialog({
                             <section>
                               <h3>Suggested Answer</h3>
                               <DocView
-                                content={recordDocumentToEditorNodes(
+                                content={previewNodes(
                                   part.suggestedAnswer,
                                 )}
                               />
@@ -290,7 +295,7 @@ export function QuestionBankExportDialog({
                     <section>
                       <h3>Suggested Answer</h3>
                       <DocView
-                        content={recordDocumentToEditorNodes(
+                        content={previewNodes(
                           question.suggestedAnswer,
                         )}
                       />

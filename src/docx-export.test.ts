@@ -197,6 +197,43 @@ describe('links and pictures', () => {
     expect(body).not.toContain('[Image:')
   })
 
+  test('a picture prints at its share of the column, and a crop as only what it keeps', async () => {
+    const src = `/local-images/${'e'.repeat(64)}`
+    const crop = { left: 0, top: 0, right: 0.5, bottom: 0.25, width: 800, height: 800 }
+    const pictured: Exam = {
+      title: 'Pictures',
+      questions: [{
+        id: 'q1',
+        type: 'open',
+        doc: {
+          type: 'doc',
+          content: [
+            paragraph(text('Name the triangle.')),
+            { type: 'image-block', attrs: { src, caption: '', size: 0.5 } },
+            { type: 'image-block', attrs: { src, caption: '', size: 0.25, crop } },
+          ],
+        },
+      }],
+    }
+    const asked: unknown[] = []
+    const zip = await packageOf(await createExamDocx(
+      [planOf(pictured, { id: 'v1', letter: 'A', questionOrder: ['q1'], choiceOrder: {} })],
+      async (_, box) => {
+        asked.push(box)
+        // The loader hands back only the kept pixels: 400 × 200 of 800 × 800.
+        return { ...PIXEL_PNG, width: box ? 400 : 800, height: box ? 200 : 800 }
+      },
+    ))
+    expect(asked).toEqual([undefined, crop])
+    const extents = [...(await part(zip, 'word/document.xml')).matchAll(/<wp:extent cx="(\d+)" cy="(\d+)"/g)]
+      .map((match) => ({ cx: Number(match[1]), cy: Number(match[2]) }))
+    expect(extents).toHaveLength(2)
+    const [whole, cropped] = extents as [{ cx: number; cy: number }, { cx: number; cy: number }]
+    expect(whole.cx / cropped.cx).toBeCloseTo(2, 1)
+    expect(whole.cy / whole.cx).toBeCloseTo(1, 2)
+    expect(cropped.cy / cropped.cx).toBeCloseTo(0.5, 2)
+  })
+
   test('an image whose bytes cannot be read degrades to its alt text', async () => {
     const fixture = FIXTURES.find((item) => item.name.includes('inline and block images'))!
     const body = await part(

@@ -4,10 +4,12 @@ import { partsOf, type Question } from './exam'
 import { mark, paragraph, text } from './export-fixtures'
 import type { ProseMirrorJSON } from './question-doc'
 import type { QuestionBankResource } from './question-bank-workspaces'
+import { PAGE_CONTENT_WIDTH } from './export-plan'
 import {
   QUESTION_BANK_FORMAT,
   QUESTION_BANK_FORMAT_VERSION,
   prepareQuestionBankExport,
+  recordDocumentToEditorNodes,
   questionBankFilename,
   type QuestionBankRecord,
 } from './question-bank-export'
@@ -408,7 +410,7 @@ describe('Question Bank exchange export seam', () => {
   test('writes a Multipart question as its material and lettered Parts, each under a package-local id', async () => {
     const { record } = await prepareQuestionBankExport(bank([multipart, emptyMultipart]))
 
-    expect(record.formatVersion).toBe('0.6.0')
+    expect(record.formatVersion).toBe('0.7.0')
     expect(record.bank.questions[0]).toEqual({
       id: 'q1',
       type: 'multipart',
@@ -601,7 +603,7 @@ describe('Question Bank exchange export seam', () => {
     const image = structuredClone(shortAnswer)
     ;(image.doc.content as Record<string, unknown>[]).push({
       type: 'image-block',
-      attrs: { src: '/local-images/shared', alt: 'Lab setup', caption: 'Figure 1', ratio: 0.5 },
+      attrs: { src: '/local-images/shared', alt: 'Lab setup', caption: 'Figure 1', size: 0.5 },
     }, {
       type: 'image-block',
       attrs: { src: '/local-images/shared', alt: 'Repeated setup' },
@@ -762,13 +764,12 @@ describe('a Question Bank with Pending Images', () => {
     const prepared = await prepareQuestionBankExport(bank([pictured]), async () => {
       throw new Error('a Pending Image has no media to load')
     })
-    expect(prepared.record.formatVersion).toBe('0.6.0')
+    expect(prepared.record.formatVersion).toBe('0.7.0')
     expect(prepared.record.media).toEqual([])
     expect(prepared.record.bank.questions[0]!.stem.content[1]).toEqual({
       type: 'block-image',
       pending: { image: 3 },
       caption: 'Graphs of f and g',
-      authoredSize: 1,
     })
     expect(prepared.record.bank.questions[0]!.choices![0]!.content.content[0]).toMatchObject({ pending: { page: 2 } })
 
@@ -927,5 +928,88 @@ describe('a Question Bank with Side-by-Sides', () => {
     await expect(prepareQuestionBankExport(bank([inChoice]), pixels)).rejects.toThrow(/only as a top-level block of a stem/)
     await expect(prepareQuestionBankExport(bank([inBlockquote]), pixels)).rejects.toThrow(/only as a top-level block of a stem/)
     await expect(prepareQuestionBankExport(bank([onePanel]), pixels)).rejects.toThrow(/two or three Panels/)
+  })
+})
+
+describe('a picture’s Authored Image Size and Picture Crop in Record 0.7.0', () => {
+  const pictureQuestion = (attrs: Record<string, unknown>): Question => ({
+    id: 'local-picture',
+    type: 'open',
+    columns: 1,
+    doc: {
+      type: 'doc',
+      content: [paragraph(text('Name the shape.')), { type: 'image-block', attrs: { src: '/local-images/shape', alt: 'Shape', ...attrs } }],
+    },
+  })
+  const loaderOf = (width: number) => async () => ({
+    data: new Uint8Array([width % 256, 1, 2]),
+    mimeType: 'image/png' as const,
+    width,
+    height: 100,
+  })
+  const pictureOf = (record: QuestionBankRecord) => record.bank.questions[0]!.stem.content[1]!
+
+  test('a sized, cropped picture reads back as the same size and crop, with its Media Asset’s pixel size', async () => {
+    const example = await Bun.file(
+      new URL('../public/formats/question-bank/0.7.0/examples/cropped-picture.json', import.meta.url).pathname,
+    ).json()
+    const asset = example.media[0]
+    const crop = { left: 0.1, top: 0.2, right: 0.6, bottom: 0.9, width: asset.width, height: asset.height }
+    const prepared = await prepareQuestionBankExport(bank([pictureQuestion({ size: 0.35, crop })]), async () => ({
+      data: Uint8Array.from(atob(asset.bytes), (character) => character.charCodeAt(0)),
+      mimeType: 'image/png',
+      width: asset.width,
+      height: asset.height,
+    }))
+
+    expect(pictureOf(prepared.record)).toMatchObject({
+      authoredSize: 0.35,
+      crop: { left: 0.1, top: 0.2, right: 0.6, bottom: 0.9 },
+    })
+    expect(JSON.stringify(prepared.record)).not.toContain('"width":40,"height":20}')
+
+    const reimported = await inspectQuestionBankRecord(prepared.recordBytes)
+    const [question] = importedQuestionsFromRecord(reimported.record)
+    const image = (question!.doc.content as ProseMirrorJSON[])[1]!
+    expect(image.attrs).toMatchObject({ size: 0.35, crop })
+    expect(image.attrs).not.toHaveProperty('ratio')
+  })
+
+  test('a crop that keeps the whole picture is left out', async () => {
+    const whole = { left: 0, top: 0, right: 1, bottom: 1, width: 400, height: 100 }
+    const prepared = await prepareQuestionBankExport(bank([pictureQuestion({ size: 0.5, crop: whole })]), loaderOf(400))
+    expect(pictureOf(prepared.record)).not.toHaveProperty('crop')
+  })
+
+  test('a legacy ratio is written as a share of the Question Content lane', async () => {
+    const wide = await prepareQuestionBankExport(bank([pictureQuestion({ ratio: 0.5 })]), loaderOf(2000))
+    expect(pictureOf(wide.record).authoredSize).toBe(0.5)
+
+    const narrow = await prepareQuestionBankExport(bank([pictureQuestion({ ratio: 0.5 })]), loaderOf(300))
+    expect(pictureOf(narrow.record).authoredSize).toBe(Math.round(((0.5 * 300) / PAGE_CONTENT_WIDTH) * 100) / 100)
+
+    // Crepe let a drag leave a picture larger than it fit at; that no longer
+    // refuses the export, and it never prints wider than the lane.
+    const dragged = await prepareQuestionBankExport(bank([pictureQuestion({ ratio: 1.4 })]), loaderOf(300))
+    expect(pictureOf(dragged.record).authoredSize).toBe(Math.round(((1.4 * 300) / PAGE_CONTENT_WIDTH) * 100) / 100)
+    const overwide = await prepareQuestionBankExport(bank([pictureQuestion({ ratio: 1.4 })]), loaderOf(2000))
+    expect(pictureOf(overwide.record).authoredSize).toBe(1)
+
+    const unsized = await prepareQuestionBankExport(bank([pictureQuestion({ ratio: 1 })]), loaderOf(300))
+    expect(pictureOf(unsized.record)).not.toHaveProperty('authoredSize')
+  })
+
+  test('a size outside 0.05–1 is refused', async () => {
+    await expect(prepareQuestionBankExport(bank([pictureQuestion({ size: 1.2 })]), loaderOf(300))).rejects.toThrow(
+      'between 0.05 and 1',
+    )
+  })
+
+  test('the export preview finds a crop’s pixel size in the record’s media', async () => {
+    const crop = { left: 0.25, top: 0, right: 0.75, bottom: 1, width: 400, height: 100 }
+    const prepared = await prepareQuestionBankExport(bank([pictureQuestion({ size: 0.3, crop })]), loaderOf(400))
+    const stem = prepared.record.bank.questions[0]!.stem
+    expect(recordDocumentToEditorNodes(stem, prepared.record.media)[1]!.attrs).toMatchObject({ size: 0.3, crop })
+    expect(recordDocumentToEditorNodes(stem)[1]!.attrs).not.toHaveProperty('crop')
   })
 })

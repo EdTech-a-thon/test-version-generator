@@ -15,9 +15,17 @@ import {
   type ProseMirrorJSON,
 } from './question-doc'
 import type { QuestionBankResource } from './question-bank-workspaces'
+import { PAGE_CONTENT_WIDTH } from './export-plan'
+import {
+  MIN_SIZE,
+  clampSize,
+  legacyRatioOf,
+  pictureCropOf,
+  type CropBox,
+} from './picture-geometry'
 
 export const QUESTION_BANK_FORMAT = 'test-parrot/question-bank'
-export const QUESTION_BANK_FORMAT_VERSION = '0.6.0'
+export const QUESTION_BANK_FORMAT_VERSION = '0.7.0'
 export const QUESTION_BANK_ATTACHMENT_NAME = 'pdfcx.json'
 export const QUESTION_BANK_ATTACHMENT_DESCRIPTION = 'pdf-canonical-extraction'
 
@@ -84,8 +92,22 @@ export type SemanticNode = {
   pending?: PendingImageReference
   alt?: string
   caption?: string
+  /** From 0.7.0, the width of what the picture shows as a share of its
+   *  container, 0.05–1. */
   authoredSize?: number
+  /** A Picture Crop, on a block image with an `asset` only (0.7.0). */
+  crop?: CropBox
+  /** Importer-only, never written to a record: the Authored Image Size a
+   *  0.1.0–0.6.0 record gave, which meant Crepe's ratio against the size the
+   *  picture fit at, not a share of its container. */
+  legacyRatio?: number
+  /** Importer-only, never written to a record: the pixel size of the Media
+   *  Asset a cropped picture shows, from the record's media declaration. */
+  pictureSize?: { width: number; height: number }
 }
+
+/** A Media Asset an export embeds for one image source. */
+type EmbeddedMedia = { id: string; width: number }
 
 export type SemanticDocument = { type: 'document'; content: SemanticNode[] }
 
@@ -282,29 +304,50 @@ function semanticMarks(node: ProseMirrorJSON): SemanticMark[] | undefined {
 
 function imageSemanticNode(
   node: ProseMirrorJSON,
-  mediaIds: ReadonlyMap<string, string>,
+  mediaIds: ReadonlyMap<string, EmbeddedMedia>,
 ): SemanticNode {
   const attrs = attributes(node)
   const pending = pendingImageOf(node)
   const source = stringValue(attrs.src)
-  const asset = pending ? undefined : mediaIds.get(source)
-  if (!pending && !asset) {
+  const media = pending ? undefined : mediaIds.get(source)
+  if (!pending && !media) {
     throw new Error(`Required media “${source || 'without a source'}” could not be resolved. Re-add the image and try again.`)
   }
-  const authoredSize = Number(attrs.ratio)
-  if (Number.isFinite(authoredSize) && (authoredSize < 0.05 || authoredSize > 1)) {
-    throw new Error('Authored Image Size must be between 0.05 and 1.')
-  }
+  const block = node.type !== 'image'
+  const authoredSize = block ? recordSize(attrs, media) : undefined
+  const crop = block && media ? pictureCropOf(attrs) : null
   return {
-    type: node.type === 'image' ? 'inline-image' : 'block-image',
-    ...(pending ? { pending } : { asset }),
+    type: block ? 'block-image' : 'inline-image',
+    ...(pending ? { pending } : { asset: media!.id }),
     ...(stringValue(attrs.alt) ? { alt: stringValue(attrs.alt) } : {}),
     ...(stringValue(attrs.caption) ? { caption: stringValue(attrs.caption) } : {}),
-    ...(Number.isFinite(authoredSize) ? { authoredSize } : {}),
+    ...(authoredSize !== undefined ? { authoredSize } : {}),
+    ...(crop ? { crop: { left: crop.left, top: crop.top, right: crop.right, bottom: crop.bottom } } : {}),
   }
 }
 
-function semanticNode(node: ProseMirrorJSON, mediaIds: ReadonlyMap<string, string>): SemanticNode {
+/**
+ * A block image's Authored Image Size as Record 0.7.0 writes it: a share of
+ * its container. A picture sized in the editor already has one. One that has
+ * only Crepe's legacy `ratio` — the size a drag left it at over the size it
+ * fit at — is converted against the Question Content lane, where it fit at
+ * its own width or the lane's when narrower; a picture no one sized has none.
+ */
+function recordSize(attrs: Record<string, unknown>, media: EmbeddedMedia | undefined): number | undefined {
+  if (attrs.size !== null && attrs.size !== undefined) {
+    const size = Number(attrs.size)
+    if (!Number.isFinite(size) || size < MIN_SIZE || size > 1) {
+      throw new Error('Authored Image Size must be between 0.05 and 1.')
+    }
+    return size
+  }
+  const ratio = legacyRatioOf(attrs)
+  if (ratio === 1) return undefined
+  const fitted = media ? Math.min(media.width, PAGE_CONTENT_WIDTH) : PAGE_CONTENT_WIDTH
+  return clampSize((ratio * fitted) / PAGE_CONTENT_WIDTH)
+}
+
+function semanticNode(node: ProseMirrorJSON, mediaIds: ReadonlyMap<string, EmbeddedMedia>): SemanticNode {
   const attrs = attributes(node)
   const content = () => childNodes(node).map((child) => semanticNode(child, mediaIds))
   switch (node.type) {
@@ -398,7 +441,7 @@ function semanticNode(node: ProseMirrorJSON, mediaIds: ReadonlyMap<string, strin
 
 function semanticDocument(
   nodes: readonly ProseMirrorJSON[],
-  mediaIds: ReadonlyMap<string, string>,
+  mediaIds: ReadonlyMap<string, EmbeddedMedia>,
 ): SemanticDocument {
   return { type: 'document', content: nodes.map((node) => semanticNode(node, mediaIds)) }
 }
@@ -406,7 +449,7 @@ function semanticDocument(
 /** A Side-by-Side: its two or three Panels, each holding ordinary blocks. */
 function semanticSideBySide(
   node: ProseMirrorJSON,
-  mediaIds: ReadonlyMap<string, string>,
+  mediaIds: ReadonlyMap<string, EmbeddedMedia>,
 ): SemanticNode {
   const panels = childNodes(node)
   if (panels.length < 2 || panels.length > 3) {
@@ -429,7 +472,7 @@ function semanticSideBySide(
  *  also be Side-by-Sides. */
 function semanticStem(
   nodes: readonly ProseMirrorJSON[],
-  mediaIds: ReadonlyMap<string, string>,
+  mediaIds: ReadonlyMap<string, EmbeddedMedia>,
 ): SemanticDocument {
   return {
     type: 'document',
@@ -453,7 +496,7 @@ export const RECORD_TYPES: Record<QuestionType, QuestionBankRecordQuestionType> 
 function portableQuestion(
   question: Question,
   index: number,
-  mediaIds: ReadonlyMap<string, string>,
+  mediaIds: ReadonlyMap<string, EmbeddedMedia>,
 ): QuestionBankRecordQuestion {
   const base: QuestionBankRecordQuestion = {
     id: `q${index + 1}`,
@@ -682,7 +725,7 @@ export async function prepareQuestionBankExport(
     ...imageSources(question.suggestedAnswer ? childNodes(question.suggestedAnswer) : []),
   ]).filter((source, index, all) => all.indexOf(source) === index)
   const loaded = await Promise.all(sources.map((source) => loadMedia(source)))
-  const mediaIds = new Map<string, string>()
+  const mediaIds = new Map<string, EmbeddedMedia>()
   const media: QuestionBankRecord['media'] = []
   const previewMedia = new Map<string, NonNullable<PreparedQuestionBankExport['previewMedia']> extends Map<string, infer V> ? V : never>()
   for (const [index, source] of sources.entries()) {
@@ -690,7 +733,7 @@ export async function prepareQuestionBankExport(
     if (!asset) throw new Error(`Required media for “${source}” could not be resolved. Re-add the image and try again.`)
     const digest = hex(await crypto.subtle.digest('SHA-256', asset.data))
     const id = `sha256:${digest}`
-    mediaIds.set(source, id)
+    mediaIds.set(source, { id, width: asset.width })
     if (!media.some((candidate) => candidate.id === id)) {
       media.push({ id, mimeType: asset.mimeType, width: asset.width, height: asset.height, bytes: base64(asset.data) })
       previewMedia.set(id, {
@@ -746,7 +789,27 @@ const EDITOR_MARK_TYPES: Record<SemanticMark['type'], string> = {
   link: 'link',
 }
 
-function editorNode(node: SemanticNode): ProseMirrorJSON {
+/** The media declarations a record's pictures are read against. */
+export type RecordMediaSizes = readonly { id: string; width: number; height: number }[]
+
+/**
+ * A block image's size and crop as the editor holds them: a 0.7.0
+ * `authoredSize` is its `size`, a share of its container; an older record's is
+ * the legacy `ratio` it always meant. A crop carries the whole Media Asset's
+ * pixel size, from the importer or else from the record's media.
+ */
+function editorPictureAttrs(node: SemanticNode, media: RecordMediaSizes | undefined): Record<string, unknown> {
+  const attrs: Record<string, unknown> = {}
+  if (node.authoredSize !== undefined) attrs.size = node.authoredSize
+  else if (node.legacyRatio !== undefined) attrs.ratio = node.legacyRatio
+  const size = node.pictureSize ?? media?.find((asset) => asset.id === node.asset)
+  if (node.crop && size) {
+    attrs.crop = { ...node.crop, width: size.width, height: size.height }
+  }
+  return attrs
+}
+
+function editorNode(node: SemanticNode, media?: RecordMediaSizes): ProseMirrorJSON {
   if (node.type === 'inline-math')
     return { type: 'math_inline', attrs: { value: node.source ?? '' } }
   if (node.type === 'display-math') {
@@ -767,7 +830,7 @@ function editorNode(node: SemanticNode): ProseMirrorJSON {
           : { src: `/local-images/${node.asset!.slice('sha256:'.length)}` }),
         ...(node.alt !== undefined ? { alt: node.alt } : {}),
         ...(node.caption !== undefined ? { caption: node.caption } : {}),
-        ...(node.authoredSize !== undefined ? { ratio: node.authoredSize } : {}),
+        ...(node.type === 'block-image' ? editorPictureAttrs(node, media) : {}),
       },
     }
   }
@@ -785,7 +848,7 @@ function editorNode(node: SemanticNode): ProseMirrorJSON {
   const converted: ProseMirrorJSON = {
     type,
     ...(node.text !== undefined ? { text: node.text } : {}),
-    ...(node.content ? { content: node.content.map(editorNode) } : {}),
+    ...(node.content ? { content: node.content.map((child) => editorNode(child, media)) } : {}),
   }
   if (node.type === 'table-row' && node.header)
     converted.type = 'table_header_row'
@@ -806,9 +869,12 @@ function editorNode(node: SemanticNode): ProseMirrorJSON {
   return converted
 }
 
-/** Preview adapter: the preview consumes only the portable record. */
+/** Preview adapter: the preview consumes only the portable record. Pass the
+ *  record's `media` so a Picture Crop in a record the importer did not parse,
+ *  such as the export preview's, can find its Media Asset's pixel size. */
 export function recordDocumentToEditorNodes(
   document: SemanticDocument,
+  media?: RecordMediaSizes,
 ): ProseMirrorJSON[] {
-  return document.content.map(editorNode)
+  return document.content.map((node) => editorNode(node, media))
 }

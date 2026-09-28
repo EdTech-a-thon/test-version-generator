@@ -99,7 +99,7 @@ function RailHead({ kind, name, allowed }: { kind: Kind; name: string; allowed: 
 }
 
 /** A picture the preview draws in a Pending Image's place. */
-type PreviewPicture = { src: string; ratio?: number }
+type PreviewPicture = { src: string; size?: number }
 
 /**
  * Point a preview document's images at the bytes the file carries, and each
@@ -126,7 +126,7 @@ function resolveMedia(
     return {
       ...node,
       attrs: picture
-        ? { ...rest, src: picture.src, ...(picture.ratio !== undefined ? { ratio: picture.ratio } : {}), pictureKey: key }
+        ? { ...rest, src: picture.src, ...(picture.size !== undefined ? { size: picture.size } : {}), pictureKey: key }
         : { ...rest, pending: pendingImageOf(node), pictureKey: key },
     }
   }
@@ -760,8 +760,8 @@ export function QuestionBankImportDialog({
     for (const occurrence of occurrences) {
       const picture = resolutions.get(occurrence.key)
       if (!picture) continue
-      const ratio = estimatedSize(picture, occurrence)
-      drawn.set(occurrence.key, { src: pictureSource(picture.asset), ...(ratio !== undefined ? { ratio } : {}) })
+      const size = estimatedSize(picture, occurrence)
+      drawn.set(occurrence.key, { src: pictureSource(picture.asset), ...(size !== undefined ? { size } : {}) })
     }
     return drawn
   }, [occurrences, resolutions])

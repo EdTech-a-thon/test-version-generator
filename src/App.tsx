@@ -107,13 +107,16 @@ import {
   type ResolveImageRequest,
 } from './pending-image-view'
 import { ResolveImagesDialog } from './resolve-images-dialog'
+import { configurePictures, pictureKeys, PICTURE_MENU_EVENT, type PictureMenuRequest } from './picture-view'
 import { storedPicture } from './resolved-pictures'
 import { pendingImagesOfQuestions, withStoredPictures, type PendingImageResolution, type StoredPicture } from './pending-images'
 import {
   AlignLeft,
   BookOpenText,
+  Captions,
   Check,
   CircleDot,
+  Crop,
   FileType2,
   FolderOpen,
   Gauge,
@@ -578,6 +581,7 @@ function CrepeQuestion({
       .use(matchingKeymap)
       .use(syncMatchingPicks)
       .use(keepMatching)
+      .use(pictureKeys)
       .use(pendingImageBlockView)
       .use(pendingInlineImageView)
       .use(multipartPartsSchema)
@@ -600,6 +604,7 @@ function CrepeQuestion({
     crepe.editor.config((ctx) => {
       configurePastedImages(ctx)
       configurePendingImages(ctx)
+      configurePictures(ctx)
       ctx.update(uploadConfig.key, (prev) => ({
         ...prev,
         enableHtmlFileUploader: true,
@@ -708,6 +713,14 @@ function QuestionDialog({
     element?.addEventListener(RESOLVE_IMAGE_EVENT, onResolve)
     return () => element?.removeEventListener(RESOLVE_IMAGE_EVENT, onResolve)
   }, [])
+  /** A picture's right-click menu. */
+  const [pictureMenu, setPictureMenu] = useState<PictureMenuRequest | null>(null)
+  useEffect(() => {
+    const element = dialog.current
+    const onMenu = (event: Event) => setPictureMenu((event as CustomEvent<PictureMenuRequest>).detail)
+    element?.addEventListener(PICTURE_MENU_EVENT, onMenu)
+    return () => element?.removeEventListener(PICTURE_MENU_EVENT, onMenu)
+  }, [])
 
   // Escape that lands on nothing: a click on a bare patch of the dialog, or a
   // popup closing under the focus it held, leaves focus on the document body,
@@ -813,6 +826,20 @@ function QuestionDialog({
             if (picture) resolving.apply(await storedPicture(picture.asset), picture.authoredSize)
             setResolving(null)
           }}
+        />}
+        {pictureMenu && <ContextMenu
+          point={pictureMenu.point}
+          ariaLabel="Picture"
+          items={[
+            { kind: 'action', label: 'Reset crop', icon: <Crop />, disabled: !pictureMenu.cropped, onSelect: pictureMenu.resetCrop },
+            {
+              kind: 'action',
+              label: pictureMenu.captioned ? 'Remove caption' : 'Add caption',
+              icon: <Captions />,
+              onSelect: pictureMenu.toggleCaption,
+            },
+          ]}
+          onClose={() => setPictureMenu(null)}
         />}
         <header className="dialog-header">
           <h2>{isNew ? 'Add question' : 'Edit question'}</h2>
@@ -1628,7 +1655,7 @@ function QuestionBankPage({
   const resolvePictures = async (pictures: PendingImageResolution) => {
     const sources = new Map<string, StoredPicture>()
     for (const [key, picture] of pictures) {
-      sources.set(key, { src: await storedPicture(picture.asset), ...(picture.authoredSize !== undefined ? { ratio: picture.authoredSize } : {}) })
+      sources.set(key, { src: await storedPicture(picture.asset), ...(picture.authoredSize !== undefined ? { size: picture.authoredSize } : {}) })
     }
     let updated = bank
     for (const question of bank.questions) {

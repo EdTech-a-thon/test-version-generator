@@ -217,6 +217,7 @@ describe('hostile Question Bank File inspection', () => {
       '0.4.0',
       '0.5.0',
       '0.6.0',
+      '0.7.0',
     ])
     expect(DEFAULT_QUESTION_BANK_IMPORT_LIMITS).toEqual({
       pdfBytes: 100 * 1024 * 1024,
@@ -250,17 +251,17 @@ describe('hostile Question Bank File inspection', () => {
 
   test('reports the file version and exact supported versions before semantic validation', async () => {
     const source = baseRecord() as QuestionBankRecord & Record<string, unknown>
-    source.formatVersion = '0.7.0'
+    source.formatVersion = '0.8.0'
     source.requiredFeatures = ['also-unknown']
     await rejected(
       inspectQuestionBankRecord(bytesOf(source)),
       'unsupported-version',
-      '0.7.0',
+      '0.8.0',
     )
     await rejected(
       inspectQuestionBankRecord(bytesOf(source)),
       'unsupported-version',
-      '0.1.0, 0.2.0, 0.3.0, 0.4.0, 0.5.0, 0.6.0',
+      '0.1.0, 0.2.0, 0.3.0, 0.4.0, 0.5.0, 0.6.0, 0.7.0',
     )
   })
 
@@ -824,5 +825,62 @@ describe('hostile Question Bank File inspection', () => {
     nested.bank.questions[0]!.stem = { type: 'document', content: [{ type: 'blockquote', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'deep' }] }] }] }
     await expect(inspectQuestionBankRecord(bytesOf(nested as QuestionBankRecord & Record<string, unknown>), { limits: limits({ richTextDepth: 3 }) })).resolves.toBeDefined()
     await rejected(inspectQuestionBankRecord(bytesOf(nested as QuestionBankRecord & Record<string, unknown>), { limits: limits({ richTextDepth: 2 }) }), 'rich-text-depth-limit', '2')
+  })
+})
+
+describe('a picture’s Authored Image Size and Picture Crop', () => {
+  const pictured = (image: Record<string, unknown>, version = QUESTION_BANK_FORMAT_VERSION) => {
+    const record = baseRecord() as QuestionBankRecord & Record<string, unknown>
+    record.formatVersion = version as typeof QUESTION_BANK_FORMAT_VERSION
+    record.media = [PIXEL_ASSET]
+    record.bank.questions[0]!.stem.content.push({ type: 'block-image', asset: PIXEL_ID, ...image } as SemanticNode)
+    return record
+  }
+  const importedPicture = async (record: QuestionBankRecord) => {
+    const proposal = await inspectQuestionBankRecord(bytesOf(record as QuestionBankRecord & Record<string, unknown>))
+    const [question] = importedQuestionsFromRecord(proposal.record)
+    const image = (question!.doc.content as { type: string; attrs?: Record<string, unknown> }[]).find(
+      (node) => node.type === 'image-block',
+    )!
+    return image.attrs!
+  }
+
+  test('a 0.7.0 record’s size is a share of its container, and an older record’s is the ratio it always meant', async () => {
+    const current = await importedPicture(pictured({ authoredSize: 0.5 }))
+    expect(current.size).toBe(0.5)
+    expect(current).not.toHaveProperty('ratio')
+
+    for (const version of ['0.1.0', '0.5.0', '0.6.0']) {
+      const legacy = await importedPicture(pictured({ authoredSize: 0.5 }, version))
+      expect(legacy.ratio, version).toBe(0.5)
+      expect(legacy, version).not.toHaveProperty('size')
+    }
+  })
+
+  test('a crop reaches the editor with its Media Asset’s pixel size, and is not read from an older record', async () => {
+    const crop = { left: 0.1, top: 0, right: 0.9, bottom: 0.5 }
+    const current = await importedPicture(pictured({ authoredSize: 0.4, crop }))
+    expect(current).toMatchObject({ size: 0.4, crop: { ...crop, width: 1, height: 1 } })
+
+    const legacy = await importedPicture(pictured({ authoredSize: 0.4, crop }, '0.6.0'))
+    expect(legacy).not.toHaveProperty('crop')
+  })
+
+  test('refuses a crop that keeps nothing, leaves the picture, or sits where no crop may', async () => {
+    const crop = { left: 0.1, top: 0.1, right: 0.9, bottom: 0.9 }
+    await rejected(inspectQuestionBankRecord(bytesOf(pictured({ crop: { ...crop, left: 0.9, right: 0.1 } }))), 'invalid-question', '`left` must be less than `right`')
+    await rejected(inspectQuestionBankRecord(bytesOf(pictured({ crop: { ...crop, top: 0.5, bottom: 0.5 } }))), 'invalid-question', '`top` less than `bottom`')
+    await rejected(inspectQuestionBankRecord(bytesOf(pictured({ crop: { ...crop, right: 1.2 } }))), 'invalid-question', 'from 0 to 1')
+    await rejected(inspectQuestionBankRecord(bytesOf(pictured({ crop: { ...crop, width: 1 } }))), 'invalid-question', 'exactly `left`, `top`, `right` and `bottom`')
+    await rejected(inspectQuestionBankRecord(bytesOf(pictured({ crop: { left: 0, top: 0, right: 1 } }))), 'invalid-question', 'exactly `left`')
+
+    const pending = baseRecord() as QuestionBankRecord & Record<string, unknown>
+    pending.bank.questions[0]!.stem.content.push({ type: 'block-image', pending: { image: 1 }, crop } as SemanticNode)
+    await rejected(inspectQuestionBankRecord(bytesOf(pending)), 'invalid-question', 'A Pending Image cannot carry a Picture Crop')
+
+    const inline = pictured({})
+    inline.bank.questions[0]!.stem.content.pop()
+    ;(inline.bank.questions[0]!.stem.content[0]!.content as SemanticNode[]).push({ type: 'inline-image', asset: PIXEL_ID, crop } as SemanticNode)
+    await rejected(inspectQuestionBankRecord(bytesOf(inline)), 'invalid-question', 'an inline image cannot carry one')
   })
 })

@@ -63,11 +63,9 @@ import {
   titleHalfPoints,
 } from './export-typography'
 import {
-  authoredImageRatio,
-  authoredImageWidth,
   browserMedia,
-  imageSourcesOf,
   loadExportImages,
+  missingPicture,
   questionNumberForMedia,
   RequiredMediaError,
   type ExportImage,
@@ -99,6 +97,7 @@ import {
 } from './export-plan'
 import { DIFFICULTY_LABELS, WORK_SPACE_LINE_PITCH } from './exam'
 import type { ProseMirrorJSON } from './question-doc'
+import { pictureKey, printedPictureWidth } from './picture-geometry'
 
 const DOCX_MIME =
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
@@ -272,11 +271,11 @@ function mathRun(source: string): ParagraphChild {
   return new OfficeMath({ children: [new MathRun(source)] })
 }
 
-/** An image at its planned size: intrinsic px scaled by the size the teacher
- *  dragged it to, capped at the width the plan gives a page's content box so a
+/** An image at its planned size: its Authored Image Size against the width
+ *  the plan gives its column, or as it fits there when no one sized it, so a
  *  large upload cannot run off the sheet. */
-function imageRun(image: ExportImage, maxWidth: number, ratio = 1): ParagraphChild {
-  const width = authoredImageWidth(image.width, maxWidth, ratio)
+function imageRun(image: ExportImage, maxWidth: number, attrs: Record<string, unknown> = {}): ParagraphChild {
+  const width = printedPictureWidth(image.width, maxWidth, attrs)
   const scale = width / image.width
   return new ImageRun({
     data: image.data,
@@ -536,14 +535,14 @@ function blockOf(
 
     case 'image-block': {
       const caption = stringOf(attrs.caption)
-      const image = build.images.get(stringOf(attrs.src))
+      const image = build.images.get(pictureKey(attrs))
       const figure = new Paragraph(
         paragraphOptions(context, {
           alignment: context.centred ? AlignmentType.CENTER : undefined,
           children: [
             ...(context.prefix ?? []),
             image
-              ? imageRun(image, build.contentWidth, authoredImageRatio(attrs))
+              ? imageRun(image, build.contentWidth, attrs)
               : new TextRun({
                   text: `[Image: ${caption || 'embedded image'}]`,
                   italics: true,
@@ -1315,9 +1314,9 @@ export async function createPublicationDocx(
   media: MediaLoader = browserMedia,
 ): Promise<Blob> {
   const images = await loadExportImages(plans, media)
-  const missing = imageSourcesOf(plans).find((source) => !images.has(source))
+  const missing = missingPicture(plans, images)
   if (missing) {
-    throw new RequiredMediaError(questionNumberForMedia(plans, missing))
+    throw new RequiredMediaError(questionNumberForMedia(plans, missing.src))
   }
   const blob = await Packer.toBlob(createExamDocxDocument(plans, images))
   return blob.type === DOCX_MIME ? blob : new Blob([blob], { type: DOCX_MIME })

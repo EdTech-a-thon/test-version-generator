@@ -7,6 +7,7 @@ import questionBankSchema030 from './question-bank-record-0.3.0.schema.json'
 import questionBankSchema040 from './question-bank-record-0.4.0.schema.json'
 import questionBankSchema050 from './question-bank-record-0.5.0.schema.json'
 import questionBankSchema060 from './question-bank-record-0.6.0.schema.json'
+import questionBankSchema070 from './question-bank-record-0.7.0.schema.json'
 import {
   QUESTION_BANK_ATTACHMENT_DESCRIPTION,
   QUESTION_BANK_FORMAT,
@@ -310,6 +311,7 @@ const validate030 = ajv.compile(questionBankSchema030)
 const validate040 = ajv.compile(questionBankSchema040)
 const validate050 = ajv.compile(questionBankSchema050)
 const validate060 = ajv.compile(questionBankSchema060)
+const validate070 = ajv.compile(questionBankSchema070)
 
 function schemaMessage(errors: ErrorObject[] | null | undefined): string {
   const first = errors?.[0]
@@ -318,11 +320,42 @@ function schemaMessage(errors: ErrorObject[] | null | undefined): string {
     : 'Question Bank Record schema validation failed.'
 }
 
-function copyNode(node: SemanticNode): SemanticNode {
+/** How one record's nodes are read: whether its `authoredSize` is Record
+ *  0.7.0's share of the container or an older record's legacy ratio, and the
+ *  pixel size of each Media Asset it declares, which a crop carries into the
+ *  editor. */
+type CopyContext = {
+  currentSize: boolean
+  crops: boolean
+  media: ReadonlyMap<string, { width: number; height: number }>
+}
+
+/** The versions whose `authoredSize` is a share of the picture's container,
+ *  and which know the Picture Crop — both added in 0.7.0. */
+const SHARE_SIZE_VERSIONS: ReadonlySet<string> = new Set(['0.7.0'])
+
+function copyPicture(node: SemanticNode, context: CopyContext): Partial<SemanticNode> {
+  const size =
+    node.authoredSize === undefined
+      ? {}
+      : context.currentSize
+        ? { authoredSize: node.authoredSize }
+        : { legacyRatio: node.authoredSize }
+  if (!context.crops || node.crop === undefined) return size
+  const { left, top, right, bottom } = node.crop
+  const pictureSize = node.asset !== undefined ? context.media.get(node.asset) : undefined
+  return {
+    ...size,
+    crop: { left, top, right, bottom },
+    ...(pictureSize ? { pictureSize: { width: pictureSize.width, height: pictureSize.height } } : {}),
+  }
+}
+
+function copyNode(node: SemanticNode, context: CopyContext): SemanticNode {
   return {
     type: node.type,
     ...(node.text !== undefined ? { text: node.text } : {}),
-    ...(node.content ? { content: node.content.map(copyNode) } : {}),
+    ...(node.content ? { content: node.content.map((child) => copyNode(child, context)) } : {}),
     ...(node.marks
       ? {
           marks: node.marks.map((mark) =>
@@ -345,15 +378,15 @@ function copyNode(node: SemanticNode): SemanticNode {
     ...(node.pending !== undefined ? { pending: { ...node.pending } } : {}),
     ...(node.alt !== undefined ? { alt: node.alt } : {}),
     ...(node.caption !== undefined ? { caption: node.caption } : {}),
-    ...(node.authoredSize !== undefined ? { authoredSize: node.authoredSize } : {}),
+    ...(node.type === 'inline-image' || node.type === 'block-image' ? copyPicture(node, context) : {}),
   }
 }
 
-function copyDocument(document: SemanticDocument): SemanticDocument {
-  return { type: 'document', content: document.content.map(copyNode) }
-}
-
-function copyQuestion(question: QuestionBankRecordQuestion): QuestionBankRecordQuestion {
+function copyQuestion(question: QuestionBankRecordQuestion, context: CopyContext): QuestionBankRecordQuestion {
+  const copyDocument = (document: SemanticDocument): SemanticDocument => ({
+    type: 'document',
+    content: document.content.map((node) => copyNode(node, context)),
+  })
   return {
     id: question.id,
     type: question.type,
@@ -426,10 +459,10 @@ function valueAt(value: unknown, pointer: string): unknown {
 }
 
 /** The versions that know the Pending Image, added in 0.5.0. */
-const PENDING_IMAGE_VERSIONS: ReadonlySet<string> = new Set(['0.5.0', '0.6.0'])
+const PENDING_IMAGE_VERSIONS: ReadonlySet<string> = new Set(['0.5.0', '0.6.0', '0.7.0'])
 
 /** The versions that know the Side-by-Side, added in 0.6.0. */
-const SIDE_BY_SIDE_VERSIONS: ReadonlySet<string> = new Set(['0.6.0'])
+const SIDE_BY_SIDE_VERSIONS: ReadonlySet<string> = new Set(['0.6.0', '0.7.0'])
 
 /** Where a Side-by-Side may stand: a top-level block of a Question's stem or
  *  of a Multipart Part's stem, and nowhere else. */
@@ -487,6 +520,51 @@ function malformedSideBySide(
   for (const error of errors ?? []) {
     const problem = sideBySideProblem(value, error.instancePath, sourceVersion)
     if (problem) return new QuestionBankImportError('invalid-structure', problem)
+  }
+  return undefined
+}
+
+/** What is wrong with the Picture Crop of an image node, if anything the
+ *  schema can see. Its order within the kept part is checked with the
+ *  record's semantics, since a schema cannot compare two numbers. */
+function cropProblem(node: unknown): string | undefined {
+  if (typeof node !== 'object' || node === null || !('crop' in node)) return undefined
+  const { type, crop, pending } = node as { type?: unknown; crop?: unknown; pending?: unknown }
+  if (type === 'inline-image') return 'A Picture Crop belongs only to a block image; an inline image cannot carry one.'
+  if (type !== 'block-image') return 'Only a block image may carry a Picture Crop.'
+  if (pending !== undefined)
+    return 'A Pending Image cannot carry a Picture Crop: crop the picture once Resolve Images has given it a Media Asset.'
+  const sides = ['left', 'top', 'right', 'bottom']
+  if (
+    typeof crop !== 'object' ||
+    crop === null ||
+    Object.keys(crop).some((key) => !sides.includes(key)) ||
+    sides.some((side) => {
+      const value = (crop as Record<string, unknown>)[side]
+      return typeof value !== 'number' || value < 0 || value > 1
+    })
+  )
+    return 'A Picture Crop must give exactly `left`, `top`, `right` and `bottom`, each a number from 0 to 1.'
+  return undefined
+}
+
+/**
+ * A malformed Picture Crop is lifted out of the generic structural failure,
+ * as a malformed Pending Image is: the message should say what a crop may be
+ * and where it may go rather than name a JSON pointer.
+ */
+function malformedCrop(
+  errors: ErrorObject[] | null | undefined,
+  value: unknown,
+  sourceVersion: string,
+): QuestionBankImportError | undefined {
+  if (!SHARE_SIZE_VERSIONS.has(sourceVersion)) return undefined
+  for (const error of errors ?? []) {
+    const path = error.instancePath.replace(/\/crop(?:\/.*)?$/, '')
+    for (const candidate of [path, path.replace(/\/[^/]*$/, '')]) {
+      const problem = cropProblem(valueAt(value, candidate))
+      if (problem) return new QuestionBankImportError('invalid-question', problem)
+    }
   }
   return undefined
 }
@@ -559,6 +637,8 @@ function parseWith(
         `The link “${String(href)}” is unsafe. Question Bank links must use absolute HTTP or HTTPS URLs.`,
       )
     }
+    const cropError = malformedCrop(validate.errors, value, sourceVersion)
+    if (cropError) throw cropError
     const pendingError = malformedPendingImage(validate.errors, value, sourceVersion)
     if (pendingError) throw pendingError
     const sideBySideError = malformedSideBySide(validate.errors, value, sourceVersion)
@@ -597,7 +677,13 @@ function parseWith(
             },
           }
         : {}),
-      questions: record.bank.questions.map(copyQuestion),
+      questions: record.bank.questions.map((question) =>
+        copyQuestion(question, {
+          currentSize: SHARE_SIZE_VERSIONS.has(sourceVersion),
+          crops: SHARE_SIZE_VERSIONS.has(sourceVersion),
+          media: new Map(record.media.map((asset) => [asset.id, asset])),
+        }),
+      ),
     },
     media: record.media.map((asset) => ({
       id: asset.id,
@@ -610,13 +696,16 @@ function parseWith(
 }
 
 /**
- * Every retained version migrates forward without rewriting anything. 0.2.0
- * added `true-false` to 0.1.0, 0.3.0 added `matching` to 0.2.0, and 0.4.0
- * added `multipart` to 0.3.0, 0.5.0 added Pending Images to 0.4.0, and 0.6.0
- * added the Side-by-Side to 0.5.0; none can appear in an older record, and no
- * version changed anything an older record already says — so a record that
- * satisfies an older schema is already a conforming 0.6.0 record once its
- * version is restated.
+ * Every retained version migrates forward. 0.2.0 added `true-false` to 0.1.0,
+ * 0.3.0 added `matching` to 0.2.0, 0.4.0 added `multipart` to 0.3.0, 0.5.0
+ * added Pending Images to 0.4.0, 0.6.0 added the Side-by-Side to 0.5.0, and
+ * 0.7.0 added the Picture Crop to 0.6.0; none can appear in an older record.
+ * 0.7.0 is the one version that changed something an older record already
+ * says: its `authoredSize` is a share of the picture's container, where
+ * 0.1.0–0.6.0's was Crepe's ratio against the size the picture fit at. An
+ * older record's is therefore read as that legacy ratio (`legacyRatio`, which
+ * no record carries), and otherwise a record that satisfies an older schema
+ * is a conforming 0.7.0 record once its version is restated.
  */
 const parser010: Parser = (value) => parseWith(validate010, '0.1.0', value)
 
@@ -630,6 +719,8 @@ const parser050: Parser = (value) => parseWith(validate050, '0.5.0', value)
 
 const parser060: Parser = (value) => parseWith(validate060, '0.6.0', value)
 
+const parser070: Parser = (value) => parseWith(validate070, '0.7.0', value)
+
 /** Exact versions only: adding compatibility requires adding an explicit parser or migration. */
 export const SUPPORTED_QUESTION_BANK_VERSIONS: Readonly<Record<string, Parser>> =
   Object.freeze({
@@ -639,6 +730,7 @@ export const SUPPORTED_QUESTION_BANK_VERSIONS: Readonly<Record<string, Parser>> 
     '0.4.0': parser040,
     '0.5.0': parser050,
     '0.6.0': parser060,
+    '0.7.0': parser070,
   })
 
 const utf8 = new TextDecoder('utf-8', { fatal: true })
@@ -745,6 +837,12 @@ function inspectDocument(document: SemanticDocument): DocumentStats {
         )
       }
       mediaReferences.add(reference)
+      if (node.crop && (node.crop.left >= node.crop.right || node.crop.top >= node.crop.bottom)) {
+        throw new QuestionBankImportError(
+          'invalid-question',
+          'A Picture Crop must keep part of its picture: `left` must be less than `right`, and `top` less than `bottom`.',
+        )
+      }
     }
     for (const child of node.content ?? []) visit(child, atDepth + 1)
   }

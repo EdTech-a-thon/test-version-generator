@@ -166,13 +166,13 @@ describe('Copy', () => {
     const blocks = copyBlocksOf(value)
     expect(copyMediaOf(blocks)).toEqual([
       { kind: 'math', source: 'x^2', display: false },
-      { kind: 'image', src: '/local-images/abc', ratio: 0.5, block: true },
+      { kind: 'image', key: '/local-images/abc@r0.5', src: '/local-images/abc', sizing: { ratio: 0.5 }, block: true },
       { kind: 'math', source: '\\frac{1}{2}', display: true },
     ])
     const media = {
       pictures: new Map([
         [mathKey('x^2', false), { src: 'data:image/png;base64,MATH', width: 20, height: 14 }],
-        ['/local-images/abc', { src: 'data:image/png;base64,PIC', width: 312, height: 200 }],
+        ['/local-images/abc@r0.5', { src: 'data:image/png;base64,PIC', width: 312, height: 200 }],
       ]),
       mathml: new Map([[mathKey('x^2', false), '<math xmlns="http://www.w3.org/1998/Math/MathML"><msup><mi>x</mi><mn>2</mn></msup></math>']]),
     }
@@ -190,9 +190,28 @@ describe('Copy', () => {
   })
 
   test('a picture pastes at its Authored Image Size against the page, never wider than the page', () => {
-    expect(copyImageWidth(400, 1)).toBe(400)
-    expect(copyImageWidth(2000, 1)).toBe(624)
-    expect(copyImageWidth(2000, 0.5)).toBe(312)
+    expect(copyImageWidth(400, {})).toBe(400)
+    expect(copyImageWidth(2000, {})).toBe(624)
+    expect(copyImageWidth(400, { size: 0.5 })).toBe(312)
+    // One no one has resized since Crepe's handle keeps the size it had.
+    expect(copyImageWidth(2000, { ratio: 0.5 })).toBe(312)
+  })
+
+  test('each crop and size of one Media Asset pastes as its own picture', () => {
+    const crop = { left: 0.1, top: 0.2, right: 0.6, bottom: 0.9, width: 800, height: 600 }
+    const value = question(
+      'open',
+      { type: 'image-block', attrs: { src: '/local-images/abc', size: 0.4, crop, caption: '' } },
+      { type: 'image-block', attrs: { src: '/local-images/abc', size: 0.4, caption: '' } },
+      { type: 'image-block', attrs: { src: '/local-images/abc', size: 0.6, caption: '' } },
+    )
+    const requests = copyMediaOf(copyBlocksOf(value))
+    expect(requests.map((request) => request.kind === 'image' && request.key)).toEqual([
+      '/local-images/abc#crop=0.1,0.2,0.6,0.9@0.4',
+      '/local-images/abc@0.4',
+      '/local-images/abc@0.6',
+    ])
+    expect(requests[0]).toMatchObject({ crop })
   })
 
   test('a formula becomes a black picture sized in pixels rather than ex', () => {

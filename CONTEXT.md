@@ -76,8 +76,12 @@ An optional, free-form label describing subject matter assessed by a question. A
 _Avoid_: Concept
 
 **Authored Image Size**:
-The width a teacher assigns to a block image relative to its printable container, such as the Question Content lane, a Panel or an answer-choice cell. It preserves the image's intrinsic aspect ratio. A picture taken from a Source Document for a Question's own content arrives at about the width it had on its page.
+How wide a teacher makes a block image: the width of what it shows, as a share of its printable container, such as the Question Content lane, a Panel or an answer-choice cell. It never exceeds the container and always preserves the picture's proportions, so the editor resizes a picture from its corners and sides alike, in proportion. A picture no one has sized fits its container at its own width, or the container's when that is narrower. A picture taken from a Source Document for a Question's own content arrives at about the width it had on its page, and a Picture Crop keeps what it shows at the size it printed at before.
 _Avoid_: Image ratio, image height
+
+**Picture Crop**:
+The part of a block image's Media Asset that Question Content shows, measured on the upright picture. The whole Media Asset is kept, so a crop can always be widened again: in the editor a double click shows the cropped-away parts as a ghost around what is kept. Every output shows only the kept part.
+_Avoid_: Cropped image, trimmed picture
 
 **Blockquote**:
 Rich text set apart from the stem around it, printed inside a black border — the home of a quoted source passage, even one the source document stored as a picture. Its source attribution is an ordinary paragraph after it, not part of it.
