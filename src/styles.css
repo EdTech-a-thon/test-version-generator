@@ -1242,7 +1242,7 @@ button { cursor: pointer; }
    overflow; `left`/`top` come from the component, which has already flipped
    and clamped them against the viewport. */
 .context-menu {
-  position: fixed; z-index: 60; min-width: 196px; max-height: 80vh; overflow: visible;
+  position: fixed; z-index: 200; min-width: 196px; max-height: 80vh; overflow: visible;
   padding: 4px; border: 1px solid #e0d3c2; border-radius: 8px; background: #fffdf8;
   box-shadow: 0 10px 30px rgb(55 42 33 / 18%), 0 2px 6px rgb(55 42 33 / 10%);
   font-family: Arial, Helvetica, sans-serif; font-size: 13px;
@@ -1323,6 +1323,13 @@ button { cursor: pointer; }
 /* Question content. */
 .doc-figure { margin: 8px 0; }
 .doc-figure img, .question-stem img, .choice-body img { max-width: 100%; }
+/* A Picture Crop: a window shaped like the part it keeps, the whole picture
+   placed inside it (see `doc-view.tsx`). */
+.doc-crop {
+  position: relative; display: inline-block; max-width: 100%; overflow: hidden;
+  vertical-align: bottom;
+}
+.doc-figure .doc-crop > img { position: absolute; max-width: none; }
 .doc-figure figcaption { font-size: 13px; font-style: italic; }
 .doc-table { border-collapse: collapse; }
 .doc-table td, .doc-table th { padding: 3px 8px; border: 1px solid #b9a893; }
@@ -1458,8 +1465,6 @@ button { cursor: pointer; }
    under its left edge. Crepe's theme centres both, which shows the teacher a
    layout the exam never prints. The wrapper stays `fit-content`, so the
    resize handle keeps hanging under the middle of the picture itself. */
-.dialog-editor .milkdown .milkdown-image-block > .image-wrapper { margin: 0; }
-.dialog-editor .milkdown .milkdown-image-block > .caption-input { text-align: left; }
 .dialog-editor .milkdown .milkdown-toolbar .toolbar-item svg {
   color: #4e3b2f;
   fill: #4e3b2f;
@@ -3162,7 +3167,7 @@ a.import-card-main:hover .exam-sheet, a.import-card-main:focus-visible .exam-she
   position: relative; min-width: 0; padding: 4px 8px;
   border: 1px dashed var(--line, #d8cab8); border-radius: 6px;
 }
-.milkdown .side-by-side-panel-content > .milkdown-image-block,
+.milkdown .side-by-side-panel-content > .picture-block { text-align: center; }
 .milkdown .side-by-side-panel-content > [data-type="image-block"] { margin-inline: auto; }
 .milkdown .side-by-side-controls {
   position: absolute; top: -14px; left: 4px; z-index: 2; display: flex; gap: 4px;
@@ -3373,3 +3378,80 @@ button.pop-over-chip-option[aria-pressed='true'] svg { visibility: visible; }
 .pop-over-picker button:hover { border-color: #cdb9a6; background: #f7ede0; }
 .pop-over-picker button span { font-weight: 600; }
 .pop-over-picker button small { color: #7a6a5c; }
+
+/* A block picture in the question editor (`picture-view.ts`): selected by a
+   click, with a handle at each corner; cropped in place by a double click,
+   with black handles on what it keeps and the rest of it faded around it. */
+/* Its own layer, so the picture Crepe's block handle lifts is painted alone
+   rather than with what lies under its box. */
+.milkdown .picture-block { position: relative; isolation: isolate; margin: 8px 0; line-height: 0; }
+.milkdown .picture-frame {
+  position: relative; display: inline-block; max-width: 100%; vertical-align: bottom;
+  user-select: none;
+}
+.milkdown .picture-window { position: relative; overflow: hidden; }
+.milkdown .picture-image { display: block; width: 100%; max-width: 100%; }
+.milkdown .picture-frame.is-cropped .picture-image { position: absolute; max-width: none; }
+.milkdown .picture-block.is-selected .picture-frame { outline: 2px solid var(--paper-accent); outline-offset: 0; }
+.milkdown .picture-handle {
+  position: absolute; width: 10px; height: 10px; box-sizing: border-box;
+  border: 1.5px solid #fff; border-radius: 2px; background: var(--paper-accent);
+  box-shadow: 0 0 0 1px rgb(58 42 30 / 30%); display: none; z-index: 2;
+}
+.milkdown .picture-block.is-selected:not(.is-cropping) .picture-handle { display: block; }
+.milkdown .picture-handle[data-grip='nw'] { left: -5px; top: -5px; cursor: nwse-resize; }
+.milkdown .picture-handle[data-grip='ne'] { right: -5px; top: -5px; cursor: nesw-resize; }
+.milkdown .picture-handle[data-grip='sw'] { left: -5px; bottom: -5px; cursor: nesw-resize; }
+.milkdown .picture-handle[data-grip='se'] { right: -5px; bottom: -5px; cursor: nwse-resize; }
+.milkdown .picture-handle[data-grip='n'] { left: calc(50% - 5px); top: -5px; cursor: ns-resize; }
+.milkdown .picture-handle[data-grip='s'] { left: calc(50% - 5px); bottom: -5px; cursor: ns-resize; }
+.milkdown .picture-handle[data-grip='e'] { right: -5px; top: calc(50% - 5px); cursor: ew-resize; }
+.milkdown .picture-handle[data-grip='w'] { left: -5px; top: calc(50% - 5px); cursor: ew-resize; }
+.milkdown .picture-block.is-resizing .picture-frame { outline-style: dashed; }
+
+.milkdown .picture-block.is-cropping .picture-frame { outline: none; z-index: 5; }
+.milkdown .picture-block.is-cropping .picture-window { visibility: hidden; }
+.milkdown .picture-cropping { position: absolute; z-index: 3; }
+.milkdown .picture-ghost {
+  position: absolute; inset: 0; width: 100%; height: 100%; max-width: none;
+  opacity: 0.4; pointer-events: none;
+}
+.milkdown .picture-crop-window {
+  position: absolute; overflow: hidden; cursor: move; touch-action: none;
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 55%);
+}
+.milkdown .picture-crop-window > .picture-crop-image {
+  position: absolute; max-width: none; pointer-events: none;
+}
+.milkdown .picture-crop-handle { position: absolute; background: #111; z-index: 1; }
+.milkdown .picture-crop-handle[data-grip='n'], .milkdown .picture-crop-handle[data-grip='s'] {
+  left: calc(50% - 9px); width: 18px; height: 5px; cursor: ns-resize;
+}
+.milkdown .picture-crop-handle[data-grip='n'] { top: 0; }
+.milkdown .picture-crop-handle[data-grip='s'] { bottom: 0; }
+.milkdown .picture-crop-handle[data-grip='e'], .milkdown .picture-crop-handle[data-grip='w'] {
+  top: calc(50% - 9px); width: 5px; height: 18px; cursor: ew-resize;
+}
+.milkdown .picture-crop-handle[data-grip='e'] { right: 0; }
+.milkdown .picture-crop-handle[data-grip='w'] { left: 0; }
+/* An L at each corner: its two arms are the handle's two borders. */
+.milkdown .picture-crop-handle:is([data-grip='nw'], [data-grip='ne'], [data-grip='sw'], [data-grip='se']) {
+  width: 14px; height: 14px; background: none; border: 0 solid #111;
+}
+.milkdown .picture-crop-handle[data-grip='nw'] { left: 0; top: 0; border-width: 5px 0 0 5px; cursor: nwse-resize; }
+.milkdown .picture-crop-handle[data-grip='ne'] { right: 0; top: 0; border-width: 5px 5px 0 0; cursor: nesw-resize; }
+.milkdown .picture-crop-handle[data-grip='sw'] { left: 0; bottom: 0; border-width: 0 0 5px 5px; cursor: nesw-resize; }
+.milkdown .picture-crop-handle[data-grip='se'] { right: 0; bottom: 0; border-width: 0 5px 5px 0; cursor: nwse-resize; }
+
+.milkdown .picture-caption {
+  display: block; width: 100%; margin-top: 4px; padding: 2px 0; border: 0;
+  background: transparent; font: italic 13px/1.4 inherit; color: inherit; outline: none;
+}
+.milkdown .picture-caption[hidden], .milkdown .picture-frame[hidden], .milkdown .picture-empty[hidden] { display: none; }
+.milkdown .picture-empty {
+  display: flex; align-items: center; gap: 10px; padding: 14px; line-height: normal;
+  border: 1px dashed var(--paper-outline); border-radius: 8px; background: var(--paper-surface-low);
+}
+.milkdown .picture-upload { position: relative; cursor: pointer; }
+.milkdown .picture-upload-input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.milkdown .picture-link { flex: 1; min-width: 0; padding: 6px 8px; border: 1px solid var(--paper-outline); border-radius: 6px; font: inherit; }

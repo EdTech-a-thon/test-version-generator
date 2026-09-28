@@ -61,4 +61,17 @@ describe('DocView pictures', () => {
       'style="zoom:1.5;max-width:calc(100% * 1)"',
     )
   })
+
+  test('a sized picture is its share of the column, whatever its old ratio', () => {
+    expect(figure({ size: 0.4, ratio: 0.5 })).toContain(
+      '<img src="/local-images/a" alt="" style="width:40%"/>',
+    )
+  })
+
+  test('a Picture Crop shows only what it keeps, shaped before the picture loads', () => {
+    // The right half of a 1200 × 800 picture, its middle 50% high: 600 × 400.
+    const markup = figure({ size: 0.5, crop: { left: 0.5, top: 0.25, right: 1, bottom: 0.75, width: 1200, height: 800 } })
+    expect(markup).toContain('<span class="doc-crop" style="width:50%;aspect-ratio:1.5">')
+    expect(markup).toContain('style="width:200%;height:200%;left:-100%;top:-50%"')
+  })
 })

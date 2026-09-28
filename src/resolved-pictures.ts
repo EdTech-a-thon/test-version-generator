@@ -1,4 +1,5 @@
 import { DEFAULT_COLUMNS } from './exam'
+import { clampSize } from './picture-geometry'
 import { CHOICE_AREA_WIDTH, PAGE_CONTENT_WIDTH, PAGE_WIDTH, PART_CHOICE_AREA_WIDTH } from './export-plan'
 import type { MediaAssetDeclaration, PendingImageOccurrence, PendingImageResolution } from './pending-images'
 import type { ImageTag, PageBox } from './source-document'
@@ -54,19 +55,17 @@ function answerCellWidth(occurrence: Pick<PendingImageOccurrence, 'where' | 'ans
 
 /**
  * The Authored Image Size that prints a picture about as wide as it was on
- * its own page, or nothing when that is as wide as it fits anyway.
+ * its own page, or nothing when that is about the size it fits at anyway.
  *
  * A Source Document page is taken to be as wide as the exam's Letter sheet, so
  * a picture a third of the way across its page prints a third of the way
- * across the sheet. The size is a share of what the picture fits its container
- * at — its own width, or the container's when it is wider — so that is what it
- * is measured against. A picture in a Question's own lane — its stem, a Part's
- * stem, a Suggested Answer — is measured against the lane; one in a Multiple
- * Choice answer against its answer's cell, as wide as the columns its answers
- * print in make it. Left to fill its cell, a graph cropped from a page printed
- * as wide as the question whenever its answers were in one column. A picture
- * in a Panel fills its Panel, and one in a matching set is left at the size
- * its cell allows.
+ * across the sheet. The size is a share of its container: a picture in a
+ * Question's own lane — its stem, a Part's stem, a Suggested Answer — is
+ * measured against the lane; one in a Multiple Choice answer against its
+ * answer's cell, as wide as the columns its answers print in make it. Left to
+ * fill its cell, a graph cropped from a page printed as wide as the question
+ * whenever its answers were in one column. A picture in a Panel fills its
+ * Panel, and one in a matching set is left at the size its cell allows.
  */
 export function estimatedSize(
   picture: ResolvedPicture,
@@ -78,10 +77,9 @@ export function estimatedSize(
   // filled their share of the page they came from.
   if (occurrence.inPanel) return undefined
   const printed = picture.pageShare * PAGE_WIDTH
-  const lane = /Answer [A-Z]$/.test(occurrence.where) ? answerCellWidth(occurrence) : PAGE_CONTENT_WIDTH
-  const fitted = Math.min(picture.asset.width, lane)
-  const size = Math.round((printed / fitted) * 100) / 100
-  return size >= 0.95 ? undefined : Math.max(0.05, size)
+  const container = /Answer [A-Z]$/.test(occurrence.where) ? answerCellWidth(occurrence) : PAGE_CONTENT_WIDTH
+  const fitted = Math.min(picture.asset.width, container)
+  return printed / fitted >= 0.95 ? undefined : clampSize(printed / container)
 }
 
 /** The pictures an import writes, by occurrence key, at their estimated size. */

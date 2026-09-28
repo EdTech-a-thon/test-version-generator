@@ -15,7 +15,8 @@
 // it starts — can be written from what is already here.
 
 import { bankLetter } from './matching'
-import { authoredImageRatio, authoredImageWidth } from './export-media'
+import { encoded } from './export-media'
+import { keptPixels, legacyRatioOf, pictureCropOf, pictureKey, pictureSizeOf, printedPictureWidth, type CropBox } from './picture-geometry'
 import { layOutColumns, MATCHING_BESIDE_LIMIT, TRUE_FALSE_MARKS } from './export-plan'
 import { pendingImageOf, stemNodesOf, type ProseMirrorJSON } from './question-doc'
 import { choicesOf, partsOf, promptsOf, type ColumnSetting, type Question } from './exam'
@@ -189,8 +190,27 @@ export function mathKey(source: string, display: boolean): string {
 
 /** A picture or a formula a copy has to resolve before it can be written. */
 export type CopyMediaRequest =
-  | { kind: 'image'; src: string; ratio: number; block: boolean }
+  | { kind: 'image'; key: string; src: string; crop?: CropBox; sizing: PictureSizing; block: boolean }
   | { kind: 'math'; source: string; display: boolean }
+
+/** What a pasted picture's width follows: its Authored Image Size, or the
+ *  legacy ratio of one no one has resized since. An inline picture has none. */
+type PictureSizing = { size?: number; ratio?: number }
+
+function sizingOf(node: ProseMirrorJSON): PictureSizing {
+  if (node.type !== 'image-block') return {}
+  const attrs = attrsOf(node)
+  const size = pictureSizeOf(attrs)
+  return size !== null ? { size } : { ratio: legacyRatioOf(attrs) }
+}
+
+/** The key a picture is stored under in `CopyMedia`: each crop and size of a
+ *  Media Asset pastes as its own picture. */
+export function copyPictureKey(node: ProseMirrorJSON): string {
+  const sizing = sizingOf(node)
+  const key = node.type === 'image-block' ? pictureKey(attrsOf(node)) : stringOf(attrsOf(node).src)
+  return sizing.size !== undefined ? `${key}@${sizing.size}` : sizing.ratio !== undefined ? `${key}@r${sizing.ratio}` : key
+}
 
 /** Every picture and formula in these blocks, once each. */
 export function copyMediaOf(blocks: readonly CopyBlock[]): CopyMediaRequest[] {
@@ -208,10 +228,14 @@ export function copyMediaOf(blocks: readonly CopyBlock[]): CopyMediaRequest[] {
     }
     if ((node.type === 'image' || node.type === 'image-block') && !pendingImageOf(node)) {
       const src = stringOf(attrsOf(node).src)
-      if (src) found.set(src, {
+      const crop = node.type === 'image-block' ? pictureCropOf(attrsOf(node)) : null
+      const key = copyPictureKey(node)
+      if (src) found.set(key, {
         kind: 'image',
+        key,
         src,
-        ratio: node.type === 'image-block' ? authoredImageRatio(attrsOf(node)) : 1,
+        ...(crop ? { crop } : {}),
+        sizing: sizingOf(node),
         block: node.type === 'image-block',
       })
       return
@@ -222,9 +246,10 @@ export function copyMediaOf(blocks: readonly CopyBlock[]): CopyMediaRequest[] {
   return [...found.values()]
 }
 
-/** The width a picture pastes at: its Authored Image Size against the page. */
-export function copyImageWidth(naturalWidth: number, ratio: number): number {
-  return Math.round(authoredImageWidth(naturalWidth, COPY_COLUMN_WIDTH, ratio))
+/** The width a picture pastes at: its Authored Image Size against the page,
+ *  given the natural width of what it shows. */
+export function copyImageWidth(naturalWidth: number, sizing: PictureSizing): number {
+  return Math.round(printedPictureWidth(naturalWidth, COPY_COLUMN_WIDTH, sizing))
 }
 
 // ---- Rich text ------------------------------------------------------------
@@ -278,7 +303,7 @@ function inlineHtml(node: ProseMirrorJSON, writer: Writer): string {
     case 'image':
       return pendingImageOf(node)
         ? '[Picture needed]'
-        : pictureHtml(writer.media.pictures.get(stringOf(attrsOf(node).src)), stringOf(attrsOf(node).alt))
+        : pictureHtml(writer.media.pictures.get(copyPictureKey(node)), stringOf(attrsOf(node).alt))
     default:
       return childrenOf(node).map((child) => inlineHtml(child, writer)).join('')
   }
@@ -303,7 +328,7 @@ function nodeHtml(node: ProseMirrorJSON, writer: Writer, lead: string, indent: n
       const caption = stringOf(attrsOf(node).caption)
       const picture = pendingImageOf(node)
         ? '[Picture needed]'
-        : pictureHtml(writer.media.pictures.get(stringOf(attrsOf(node).src)), caption)
+        : pictureHtml(writer.media.pictures.get(copyPictureKey(node)), caption)
       return `${open}${picture}</p>${caption ? `<p style="${paragraphStyle(indent)}"><i>${escapeHtml(caption)}</i></p>` : ''}`
     }
     case 'code_block': {
@@ -545,17 +570,24 @@ const dataUrlOf = (blob: Blob): Promise<string> => new Promise((resolve, reject)
   reader.readAsDataURL(blob)
 })
 
-async function imagePicture(src: string, ratio: number): Promise<CopyPicture | null> {
+async function imagePicture(src: string, crop: CropBox | undefined, sizing: PictureSizing): Promise<CopyPicture | null> {
   // A Media Asset's address resolves only in this browser, so the picture
-  // travels as its own bytes.
+  // travels as its own bytes — only the part a Picture Crop keeps.
   const response = await fetch(src)
   if (!response.ok) return null
   const blob = await response.blob()
   const bitmap = await createImageBitmap(blob)
-  const width = copyImageWidth(bitmap.width, ratio)
-  const height = Math.round(width * bitmap.height / bitmap.width)
-  bitmap.close()
-  return { src: await dataUrlOf(blob), width, height }
+  try {
+    const kept = crop ? keptPixels(crop, bitmap.width, bitmap.height) : { x: 0, y: 0, width: bitmap.width, height: bitmap.height }
+    const bytes = crop ? await encoded(bitmap, blob.type === 'image/jpeg' ? 'image/jpeg' : 'image/png', kept) : null
+    if (crop && !bytes) return null
+    const picture = bytes ? new Blob([bytes.slice().buffer as ArrayBuffer], { type: blob.type === 'image/jpeg' ? 'image/jpeg' : 'image/png' }) : blob
+    const width = copyImageWidth(kept.width, sizing)
+    const height = Math.round(width * kept.height / kept.width)
+    return { src: await dataUrlOf(picture), width, height }
+  } finally {
+    bitmap.close()
+  }
 }
 
 // What has been made, kept for the page's life: a Media Asset never changes,
@@ -579,10 +611,10 @@ function make(key: string, work: () => Promise<void>): Promise<void> {
 export async function prepareCopyMedia(blocks: readonly CopyBlock[], math: CopyMathMode): Promise<void> {
   await Promise.all(copyMediaOf(blocks).map((request) => {
     if (request.kind === 'image') {
-      if (madePictures.has(request.src)) return undefined
-      return make(`image:${request.src}`, async () => {
-        const picture = await imagePicture(request.src, request.ratio)
-        if (picture) madePictures.set(request.src, picture)
+      if (madePictures.has(request.key)) return undefined
+      return make(`image:${request.key}`, async () => {
+        const picture = await imagePicture(request.src, request.crop, request.sizing)
+        if (picture) madePictures.set(request.key, picture)
       })
     }
     const key = mathKey(request.source, request.display)

@@ -1,34 +1,35 @@
 import { describe, expect, test } from 'bun:test'
-import { authoredImageRatio, authoredImageWidth, jpegOrientation } from './export-media'
+import { jpegOrientation, loadExportImages, missingPicture, type MediaLoader } from './export-media'
+import type { LayoutPlan } from './export-plan'
+import { pictureKey } from './picture-geometry'
 
-describe('authoredImageRatio', () => {
-  test('is the ratio Crepe recorded, or 1 when it recorded none it could use', () => {
-    expect(authoredImageRatio({ ratio: 0.5 })).toBe(0.5)
-    expect(authoredImageRatio({ ratio: 1.25 })).toBe(1.25)
-    expect(authoredImageRatio({})).toBe(1)
-    expect(authoredImageRatio({ ratio: 0 })).toBe(1)
-    expect(authoredImageRatio({ ratio: -2 })).toBe(1)
-    expect(authoredImageRatio({ ratio: Number.NaN })).toBe(1)
-    expect(authoredImageRatio({ ratio: 'half' })).toBe(1)
+describe('loading export pictures', () => {
+  const src = `/local-images/${'a'.repeat(64)}`
+  const crop = { left: 0.5, top: 0, right: 1, bottom: 0.5, width: 800, height: 600 }
+  const planOf = (...stem: unknown[]) =>
+    [{ pages: [{ items: [{ kind: 'question', stem }] }] }] as unknown as LayoutPlan[]
+
+  test('asks for each crop of a Media Asset as its own picture, and nothing it hides', async () => {
+    const asked: unknown[] = []
+    const media: MediaLoader = async (source, box) => {
+      asked.push([source, box])
+      return { data: new Uint8Array(), type: 'png', width: box ? 400 : 800, height: box ? 300 : 600 }
+    }
+    const plans = planOf(
+      { type: 'image-block', attrs: { src } },
+      { type: 'image-block', attrs: { src, size: 0.5, crop } },
+      { type: 'image-block', attrs: { src, size: 0.3, crop } },
+    )
+    const loaded = await loadExportImages(plans, media)
+    expect(asked).toEqual([[src, undefined], [src, { left: 0.5, top: 0, right: 1, bottom: 0.5, width: 800, height: 600 }]])
+    expect(loaded.get(pictureKey({ src, crop }))?.width).toBe(400)
+    expect(loaded.get(src)?.width).toBe(800)
+    expect(missingPicture(plans, loaded)).toBeUndefined()
   })
-})
 
-describe('authoredImageWidth', () => {
-  // A 400px picture in a 600px column fits at 400; a 2000px one fits at 600.
-  test('an untouched picture fits its column', () => {
-    expect(authoredImageWidth(400, 600, 1)).toBe(400)
-    expect(authoredImageWidth(2000, 600, 1)).toBe(600)
-  })
-
-  test('a picture dragged smaller is the size it fit at, scaled', () => {
-    expect(authoredImageWidth(400, 600, 0.5)).toBe(200)
-    expect(authoredImageWidth(2000, 600, 0.5)).toBe(300)
-  })
-
-  test('a picture dragged larger grows, but never past the column', () => {
-    expect(authoredImageWidth(400, 600, 1.2)).toBe(480)
-    expect(authoredImageWidth(400, 600, 2)).toBe(600)
-    expect(authoredImageWidth(2000, 600, 1.5)).toBe(600)
+  test('names the first picture it could not load', async () => {
+    const plans = planOf({ type: 'image-block', attrs: { src, crop } })
+    expect(missingPicture(plans, await loadExportImages(plans, async () => null))?.src).toBe(src)
   })
 })
 

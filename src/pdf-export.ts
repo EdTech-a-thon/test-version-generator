@@ -18,11 +18,10 @@ import {
   type PDFImage,
   type PDFPage,
 } from 'pdf-lib'
+import { pictureKey, printedPictureWidth } from './picture-geometry'
 import {
   browserMedia,
-  authoredImageRatio,
-  authoredImageWidth,
-  imageSourcesOf,
+  missingPicture,
   loadExportImages,
   questionNumberForMedia,
   RequiredMediaError,
@@ -388,17 +387,16 @@ function drawTextLine(
 // question's blank and number, past a choice's letter — never at the margin.
 function drawImage(
   context: DrawContext,
-  source: string,
+  attrs: Record<string, unknown>,
   x: number,
   maxWidth: number,
-  ratio = 1,
   centred = false,
 ): void {
-  const loaded = context.images.get(source)
+  const loaded = context.images.get(pictureKey(attrs))
   if (!loaded) throw new RequiredMediaError(null)
   const naturalWidth = loaded.source.width * POINTS_PER_PX
   const naturalHeight = loaded.source.height * POINTS_PER_PX
-  const width = authoredImageWidth(naturalWidth, maxWidth, ratio)
+  const width = printedPictureWidth(naturalWidth, maxWidth, attrs)
   const height = naturalHeight * (width / naturalWidth)
   ensureRoom(context, height + 4)
   context.page.drawImage(loaded.image, {
@@ -473,10 +471,11 @@ function drawBlocks(
         break
       }
       case 'image':
-        drawImage(context, stringOf(attrs.src), x, width, 1, options.centred)
+        // An inline picture has no size of its own: it fits its column.
+        drawImage(context, { src: attrs.src }, x, width, options.centred)
         break
       case 'image-block': {
-        drawImage(context, stringOf(attrs.src), x, width, authoredImageRatio(attrs), options.centred)
+        drawImage(context, attrs, x, width, options.centred)
         const caption = stringOf(attrs.caption)
         if (caption) {
           const captionWidth = context.fonts.regular.widthOfTextAtSize(caption, SMALL_SIZE)
@@ -1018,8 +1017,8 @@ async function createPdf(
   }
   const loaded = await loadExportImages(plans, media)
   if (strictMedia) {
-    const missing = imageSourcesOf(plans).find((source) => !loaded.has(source))
-    if (missing) throw new RequiredMediaError(questionNumberForMedia(plans, missing))
+    const missing = missingPicture(plans, loaded)
+    if (missing) throw new RequiredMediaError(questionNumberForMedia(plans, missing.src))
   }
   const images = await embedImages(document, loaded)
   document.setTitle(plans[0]?.title ?? '')

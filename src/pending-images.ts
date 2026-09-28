@@ -46,7 +46,8 @@ export type PendingImageOccurrence = {
 }
 
 /** The picture that fills a Pending Image, and the Authored Image Size it
- *  arrives at when its size on the Source Document's page is known. */
+ *  arrives at when its size on the Source Document’s page is known: a share
+ *  of its container, as Record 0.7.0’s `authoredSize` is. */
 export type ResolvedImage = { asset: MediaAssetDeclaration; authoredSize?: number }
 
 /** Key → the picture that fills it. Absent keys stay Pending Images. */
@@ -225,11 +226,13 @@ export function withResolvedImages(
     declared.set(picture.asset.id, picture.asset)
     const { pending: _pending, ...rest } = node
     void _pending
-    return {
-      ...rest,
-      asset: picture.asset.id,
-      ...(picture.authoredSize !== undefined ? { authoredSize: picture.authoredSize } : {}),
-    }
+    if (picture.authoredSize === undefined) return { ...rest, asset: picture.asset.id }
+    // A resolution's size is a share of the picture's container, as Record
+    // 0.7.0's is, whatever version the record declared: it replaces any
+    // legacy ratio the Pending Image was written with.
+    const { legacyRatio: _legacyRatio, ...sized } = rest
+    void _legacyRatio
+    return { ...sized, asset: picture.asset.id, authoredSize: picture.authoredSize }
   })
   return { ...resolved, media: [...declared.values()] }
 }
@@ -433,7 +436,7 @@ export function pendingImagesOfQuestions(questions: readonly EditorQuestion[]): 
 }
 
 /** A stored picture's source, and the Authored Image Size it arrives at. */
-export type StoredPicture = { src: string; ratio?: number }
+export type StoredPicture = { src: string; size?: number }
 
 /** A stored Question with each resolved Pending Image given its stored
  *  picture's source, found by the same keys `pendingImagesOfQuestions` gave. */
@@ -447,7 +450,7 @@ export function withStoredPictures<Q extends EditorQuestion>(question: Q, source
         if (!picture) return node
         const { pending: _pending, ...attrs } = node.attrs as Record<string, unknown>
         void _pending
-        return { ...node, attrs: { ...attrs, src: picture.src, ...(picture.ratio !== undefined ? { ratio: picture.ratio } : {}) } }
+        return { ...node, attrs: { ...attrs, src: picture.src, ...(picture.size !== undefined ? { size: picture.size } : {}) } }
       }
       return Array.isArray(node.content) ? { ...node, content: editorChildren(node).map(visit) } : node
     }

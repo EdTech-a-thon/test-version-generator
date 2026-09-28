@@ -1,6 +1,11 @@
 import fontkit from '@pdf-lib/fontkit'
 import {
   AFRelationship,
+  clip,
+  endPath,
+  popGraphicsState,
+  pushGraphicsState,
+  rectangle,
   PDFArray,
   PDFDocument,
   PDFName,
@@ -294,11 +299,26 @@ function drawImage(context: Context, node: SemanticNode, x: number, width: numbe
   }
   const image = node.asset ? context.images.get(node.asset) : undefined
   if (!image) throw new Error(`Required Media Asset “${node.asset ?? 'missing'}” is unavailable for the PDF preview.`)
-  const naturalRatio = image.height / image.width
+  // A Picture Crop shows only the part it keeps: the whole picture is drawn
+  // behind a clip the kept part's size. The bank's own record carries every
+  // Media Asset whole, so nothing the clip hides is kept from this file.
+  const crop = node.crop ?? { left: 0, top: 0, right: 1, bottom: 1 }
+  const keptWidth = crop.right - crop.left
+  const keptHeight = crop.bottom - crop.top
   const targetWidth = Math.min(width, width * (node.authoredSize ?? 1))
-  const targetHeight = targetWidth * naturalRatio
+  const targetHeight = targetWidth * (image.height * keptHeight) / (image.width * keptWidth)
   ensure(context, targetHeight + (node.caption ? BODY_LINE : 0))
-  context.page.drawImage(image, { x, y: context.y - targetHeight, width: targetWidth, height: targetHeight })
+  const wholeWidth = targetWidth / keptWidth
+  const wholeHeight = targetHeight / keptHeight
+  const top = context.y
+  context.page.pushOperators(pushGraphicsState(), rectangle(x, top - targetHeight, targetWidth, targetHeight), clip(), endPath())
+  context.page.drawImage(image, {
+    x: x - crop.left * wholeWidth,
+    y: top + crop.top * wholeHeight - wholeHeight,
+    width: wholeWidth,
+    height: wholeHeight,
+  })
+  context.page.pushOperators(popGraphicsState())
   context.y -= targetHeight + 4
   if (node.caption) drawText(context, node.caption, { x, width: targetWidth, font: 'italic', size: 9 })
   context.y -= 4

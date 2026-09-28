@@ -9,7 +9,7 @@
 import { useContext, type CSSProperties, type ReactNode } from 'react'
 import katex from 'katex'
 import { pendingImageOf, type PendingImageReference, type ProseMirrorJSON } from './question-doc'
-import { authoredImageRatio } from './export-media'
+import { keptAspect, legacyRatioOf, pictureCropOf, pictureSizeOf, type PictureCrop } from './picture-geometry'
 import { PictureSlotContext } from './picture-slot'
 
 function attrsOf(node: ProseMirrorJSON): Record<string, unknown> {
@@ -46,17 +46,53 @@ function Tex({ value, display }: { value: string; display: boolean }) {
   )
 }
 
-// A picture at the size the teacher dragged it to (see `authoredImageRatio`).
+// A block picture at its Authored Image Size (see `picture-geometry.ts`).
 //
 // This has to be plain markup, with no script behind it: the exam page is
 // paginated by measuring this same markup off-screen (`dom-measure.ts`), where
-// no load handler ever runs. `zoom` is the one CSS property that scales a
-// picture's own size while leaving it in the flow, and it leaves percentages
-// alone — so the cap is the column scaled by the same ratio, which is exactly
-// "the size it fit at, times the ratio", the size the editor showed. A picture
-// dragged larger than it fit still stops at the column's edge.
-function authoredImageStyle(ratio: number): CSSProperties {
-  return { zoom: ratio, maxWidth: `calc(100% * ${Math.min(1, ratio)})` }
+// no load handler ever runs.
+//
+// A sized picture is its share of the column. A Picture Crop is a window that
+// share wide, shaped like the part it keeps, with the whole picture placed
+// inside it so only that part shows — the crop's own record of the picture's
+// size is what lets the window take its shape before the picture loads.
+//
+// A picture with only Crepe's legacy ratio uses `zoom`, the one CSS property
+// that scales a picture's own size while leaving it in the flow; it leaves
+// percentages alone, so the cap is the column scaled by the same ratio, which
+// is exactly "the size it fit at, times the ratio".
+const percent = (value: number) => `${Math.round(value * 1e4) / 1e2}%`
+
+function legacyImageStyle(ratio: number): CSSProperties | undefined {
+  return ratio === 1 ? undefined : { zoom: ratio, maxWidth: `calc(100% * ${Math.min(1, ratio)})` }
+}
+
+function croppedPicture(src: string, alt: string, size: number, crop: PictureCrop): ReactNode {
+  const width = crop.right - crop.left
+  const height = crop.bottom - crop.top
+  return (
+    <span className="doc-crop" style={{ width: percent(size), aspectRatio: String(Math.round(keptAspect(crop) * 1e4) / 1e4) }}>
+      <img
+        src={src}
+        alt={alt}
+        style={{
+          width: percent(1 / width),
+          height: percent(1 / height),
+          left: percent(-crop.left / width),
+          top: percent(-crop.top / height),
+        }}
+      />
+    </span>
+  )
+}
+
+function blockPicture(attrs: Record<string, unknown>, alt: string): ReactNode {
+  const src = text(attrs.src)
+  const size = pictureSizeOf(attrs)
+  const crop = pictureCropOf(attrs)
+  if (crop) return croppedPicture(src, alt, size ?? 1, crop)
+  if (size !== null) return <img src={src} alt={alt} style={{ width: percent(size) }} />
+  return <img src={src} alt={alt} style={legacyImageStyle(legacyRatioOf(attrs))} />
 }
 
 function withMarks(node: ProseMirrorJSON, content: ReactNode): ReactNode {
@@ -156,17 +192,12 @@ function renderNode(node: ProseMirrorJSON, key: number): ReactNode {
     case 'image-block': {
       const caption = text(attrs.caption)
       const pending = pendingImageOf(node)
-      const ratio = authoredImageRatio(attrs)
       return (
         <figure key={key} className="doc-figure">
           <Slot pictureKey={attrs.pictureKey}>
             {pending
               ? <PictureNeeded pending={pending} />
-              : <img
-                  src={text(attrs.src)}
-                  alt={caption}
-                  style={ratio === 1 ? undefined : authoredImageStyle(ratio)}
-                />}
+              : blockPicture(attrs, caption)}
           </Slot>
           {caption && <figcaption>{caption}</figcaption>}
         </figure>
