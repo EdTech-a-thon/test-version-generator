@@ -664,7 +664,11 @@ button { cursor: pointer; }
    the same line. */
 .bank-outline-row > svg { margin-inline: 2.5px; }
 .bank-outline-empty { margin: 0; padding: 0 8px; color: #7a6a5c; font-size: 12.5px; line-height: 1.4; }
+/* Positioned so what is placed absolutely inside a row, such as a button's
+   screen-reader label, scrolls and clips with the list rather than being
+   placed on the page, where rows scrolled out of sight made it scroll. */
 .question-bank-list {
+  position: relative;
   flex: 1 1 auto; min-height: 0; overflow-y: auto; scrollbar-gutter: stable;
   display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none;
 }
