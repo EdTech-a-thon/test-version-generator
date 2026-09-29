@@ -11,7 +11,7 @@ export const NO_LABELED_COPY =
   'There is no labeled copy of this source: Test Parrot has printed no image tags on it. Write every picture as a Pending Image that names only its page, `"pending": { "page": <n> }`, where `n` is the 1-based page (use 1 for a single photo or a pasted source). Do not estimate where on the page it is: the teacher will crop or add each picture in Test Parrot.'
 
 const NO_TAGS =
-  'Test Parrot found no embedded pictures in this document, so none carries a tag. Write any picture you do see, such as a diagram drawn with lines or a picture on a scanned page, as a Pending Image that names its page, `"pending": { "page": <n> }`. Do not estimate where on the page it is: the teacher will crop it in Test Parrot.'
+  'Test Parrot found no pictures to tag in this document, so none carries a tag. Write any picture you do see, such as a diagram or a picture on a scanned page, as a Pending Image that names its page, `"pending": { "page": <n> }`. Do not estimate where on the page it is: the teacher will crop it in Test Parrot.'
 
 /** A Word document has no fixed pages, so a picture without a tag is named
  *  by page 1, and the teacher uploads it. */

@@ -97,13 +97,24 @@ beforeAll(async () => {
   // 5: no pictures at all.
   pdf.addPage([W, H]).drawText('Answer every question.', { x: 72, y: H - 80, size: 12, font })
 
+  // 6: a graph drawn with lines, as a browser saves an SVG, above a table
+  // ruled with straight lines.
+  const sixth = pdf.addPage([W, H])
+  sixth.drawLine({ start: { x: 100, y: H - 300 }, end: { x: 300, y: H - 300 } })
+  sixth.drawLine({ start: { x: 100, y: H - 300 }, end: { x: 100, y: H - 150 } })
+  for (let dot = 0; dot < 5; dot += 1)
+    sixth.drawEllipse({ x: 130 + dot * 35, y: H - 280 + dot * 25, xScale: 6, yScale: 6, borderWidth: 1 })
+  for (let row = 0; row < 3; row += 1)
+    for (let column = 0; column < 3; column += 1)
+      sixth.drawRectangle({ x: 100 + column * 80, y: H - 500 - row * 30, width: 80, height: 30, borderWidth: 1 })
+
   source = await pdf.save()
   analysis = await analyzeSourceDocument(source)
 })
 
 describe('analyzing a Source Document', () => {
   test('tags every picture across the document, page by page, in reading order', () => {
-    expect(analysis.pageCount).toBe(5)
+    expect(analysis.pageCount).toBe(6)
     expect(analysis.tags.map(({ tag, page }) => [tag, page])).toEqual([
       [1, 1],
       [2, 1],
@@ -113,6 +124,7 @@ describe('analyzing a Source Document', () => {
       [6, 2],
       [7, 4],
       [8, 4],
+      [9, 6],
     ])
     const near = (actual: PageBox, expected: PageBox) => {
       for (const side of ['left', 'top', 'right', 'bottom'] as const)
@@ -126,6 +138,17 @@ describe('analyzing a Source Document', () => {
     near(analysis.tags[4]!.box, boxOf(72, 112, 200, 150))
     near(analysis.tags[5]!.box, boxOf(320, 100, 200, 150))
     expect(analysis.tags[0]).toMatchObject({ width: 40, height: 30 })
+  })
+
+  test('tags a figure drawn with lines, but not a table ruled with them', () => {
+    const drawn = analysis.tags.filter((tag) => tag.drawn)
+    expect(drawn.map((tag) => tag.tag)).toEqual([9])
+    // From the axes' corner to the top of the highest dot.
+    const box = drawn[0]!.box
+    expect(box.left).toBeCloseTo((100 / W) * 1000, -1)
+    expect(box.right).toBeCloseTo((300 / W) * 1000, -1)
+    expect(box.top).toBeCloseTo((150 / H) * 1000, -1)
+    expect(box.bottom).toBeCloseTo((300 / H) * 1000, -1)
   })
 
   test('gives no tag to an equation-sized image or a full-page scan', () => {
@@ -167,6 +190,21 @@ describe('a tag’s picture', () => {
     ])
     expect(seventh).toEqual(eighth)
     expect(first).not.toEqual(seventh)
+  })
+
+  test('is a drawn figure rendered at print resolution, its lines on white', async () => {
+    const tag = analysis.tags.find((tag) => tag.drawn)!
+    const image = await loadImage(Buffer.from(await pictureForTag(source, tag, raster)))
+    expect([image.width, image.height]).toEqual([tag.width, tag.height])
+    expect(tag.width).toBe(Math.round(((tag.box.right - tag.box.left) / 1000) * W * (300 / 72)))
+    const canvas = createCanvas(image.width, image.height)
+    const context = canvas.getContext('2d')
+    context.drawImage(image, 0, 0)
+    const pixels = context.getImageData(0, 0, image.width, image.height).data
+    let ink = 0
+    for (let at = 0; at < pixels.length; at += 4) if (pixels[at]! < 128) ink += 1
+    expect(ink).toBeGreaterThan(0)
+    expect(ink).toBeLessThan(pixels.length / 4 / 2)
   })
 })
 

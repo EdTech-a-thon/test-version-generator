@@ -53,7 +53,7 @@ The teacher's original PDF or Word document (.docx), or a photo of their test, t
 _Avoid_: Original PDF, Question Bank File
 
 **Image Tag**:
-The numbered label, such as “IMG 3”, that Test Parrot prints on each picture in a labeled copy of a Source Document — inside the picture's corner in a PDF, just before it in a Word document — so an assistant can name a picture exactly. A tag names an embedded image, not necessarily a picture: a passage stored as an image is tagged too.
+The numbered label, such as “IMG 3”, that Test Parrot prints on each picture in a labeled copy of a Source Document — inside the picture's corner in a PDF, just before it in a Word document — so an assistant can name a picture exactly. A tag names an embedded image, not necessarily a picture: a passage stored as an image is tagged too. In a PDF it can also name a figure drawn with lines, such as a graph a browser saved from an SVG; its picture is that region of the page, rendered.
 _Avoid_: Image number, image ID, label
 
 **Pending Image**:
