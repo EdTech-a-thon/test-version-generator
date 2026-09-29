@@ -1,15 +1,18 @@
 import type { ImportProposal } from './package-import'
 import { checkAgainstSourceDocument, pendingImagesOf, type SourceDocumentCheck } from './pending-images'
 import { waitingImports, type WaitingImport } from './import-history'
-import { inspectUploadedFile } from './question-bank-upload'
+import { inspectQuestionFile, inspectUploadedFile } from './question-bank-upload'
 import { kindOfFile, startWaitingImport, unsupportedFileMessage } from './source-file'
 
 /**
  * Where a file dropped to start an import goes. There is one way in, whatever
  * the file:
  *
- * - a test — a PDF with no Test Parrot file in it, a Word document, or a
- *   photo — starts a new import, which waits for the file its AI makes;
+ * - a question file from another tool — a Blackboard or Test Generator
+ *   file, a QTI or Moodle export, a spreadsheet — is read as it is, with
+ *   no AI, and so is a Word document written in one of those formats;
+ * - a test — a PDF with no Test Parrot file in it, any other Word document,
+ *   or a photo — starts a new import, which waits for the file its AI makes;
  * - the file an AI made (JSON) is the answer to the import in progress it
  *   matches, and continues that import;
  * - a Test Parrot file is imported as it is.
@@ -52,6 +55,24 @@ const reasonOf = (reason: unknown, fallback: string) => (reason instanceof Error
 export async function routeImportFile(file: File): Promise<ImportFileRoute> {
   const kind = kindOfFile(file)
   if (kind === 'other') return { to: 'error', message: unsupportedFileMessage(file) }
+  if (kind === 'questions') {
+    try {
+      await inspectQuestionFile(file)
+      return { to: 'import' }
+    } catch (reason) {
+      return { to: 'error', message: reasonOf(reason, 'This file could not be read.') }
+    }
+  }
+  if (kind === 'word') {
+    // A Word document written in a question format needs no AI; any other
+    // is a test to convert.
+    try {
+      await inspectQuestionFile(file)
+      return { to: 'import' }
+    } catch {
+      // Converted below.
+    }
+  }
   if (kind === 'record') {
     let proposal: ImportProposal
     try {

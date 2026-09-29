@@ -23,7 +23,7 @@ test('the convert page asks only for the test, then opens its import with the pa
 
   // A PDF with pictures starts an import, opened in Imports, and goes to the
   // AI as a labeled copy.
-  await page.getByLabel('Your test, or the file your AI gave back').setInputFiles({ name: 'unit-test.pdf', mimeType: 'application/pdf', buffer: await sourceDocument() })
+  await page.getByLabel('Your test, a question file, or the file your AI gave back').setInputFiles({ name: 'unit-test.pdf', mimeType: 'application/pdf', buffer: await sourceDocument() })
   await expect(page).toHaveURL(/\/import\?id=/)
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Converting unit-test.pdf')
   await expect(page.getByLabel('About this import')).toContainText('Pictures detected2')
@@ -37,7 +37,7 @@ test('the convert page asks only for the test, then opens its import with the pa
 
   // A PDF that has no pictures needs no labeled copy.
   await page.goto('/get-started/convert')
-  await page.getByLabel('Your test, or the file your AI gave back').setInputFiles({ name: 'planets.pdf', mimeType: 'application/pdf', buffer: await textOnlyPdf() })
+  await page.getByLabel('Your test, a question file, or the file your AI gave back').setInputFiles({ name: 'planets.pdf', mimeType: 'application/pdf', buffer: await textOnlyPdf() })
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Converting planets.pdf')
   await expect(page.getByLabel('About this import')).toContainText('Pictures detected0')
   await expect(steps.getByRole('button', { name: 'Download the labeled PDF' })).toHaveCount(0)
@@ -47,7 +47,7 @@ test('the convert page asks only for the test, then opens its import with the pa
 
   // A photo is converted as it is, and its pictures are cropped after.
   await page.goto('/get-started/convert')
-  await page.getByLabel('Your test, or the file your AI gave back').setInputFiles({ name: 'quiz-photo.png', mimeType: 'image/png', buffer: Buffer.from(picture(600, 800, 3)) })
+  await page.getByLabel('Your test, a question file, or the file your AI gave back').setInputFiles({ name: 'quiz-photo.png', mimeType: 'image/png', buffer: Buffer.from(picture(600, 800, 3)) })
   await expect(page.getByLabel('About this import')).toContainText('Pictures detectedCropped after importing')
   await expect(steps).toContainText('attach your photo')
   // The whole step opens the list of assistants.
@@ -85,7 +85,7 @@ test('a Word document goes to the AI as a labeled copy, and its pictures come fr
   await context.grantPermissions(['clipboard-read', 'clipboard-write'])
   await page.goto('/get-started/convert')
   const steps = page.getByRole('region', { name: 'Convert your test' })
-  await page.getByLabel('Your test, or the file your AI gave back').setInputFiles({
+  await page.getByLabel('Your test, a question file, or the file your AI gave back').setInputFiles({
     name: 'unit-test.docx',
     mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     buffer: await wordSourceDocument(),
@@ -119,13 +119,13 @@ test('a Word document goes to the AI as a labeled copy, and its pictures come fr
 })
 
 test('a file from an AI that matches no import in progress, and needs its test’s pictures, is refused', async ({ page }) => {
-  await page.goto('/imports/new')
-  await page.getByLabel('Your test, or the file your AI gave back').setInputFiles({
+  await page.goto('/get-started/convert')
+  await page.getByLabel('Your test, a question file, or the file your AI gave back').setInputFiles({
     name: 'unit-test.parrot.json',
     mimeType: 'application/json',
     buffer: assistantPackage(),
   })
   await expect(page.getByRole('alert')).toHaveText('This file doesn’t match any test waiting in Imports. Drop the test it was made from first, then this file.')
   await expect(page.getByRole('dialog')).toHaveCount(0)
-  await expect(page).toHaveURL(/\/imports\/new$/)
+  await expect(page).toHaveURL(/\/get-started\/convert$/)
 })

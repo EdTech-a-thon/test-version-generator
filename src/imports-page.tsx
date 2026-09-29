@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { ChevronLeft, ChevronRight, Clock, EllipsisVertical, FileImage, FileJson, FileText, FolderOpen, ImageIcon, Library, Trash2 } from 'lucide-react'
+import { ChevronLeft, ChevronRight, EllipsisVertical, FileImage, FileJson, FileText, FolderOpen, ImageIcon, Library, Trash2 } from 'lucide-react'
 import { AppShell } from './app-shell'
 import type { PersistentStorageStatus } from './durable-storage'
 import {
@@ -14,7 +14,6 @@ import {
 import { Link } from './site-chrome'
 import { ContextMenu, type MenuItem, type MenuPoint } from './context-menu'
 import { SourceDocumentSteps } from './source-document-steps'
-import { ImportFileDrop } from './import-file-drop'
 import { ImportError } from './import-error'
 import { inspectUploadedFile, isRecordFile } from './question-bank-upload'
 
@@ -29,6 +28,7 @@ const KIND_LABELS: Record<ImportFileKind, string> = {
   photo: 'Photo',
   word: 'Word document',
   record: 'Test Parrot file',
+  questions: 'Question file',
 }
 
 const plural = (count: number, singular: string) => `${count} ${count === 1 ? singular : `${singular}s`}`
@@ -108,11 +108,6 @@ function ImportCard({
     <ImportSheet entry={entry} />
     <span className="import-card-caption">
       <span className="import-card-title">{entry.fileName}</span>
-      {entry.stage === 'waiting'
-        ? <span className="import-stage" data-stage="waiting"><Clock aria-hidden="true" />Waiting for your AI</span>
-        : entry.stage === 'imported'
-          ? <span className="import-stage" data-stage="imported">Imported</span>
-          : <span className="import-stage" data-stage="expired">Expired</span>}
       <span className="import-card-facts">
         {entry.stage === 'waiting'
           ? <>
@@ -164,10 +159,13 @@ function ImportCard({
 }
 
 export function ImportsPage({
+  onImport,
   persistentStorage,
   revision,
   picturesNeededIn,
 }: {
+  /** Start an import, in the Import dialog. */
+  onImport: () => void
   persistentStorage: PersistentStorageStatus
   /** Changes whenever an import may have finished, so the list is read again. */
   revision: number
@@ -199,7 +197,7 @@ export function ImportsPage({
     <header className="collection-heading">
       <h1>Imports</h1>
       <div className="collection-actions">
-        <Link href="/imports/new" className="primary-button">Import</Link>
+        <button type="button" className="primary-button" onClick={onImport}>Import</button>
       </div>
     </header>
     {entries === null
@@ -211,7 +209,7 @@ export function ImportsPage({
           </div>
         : <>
             {waiting.length > 0 && <section className="import-section" aria-labelledby="imports-waiting">
-              <h2 id="imports-waiting">In progress</h2>
+              <h2 id="imports-waiting">Pending</h2>
               <ul className="collection-grid collection-grid--exams import-grid">
                 {waiting.map((entry) => (
                   <ImportCard
@@ -411,32 +409,5 @@ export function WaitingImportPage({
             <h2>This import is no longer waiting</h2>
             <p>It was imported, discarded, or expired. <Link href="/imports">See every import</Link>.</p>
           </div>}
-  </AppShell>
-}
-
-/** A new import: the test to convert, or the file an AI made from one. */
-export function NewImportPage({
-  persistentStorage,
-  dropped,
-  onOpenImport,
-}: {
-  persistentStorage: PersistentStorageStatus
-  dropped: { file: File; id: number } | null
-  onOpenImport: (file: File, waitingImportId?: string) => void
-}) {
-  return <AppShell
-    crumbs={[{ label: 'Home', href: '/' }, { label: 'Imports', href: '/imports' }, { label: 'New import' }]}
-    persistentStorage={persistentStorage}
-  >
-    <div className="new-import">
-      <header className="collection-heading">
-        <h1>Import</h1>
-      </header>
-      <p className="new-import-lede">
-        Drop the test you want to convert. An AI assistant turns it into a file Test Parrot imports:
-        your questions, the test laid out as you gave it, and its pictures.
-      </p>
-      <ImportFileDrop dropped={dropped} onOpenImport={onOpenImport} />
-    </div>
   </AppShell>
 }

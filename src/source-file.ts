@@ -1,14 +1,17 @@
 import { saveWaitingImport, type WaitingImport } from './import-history'
+import { QUESTION_FILE_EXTENSIONS, isQuestionFileName } from './question-formats/catalog'
 
 /**
  * What a teacher dropped to start converting a test, and the import that
  * waits on it. A PDF and a Word document (.docx) are their own Source
  * Documents. A photo becomes a one-page PDF, so its pictures can be cropped
- * from it after importing. Anything else a test might be saved as is answered
- * with how to make it one of those.
+ * from it after importing. A question file from another tool — a Blackboard
+ * upload, a QTI or Moodle export, a spreadsheet — is read as it is, with no
+ * AI, and so is a Word document written in one of those formats. Anything
+ * else a test might be saved as is answered with how to make it one of those.
  */
 
-export type DroppedFile = 'record' | 'pdf' | 'word' | 'photo' | 'other'
+export type DroppedFile = 'record' | 'pdf' | 'word' | 'photo' | 'questions' | 'other'
 
 const WORD_MIME_TYPE = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
 
@@ -18,11 +21,12 @@ export function kindOfFile(file: File): DroppedFile {
   if (type === 'application/pdf' || /\.pdf$/i.test(file.name)) return 'pdf'
   if (type === WORD_MIME_TYPE || /\.docx$/i.test(file.name)) return 'word'
   if (type.startsWith('image/') && type !== 'image/svg+xml') return 'photo'
+  if (isQuestionFileName(file.name) || type.startsWith('text/')) return 'questions'
   return 'other'
 }
 
 /** The files a drop zone for a test to convert takes. */
-export const TEST_FILE_TYPES = `application/pdf,.pdf,${WORD_MIME_TYPE},.docx,image/*`
+export const TEST_FILE_TYPES = `application/pdf,.pdf,${WORD_MIME_TYPE},.docx,image/*,${QUESTION_FILE_EXTENSIONS.join(',')}`
 
 const OTHER_DOCUMENT = /\.(doc|odt|pages|rtf)$/i
 
@@ -30,7 +34,7 @@ const OTHER_DOCUMENT = /\.(doc|odt|pages|rtf)$/i
 export function unsupportedFileMessage(file: File): string {
   return OTHER_DOCUMENT.test(file.name)
     ? 'Save your document as a PDF or a Word document (.docx), then drop it here.'
-    : 'Drop your test as a PDF, a Word document, or a photo of it.'
+    : 'Drop your test as a PDF, a Word document, a photo of it, or a question file from another tool.'
 }
 
 /** A photo's bytes as PNG or JPEG, the forms a PDF can hold; any other

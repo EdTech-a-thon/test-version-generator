@@ -2841,6 +2841,59 @@ button { cursor: pointer; }
 .convert-drop { padding: 56px 24px 50px; }
 .convert-drop strong { font-size: 18px; }
 .convert-text-only { margin: 12px 0 0; color: #5f4d40; font-size: 13.5px; text-align: center; }
+.bank-import-choose .convert-text-only, .bank-import-choose .import-paste { margin-bottom: 18px; }
+.convert-text-only .link-button svg { width: 14px; height: 14px; vertical-align: -2px; margin-right: 3px; }
+
+/* The tools whose files come straight in, named under the drop zone so a
+   teacher with one knows before dropping it. */
+.import-sources {
+  display: flex; flex-wrap: wrap; align-items: baseline; justify-content: center; gap: 6px 10px;
+  margin: 14px 0 0; color: #5f4d40; font-size: 12.5px;
+}
+.import-sources > span { font-weight: 700; color: #332a24; }
+.import-sources ul { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.import-sources li {
+  padding: 2px 9px; border: 1px solid var(--badge-line); border-radius: 999px;
+  color: var(--badge-ink); background: var(--badge-wash); white-space: nowrap;
+}
+
+/* Questions pasted as text, read as a dropped text file is. */
+.import-paste { display: grid; gap: 8px; margin: 16px 0 0; }
+.import-paste label { font-weight: 700; font-size: 14px; color: #2f2419; }
+.import-paste textarea {
+  width: 100%; box-sizing: border-box; min-height: 180px; padding: 10px 12px; resize: vertical;
+  border: 1px solid #bda995; border-radius: 10px; background: #fffdf8; color: #2f2419;
+  font: 13.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.import-paste textarea:focus-visible { outline: 2px solid var(--paper-accent); outline-offset: 1px; }
+.import-paste p { margin: 0; color: #5f4d40; font-size: 12.5px; line-height: 1.45; }
+.import-paste-actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+/* How a question file from another tool was read: its format, which the
+   teacher can change, what is coming in, and each problem by line. */
+.question-file-report {
+  margin: 0 18px 12px; padding: 10px 14px; border: 1px solid var(--paper-outline); border-radius: 10px;
+  background: #fffdf8; color: #2f2419; font-size: 13px; line-height: 1.45;
+}
+.question-file-report-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.question-file-report-head label { font-weight: 700; }
+.question-file-report-head select {
+  min-height: 32px; max-width: 100%; padding: 5px 28px 5px 10px; border: 1px solid #bda995; border-radius: 8px;
+  color: #4e3b2f; background: #f7eee3; font: inherit; font-weight: 600;
+}
+.question-file-report-head p { margin: 0; flex: 1 1 auto; }
+.question-file-report-left-out { color: var(--paper-danger); font-weight: 600; }
+.question-file-report-issues { margin-top: 8px; }
+.question-file-report-issues summary { cursor: pointer; font-weight: 600; color: #5f4d40; }
+.question-file-report-issues ul {
+  display: grid; gap: 6px; max-height: 180px; overflow: auto; margin: 8px 0 0; padding: 0; list-style: none;
+}
+.question-file-report-issues li { display: flex; gap: 8px; align-items: flex-start; }
+.question-file-report-issues li svg { flex: none; width: 15px; height: 15px; margin-top: 2px; color: var(--paper-ink-soft); }
+.question-file-report-issues li[data-severity='error'] svg { color: var(--paper-danger); }
+.question-file-report-issues li[data-severity='warning'] svg { color: var(--medium-ink); }
+.question-file-report-issues q { display: block; margin-top: 1px; color: #7a6656; font-style: italic; }
+.question-file-report-issues q::before, .question-file-report-issues q::after { content: none; }
 
 /* The one path a dropped test needs. Each step is one button, the whole row,
    with what clicking it does on the right. */
@@ -3083,14 +3136,6 @@ a.import-card-main:hover .exam-sheet, a.import-card-main:focus-visible .exam-she
 .import-card-title { max-width: 100%; overflow: hidden; font-size: 14px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
 .import-card-facts { color: #866f5e; font-size: 12px; }
 .import-card-menu { position: absolute; top: 6px; right: 6px; }
-.import-stage {
-  display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; border-radius: 999px;
-  font-size: 11.5px; font-weight: 700;
-}
-.import-stage svg { width: 12px; height: 12px; }
-.import-stage[data-stage='waiting'] { color: #7a4a12; background: #fbecd3; }
-.import-stage[data-stage='imported'] { color: var(--easy-ink); background: var(--easy-wash); }
-.import-stage[data-stage='expired'] { color: #6e5b4d; background: #efe6da; }
 .import-pictures-needed {
   display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; border-radius: 999px;
   color: var(--paper-accent); background: var(--paper-accent-wash); font-size: 11.5px; font-weight: 700;
@@ -3148,8 +3193,6 @@ a.import-card-main:hover .exam-sheet, a.import-card-main:focus-visible .exam-she
 }
 .collection-actions a { text-decoration: none; }
 /* A new import: one drop, for the test or the file its AI made. */
-.new-import { max-width: 720px; }
-.new-import-lede { margin: 0 0 18px; color: #5f4d40; font-size: 15px; line-height: 1.5; }
 
 /* A Blockquote in the editor is the box it prints as (see `.doc-content
    blockquote`), not Crepe's quote bar. */

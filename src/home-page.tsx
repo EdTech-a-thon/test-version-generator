@@ -4,7 +4,6 @@ import type { QuestionBankCollectionItem } from './resource-collections'
 import { homePreview } from './resource-collections'
 import { CreateFirstCard, ExamCard, NewResourceCard, QuestionBankCard, ResourceCarousel } from './resource-cards'
 import { AppShell } from './app-shell'
-import { Link } from './site-chrome'
 
 /**
  * Home is a resume surface and nothing else: a shelf of the Exams you were
@@ -26,6 +25,7 @@ export function HomePage({
   onNewBank,
   onOpenBank,
   onDeleteBank,
+  onImport,
 }: {
   exams: readonly RecentExam[]
   banks: readonly QuestionBankCollectionItem[]
@@ -36,9 +36,10 @@ export function HomePage({
   onNewBank: () => void
   onOpenBank: (id: string) => void
   onDeleteBank: (bank: QuestionBankCollectionItem) => void
+  onImport: () => void
 }) {
   const recentExams = homePreview(exams)
-  const importLink = <Link href="/imports/new" className="primary-button">Import</Link>
+  const importLink = <button type="button" className="primary-button" onClick={onImport}>Import</button>
   return (
     <AppShell crumbs={[{ label: 'Home' }]} persistentStorage={persistentStorage}>
       {error && (
