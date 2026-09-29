@@ -1,7 +1,8 @@
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
-import { Check, ChevronRight, Copy, FileText, ImageIcon, Library, UploadCloud, type LucideIcon } from 'lucide-react'
+import { Check, ChevronRight, FileText, ImageIcon, Library, UploadCloud, type LucideIcon } from 'lucide-react'
 import extractInstructions from '../public/extract.md?raw'
 import { fillImageTags } from './image-tag-list'
+import { downloadInstructions } from './instructions-file'
 import {
   RECORD_PART_TYPE_LABELS,
   RECORD_TYPE_LABELS,
@@ -564,12 +565,12 @@ export function QuestionBankImportDialog({
   /** A Source Document dropped into Resolve Images for a file that was not
    *  paired with a waiting import. Used for this import only, never kept. */
   const [suppliedSource, setSuppliedSource] = useState<ResolvingSource | null>(null)
-  const [copied, setCopied] = useState(false)
+  const [saved, setSaved] = useState(false)
   useEffect(() => {
-    if (!copied) return
-    const timer = window.setTimeout(() => setCopied(false), 2000)
+    if (!saved) return
+    const timer = window.setTimeout(() => setSaved(false), 2000)
     return () => window.clearTimeout(timer)
-  }, [copied])
+  }, [saved])
   const busy = phase !== 'choose'
   const busyRef = useRef(busy)
   busyRef.current = busy
@@ -772,8 +773,9 @@ export function QuestionBankImportDialog({
     setWaiting(null)
   }
 
-  const copyInstructions = () => {
-    void navigator.clipboard.writeText(fillImageTags(extractInstructions, null)).then(() => setCopied(true))
+  const saveInstructions = () => {
+    downloadInstructions(fillImageTags(extractInstructions, null))
+    setSaved(true)
   }
 
   /** Back from a review of the wrong file to the import that waits. */
@@ -1037,13 +1039,13 @@ export function QuestionBankImportDialog({
                 <span>
                   <strong>That file isn’t a Test Parrot file yet.</strong>{' '}
                   Drop your test here as a PDF or Word document to keep its
-                  pictures, or copy these instructions and give them to an AI
+                  pictures, or download these instructions and give them to an AI
                   along with it — it will produce a file with your questions
                   and the test itself, ready to drop here.
                 </span>
-                <button type="button" className="primary-button" disabled={busy} onClick={copyInstructions}>
-                  {copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
-                  {copied ? 'Copied' : 'Copy instructions'}
+                <button type="button" className="primary-button" disabled={busy} onClick={saveInstructions}>
+                  {saved ? <Check aria-hidden="true" /> : <FileText aria-hidden="true" />}
+                  {saved ? 'Downloaded' : 'Download instructions'}
                 </button>
               </div>
             ) : <>

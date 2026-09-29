@@ -1,14 +1,15 @@
 import { useEffect, useId, useState } from 'react'
-import { ClipboardCheck, ClipboardPaste } from 'lucide-react'
+import { ClipboardPaste, FileCheck } from 'lucide-react'
 import extractInstructions from '../public/extract.md?raw'
 import { fillImageTags } from './image-tag-list'
+import { downloadInstructions } from './instructions-file'
 import { SUPPORTED_SOURCES } from './question-formats/catalog'
 
 /**
  * What sits under every drop zone that starts an import: the tools whose
  * files come straight in with no AI, and, for questions a teacher has only
  * as text, a box to paste them into — read the way a dropped text file is —
- * or the instructions to give an AI with them.
+ * or the instructions file to give an AI with them.
  */
 
 export function SupportedSources() {
@@ -26,12 +27,12 @@ export function TextOnlyChoices({ busy, onPaste }: {
   const textId = useId()
   const [pasting, setPasting] = useState(false)
   const [pasted, setPasted] = useState('')
-  const [copied, setCopied] = useState(false)
+  const [saved, setSaved] = useState(false)
   useEffect(() => {
-    if (!copied) return
-    const timer = window.setTimeout(() => setCopied(false), 2000)
+    if (!saved) return
+    const timer = window.setTimeout(() => setSaved(false), 2000)
     return () => window.clearTimeout(timer)
-  }, [copied])
+  }, [saved])
 
   return <>
     {pasting ? (
@@ -73,18 +74,19 @@ export function TextOnlyChoices({ busy, onPaste }: {
         <button
           type="button"
           className="link-button"
-          onClick={() => void navigator.clipboard
-            .writeText(fillImageTags(extractInstructions, null))
-            .then(() => setCopied(true))}
+          onClick={() => {
+            downloadInstructions(fillImageTags(extractInstructions, null))
+            setSaved(true)
+          }}
         >
-          copy the instructions
+          download the instructions
         </button>{' '}
-        and paste them into your AI with it.
+        and give them to your AI with it.
       </p>
     )}
-    {copied && (
+    {saved && (
       <div className="copied-toast" role="status">
-        <ClipboardCheck aria-hidden="true" /> Instructions copied
+        <FileCheck aria-hidden="true" /> Instructions downloaded
       </div>
     )}
   </>

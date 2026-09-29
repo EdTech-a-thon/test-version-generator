@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises'
 import { expect, test } from '@playwright/test'
 import { assistantPackage, picture, sourceDocument } from './pending-images-fixtures'
 
@@ -24,9 +25,12 @@ test('a converted test gets its pictures from the teacher’s own PDF', async ({
   await expect(page.getByRole('heading', { name: 'Converting unit-test.pdf' })).toBeVisible()
   const steps = page.getByRole('region', { name: 'Convert your test' })
 
-  await steps.getByRole('button', { name: 'Copy the instructions' }).click()
-  await expect(steps.getByRole('button', { name: 'Copied' })).toBeVisible()
-  const instructions = await page.evaluate(() => navigator.clipboard.readText())
+  const saved = page.waitForEvent('download')
+  await steps.getByRole('button', { name: 'Download the instructions' }).click()
+  const instructionsFile = await saved
+  expect(instructionsFile.suggestedFilename()).toBe('unit-test (instructions).txt')
+  await expect(steps.getByRole('button', { name: 'Downloaded' })).toBeVisible()
+  const instructions = await readFile(await instructionsFile.path(), 'utf8')
   expect(instructions).toContain('- page 1: IMG 1\n- page 2: IMG 2')
   expect(instructions).not.toContain('{{IMAGE_TAGS}}')
 

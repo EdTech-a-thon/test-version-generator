@@ -1,4 +1,5 @@
-import { expect, test } from '@playwright/test'
+import { readFile } from 'node:fs/promises'
+import { expect, test, type Locator, type Page } from '@playwright/test'
 import { PDFDocument, StandardFonts } from 'pdf-lib'
 import { assistantPackage, picture, sourceDocument, wordSourceDocument } from './pending-images-fixtures'
 
@@ -6,6 +7,13 @@ import { assistantPackage, picture, sourceDocument, wordSourceDocument } from '.
  * Converting a test starts from one drop zone, and shows only the path the
  * dropped file needs.
  */
+
+/** The instructions a step downloads, as the teacher's AI reads them. */
+async function downloadedInstructions(page: Page, steps: Locator) {
+  const download = page.waitForEvent('download')
+  await steps.getByRole('button', { name: 'Download the instructions' }).click()
+  return readFile(await (await download).path(), 'utf8')
+}
 
 async function textOnlyPdf() {
   const pdf = await PDFDocument.create()
@@ -41,9 +49,8 @@ test('the convert page asks only for the test, then opens its import with the pa
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Converting planets.pdf')
   await expect(page.getByLabel('About this import')).toContainText('Pictures detected0')
   await expect(steps.getByRole('button', { name: 'Download the labeled PDF' })).toHaveCount(0)
-  await steps.getByRole('button', { name: 'Copy the instructions' }).click()
-  await expect(steps.getByRole('button', { name: 'Copied' })).toBeVisible()
-  expect(await page.evaluate(() => navigator.clipboard.readText())).toContain('found no embedded pictures in this document')
+  expect(await downloadedInstructions(page, steps)).toContain('found no pictures to tag in this document')
+  await expect(steps.getByRole('button', { name: 'Downloaded' })).toBeVisible()
 
   // A photo is converted as it is, and its pictures are cropped after.
   await page.goto('/get-started/convert')
@@ -55,8 +62,7 @@ test('the convert page asks only for the test, then opens its import with the pa
   await expect(steps.getByRole('menu', { name: 'Open an AI assistant' }).getByRole('menuitem')).toHaveText(['ChatGPT', 'Claude', 'Gemini'])
   await page.keyboard.press('Escape')
   await expect(steps.getByRole('menu')).toHaveCount(0)
-  await steps.getByRole('button', { name: 'Copy the instructions' }).click()
-  expect(await page.evaluate(() => navigator.clipboard.readText())).toContain('There is no labeled copy of this source')
+  expect(await downloadedInstructions(page, steps)).toContain('There is no labeled copy of this source')
 
   const photoPackage = JSON.parse(assistantPackage().toString())
   const questions = photoPackage.questionBanks[0].record.bank.questions
@@ -96,8 +102,7 @@ test('a Word document goes to the AI as a labeled copy, and its pictures come fr
   const download = page.waitForEvent('download')
   await steps.getByRole('button', { name: 'Download the labeled document' }).click()
   expect((await download).suggestedFilename()).toBe('unit-test (labeled).docx')
-  await steps.getByRole('button', { name: 'Copy the instructions' }).click()
-  const instructions = await page.evaluate(() => navigator.clipboard.readText())
+  const instructions = await downloadedInstructions(page, steps)
   expect(instructions).toContain('This is a labeled Word document. Test Parrot put 2 tags in it, each just before its picture:\n\n- IMG 1, IMG 2')
 
   await steps.getByLabel('File from your AI').setInputFiles({ name: 'unit-test.parrot.json', mimeType: 'application/json', buffer: assistantPackage() })
