@@ -11,7 +11,7 @@ const decode = (bytes: Uint8Array) => new TextDecoder().decode(bytes)
 
 async function read(name: string, bytes: Uint8Array) {
   const reading = await readQuestionFile({ name, bytes })
-  const proposal = await inspectImportValue(reading.record)
+  const proposal = await inspectImportValue(reading.record, undefined, reading.files)
   return { reading, proposal, questions: reading.record.bank.questions }
 }
 
@@ -52,13 +52,13 @@ describe('Aiken', () => {
   })
 
   test('is unlikely for a Blackboard Test Generator file', () => {
-    expect(aiken.detect(input(fixture('bb-generator/customer-sample.txt')))).toBe(0)
+    expect(aiken.detect(input(fixture('bb-generator/tagged-sample.txt')))).toBe(0)
     expect(aiken.detect(input(fixture('bb-generator/oc-sample-quiz.txt')))).toBe(0)
   })
 })
 
 describe('the Blackboard Test Generator’s samples, once Aiken, GIFT and Moodle XML are known', () => {
-  test.each(['customer-sample.txt', 'oc-sample-quiz.txt'])('%s is still read as the generator’s', async (name) => {
+  test.each(['tagged-sample.txt', 'oc-sample-quiz.txt'])('%s is still read as the generator’s', async (name) => {
     const { reading } = await read(name, fixture(`bb-generator/${name}`))
     expect(reading.format).toBe('bb-generator')
     const candidates = await candidatesFor(input(fixture(`bb-generator/${name}`)))

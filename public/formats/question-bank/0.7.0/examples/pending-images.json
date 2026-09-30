@@ -20,7 +20,7 @@
               "content": [
                 {
                   "type": "text",
-                  "text": "Use the map to name the trading station farthest east."
+                  "text": "Use the map to name the bus stop farthest east."
                 }
               ]
             },
@@ -29,8 +29,8 @@
               "pending": {
                 "image": 1
               },
-              "alt": "Map of European trading stations in Africa and Asia around 1750",
-              "caption": "Major European Trading Stations c. 1750"
+              "alt": "Map of the bus routes in the town of Riverton",
+              "caption": "Riverton Bus Routes, 2020"
             }
           ]
         }
@@ -114,15 +114,15 @@
               "pending": {
                 "image": 1
               },
-              "alt": "Map of European trading stations in Africa and Asia around 1750",
-              "caption": "Major European Trading Stations c. 1750"
+              "alt": "Map of the bus routes in the town of Riverton",
+              "caption": "Riverton Bus Routes, 2020"
             },
             {
               "type": "paragraph",
               "content": [
                 {
                   "type": "text",
-                  "text": "Which European power held the most stations on the map?"
+                  "text": "Which bus route has the most stops on the map?"
                 }
               ]
             }
@@ -139,7 +139,7 @@
                   "content": [
                     {
                       "type": "text",
-                      "text": "Portugal"
+                      "text": "Route 4"
                     }
                   ]
                 }
@@ -157,7 +157,7 @@
                   "content": [
                     {
                       "type": "text",
-                      "text": "Denmark"
+                      "text": "Route 9"
                     }
                   ]
                 }
@@ -204,15 +204,15 @@
               "pending": {
                 "image": 5
               },
-              "alt": "Political cartoon of a ship labelled Empire sinking",
-              "caption": "The Sinking Empire, 1911"
+              "alt": "Cartoon of a town hall standing in rising floodwater",
+              "caption": "The Rising River, 2019"
             },
             {
               "type": "paragraph",
               "content": [
                 {
                   "type": "text",
-                  "text": "Source: Punch, 1911 (adapted)"
+                  "text": "Source: Riverton Times, 2019 (adapted)"
                 }
               ]
             }
@@ -250,7 +250,7 @@
                       "content": [
                         {
                           "type": "text",
-                          "text": "Empires were growing stronger."
+                          "text": "The town was ready for floods."
                         }
                       ]
                     }
@@ -268,7 +268,7 @@
                       "content": [
                         {
                           "type": "text",
-                          "text": "An empire was in decline."
+                          "text": "The town was not ready for floods."
                         }
                       ]
                     }
@@ -289,7 +289,7 @@
                   "content": [
                     {
                       "type": "text",
-                      "text": "Use the chart on page 4 to explain one cause of that decline."
+                      "text": "Use the chart on page 4 to explain one cause of the flooding."
                     }
                   ]
                 },

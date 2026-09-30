@@ -8,6 +8,7 @@ import {
   Plus,
   Trash2,
   TriangleAlert,
+  Upload,
 } from 'lucide-react'
 import { usePopOver } from './pop-over-context'
 import type { RecentExam } from './exam-workspaces'
@@ -245,10 +246,12 @@ export function ExamCard({
 export function QuestionBankCard({
   bank,
   onOpen,
+  onExport,
   onDelete,
 }: {
   bank: QuestionBankCollectionItem
   onOpen: (id: string) => void
+  onExport?: (bank: QuestionBankCollectionItem) => void
   onDelete?: (bank: QuestionBankCollectionItem) => void
 }) {
   // Acting on the bank lives behind one mark rather than being bolted to the
@@ -260,6 +263,17 @@ export function QuestionBankCard({
     { kind: 'action', label: 'Open', icon: <FolderOpen />, onSelect: () => onOpen(bank.id) },
     ...(popOver.supported
       ? [{ kind: 'action' as const, label: 'Pop-over', icon: <PictureInPicture2 />, onSelect: () => popOver.open(bank.id) }]
+      : []),
+    // Sharing a bank starts here as well as inside it: teachers looking for a
+    // way to share a bank look at the bank, not in it.
+    ...(onExport
+      ? [{
+          kind: 'action' as const,
+          label: 'Export',
+          icon: <Upload />,
+          disabled: bank.questionCount === 0,
+          onSelect: () => onExport(bank),
+        }]
       : []),
     ...(onDelete
       ? [

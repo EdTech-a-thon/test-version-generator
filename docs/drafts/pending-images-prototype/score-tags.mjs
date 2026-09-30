@@ -28,7 +28,7 @@ for (const s of slots) {
   const want = t?.imgs ?? [];
   const ok = want.length === got.length && want.every((w, k) => got[k] === w);
   if (ok) right++;
-  // a passage stored as an image may be kept as a picture instead of transcribed (accepted in Q23)
+  // a passage stored as an image may be kept as a picture instead of transcribed
   const verdict = ok ? (t.passage ? "yes (passage kept as picture)" : "yes") : "NO";
   rows.push({ slot: `Q${s.q} ${s.part}`, wrote: s.refs.map((x) => JSON.stringify(x)).join(" "), resolves: got.join(" "), truth: want.join(" ") || "(not a slot)", ok: verdict });
 }

@@ -27,7 +27,7 @@
           ]
         },
         "topics": [
-          "Intertestamental period"
+          "Early history"
         ],
         "prompts": [
           {
@@ -40,7 +40,7 @@
                   "content": [
                     {
                       "type": "text",
-                      "text": "Due to differences concerning Hellenism, the Pharisees and Sadducees were formed."
+                      "text": "Iron tools replaced bronze ones across much of the world."
                     }
                   ]
                 }
@@ -58,7 +58,7 @@
                   "content": [
                     {
                       "type": "text",
-                      "text": "The Jewish synagogue system was set up."
+                      "text": "People made their first tools from stone."
                     }
                   ]
                 }
@@ -76,7 +76,7 @@
                   "content": [
                     {
                       "type": "text",
-                      "text": "An Old Testament translation, the Septuagint, was completed."
+                      "text": "People learned to make tools from bronze."
                     }
                   ]
                 }
@@ -94,7 +94,7 @@
                   "content": [
                     {
                       "type": "text",
-                      "text": "Herod the Great was able to rise to power."
+                      "text": "Castles were built across Europe."
                     }
                   ]
                 }
@@ -114,7 +114,7 @@
                   "content": [
                     {
                       "type": "text",
-                      "text": "Persian"
+                      "text": "Stone Age"
                     }
                   ]
                 }
@@ -131,7 +131,7 @@
                   "content": [
                     {
                       "type": "text",
-                      "text": "Grecian"
+                      "text": "Bronze Age"
                     }
                   ]
                 }
@@ -148,7 +148,7 @@
                   "content": [
                     {
                       "type": "text",
-                      "text": "Maccabean—Hasmonean"
+                      "text": "Iron Age"
                     }
                   ]
                 }
@@ -165,7 +165,7 @@
                   "content": [
                     {
                       "type": "text",
-                      "text": "Roman"
+                      "text": "Middle Ages"
                     }
                   ]
                 }

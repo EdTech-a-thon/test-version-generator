@@ -1368,6 +1368,11 @@ button { cursor: pointer; }
 .dialog-header, .dialog-actions { padding: 14px 18px; border-bottom: 1px solid #e8dfd2; }
 .dialog-header { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
 .dialog-header h2 { margin: 0; font-size: 18px; }
+/* The Import dialog's title names the format a question file was read as
+   beside it, and offers help by email across from it. */
+.bank-import-title { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+.bank-import-read-as { color: var(--paper-ink-soft); font-size: 13px; white-space: nowrap; }
+.bank-import-help { color: var(--paper-accent); font-size: 13px; font-weight: 600; text-underline-offset: 3px; text-align: right; }
 /* The question editor's header is its title and nothing else — the bank it
    belongs to is front matter — so it is only as tall as that one line. */
 .question-dialog > .dialog-header { padding-top: 8px; padding-bottom: 8px; }
@@ -2281,6 +2286,56 @@ button { cursor: pointer; }
   overflow: auto; border: 1px solid #e0d3c2; background: white;
 }
 .question-bank-export-preview > h1 { margin-top: 0; }
+/* The preview reads as the PDF does: Test Parrot's name above the bank's,
+   the import notice, then an outline whose every entry jumps to its place. */
+.question-bank-file-brand {
+  display: flex; align-items: center; gap: 10px;
+  margin: 0 0 8px; color: var(--paper-accent); font-size: 12px; font-weight: 700;
+  letter-spacing: 0.08em; text-transform: uppercase;
+}
+.question-bank-file-notice a { color: inherit; }
+.question-bank-file-credit {
+  display: flex; align-items: center; gap: 8px; margin: 20px 0 0; padding-top: 12px;
+  border-top: 1px solid var(--paper-outline); color: #6e5b4d; font-size: 13px;
+}
+.question-bank-file-credit a { color: var(--paper-accent); font-weight: 700; }
+.question-bank-file-credit a[aria-hidden] { display: inline-flex; }
+.question-bank-file-notice {
+  margin: 16px 0; padding: 12px 16px; border-left: 4px solid var(--paper-accent);
+  background: var(--paper-accent-wash);
+}
+.question-bank-file-notice p { margin: 4px 0 0; }
+.question-bank-file-outline h2 { margin-bottom: 2px; }
+.question-bank-file-outline > p { margin: 0 0 10px; color: #6e5b4d; font-size: 13px; }
+.question-bank-file-outline ul { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.question-bank-file-type {
+  display: flex; justify-content: space-between; gap: 12px; width: 100%; padding: 4px 0;
+  border: 0; border-bottom: 1px dotted var(--bank-frame-line); background: none;
+  color: inherit; font: inherit; font-weight: 700; text-align: left; cursor: pointer;
+}
+.question-bank-file-type:hover { color: var(--paper-accent); }
+.question-bank-file-bubbles { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.question-bank-file-bubbles button { font: inherit; font-size: 12px; cursor: pointer; }
+.question-bank-file-bubbles button strong { margin-left: 5px; }
+.question-bank-file-section {
+  margin-top: 28px; padding: 4px 0 4px 14px; border-left: 4px solid var(--paper-accent);
+}
+.question-bank-file-section h2 { margin: 0; }
+.question-bank-file-section p { margin: 2px 0 0; color: #6e5b4d; }
+.question-bank-file-topic {
+  display: flex; align-items: baseline; gap: 10px; margin: 22px 0 0; padding-bottom: 4px;
+  border-bottom: 1px solid var(--paper-outline); color: var(--paper-ink-soft);
+}
+.question-bank-file-topic span { color: #6e5b4d; font-size: 13px; font-weight: 400; }
+.question-bank-file-topic[data-tint='0'] { color: var(--tint-0-ink); }
+.question-bank-file-topic[data-tint='1'] { color: var(--tint-1-ink); }
+.question-bank-file-topic[data-tint='2'] { color: var(--tint-2-ink); }
+.question-bank-file-topic[data-tint='3'] { color: var(--tint-3-ink); }
+.question-bank-file-topic[data-tint='4'] { color: var(--tint-4-ink); }
+.question-bank-file-topic[data-tint='5'] { color: var(--tint-5-ink); }
+.question-bank-file-more { padding: 16px 0; color: #6e5b4d; text-align: center; }
+.question-bank-export-progress { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; color: #6e5b4d; font-size: 13px; }
+.question-bank-export-progress progress { flex: 1; accent-color: var(--paper-accent); }
 .question-bank-export-question { padding: 18px 0; border-top: 1px solid #e0d3c2; }
 .question-bank-export-question dl { display: flex; flex-wrap: wrap; gap: 8px 22px; }
 .question-bank-export-question dl div { display: flex; gap: 5px; }
@@ -2883,11 +2938,6 @@ button { cursor: pointer; }
   background: #fffdf8; color: #2f2419; font-size: 13px; line-height: 1.45;
 }
 .question-file-report-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
-.question-file-report-head label { font-weight: 700; }
-.question-file-report-head select {
-  min-height: 32px; max-width: 100%; padding: 5px 28px 5px 10px; border: 1px solid #bda995; border-radius: 8px;
-  color: #4e3b2f; background: #f7eee3; font: inherit; font-weight: 600;
-}
 .question-file-report-head p { margin: 0; flex: 1 1 auto; }
 .question-file-report-left-out { color: var(--paper-danger); font-weight: 600; }
 .question-file-report-issues { margin-top: 8px; }

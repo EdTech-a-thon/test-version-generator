@@ -16,6 +16,8 @@ import {
   inspectImportRecord,
   type ExamRecordPosition,
 } from './package-import'
+import { mediaFilePath, writePackageZip } from './package-zip'
+import { PIXEL_PNG } from './export-fixtures'
 
 const encoder = new TextEncoder()
 
@@ -143,7 +145,7 @@ describe('inspecting a Test Parrot Package', () => {
   test('a bare Question Bank Record reads as one bank and no Exams', async () => {
     const proposal = await inspectImportRecord(bytesOf(chemistry()))
 
-    expect(proposal.source).toEqual({ format: QUESTION_BANK_FORMAT, formatVersion: '0.7.0' })
+    expect(proposal.source).toEqual({ format: QUESTION_BANK_FORMAT, formatVersion: QUESTION_BANK_FORMAT_VERSION })
     expect(proposal.banks).toHaveLength(1)
     expect(proposal.banks[0]).toMatchObject({
       id: BARE_RECORD_BANK_ID,
@@ -487,5 +489,108 @@ describe('an Exam Record 0.2.0', () => {
       positions: [at('chem', 'q1'), at('chem', 'q2')],
       banks: ['chem'],
     })
+  })
+})
+
+describe('a package zip with its pictures (ADR-0036)', () => {
+  const pictureRecord = async (bytes: Uint8Array = PIXEL_PNG.data) => {
+    const digest = Array.from(
+      new Uint8Array(await crypto.subtle.digest('SHA-256', bytes.slice())),
+      (byte) => byte.toString(16).padStart(2, '0'),
+    ).join('')
+    const id = `sha256:${digest}`
+    const record = chemistry()
+    record.bank.questions[0]!.stem.content.push({ type: 'block-image', asset: id })
+    record.media = [{ id, mimeType: 'image/png', width: 1, height: 1, file: mediaFilePath(id, 'image/png') }]
+    return record
+  }
+  const zipOf = (value: unknown, files: Record<string, Uint8Array>) =>
+    writePackageZip(JSON.stringify(value), new Map(Object.entries(files)))
+  async function rejectedZip(zip: Uint8Array, code: QuestionBankImportError['code'], text?: string) {
+    try {
+      await inspectImportRecord(zip)
+    } catch (error) {
+      expect((error as QuestionBankImportError).code).toBe(code)
+      if (text) expect((error as Error).message).toContain(text)
+      return
+    }
+    throw new Error('Expected inspection to reject')
+  }
+
+  test('reads each picture from the file its Media Asset names, as raw bytes', async () => {
+    const record = await pictureRecord()
+    const file = record.media[0]!.file
+    expect(file).toMatch(/^media\/sha256-[a-f0-9]{64}\.png$/)
+    const zip = await zipOf(packageOf([{ id: 'chem', record }]), { [file]: PIXEL_PNG.data })
+    const proposal = await inspectImportRecord(zip)
+    expect(proposal.banks[0]!.summary).toMatchObject({ mediaAssets: 1, decodedMediaBytes: PIXEL_PNG.data.byteLength })
+    expect(proposal.banks[0]!.record.media[0]!.bytes).toEqual(PIXEL_PNG.data)
+  })
+
+  test('the same zip imports from inside a PDF, whose attachment is the zip itself', async () => {
+    const record = await pictureRecord()
+    const zip = await zipOf(packageOf([{ id: 'chem', record }]), { [record.media[0]!.file]: PIXEL_PNG.data })
+    const document = await PDFDocument.create()
+    document.addPage()
+    await document.attach(zip, 'parrot.zip', { mimeType: 'application/zip', description: QUESTION_BANK_ATTACHMENT_DESCRIPTION })
+    const proposal = await inspectImportFile(await document.save())
+    expect(proposal.banks[0]!.summary.mediaAssets).toBe(1)
+  })
+
+  test('a 0.8.0 record read outside its zip may declare no Media Asset', async () => {
+    await expect(inspectImportRecord(bytesOf(chemistry()))).resolves.toBeDefined()
+    await rejected(await pictureRecord(), 'missing-media', '.parrot.zip')
+  })
+
+  test('refuses a picture that is missing, altered, or that no Media Asset names', async () => {
+    const record = await pictureRecord()
+    const file = record.media[0]!.file
+    await rejectedZip(await zipOf(packageOf([{ id: 'chem', record }]), {}), 'missing-media', file)
+    const altered = PIXEL_PNG.data.slice()
+    altered[altered.length - 1] ^= 0xff
+    await rejectedZip(await zipOf(packageOf([{ id: 'chem', record }]), { [file]: altered }), 'invalid-media', 'SHA-256')
+    await rejectedZip(
+      await zipOf(packageOf([{ id: 'chem', record }]), { [file]: PIXEL_PNG.data, 'media/sha256-extra.png': PIXEL_PNG.data }),
+      'invalid-media',
+      'media/sha256-extra.png',
+    )
+  })
+
+  test('holds a zipped picture to the same size limits as one carried inline', async () => {
+    const record = await pictureRecord()
+    const zip = await zipOf(packageOf([{ id: 'chem', record }]), { [record.media[0]!.file]: PIXEL_PNG.data })
+    await expect(inspectImportRecord(zip, {
+      limits: { ...DEFAULT_PACKAGE_IMPORT_LIMITS, mediaAssetBytes: PIXEL_PNG.data.byteLength - 1 },
+    })).rejects.toMatchObject({ code: 'media-asset-size-limit' })
+  })
+
+  test('ignores files outside media/, and refuses a zip with no parrot.json', async () => {
+    const record = await pictureRecord()
+    const zip = await zipOf(packageOf([{ id: 'chem', record }]), {
+      [record.media[0]!.file]: PIXEL_PNG.data,
+      '__MACOSX/._parrot.json': new Uint8Array([1, 2, 3]),
+    })
+    await expect(inspectImportRecord(zip)).resolves.toBeDefined()
+    const JSZip = (await import('jszip')).default
+    const empty = new JSZip()
+    empty.file('notes.txt', 'hello')
+    await rejectedZip(await empty.generateAsync({ type: 'uint8array' }), 'invalid-zip', 'parrot.json')
+  })
+
+  test('a 0.7.0 record inside a zip still carries its bytes inline', async () => {
+    const record = await pictureRecord()
+    const legacy = {
+      ...record,
+      formatVersion: '0.7.0',
+      media: [{ ...record.media[0]!, file: undefined, bytes: Buffer.from(PIXEL_PNG.data).toString('base64') }],
+    }
+    const proposal = await inspectImportRecord(await zipOf(packageOf([{ id: 'chem', record: legacy }]), {}))
+    expect(proposal.banks[0]!.record.media[0]!.bytes).toEqual(PIXEL_PNG.data)
+  })
+
+  test('writes the same package to the same bytes, so a re-export attaches what the export did', async () => {
+    const record = await pictureRecord()
+    const files = { [record.media[0]!.file]: PIXEL_PNG.data }
+    expect(await zipOf(packageOf([{ id: 'chem', record }]), files)).toEqual(await zipOf(packageOf([{ id: 'chem', record }]), files))
   })
 })

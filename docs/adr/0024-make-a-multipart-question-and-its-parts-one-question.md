@@ -4,7 +4,7 @@ status: accepted
 
 # Make a Multipart question and its Parts one Question
 
-A teacher sent a Regents-style block: a passage about the Ottoman Empire's decline with its source line, followed by two Multiple Choice questions a student answers from it. The source tests they are converting are full of these — a passage, a quote, a diagram or a table, then questions that are meaningless without it. Today there is nowhere to put one; `/extract` sends it to Unconverted Questions.
+Source tests are full of blocks of shared material: a passage with its source line, a quote, a diagram or a table, followed by questions a student answers from it and that are meaningless without it. Today there is nowhere to put one; `/extract` sends it to Unconverted Questions.
 
 `'multipart'` is therefore a fifth Question Type, Multipart, last in Section order. One Multipart question holds a stem — free rich text, usually the shared material, with any source line typed as ordinary content rather than a field of its own — and an ordered list of Parts, each either Multiple Choice or Short Answer. Modelling the shared material as a record that ordinary Questions point to was rejected for the reason ADR 0021 gave for Matching: the stem is what makes the Parts one thing, and an Exam holding a Part without its stem would print a question nobody can answer. The Question Bank keeps a Multipart question whole, and an Exam adds, Removes and Replaces it as one Question. True/False and Matching Parts, and a Multipart question inside a Part, were left out: nobody has asked for them, and a whole Matching set inside a Part has no sensible layout. A True/False Part could be added later without disturbing anything here.
 

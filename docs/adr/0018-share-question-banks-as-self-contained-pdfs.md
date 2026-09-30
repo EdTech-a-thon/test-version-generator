@@ -1,5 +1,5 @@
 ---
-status: accepted; the import rule that it never merges or creates an Exam is superseded by ADR-0022
+status: accepted; the import rule that it never merges or creates an Exam is superseded by ADR-0022, and its base64 Media Assets by ADR-0036
 ---
 
 # Share Question Banks as self-contained PDFs

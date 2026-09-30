@@ -2819,6 +2819,7 @@ export default function App({
   const [editorStore, setEditorStore] = useState(store)
   const [editorId, setEditorId] = useState(initialEditorId)
   const [deletingBank, setDeletingBank] = useState<{ bank: QuestionBankCollectionItem; impact: QuestionDeletionImpact[] } | null>(null)
+  const [exportingBank, setExportingBank] = useState<QuestionBankResource | null>(null)
   const [inspectingBankFile, setInspectingBankFile] = useState(false)
   const [droppedBankFile, setDroppedBankFile] = useState<File | null>(null)
   const [convertDrop, setConvertDrop] = useState<{ file: File; id: number } | null>(null)
@@ -2914,6 +2915,15 @@ export default function App({
       setDeletingBank({ bank, impact })
     })
   }, [bankWorkspaces, workspaces])
+  const requestBankExport = useCallback((bank: QuestionBankCollectionItem) => {
+    void bankWorkspaces.read(bank.id).then((resource) => {
+      if (resource) setExportingBank(resource)
+    })
+  }, [bankWorkspaces])
+  const bankExportDialog = exportingBank && <QuestionBankExportDialog
+    bank={exportingBank}
+    onClose={() => setExportingBank(null)}
+  />
   const bankDeletionConfirmation = deletingBank && <BankDeletionConfirmation
     bank={deletingBank.bank}
     impact={deletingBank.impact}
@@ -3069,9 +3079,10 @@ export default function App({
     onOpenExam={openExam}
     onOpenBank={openBank}
     onNewBank={newBank}
+    onExportBank={requestBankExport}
     onDeleteBank={requestBankDeletion}
     onImportBank={() => openImport()}
-  />{bankDeletionConfirmation}</>
+  />{bankExportDialog}{bankDeletionConfirmation}</>
   // A device that has never been here gets the front door instead of empty
   // shelves; the same page stays reachable at /welcome afterwards.
   const firstVisit = exams.length === 0 && bankCollection.length === 0 && !hasBeenWelcomed()
@@ -3095,9 +3106,10 @@ export default function App({
     onOpen={openExam}
     onNewBank={newBank}
     onOpenBank={openBank}
+    onExportBank={requestBankExport}
     onDeleteBank={requestBankDeletion}
     onImport={() => openImport()}
-  />{bankDeletionConfirmation}</>
+  />{bankExportDialog}{bankDeletionConfirmation}</>
   if (route === '/question-bank') return pageBank && pageBankReady ? <>{globalChrome}<QuestionBankPage
     key={pageBank.bank.id}
     bank={pageBank.bank}

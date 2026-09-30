@@ -500,12 +500,10 @@ export function createQuestionBankWorkspaceService(
             }
             const mediaStore = transaction.objectStore(MEDIA_ASSET_STORE)
             for (const asset of plan.media) {
-              const binary = atob(asset.bytes)
-              const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0))
               mediaStore.put({
                 hash: asset.id.slice('sha256:'.length),
                 mimeType: asset.mimeType,
-                bytes: bytes.buffer,
+                bytes: asset.bytes.slice().buffer,
                 width: asset.width,
                 height: asset.height,
               })

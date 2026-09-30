@@ -29,11 +29,11 @@ To put Questions' student-facing Question Content on the clipboard, or drag it, 
 _Avoid_: Duplicate (for putting a Question on the clipboard), export
 
 **Question Bank File**:
-A self-contained PDF for sharing one complete Question Bank. Its complete teacher-readable preview is derived from its embedded Question Bank Record, which is the authoritative source for importing that bank.
+A self-contained PDF for sharing one complete Question Bank, carrying a Test Parrot Package of that one bank and no Exams. It opens with front matter: the bank's details, a warning that it is a digital file containing answers whose import data is lost if it is printed, scanned or saved again as a PDF, and an outline of its Question Types, each with its count and its Topics, every one linked to its place in the preview. The preview follows that outline, placing each Question once, under its Question Type and its first Topic, and it is derived from the package the file carries, which is the authoritative source for importing the bank.
 _Avoid_: Exam export, printable question bank, backup
 
 **Question Bank Record**:
-The versioned, format-owned machine-readable representation of one Question Bank and every Media Asset it needs. It travels embedded in a Question Bank File, as a standalone JSON file, or inside a Test Parrot Package, and is the authoritative source for import in every case. Import either creates a new independent Question Bank from it or adds its Questions to an existing bank as new Questions, never preserving local identities or inferring Question Content from PDF pages.
+The versioned, format-owned machine-readable representation of one Question Bank and every Media Asset it needs. It travels inside a Test Parrot Package, or alone as a JSON file that import treats as a package of that one bank, and is the authoritative source for import in every case. Import either creates a new independent Question Bank from it or adds its Questions to an existing bank as new Questions, never preserving local identities or inferring Question Content from PDF pages.
 _Avoid_: PDF metadata, extracted questions
 
 **Exam Record**:
@@ -41,7 +41,7 @@ The versioned, format-owned machine-readable composition of one Exam: its name a
 _Avoid_: Exam layout, test JSON
 
 **Test Parrot Package**:
-A versioned bundle of one or more Question Bank Records and any number of Exam Records that reference Questions in them, versioned separately from both. It travels as a standalone JSON file or embedded in an exported Exam PDF whose Content Selection includes the answer key; importing it lets the teacher choose which banks and Exams to bring in.
+A versioned bundle of one or more Question Bank Records and any number of Exam Records that reference Questions in them, versioned separately from both. It travels as a zip file holding the package and, as a file of its own, each picture it needs: attached to every Question Bank File, attached to every exported Exam PDF whose Content Selection includes the answer key, or alone. A package that carries no pictures of its own, such as one an assistant writes, may travel as a bare JSON file. An Exam PDF's package holds one bank, named after the Exam, containing exactly that Exam's Questions, whichever banks they came from. Importing a package lets the teacher choose which banks and Exams to bring in.
 _Avoid_: Import package, bundle, transfer file
 
 **Question File**:

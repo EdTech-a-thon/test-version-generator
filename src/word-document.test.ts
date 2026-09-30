@@ -29,7 +29,7 @@ async function wordDocument(...paragraphs: Paragraph[]) {
 }
 
 const unitTest = () => wordDocument(
-  new Paragraph({ children: [new TextRun('1. Use the map to name the trading station farthest east.')] }),
+  new Paragraph({ children: [new TextRun('1. Use the map to name the bus stop farthest east.')] }),
   new Paragraph({ children: [placed(MAP, 272, 180)] }),
   new Paragraph({ children: [new TextRun('2. Solve '), placed(EQUATION, 40, 12), new TextRun(' for x & y.')] }),
   new Paragraph({ children: [new TextRun('3. Which graph is increasing?')] }),
@@ -56,7 +56,7 @@ describe('reading a Word document for pictures', () => {
   test('reads the document’s text, for checking a record against it', async () => {
     const analysis = await analyzeWordDocument(await unitTest())
     expect(analysis.pageText).toEqual([
-      '1. Use the map to name the trading station farthest east. 2. Solve for x & y. 3. Which graph is increasing?',
+      '1. Use the map to name the bus stop farthest east. 2. Solve for x & y. 3. Which graph is increasing?',
     ])
   })
 

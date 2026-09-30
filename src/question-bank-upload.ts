@@ -9,11 +9,11 @@ import type { ForeignImage } from './question-formats/types'
  * same question of it — what banks and Exams are in here?
  */
 
-/** A JSON file carries its record or package directly; a PDF carries it as an
- *  attachment. Nothing downstream can tell the two apart, because what is
- *  inspected, verified and imported is the same either way. */
+/** A JSON file or a package zip carries its record or package directly; a
+ *  PDF carries it as an attachment. Nothing downstream can tell them apart,
+ *  because what is inspected, verified and imported is the same either way. */
 export function isRecordFile(file: File): boolean {
-  return file.type === 'application/json' || /\.json$/i.test(file.name)
+  return file.type === 'application/json' || /\.(json|parrot\.zip)$/i.test(file.name)
 }
 
 export async function inspectUploadedFile(file: File, options: { format?: FormatId } = {}): Promise<ImportProposal> {
@@ -65,7 +65,7 @@ export async function inspectQuestionFile(file: File, options: { format?: Format
     { name: file.name, bytes },
     { ...(options.format ? { format: options.format } : {}), convertImage: redrawAsPng },
   )
-  const proposal = await importer.inspectImportValue(reading.record)
+  const proposal = await importer.inspectImportValue(reading.record, undefined, reading.files)
   return { ...proposal, reading: summaryOf(reading) }
 }
 

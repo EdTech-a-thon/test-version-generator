@@ -157,8 +157,8 @@ A **Pending Image** is an image whose bytes the record does not carry yet. It ex
 {
   "type": "block-image",
   "pending": { "image": 3 },
-  "alt": "Map of European trading stations c. 1750",
-  "caption": "Major European Trading Stations c. 1750"
+  "alt": "Map of the bus routes in Riverton",
+  "caption": "Riverton Bus Routes, 2020"
 }
 ```
 

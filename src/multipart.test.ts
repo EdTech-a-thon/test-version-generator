@@ -73,10 +73,10 @@ function arrangementOf(questionOrder: string[], choiceOrder: Record<string, stri
   return { id: 'v', letter: 'A', questionOrder, choiceOrder }
 }
 
-const ottoman = () =>
-  multipart('s1', [paragraph('The power of the Empire was waning.'), paragraph('Source: BBC')], [
+const aldmere = () =>
+  multipart('s1', [paragraph('The power of the Kingdom was fading.'), paragraph('Source: Aldmere')], [
     mcPart('s1-a', ['a1', 'a2', 'a3', 'a4'], 'a4'),
-    saPart('s1-b', 'Trade routes shifted.'),
+    saPart('s1-b', 'Its harbors silted up.'),
   ])
 
 describe('a Multipart question', () => {
@@ -89,29 +89,29 @@ describe('a Multipart question', () => {
   })
 
   test('reads its Parts in authored order, each by the answer component it holds', () => {
-    const parts = partsOf(ottoman())
+    const parts = partsOf(aldmere())
     expect(parts.map((part) => [part.id, part.type])).toEqual([
       ['s1-a', 'multiple-choice'],
       ['s1-b', 'open'],
     ])
     expect(parts[0]!.choices.find((item) => item.correct)?.id).toBe('a4')
-    expect(parts[1]!.suggestedAnswer).toEqual({ type: 'doc', content: [paragraph('Trade routes shifted.')] })
+    expect(parts[1]!.suggestedAnswer).toEqual({ type: 'doc', content: [paragraph('Its harbors silted up.')] })
   })
 
   test('its stem is the Multipart question alone, without the Parts box', () => {
-    expect(stemNodesOf(ottoman().doc)).toEqual([
-      paragraph('The power of the Empire was waning.'),
-      paragraph('Source: BBC'),
+    expect(stemNodesOf(aldmere().doc)).toEqual([
+      paragraph('The power of the Kingdom was fading.'),
+      paragraph('Source: Aldmere'),
     ])
   })
 
   test('files its presentation under its own id and each of its Parts', () => {
-    expect(presentationIdsOf(ottoman())).toEqual(['s1', 's1-a', 's1-b'])
+    expect(presentationIdsOf(aldmere())).toEqual(['s1', 's1-a', 's1-b'])
   })
 
   test('a duplicate gives every Part and every Part answer a fresh id', () => {
-    const copy = duplicateQuestion(ottoman())
-    const original = partsOf(ottoman())
+    const copy = duplicateQuestion(aldmere())
+    const original = partsOf(aldmere())
     const copied = partsOf(copy)
     expect(copied).toHaveLength(2)
     for (const [index, part] of copied.entries()) {
@@ -129,7 +129,7 @@ describe('a Multipart question', () => {
         content: [{ type: 'multipartPart', attrs: { id: 'p' }, content: [] }],
       }],
     })
-    const question: Question = { ...ottoman(), doc: cleaned }
+    const question: Question = { ...aldmere(), doc: cleaned }
     const [part] = partsOf(question)
     expect(part?.type).toBe('multiple-choice')
     expect(part?.choices).toHaveLength(2)
@@ -140,7 +140,7 @@ describe('a Multipart question', () => {
   })
 
   test('Vary shuffles each Multiple Choice Part’s answers under the Part’s own id', () => {
-    const exam: Exam = { title: 'T', questions: [ottoman()] }
+    const exam: Exam = { title: 'T', questions: [aldmere()] }
     const shuffled = shuffleSelectedAnswers(exam, arrangementOf(['s1']), ['s1'], () => 0)
     expect(Object.keys(shuffled.choiceOrder)).toEqual(['s1-a'])
     expect([...shuffled.choiceOrder['s1-a']!].sort()).toEqual(['a1', 'a2', 'a3', 'a4'])
@@ -148,14 +148,14 @@ describe('a Multipart question', () => {
   })
 
   test('the Question Bank row counts its Parts, and search reaches their stems', () => {
-    expect(stemPreview(ottoman())).toMatchObject({ text: 'The power of the Empire was waning. Source: BBC', parts: 2 })
-    expect(searchableText(ottoman())).toContain('part s1-b')
+    expect(stemPreview(aldmere())).toMatchObject({ text: 'The power of the Kingdom was fading. Source: Aldmere', parts: 2 })
+    expect(searchableText(aldmere())).toContain('part s1-b')
     expect(stemPreview(open('o1')).parts).toBeUndefined()
   })
 })
 
 describe('a Multipart question on the paper', () => {
-  const exam: Exam = { title: 'T', questions: [open('o1'), ottoman(), open('o2')] }
+  const exam: Exam = { title: 'T', questions: [open('o1'), aldmere(), open('o2')] }
   const document = () => buildExportDocument(exam, arrangementOf(['o1', 's1', 'o2'], { 's1-a': ['a4', 'a1', 'a2', 'a3'] }), { test: true, answerKey: true })
   const planned = () =>
     document().test.flatMap((item) => (item.kind === 'question' ? [item.question] : []))
@@ -202,7 +202,7 @@ describe('a Multipart question on the paper', () => {
     expect(entry.letter).toBeNull()
     expect(entry.parts).toEqual([
       { letter: 'a', answer: 'A' },
-      { letter: 'b', answer: null, suggestedAnswer: [paragraph('Trade routes shifted.')] },
+      { letter: 'b', answer: null, suggestedAnswer: [paragraph('Its harbors silted up.')] },
     ])
   })
 
@@ -299,7 +299,7 @@ describe('a Multipart question on the Working Copy', () => {
   }
 
   test('sets answer columns on a Multiple Choice Part, and work space on a Short Answer Part', async () => {
-    const store = await storeWith(ottoman())
+    const store = await storeWith(aldmere())
     store.setQuestionColumns(['s1-a'], 4)
     store.setQuestionWorkSpace(['s1-b'], { height: 64, style: 'lines' })
     // Neither applies to a Part of the other kind.
@@ -315,7 +315,7 @@ describe('a Multipart question on the Working Copy', () => {
   })
 
   test('Remove forgets what this Exam set for its Parts', async () => {
-    const store = await storeWith(ottoman())
+    const store = await storeWith(aldmere())
     store.setQuestionColumns(['s1-a'], 4)
     store.setQuestionWorkSpace(['s1-b'], { height: 64 })
     store.shuffleSelectedAnswers(['s1'])
@@ -327,7 +327,7 @@ describe('a Multipart question on the Working Copy', () => {
   })
 
   test('Duplicate copies each Part’s presentation onto the copy’s Parts', async () => {
-    const store = await storeWith(ottoman())
+    const store = await storeWith(aldmere())
     store.setQuestionColumns(['s1-a'], 1)
     store.setQuestionWorkSpace(['s1-b'], { height: 64 })
     store.duplicateInWorkingCopy('s1')

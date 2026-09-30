@@ -1,5 +1,7 @@
 # Question Bank Record 0.7.0
 
+> **Superseded by [Question Bank Record 0.8.0](question-bank-record-0.8.0.md).** Test Parrot no longer produces `0.7.0` records; it still reads them, and this contract is frozen so that every Question Bank File already shared keeps opening. A `0.7.0` Media Asset keeps carrying its bytes as base64, as this document says. The one fixture that changes after publication is `invalid/unsupported-version.json`, which names a version no Test Parrot parser implements — each time a newer version ships, it has to name the one after that to keep meaning it.
+
 The **Question Bank Record** is the authoritative, portable representation of one complete Question Bank. It is embedded in a **Question Bank File**, whose PDF pages are only a teacher-readable preview. The record, not the pages, controls import.
 
 ## Published contract
@@ -180,8 +182,8 @@ A **Pending Image** is an image whose bytes the record does not carry yet. It ex
 {
   "type": "block-image",
   "pending": { "image": 3 },
-  "alt": "Map of European trading stations c. 1750",
-  "caption": "Major European Trading Stations c. 1750"
+  "alt": "Map of the bus routes in Riverton",
+  "caption": "Riverton Bus Routes, 2020"
 }
 ```
 

@@ -9,28 +9,11 @@
 import fontkit from '@pdf-lib/fontkit'
 import {
   AFRelationship,
-  appendBezierCurve,
-  appendQuadraticCurve,
-  clip,
-  closePath,
-  concatTransformationMatrix,
-  endPath,
-  fill,
   PDFArray,
   PDFDocument,
   PDFName,
-  lineTo,
-  moveTo,
   PDFString,
-  popGraphicsState,
-  pushGraphicsState,
   rgb,
-  setFillingColor,
-  setLineWidth,
-  setStrokingColor,
-  stroke,
-  type Color,
-  type PDFOperator,
   type PDFFont,
   type PDFImage,
   type PDFPage,
@@ -65,18 +48,16 @@ import {
 import { DIFFICULTY_LABELS, WORK_SPACE_LINE_PITCH } from './exam'
 import { bodyScale, pointsOf, sectionHeadingPoints, titlePoints } from './export-typography'
 import type { ProseMirrorJSON } from './question-doc'
-import { mathJaxTools } from './mathjax'
+import { MATH_SIZE, drawTypesetMath, mathTypesetter } from './pdf-math-draw'
 import {
   mathPieces as writtenMath,
-  mathText,
-  typesetMath,
-  type PathStep,
   type TypesetMath,
 } from './pdf-math'
 import {
   QUESTION_BANK_ATTACHMENT_DESCRIPTION,
   QUESTION_BANK_ATTACHMENT_NAME,
 } from './question-bank-export'
+import { PACKAGE_ZIP_ATTACHMENT_NAME, PACKAGE_ZIP_MIME_TYPE } from './package-zip'
 
 const PDF_MIME = 'application/pdf'
 const POINTS_PER_PX = 0.75
@@ -91,7 +72,6 @@ let BODY_SIZE = SHEET_BODY_SIZE
 let BODY_LINE = SHEET_BODY_LINE
 const SMALL_SIZE = pointsOf('small')
 /** KaTeX sets an equation at 1.21 times the size of the text around it. */
-const MATH_SIZE = 1.21
 const HEADING_SIZE = pointsOf('sectionTitle')
 const ANSWER_KEY_HEADING_SIZE = pointsOf('answerKeyHeading')
 const INK = rgb(0.2, 0.165, 0.14)
@@ -310,30 +290,8 @@ function writtenMathPieces(source: string, size: number): InlinePiece[] {
   }))
 }
 
-/** A named `\color`, or a hex one; anything else prints in ink. */
-const MATH_COLORS: Record<string, [number, number, number]> = {
-  black: [0, 0, 0], white: [1, 1, 1], red: [1, 0, 0], green: [0, 0.5, 0],
-  blue: [0, 0, 1], cyan: [0, 1, 1], magenta: [1, 0, 1], yellow: [1, 1, 0],
-  orange: [1, 0.65, 0], purple: [0.5, 0, 0.5], brown: [0.65, 0.16, 0.16],
-  gray: [0.5, 0.5, 0.5], grey: [0.5, 0.5, 0.5],
-}
-
-function mathColor(value: string): Color {
-  const named = MATH_COLORS[value.toLowerCase()]
-  if (named) return rgb(...named)
-  const hex = /^#([\da-f]{3}|[\da-f]{6})$/i.exec(value)?.[1]
-  if (!hex) return INK
-  const full = hex.length === 3 ? [...hex].map((digit) => digit + digit).join('') : hex
-  return rgb(
-    Number.parseInt(full.slice(0, 2), 16) / 255,
-    Number.parseInt(full.slice(2, 4), 16) / 255,
-    Number.parseInt(full.slice(4, 6), 16) / 255,
-  )
-}
-
 /** Draw a typeset equation with the left of its baseline at `x`, `baseline`,
- *  set at KaTeX's size for text of `size`; and write it over itself,
- *  invisibly, stretched to its width, so it can be searched and copied. */
+ *  set at KaTeX's size for text of `size`; see `drawTypesetMath`. */
 function drawMath(
   context: DrawContext,
   typeset: TypesetMath,
@@ -342,66 +300,10 @@ function drawMath(
   baseline: number,
   size: number,
 ): void {
-  const { page } = context
-  const scale = size * MATH_SIZE
-  for (const mark of typeset.marks) {
-    const color = mathColor(mark.color)
-    page.pushOperators(
-      pushGraphicsState(),
-      concatTransformationMatrix(scale, 0, 0, scale, x, baseline),
-      ...mark.clips.flatMap((corners) => [
-        ...corners.map((corner, index) => (index === 0 ? moveTo : lineTo)(...corner)),
-        closePath(),
-        clip(),
-        endPath(),
-      ]),
-      concatTransformationMatrix(...mark.matrix),
-    )
-    if (mark.kind === 'fill') {
-      page.pushOperators(setFillingColor(color), ...pathOperators(mark.path), fill())
-    }
-    if (mark.kind === 'stroke') {
-      page.pushOperators(
-        setStrokingColor(color),
-        setLineWidth(mark.width),
-        ...pathOperators(mark.path),
-        stroke(),
-      )
-    }
-    if (mark.kind === 'text') {
-      assertSupported(mark.text, context.fonts.regular)
-      // pdf-lib sets a line of text `y` up; MathJax's is `y` down.
-      page.pushOperators(concatTransformationMatrix(1, 0, 0, -1, 0, 0))
-      page.drawText(mark.text, { x: 0, y: 0, size: mark.size, font: context.fonts.regular, color })
-    }
-    page.pushOperators(popGraphicsState())
-  }
-
   const font = context.fonts.regular
-  const supported = new Set(font.getCharacterSet())
-  const written = [...mathText(source)]
-    .filter((character) => supported.has(character.codePointAt(0)!))
-    .join('')
-    .trim()
-  const writtenWidth = font.widthOfTextAtSize(written, size)
-  if (!written || writtenWidth <= 0) return
-  page.pushOperators(
-    pushGraphicsState(),
-    concatTransformationMatrix(typeset.width * scale / writtenWidth, 0, 0, 1, x, baseline),
-  )
-  page.drawText(written, { x: 0, y: 0, size, font, opacity: 0 })
-  page.pushOperators(popGraphicsState())
-}
-
-function pathOperators(path: readonly PathStep[]): PDFOperator[] {
-  return path.map((step) => {
-    switch (step.op) {
-      case 'move': return moveTo(...step.to)
-      case 'line': return lineTo(...step.to)
-      case 'quadratic': return appendQuadraticCurve(...step.control, ...step.to)
-      case 'cubic': return appendBezierCurve(...step.controls, ...step.to)
-      case 'close': return closePath()
-    }
+  drawTypesetMath(context.page, font, typeset, source, x, baseline, size, {
+    ink: INK,
+    check: (text) => assertSupported(text, font),
   })
 }
 
@@ -1185,15 +1087,8 @@ function holdsMath(value: unknown): boolean {
 
 /** Each equation the plans draw typeset once, MathJax loaded only for plans
  *  that have one. */
-async function mathTypesetter(plans: readonly LayoutPlan[]): Promise<DrawContext['typeset']> {
-  if (!holdsMath(plans)) return () => null
-  const tools = await mathJaxTools()
-  const typeset = new Map<string, TypesetMath | null>()
-  return (source, display) => {
-    const key = `${display ? 'display' : 'inline'}:${source}`
-    if (!typeset.has(key)) typeset.set(key, typesetMath(tools, source, display))
-    return typeset.get(key)!
-  }
+function mathTypesetterFor(plans: readonly LayoutPlan[]): Promise<DrawContext['typeset']> {
+  return mathTypesetter(holdsMath(plans))
 }
 
 async function createPdf(
@@ -1201,7 +1096,7 @@ async function createPdf(
   media: MediaLoader,
   fontLoader: PdfFontLoader,
   strictMedia: boolean,
-  attachment?: string,
+  attachment?: Uint8Array | string,
 ): Promise<Uint8Array> {
   if (typeof Uint8Array === 'undefined' || typeof Promise === 'undefined') {
     throw new Error('This browser does not support local PDF generation. Choose DOCX instead.')
@@ -1228,7 +1123,7 @@ async function createPdf(
     if (missing) throw new RequiredMediaError(questionNumberForMedia(plans, missing.src))
   }
   const images = await embedImages(document, loaded)
-  const typeset = await mathTypesetter(plans)
+  const typeset = await mathTypesetterFor(plans)
   document.setTitle(plans[0]?.title ?? '')
   document.setCreator('Test Parrot')
 
@@ -1281,8 +1176,9 @@ async function createPdf(
   if (attachment !== undefined) {
     // The same attachment identity a Question Bank File uses, so one importer
     // reads both.
-    await document.attach(new TextEncoder().encode(attachment), QUESTION_BANK_ATTACHMENT_NAME, {
-      mimeType: 'application/json',
+    const zip = typeof attachment !== 'string'
+    await document.attach(zip ? attachment : new TextEncoder().encode(attachment), zip ? PACKAGE_ZIP_ATTACHMENT_NAME : QUESTION_BANK_ATTACHMENT_NAME, {
+      mimeType: zip ? PACKAGE_ZIP_MIME_TYPE : 'application/json',
       description: QUESTION_BANK_ATTACHMENT_DESCRIPTION,
       afRelationship: AFRelationship.Source,
     })
@@ -1304,8 +1200,8 @@ export function createPublicationPdf(
   plans: readonly LayoutPlan[],
   media: MediaLoader = browserMedia,
   fonts: PdfFontLoader = browserPdfFonts,
-  /** A serialized Test Parrot Package to embed; see `exam-package-export`. */
-  examPackage?: string,
+  /** The Test Parrot Package to embed, as `exam-package-export` made it. */
+  examPackage?: Uint8Array | string,
 ): Promise<Uint8Array> {
   return createPdf(plans, media, fonts, true, examPackage)
 }

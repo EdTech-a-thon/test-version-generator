@@ -76,7 +76,7 @@ test('a converted test gets its pictures from the teacher’s own PDF', async ({
   await page.getByRole('link', { name: 'Imports', exact: true }).first().click()
   await page.getByRole('button', { name: 'Import', exact: true }).click()
   await page.getByRole('dialog', { name: 'Import' }).getByLabel('Your test, a question file, or a Test Parrot file').setInputFiles({
-    name: 'trading-stations.parrot.json',
+    name: 'bus-routes.parrot.json',
     mimeType: 'application/json',
     buffer: assistantPackage(),
   })
@@ -144,10 +144,10 @@ test('a converted test gets its pictures from the teacher’s own PDF', async ({
   await expect(importedRow).toContainText('1 picture still needed')
   await importedRow.getByRole('button', { name: 'unit-test.pdf actions' }).click()
   await expect(page.getByRole('menu', { name: 'unit-test.pdf actions' }).getByRole('menuitem'))
-    .toHaveText(['Open Trading Stations Quiz', 'Open Trading Stations'])
+    .toHaveText(['Open Bus Routes Quiz', 'Open Bus Routes'])
   await page.keyboard.press('Escape')
   // The card itself opens the Test it brought in.
-  await importedRow.getByRole('link', { name: 'Open Trading Stations Quiz' }).click()
+  await importedRow.getByRole('link', { name: 'Open Bus Routes Quiz' }).click()
   await expect(page).toHaveURL(/\/editor\?exam=/)
 
   // Four pictures arrived; the cell diagram is still needed.

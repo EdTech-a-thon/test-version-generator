@@ -24,6 +24,7 @@ export function HomePage({
   onOpen,
   onNewBank,
   onOpenBank,
+  onExportBank,
   onDeleteBank,
   onImport,
 }: {
@@ -35,6 +36,7 @@ export function HomePage({
   onOpen: (id: string) => void
   onNewBank: () => void
   onOpenBank: (id: string) => void
+  onExportBank: (bank: QuestionBankCollectionItem) => void
   onDeleteBank: (bank: QuestionBankCollectionItem) => void
   onImport: () => void
 }) {
@@ -96,6 +98,7 @@ export function HomePage({
                 key={bank.id}
                 bank={bank}
                 onOpen={onOpenBank}
+                onExport={onExportBank}
                 onDelete={onDeleteBank}
               />
             ))}

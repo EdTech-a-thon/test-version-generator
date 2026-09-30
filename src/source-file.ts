@@ -17,7 +17,8 @@ const WORD_MIME_TYPE = 'application/vnd.openxmlformats-officedocument.wordproces
 
 export function kindOfFile(file: File): DroppedFile {
   const type = file.type.toLowerCase()
-  if (type === 'application/json' || /\.json$/i.test(file.name)) return 'record'
+  // A package zip is Test Parrot's own, though other tools' exports are zips too.
+  if (type === 'application/json' || /\.(json|parrot\.zip)$/i.test(file.name)) return 'record'
   if (type === 'application/pdf' || /\.pdf$/i.test(file.name)) return 'pdf'
   if (type === WORD_MIME_TYPE || /\.docx$/i.test(file.name)) return 'word'
   if (type.startsWith('image/') && type !== 'image/svg+xml') return 'photo'

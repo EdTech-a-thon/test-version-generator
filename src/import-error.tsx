@@ -40,7 +40,7 @@ export function ImportError({ message, aiMade = false }: {
       </button>
     </div>}
     <p className="import-error-help">
-      Having trouble? <a href={supportMailto('Trouble importing into Test Parrot')}>Email us your file</a> and we’ll help.
+      Having trouble? <a href={supportMailto('Trouble importing into Test Parrot', { askForFile: true })}>Email us your file</a> and we’ll help.
     </p>
   </div>
 }

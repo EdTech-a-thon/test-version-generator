@@ -7,6 +7,7 @@ import {
   type SemanticNode,
 } from '../question-bank-export'
 import { mediaDimensions } from '../question-bank-import'
+import { mediaFilePath } from '../package-zip'
 import { blocksText, isBlank, plainBlocks, textRun } from './rich-text'
 import { excerpt } from './text'
 import type { Blocks, ForeignChoice, ForeignImage, ForeignQuestion, ImportIssue, ParseResult } from './types'
@@ -34,6 +35,8 @@ export type ConvertOptions = {
 
 export type ConvertedRecord = {
   record: QuestionBankRecord
+  /** Each Media Asset's bytes, by the path its `file` names. */
+  files: Map<string, Uint8Array>
   issues: ImportIssue[]
   imported: number
 }
@@ -68,8 +71,10 @@ export async function toRecord(result: ParseResult, options: ConvertOptions): Pr
     if (converted) questions.push(converted)
   })
 
-  const media = await resolveMedia(questions, result.images ?? new Map(), options, issues)
+  const files = new Map<string, Uint8Array>()
+  const media = await resolveMedia(questions, result.images ?? new Map(), options, issues, files)
   return {
+    files,
     record: {
       format: QUESTION_BANK_FORMAT,
       formatVersion: QUESTION_BANK_FORMAT_VERSION,
@@ -222,6 +227,7 @@ async function resolveMedia(
   images: Map<string, ForeignImage>,
   options: ConvertOptions,
   issues: ImportIssue[],
+  files: Map<string, Uint8Array>,
 ): Promise<QuestionBankRecord['media']> {
   const used = new Set<string>()
   const visit = (node: SemanticNode) => {
@@ -253,7 +259,8 @@ async function resolveMedia(
     }
     const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', image.bytes.slice().buffer))
     const id = `sha256:${Array.from(digest, (byte) => byte.toString(16).padStart(2, '0')).join('')}`
-    const asset = { id, mimeType, width: size.width, height: size.height, bytes: toBase64(image.bytes) }
+    const asset = { id, mimeType, width: size.width, height: size.height, file: mediaFilePath(id, mimeType) }
+    files.set(asset.file, image.bytes)
     assets.set(key, asset)
     byId.set(id, asset)
   }
@@ -285,12 +292,4 @@ async function resolveMedia(
     })
   }
   return [...byId.values()]
-}
-
-function toBase64(bytes: Uint8Array): string {
-  let binary = ''
-  for (let index = 0; index < bytes.length; index += 0x8000) {
-    binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000))
-  }
-  return btoa(binary)
 }
