@@ -5,6 +5,7 @@ import { CircleQuestionMark, FileText, House, Import, Library, Settings, X } fro
 import { AccountBadge, SETTINGS_PATH } from './account-menu'
 import type { PersistentStorageStatus } from './durable-storage'
 import { Footer, Link } from './site-chrome'
+import { SUPPORT_EMAIL } from './support-email'
 import { useRoute } from './use-route'
 
 /**
@@ -23,7 +24,6 @@ const NAV = [
   { href: '/imports', label: 'Imports', Icon: Import },
 ] as const
 
-const SUPPORT_EMAIL = 'support@teacher.dev'
 
 /**
  * The one way to reach a person. It lives at the foot of the nav, out of the
@@ -135,7 +135,7 @@ export function AppShell({
                 <Link
                   href={href}
                   className="app-nav-link"
-                  {...(route === href || (href === '/imports' && (route === '/import' || route === '/imports/new')) ? { 'aria-current': 'page' } : {})}
+                  {...(route === href || (href === '/imports' && route === '/import') ? { 'aria-current': 'page' } : {})}
                 >
                   <Icon aria-hidden="true" />
                   {label}

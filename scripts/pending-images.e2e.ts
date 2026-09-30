@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises'
 import { expect, test } from '@playwright/test'
 import { assistantPackage, picture, sourceDocument } from './pending-images-fixtures'
 
@@ -10,13 +11,12 @@ import { assistantPackage, picture, sourceDocument } from './pending-images-fixt
 
 test('a converted test gets its pictures from the teacher’s own PDF', async ({ page, context }) => {
   await context.grantPermissions(['clipboard-read', 'clipboard-write'])
-  // Home's one button is Import, and a test dropped there starts an import on
-  // its own page.
+  // Home's one button is Import, which opens the Import dialog; a test
+  // dropped there starts an import that waits on its own page.
   await page.goto('/')
   await expect(page.getByRole('button', { name: 'Import Question Bank' })).toHaveCount(0)
-  await page.getByRole('link', { name: 'Import', exact: true }).click()
-  await expect(page).toHaveURL(/\/imports\/new$/)
-  await page.getByLabel('Your test, or the file your AI gave back').setInputFiles({
+  await page.getByRole('button', { name: 'Import', exact: true }).click()
+  await page.getByRole('dialog', { name: 'Import' }).getByLabel('Your test, a question file, or a Test Parrot file').setInputFiles({
     name: 'unit-test.pdf',
     mimeType: 'application/pdf',
     buffer: await sourceDocument(),
@@ -25,9 +25,12 @@ test('a converted test gets its pictures from the teacher’s own PDF', async ({
   await expect(page.getByRole('heading', { name: 'Converting unit-test.pdf' })).toBeVisible()
   const steps = page.getByRole('region', { name: 'Convert your test' })
 
-  await steps.getByRole('button', { name: 'Copy the instructions' }).click()
-  await expect(steps.getByRole('button', { name: 'Copied' })).toBeVisible()
-  const instructions = await page.evaluate(() => navigator.clipboard.readText())
+  const saved = page.waitForEvent('download')
+  await steps.getByRole('button', { name: 'Download the instructions' }).click()
+  const instructionsFile = await saved
+  expect(instructionsFile.suggestedFilename()).toBe('unit-test (instructions).txt')
+  await expect(steps.getByRole('button', { name: 'Downloaded' })).toBeVisible()
+  const instructions = await readFile(await instructionsFile.path(), 'utf8')
   expect(instructions).toContain('- page 1: IMG 1\n- page 2: IMG 2')
   expect(instructions).not.toContain('{{IMAGE_TAGS}}')
 
@@ -39,20 +42,21 @@ test('a converted test gets its pictures from the teacher’s own PDF', async ({
   // Import again is a new import: it does not pick the waiting one up.
   await page.reload()
   await expect(page.getByRole('heading', { name: 'Converting unit-test.pdf' })).toBeVisible()
-  await page.goto('/imports/new')
-  await expect(page.getByLabel('Your test, or the file your AI gave back')).toBeVisible()
+  await page.goto('/imports')
+  await page.getByRole('button', { name: 'Import', exact: true }).click()
+  await expect(page.getByRole('dialog', { name: 'Import' }).getByLabel('Your test, a question file, or a Test Parrot file')).toBeVisible()
   await expect(page.getByRole('region', { name: 'Convert your test' })).toHaveCount(0)
+  await page.keyboard.press('Escape')
 
   // It waits in Imports, and is continued from there.
   await page.getByRole('navigation', { name: 'Sections' }).getByRole('link', { name: 'Imports' }).click()
-  const waitingRow = page.getByRole('region', { name: 'In progress' }).getByRole('listitem', { name: 'unit-test.pdf' })
-  await expect(waitingRow).toContainText('Waiting for your AI')
+  const waitingRow = page.getByRole('region', { name: 'Pending' }).getByRole('listitem', { name: 'unit-test.pdf' })
+  await expect(waitingRow).toBeVisible()
   await expect(waitingRow).toContainText('2 pictures detected')
   // Its card shows the test's own first page.
   await expect(waitingRow.locator('.import-sheet img')).toHaveAttribute('src', /^blob:/)
   await waitingRow.getByRole('link', { name: 'Continue unit-test.pdf' }).click()
   await expect(page.getByRole('heading', { name: 'Converting unit-test.pdf' })).toBeVisible()
-  const importPage = page.url()
   // Beside the steps: its pages as the AI sees them, labeled, and what is
   // known — the pictures counted there, not above the steps.
   await expect(page.getByRole('status').filter({ hasText: 'pictures detected' })).toHaveCount(0)
@@ -68,15 +72,14 @@ test('a converted test gets its pictures from the teacher’s own PDF', async ({
   await expect(page.getByRole('button', { name: 'Start over with another file' })).toHaveCount(0)
 
   // The file the AI gives back, dropped on a new import, finds the import it
-  // answers and continues it there.
+  // answers and continues it.
   await page.getByRole('link', { name: 'Imports', exact: true }).first().click()
-  await page.getByRole('link', { name: 'Import', exact: true }).click()
-  await page.getByLabel('Your test, or the file your AI gave back').setInputFiles({
+  await page.getByRole('button', { name: 'Import', exact: true }).click()
+  await page.getByRole('dialog', { name: 'Import' }).getByLabel('Your test, a question file, or a Test Parrot file').setInputFiles({
     name: 'trading-stations.parrot.json',
     mimeType: 'application/json',
     buffer: assistantPackage(),
   })
-  await expect(page).toHaveURL(importPage)
   const dialog = page.getByRole('dialog', { name: 'Import' })
   await expect(dialog.getByRole('alert')).toHaveCount(0)
 
@@ -134,7 +137,7 @@ test('a converted test gets its pictures from the teacher’s own PDF', async ({
   // Imports now lists it as imported, with what it brought in and the
   // picture it still needs; its Test opens from there.
   await page.goto('/imports')
-  await expect(page.getByRole('region', { name: 'In progress' })).toHaveCount(0)
+  await expect(page.getByRole('region', { name: 'Pending' })).toHaveCount(0)
   const importedRow = page.getByRole('region', { name: 'History' }).getByRole('listitem', { name: 'unit-test.pdf' })
   await expect(importedRow).toContainText('Imported')
   await expect(importedRow).toContainText('5 Questions')

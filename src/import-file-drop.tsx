@@ -1,16 +1,17 @@
 import { useEffect, useRef, useState } from 'react'
-import { ClipboardCheck, UploadCloud } from 'lucide-react'
-import extractInstructions from '../public/extract.md?raw'
-import { fillImageTags } from './image-tag-list'
+import { UploadCloud } from 'lucide-react'
+import { SupportedSources, TextOnlyChoices } from './import-choices'
 import { ImportError } from './import-error'
 import { routeImportFile } from './import-file-route'
 import { TEST_FILE_TYPES } from './source-file'
 import { navigate } from './use-route'
 
 /**
- * The one place an import starts: a drop for the test itself, or for the
- * file an AI made from it (see `routeImportFile`). A new import, or the one
- * in progress a file answers, opens on its page in Imports.
+ * The one place an import starts: a drop for the test itself, a question
+ * file from another tool, or the file an AI made from a test (see
+ * `routeImportFile`). Questions a teacher has only as text can be pasted and
+ * are read the same way a dropped text file is. A new import, or the one in
+ * progress a file answers, opens on its page in Imports.
  */
 export function ImportFileDrop({
   dropped,
@@ -24,12 +25,6 @@ export function ImportFileDrop({
 }) {
   const [reading, setReading] = useState(false)
   const [error, setError] = useState<{ message: string; aiMade?: boolean } | null>(null)
-  const [justCopied, setJustCopied] = useState(false)
-  useEffect(() => {
-    if (!justCopied) return
-    const timer = window.setTimeout(() => setJustCopied(false), 2000)
-    return () => window.clearTimeout(timer)
-  }, [justCopied])
 
   const take = async (file: File) => {
     setError(null)
@@ -55,7 +50,7 @@ export function ImportFileDrop({
     <label className="bank-import-drop convert-drop">
       <input
         type="file"
-        aria-label="Your test, or the file your AI gave back"
+        aria-label="Your test, a question file, or the file your AI gave back"
         accept={`${TEST_FILE_TYPES},application/json,.json`}
         disabled={reading}
         onChange={(event) => {
@@ -65,29 +60,10 @@ export function ImportFileDrop({
         }}
       />
       <UploadCloud aria-hidden="true" />
-      <strong>{reading ? 'Reading your file…' : 'Drop your test here to get started'}</strong>
-      <span>
-        or click to choose it: a PDF, a Word document or a photo of your test. The file your AI
-        gave back goes here too.
-      </span>
+      <strong>{reading ? 'Reading your file…' : 'Drop your test or question file here'}</strong>
+      <span>or click to choose it</span>
     </label>
-    <p className="convert-text-only">
-      Only have it as text?{' '}
-      <button
-        type="button"
-        className="link-button"
-        onClick={() => void navigator.clipboard
-          .writeText(fillImageTags(extractInstructions, null))
-          .then(() => setJustCopied(true))}
-      >
-        Copy the instructions
-      </button>{' '}
-      and paste them into your AI with it.
-    </p>
-    {justCopied && (
-      <div className="copied-toast" role="status">
-        <ClipboardCheck aria-hidden="true" /> Instructions copied
-      </div>
-    )}
+    <SupportedSources />
+    <TextOnlyChoices busy={reading} onPaste={(file) => void take(file)} />
   </>
 }

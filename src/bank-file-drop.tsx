@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Upload } from 'lucide-react'
+import { isQuestionFileName } from './question-formats/catalog'
 
 /**
  * Dropping a Question Bank File anywhere on the site imports it.
@@ -23,14 +24,25 @@ function bankUnder(target: EventTarget | null): { id: string; name: string } | n
   return id ? { id, name: element.dataset.importBankName ?? '' } : null
 }
 
-const IMPORTABLE_TYPES = new Set(['application/pdf', 'application/json'])
+const WORD_TYPE = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
 
-/** A test to convert that is not a PDF: a photo of it, or its Word document. */
-const isOtherTest = (type: string) => type.startsWith('image/') || type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+/** A Test Parrot file, a Word document, or a question file from another
+ *  tool, by the types a drag declares. A Word document is read as questions
+ *  or converted, as the Import dialog decides. */
+const IMPORTABLE_TYPES = new Set([
+  'application/pdf', 'application/json', WORD_TYPE,
+  'text/plain', 'text/csv', 'text/tab-separated-values', 'text/xml', 'application/xml',
+  'application/zip', 'application/x-zip-compressed',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+])
+
+/** A photo of a test, taken only where dropping a test is the page's point:
+ *  anywhere else a dragged picture is meant for a question. */
+const isPhoto = (type: string) => type.startsWith('image/')
 
 function importable(file: File, tests: boolean): boolean {
-  return IMPORTABLE_TYPES.has(file.type) || /\.(pdf|json)$/i.test(file.name) ||
-    (tests && (isOtherTest(file.type) || /\.docx$/i.test(file.name)))
+  return IMPORTABLE_TYPES.has(file.type) || /\.(pdf|json|docx)$/i.test(file.name) || isQuestionFileName(file.name) ||
+    (tests && isPhoto(file.type))
 }
 
 /** Read from a `dragover`, where the files themselves are not yet readable and
@@ -40,7 +52,7 @@ function carriesImportableFile(transfer: DataTransfer | null, tests: boolean): b
   if (!transfer) return false
   if (!Array.from(transfer.types).includes('Files')) return false
   return Array.from(transfer.items).some(
-    (item) => item.kind === 'file' && (IMPORTABLE_TYPES.has(item.type) || (tests && isOtherTest(item.type))),
+    (item) => item.kind === 'file' && (IMPORTABLE_TYPES.has(item.type) || (tests && isPhoto(item.type))),
   )
 }
 
@@ -49,8 +61,7 @@ export function BankFileDropTarget({
   tests = false,
 }: {
   onFile: (file: File, targetBankId?: string) => void
-  /** Whether a test to convert is taken too — a photo of it or its Word
-   *  document: where a conversion starts. */
+  /** Whether a photo of a test is taken too: where a conversion starts. */
   tests?: boolean
 }) {
   const [over, setOver] = useState(false)
@@ -107,8 +118,8 @@ export function BankFileDropTarget({
           <strong>Drop your test here</strong>
           <span>Its PDF or Word document, a photo of it, or the file your AI gave back</span>
         </> : <>
-          <strong>Drop to import a Question Bank</strong>
-          <span>A Question Bank or Exam PDF, or a JSON file</span>
+          <strong>Drop to import</strong>
+          <span>A question file from another tool, your test, or a Test Parrot file</span>
         </>}
       </div>
     </div>

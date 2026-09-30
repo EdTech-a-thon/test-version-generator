@@ -1,12 +1,14 @@
 import fontkit from '@pdf-lib/fontkit'
 import { PDFDocument, rgb } from 'pdf-lib'
 import type { PdfFontLoader } from './pdf-export'
+import { drawnFigures, type DrawnPath } from './drawn-figures'
 import { isPicture, type PageBox } from './picture-rules'
 
 /**
  * A Source Document is the teacher's own PDF, the test an assistant converts.
  * This module is the one place that reads one for pictures: it finds every
- * image painted on its pages and numbers the picture-sized ones as Image Tags,
+ * image painted on its pages, and every figure drawn on them with lines, and
+ * numbers the picture-sized ones as Image Tags,
  * prints those tags on a labeled copy for the assistant, and gives back the
  * picture a tag names — or a crop of any page — as PNG bytes for Resolve
  * Images. It never reads Question Content out of the document: that comes only
@@ -25,9 +27,14 @@ export type ImageTag = {
   /** 1-based, as a PDF viewer counts pages. */
   page: number
   box: PageBox
-  /** The embedded image's intrinsic pixel size. */
+  /** The embedded image's intrinsic pixel size, or for a drawn figure the
+   *  size it renders at. */
   width: number
   height: number
+  /** A figure drawn with lines, such as an SVG graph a browser saved as a
+   *  PDF: it has no image of its own, so its picture is its region rendered
+   *  at print resolution. */
+  drawn?: true
 }
 
 export type SourceDocumentAnalysis = {
@@ -123,37 +130,43 @@ const multiply = (a: Matrix, b: readonly number[]): Matrix => [
 
 type Placement = { box: PageBox; object: string | { width: number; height: number; kind?: number; data?: Uint8ClampedArray } }
 
-/** Every image painted on a page, in paint order, where it lands. */
-async function placementsOf(page: PdfPage, pdfjs: Pdfjs): Promise<Placement[]> {
+/** pdf.js's path segments: each code is followed by its points. */
+const SEGMENT_LENGTH = [3, 3, 7, 5, 1] as const
+const CURVES = new Set([2, 3])
+
+function curvesIn(path: ArrayLike<number> | undefined): number {
+  let curves = 0
+  for (let at = 0; path && at < path.length; at += SEGMENT_LENGTH[path[at] as 0] ?? 1) {
+    if (CURVES.has(path[at]!)) curves += 1
+  }
+  return curves
+}
+
+/** Where a box in a coordinate space lands on the page, as a PageBox. */
+function landing(viewport: ReturnType<PdfPage['getViewport']>, matrix: readonly number[], corners: [number, number][]): PageBox {
+  const points = corners.map(([u, v]) =>
+    viewport.convertToViewportPoint(
+      matrix[0]! * u + matrix[2]! * v + matrix[4]!,
+      matrix[1]! * u + matrix[3]! * v + matrix[5]!,
+    ),
+  )
+  const xs = points.map((point) => point[0]! / viewport.width * 1000)
+  const ys = points.map((point) => point[1]! / viewport.height * 1000)
+  return { left: Math.min(...xs), top: Math.min(...ys), right: Math.max(...xs), bottom: Math.max(...ys) }
+}
+
+/** Every image painted on a page, in paint order, where it lands, and every
+ *  path painted on it. */
+async function placementsOf(page: PdfPage, pdfjs: Pdfjs): Promise<{ placements: Placement[]; paths: DrawnPath[] }> {
   const viewport = page.getViewport({ scale: 1 })
   const operators = await page.getOperatorList()
   const OPS = pdfjs.OPS
   const placements: Placement[] = []
+  const paths: DrawnPath[] = []
   let ctm: Matrix = [1, 0, 0, 1, 0, 0]
   const stack: Matrix[] = []
   const place = (matrix: Matrix, object: Placement['object']) => {
-    const corners = [
-      [0, 0],
-      [1, 0],
-      [0, 1],
-      [1, 1],
-    ].map(([u, v]) =>
-      viewport.convertToViewportPoint(
-        matrix[0] * u! + matrix[2] * v! + matrix[4],
-        matrix[1] * u! + matrix[3] * v! + matrix[5],
-      ),
-    )
-    const xs = corners.map((point) => point[0]! / viewport.width * 1000)
-    const ys = corners.map((point) => point[1]! / viewport.height * 1000)
-    placements.push({
-      box: {
-        left: Math.min(...xs),
-        top: Math.min(...ys),
-        right: Math.max(...xs),
-        bottom: Math.max(...ys),
-      },
-      object,
-    })
+    placements.push({ box: landing(viewport, matrix, [[0, 0], [1, 0], [0, 1], [1, 1]]), object })
   }
   for (let index = 0; index < operators.fnArray.length; index += 1) {
     const operator = operators.fnArray[index]
@@ -165,7 +178,17 @@ async function placementsOf(page: PdfPage, pdfjs: Pdfjs): Promise<Placement[]> {
       stack.push(ctm)
       if (Array.isArray(args[0])) ctm = multiply(ctm, args[0] as number[])
     } else if (operator === OPS.paintFormXObjectEnd) ctm = stack.pop() ?? ctm
-    else if (operator === OPS.paintImageXObject) place(ctm, args[0] as string)
+    else if (operator === OPS.constructPath) {
+      // A path that only clips paints nothing, but it still spans its
+      // drawing: a browser clips each SVG to its own frame, labels and all.
+      const [paint, [data], extent] = args as [number, [ArrayLike<number>?], ArrayLike<number> | null]
+      if (!extent) continue
+      const [x0, y0, x1, y1] = Array.from(extent) as [number, number, number, number]
+      paths.push({
+        box: landing(viewport, ctm, [[x0, y0], [x1, y0], [x0, y1], [x1, y1]]),
+        curves: paint === OPS.endPath ? 0 : curvesIn(data),
+      })
+    } else if (operator === OPS.paintImageXObject) place(ctm, args[0] as string)
     else if (operator === OPS.paintInlineImageXObject) place(ctm, args[0] as Placement['object'] & object)
     else if (operator === OPS.paintImageXObjectRepeat) {
       const [object, scaleX, scaleY, positions] = args as [string, number, number, number[]]
@@ -174,7 +197,32 @@ async function placementsOf(page: PdfPage, pdfjs: Pdfjs): Promise<Placement[]> {
       }
     }
   }
-  return placements
+  return { placements, paths }
+}
+
+/** Where each run of a page's text lands. */
+async function textBoxesOf(page: PdfPage): Promise<PageBox[]> {
+  const viewport = page.getViewport({ scale: 1 })
+  const boxes: PageBox[] = []
+  for (const item of (await page.getTextContent()).items) {
+    if (!('str' in item) || !item.str.trim()) continue
+    // The run's baseline and height, along its own direction, so a label set
+    // sideways beside an axis is boxed where it stands.
+    const [a, b, c, d, e, f] = item.transform as number[]
+    const along = Math.hypot(a!, b!) || 1
+    const up = Math.hypot(c!, d!) || 1
+    const run: [number, number] = [(a! / along) * item.width, (b! / along) * item.width]
+    const rise: [number, number] = [(c! / up) * item.height, (d! / up) * item.height]
+    boxes.push(
+      landing(viewport, [1, 0, 0, 1, 0, 0], [
+        [e!, f!],
+        [e! + run[0], f! + run[1]],
+        [e! + rise[0], f! + rise[1]],
+        [e! + run[0] + rise[0], f! + run[1] + rise[1]],
+      ]),
+    )
+  }
+  return boxes
 }
 
 type DecodedImage = { width: number; height: number; kind?: number; data?: Uint8ClampedArray }
@@ -205,9 +253,27 @@ function readingOrder<T extends { box: PageBox }>(pictures: T[]): T[] {
 
 const round = (value: number) => Math.round(value * 100) / 100
 
-async function pagePictures(page: PdfPage, pdfjs: Pdfjs) {
-  const pictures = (await placementsOf(page, pdfjs)).filter((placement) => isPicture(placement.box))
-  return readingOrder(pictures)
+type PagePicture = Placement | { box: PageBox; drawn: true }
+
+async function pagePictures(page: PdfPage, pdfjs: Pdfjs): Promise<PagePicture[]> {
+  const { placements, paths } = await placementsOf(page, pdfjs)
+  const drawn = drawnFigures(
+    paths,
+    await textBoxesOf(page),
+    placements.map((placement) => placement.box),
+  ).map((box) => ({ box, drawn: true as const }))
+  return readingOrder([...placements.filter((placement) => isPicture(placement.box)), ...drawn])
+}
+
+/** How many pixels a drawn figure renders at: its share of the page at
+ *  print resolution. */
+function renderedSize(page: PdfPage, box: PageBox) {
+  const base = page.getViewport({ scale: 1 })
+  const scale = cropScale(base)
+  return {
+    width: Math.max(1, Math.round(((box.right - box.left) / 1000) * base.width * scale)),
+    height: Math.max(1, Math.round(((box.bottom - box.top) / 1000) * base.height * scale)),
+  }
 }
 
 export async function analyzeSourceDocument(bytes: Uint8Array): Promise<SourceDocumentAnalysis> {
@@ -217,15 +283,20 @@ export async function analyzeSourceDocument(bytes: Uint8Array): Promise<SourceDo
     for (let number = 1; number <= document.numPages; number += 1) {
       const page = await document.getPage(number)
       for (const picture of await pagePictures(page, pdfjs)) {
+        const box = {
+          left: round(picture.box.left),
+          top: round(picture.box.top),
+          right: round(picture.box.right),
+          bottom: round(picture.box.bottom),
+        }
+        if ('drawn' in picture) {
+          tags.push({ tag: tags.length + 1, page: number, box, ...renderedSize(page, box), drawn: true })
+          continue
+        }
         tags.push({
           tag: tags.length + 1,
           page: number,
-          box: {
-            left: round(picture.box.left),
-            top: round(picture.box.top),
-            right: round(picture.box.right),
-            bottom: round(picture.box.bottom),
-          },
+          box,
           ...(await intrinsicSize(page, picture.object)),
         })
       }
@@ -360,30 +431,33 @@ function toRgba(image: DecodedImage): RgbaImage {
 const distance = (a: PageBox, b: PageBox) =>
   Math.abs(a.left - b.left) + Math.abs(a.top - b.top) + Math.abs(a.right - b.right) + Math.abs(a.bottom - b.bottom)
 
-/** The picture a tag names, at its embedded image's full resolution, as PNG. */
-export async function pictureForTag(
-  bytes: Uint8Array,
-  tag: ImageTag,
-  raster: Pick<Raster, 'encodePng'>,
-): Promise<Uint8Array> {
-  const image = await withDocument(bytes, async (document, pdfjs) => {
+/** The picture a tag names, as PNG: its embedded image at full resolution,
+ *  or a drawn figure rendered at print resolution. */
+export async function pictureForTag(bytes: Uint8Array, tag: ImageTag, raster: Raster): Promise<Uint8Array> {
+  const found = await withDocument(bytes, async (document, pdfjs) => {
     if (tag.page < 1 || tag.page > document.numPages) {
       throw new SourceDocumentError(`This PDF has no page ${tag.page}.`)
     }
     const page = await document.getPage(tag.page)
     const pictures = await pagePictures(page, pdfjs)
     const nearest = pictures
+      .filter((picture) => 'drawn' in picture === Boolean(tag.drawn))
       .map((picture) => ({ picture, off: distance(picture.box, tag.box) }))
       .sort((a, b) => a.off - b.off)[0]
     if (!nearest || nearest.off > 4) {
       throw new SourceDocumentError(`IMG ${tag.tag} is not in this PDF.`)
     }
+    if ('drawn' in nearest.picture) return nearest.picture.box
     return toRgba(await resolveObject(page, nearest.picture.object))
   })
-  return raster.encodePng(image)
+  if ('data' in found) return raster.encodePng(found)
+  return cropSourcePage(bytes, tag.page, found, raster)
 }
 
 type PageScale = (base: { width: number; height: number }) => number
+
+const cropScale: PageScale = (base) =>
+  (CROP_DPI / 72) * Math.min(1, MAX_CROP_SIDE / (Math.max(base.width, base.height) * (CROP_DPI / 72)))
 
 async function renderRegion(
   bytes: Uint8Array,
@@ -430,9 +504,7 @@ export function cropSourcePage(
   box: PageBox,
   raster: Raster,
 ): Promise<Uint8Array> {
-  return renderRegion(bytes, pageNumber, box, raster, (base) =>
-    (CROP_DPI / 72) * Math.min(1, MAX_CROP_SIDE / (Math.max(base.width, base.height) * (CROP_DPI / 72))),
-  )
+  return renderRegion(bytes, pageNumber, box, raster, cropScale)
 }
 
 /** A whole page at screen size, for choosing where to crop. */

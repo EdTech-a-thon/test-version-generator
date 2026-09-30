@@ -175,7 +175,7 @@ import { SettingsPage } from './settings-page'
 import { persistentStorageStatus, requestPersistentStorage, type PersistentStorageStatus } from './durable-storage'
 import { ResourceCollectionPage } from './resource-collection-page'
 import { BankFileDropTarget } from './bank-file-drop'
-import { ImportsPage, NewImportPage, WaitingImportPage } from './imports-page'
+import { ImportsPage, WaitingImportPage } from './imports-page'
 import { questionBankCollection, type QuestionBankCollectionItem } from './resource-collections'
 import { QuestionBankExportDialog } from './question-bank-export-dialog'
 import { QuestionBankImportDialog } from './question-bank-import-dialog'
@@ -2835,6 +2835,13 @@ export default function App({
     setImportWaitingId(waitingImportId ?? null)
     setInspectingBankFile(true)
   }, [])
+  // Starting an import used to be a page of its own; it is the Import
+  // dialog now, so an old link to that page opens the dialog over Imports.
+  useEffect(() => {
+    if (route !== '/imports/new') return
+    navigate('/imports', { replace: true })
+    openImport()
+  }, [route, openImport])
   const closeImport = useCallback(() => {
     setInspectingBankFile(false)
     setDroppedBankFile(null)
@@ -3008,6 +3015,12 @@ export default function App({
     loadBanks={loadImportBanks}
     onClose={closeImport}
     onImport={importBank}
+    onConverting={(waiting) => {
+      // A test to convert waits for its AI on its own page, which outlives
+      // the dialog: the teacher comes back to it with the file their AI made.
+      closeImport()
+      navigate(`/import?id=${encodeURIComponent(waiting.id)}`)
+    }}
   />
   // Importing by drop is offered on every page, the editor included, so the
   // overlay and the dialog live outside the route switch below.
@@ -3015,22 +3028,12 @@ export default function App({
     <BankFileDropTarget onFile={openImport} />
     {importDialog}
   </>
-  if (route === '/imports') return <>{globalChrome}<ImportsPage
+  if (route === '/imports' || route === '/imports/new') return <>{globalChrome}<ImportsPage
+    onImport={() => openImport()}
     persistentStorage={storageStatus}
     revision={importRevision}
     picturesNeededIn={picturesNeededIn}
   /></>
-  // A new import takes a test as readily as a Test Parrot file, so a drop is
-  // the page's to read, as on the convert page.
-  if (route === '/imports/new') return <>
-    <BankFileDropTarget tests onFile={(file) => setConvertDrop({ file, id: Date.now() })} />
-    {importDialog}
-    <NewImportPage
-      persistentStorage={storageStatus}
-      dropped={convertDrop}
-      onOpenImport={(file, waitingImportId) => openImport(file, null, waitingImportId)}
-    />
-  </>
   if (route === '/import') {
     const waitingId = new URLSearchParams(window.location.search).get('id') ?? ''
     // A file dropped on a waiting import's page is the AI's answer to it.
@@ -3067,7 +3070,7 @@ export default function App({
     onOpenBank={openBank}
     onNewBank={newBank}
     onDeleteBank={requestBankDeletion}
-    onImportBank={() => navigate('/imports/new')}
+    onImportBank={() => openImport()}
   />{bankDeletionConfirmation}</>
   // A device that has never been here gets the front door instead of empty
   // shelves; the same page stays reachable at /welcome afterwards.
@@ -3093,6 +3096,7 @@ export default function App({
     onNewBank={newBank}
     onOpenBank={openBank}
     onDeleteBank={requestBankDeletion}
+    onImport={() => openImport()}
   />{bankDeletionConfirmation}</>
   if (route === '/question-bank') return pageBank && pageBankReady ? <>{globalChrome}<QuestionBankPage
     key={pageBank.bank.id}

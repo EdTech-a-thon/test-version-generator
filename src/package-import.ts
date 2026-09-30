@@ -6,6 +6,7 @@ import examSchema010 from './exam-record-0.1.0.schema.json'
 import examSchema020 from './exam-record-0.2.0.schema.json'
 import examSchema030 from './exam-record-0.3.0.schema.json'
 import packageSchema010 from './test-parrot-package-0.1.0.schema.json'
+import type { QuestionFileSummary } from './question-formats'
 import {
   QUESTION_BANK_FORMAT,
   RECORD_TYPE_ORDER,
@@ -169,6 +170,9 @@ export type ImportProposal = {
   source: { format: typeof QUESTION_BANK_FORMAT | typeof PACKAGE_FORMAT; formatVersion: string }
   banks: ProposedBank[]
   exams: ProposedExam[]
+  /** Set when the file came from another tool and was read as questions:
+   *  which format it was read as, and what came in and what did not. */
+  reading?: QuestionFileSummary
 }
 
 export const BARE_RECORD_BANK_ID = 'bank'

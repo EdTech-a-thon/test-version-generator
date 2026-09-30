@@ -57,12 +57,13 @@ export function replaceRoute(to: string): void {
  * Pop-over is a view of this document and closes with it (ADR-0030); the
  * editor is still entered and left by a document load.
  */
-export function navigate(to: string): void {
+export function navigate(to: string, options: { replace?: boolean } = {}): void {
   if (`${window.location.pathname}${window.location.search}` === to) return
   // Unlike a full document navigation, pushState never raises beforeunload.
   // Give editor-owned durability guards the same cancellable boundary first.
   if (!window.dispatchEvent(new Event(BEFORE_NAVIGATE_EVENT, { cancelable: true }))) return
-  window.history.pushState(null, '', to)
+  if (options.replace) window.history.replaceState(null, '', to)
+  else window.history.pushState(null, '', to)
   window.dispatchEvent(new Event(NAVIGATE_EVENT))
   window.scrollTo(0, 0)
 }

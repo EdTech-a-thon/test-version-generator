@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { Check, ChevronDown, Copy, Download, ImageIcon, UploadCloud } from 'lucide-react'
+import { Check, ChevronDown, Download, FileText, ImageIcon, UploadCloud } from 'lucide-react'
 import extractInstructions from '../public/extract.md?raw'
 import { fillImageTags } from './image-tag-list'
 import type { WaitingImport } from './import-history'
+import { downloadInstructions } from './instructions-file'
+import { supportMailto } from './support-email'
 
 /**
  * What to do with the test a teacher just dropped, while its import waits for
@@ -86,16 +88,16 @@ export function SourceDocumentSteps({
   /** What went wrong with the last file given back, shown under its drop. */
   problem?: ReactNode
 }) {
-  const [copied, setCopied] = useState(false)
+  const [saved, setSaved] = useState(false)
   const [choosing, setChoosing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const menu = useRef<HTMLDivElement>(null)
   const returned = useRef<HTMLInputElement>(null)
   useEffect(() => {
-    if (!copied) return
-    const timer = window.setTimeout(() => setCopied(false), 2000)
+    if (!saved) return
+    const timer = window.setTimeout(() => setSaved(false), 2000)
     return () => window.clearTimeout(timer)
-  }, [copied])
+  }, [saved])
   // The assistant menu closes on Escape — before anything around it does — or
   // on a press anywhere outside its step.
   useEffect(() => {
@@ -126,10 +128,15 @@ export function SourceDocumentSteps({
   // A photo's page has nothing tagged on it; it gets the instructions for a
   // source with no labeled copy, which name every picture by page 1.
   const instructions = fillImageTags(extractInstructions, photo ? null : waiting.tags, word ? 'word' : 'pdf')
-  const copy = () => void navigator.clipboard.writeText(instructions).then(() => setCopied(true))
+  const save = () => {
+    downloadInstructions(instructions, waiting.fileName)
+    setSaved(true)
+  }
   /** What the teacher calls the file they dropped. */
   const file = photo ? 'photo' : word ? 'document' : 'PDF'
-  const attach = pictures ? `the labeled ${file} (not your original)` : `your ${file}`
+  // With a labeled copy, both files to attach are the two just downloaded.
+  // The instructions say what to do with the test, so nothing needs typing.
+  const attach = pictures ? 'Attach both downloads' : `Attach the instructions and your ${file}`
 
   const download = async () => {
     setError(null)
@@ -162,9 +169,6 @@ export function SourceDocumentSteps({
 
   const open = (assistant: (typeof ASSISTANTS)[number]) => {
     setChoosing(false)
-    // The chat that opens is a place to paste: these instructions are what
-    // should be there to paste.
-    void navigator.clipboard.writeText(instructions).catch(() => undefined)
     window.open(assistant.url, '_blank', 'noopener')
   }
 
@@ -173,6 +177,9 @@ export function SourceDocumentSteps({
     {named && <h2 className="source-steps-title" title={waiting.fileName}>
       <span>Converting</span> <span className="source-steps-name">{waiting.fileName}</span>
     </h2>}
+    <p className="source-steps-intro">
+      We couldn’t import your questions automatically, but an AI assistant can convert your test for you.
+    </p>
     {noted && <p className="source-steps-note" role="status">
       {pictures && <ImageIcon aria-hidden="true" />}
       {pictures
@@ -196,18 +203,18 @@ export function SourceDocumentSteps({
       <li>
         <StepButton
           number={++number}
-          title={copied ? 'Copied' : 'Copy the instructions'}
-          text="They tell your AI exactly what file to make."
-          icon={copied ? <Check /> : <Copy />}
+          title={saved ? 'Downloaded' : 'Download the instructions'}
+          text="A text file that tells your AI exactly what file to make."
+          icon={saved ? <Check /> : <FileText />}
           disabled={busy}
-          onClick={copy}
+          onClick={save}
         />
       </li>
       <li className="source-step-menu-anchor">
         <StepButton
           number={++number}
           title="Open your AI"
-          text={`Paste the instructions, attach ${attach}, and send.`}
+          text={`${attach} and send.`}
           icon={<ChevronDown />}
           disabled={busy}
           expanded={choosing}
@@ -253,6 +260,10 @@ export function SourceDocumentSteps({
 
     {problem}
     {error && <p className="home-error" role="alert">{error}</p>}
+    <p className="source-steps-help">
+      Think we should convert this kind of file automatically?{' '}
+      <a href={supportMailto('A file type for Test Parrot to convert')}>Email us your file</a>.
+    </p>
     {onStartOver && <p className="source-steps-foot">
       <button type="button" className="link-button" disabled={busy} onClick={onStartOver}>Start over with another file</button>
     </p>}

@@ -27,8 +27,9 @@ const LEGACY_KEY = 'current'
 export const WAITING_IMPORT_LIFETIME_MS = 7 * 24 * 60 * 60 * 1000
 
 /** The file an import started from: a test to convert — a PDF, a photo of
- *  one kept as a one-page PDF, or a Word document — or a Test Parrot file. */
-export type ImportFileKind = 'pdf' | 'photo' | 'word' | 'record'
+ *  one kept as a one-page PDF, or a Word document — a Test Parrot file, or a
+ *  question file from another tool, read without an AI. */
+export type ImportFileKind = 'pdf' | 'photo' | 'word' | 'record' | 'questions'
 
 /** A test waiting for the file its assistant makes. */
 export type WaitingImport = {
@@ -157,7 +158,7 @@ async function allEntries(now: Date): Promise<Stored[]> {
 function waitingOf(entry: Stored): WaitingImport {
   return {
     id: entry.id,
-    ...(entry.kind !== 'record' ? { kind: entry.kind } : {}),
+    ...(entry.kind !== 'record' && entry.kind !== 'questions' ? { kind: entry.kind } : {}),
     fileName: entry.fileName,
     bytes: new Uint8Array(entry.bytes!),
     pageCount: entry.pageCount ?? 1,

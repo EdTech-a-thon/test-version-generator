@@ -29,8 +29,10 @@ export function ConvertPage({
         <div className="convert-head">
           <h1>Convert a test you already have</h1>
           <p className="landing-lede">
-            An AI assistant turns your test into a file Test Parrot imports: your questions, the
-            test laid out as you gave it, and its pictures.
+            A question file from Blackboard, Canvas, Moodle or another tool comes straight in, with
+            no AI. Any other test — a PDF, a Word document, a photo — an AI assistant turns into a
+            file Test Parrot imports: your questions, the test laid out as you gave it, and its
+            pictures.
           </p>
         </div>
 
