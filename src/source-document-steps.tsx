@@ -3,7 +3,8 @@ import { Check, ChevronDown, Download, FileText, ImageIcon, UploadCloud } from '
 import extractInstructions from '../public/extract.md?raw'
 import { fillImageTags } from './image-tag-list'
 import type { WaitingImport } from './import-history'
-import { downloadInstructions, INSTRUCTIONS_NOTE } from './instructions-file'
+import { downloadInstructions } from './instructions-file'
+import { supportMailto } from './support-email'
 
 /**
  * What to do with the test a teacher just dropped, while its import waits for
@@ -133,7 +134,9 @@ export function SourceDocumentSteps({
   }
   /** What the teacher calls the file they dropped. */
   const file = photo ? 'photo' : word ? 'document' : 'PDF'
-  const attach = pictures ? `the labeled ${file} (not your original)` : `your ${file}`
+  // With a labeled copy, both files to attach are the two just downloaded.
+  // The instructions say what to do with the test, so nothing needs typing.
+  const attach = pictures ? 'Attach both downloads' : `Attach the instructions and your ${file}`
 
   const download = async () => {
     setError(null)
@@ -166,9 +169,6 @@ export function SourceDocumentSteps({
 
   const open = (assistant: (typeof ASSISTANTS)[number]) => {
     setChoosing(false)
-    // The files go as attachments; what the chat needs pasted is the one
-    // line asking it to follow them.
-    void navigator.clipboard.writeText(INSTRUCTIONS_NOTE).catch(() => undefined)
     window.open(assistant.url, '_blank', 'noopener')
   }
 
@@ -177,6 +177,9 @@ export function SourceDocumentSteps({
     {named && <h2 className="source-steps-title" title={waiting.fileName}>
       <span>Converting</span> <span className="source-steps-name">{waiting.fileName}</span>
     </h2>}
+    <p className="source-steps-intro">
+      We couldn’t import your questions automatically, but an AI assistant can convert your test for you.
+    </p>
     {noted && <p className="source-steps-note" role="status">
       {pictures && <ImageIcon aria-hidden="true" />}
       {pictures
@@ -211,7 +214,7 @@ export function SourceDocumentSteps({
         <StepButton
           number={++number}
           title="Open your AI"
-          text={`Attach the instructions and ${attach}, paste the note we copy for you, and send.`}
+          text={`${attach} and send.`}
           icon={<ChevronDown />}
           disabled={busy}
           expanded={choosing}
@@ -257,6 +260,10 @@ export function SourceDocumentSteps({
 
     {problem}
     {error && <p className="home-error" role="alert">{error}</p>}
+    <p className="source-steps-help">
+      Think we should convert this kind of file automatically?{' '}
+      <a href={supportMailto('A file type for Test Parrot to convert')}>Email us your file</a>.
+    </p>
     {onStartOver && <p className="source-steps-foot">
       <button type="button" className="link-button" disabled={busy} onClick={onStartOver}>Start over with another file</button>
     </p>}

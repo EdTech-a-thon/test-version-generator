@@ -36,7 +36,7 @@ test('the convert page asks only for the test, then opens its import with the pa
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Converting unit-test.pdf')
   await expect(page.getByLabel('About this import')).toContainText('Pictures detected2')
   await expect(steps.getByRole('button', { name: 'Download the labeled PDF' })).toBeVisible()
-  await expect(steps).toContainText('attach the labeled PDF (not your original)')
+  await expect(steps).toContainText('Attach both downloads and send.')
   await expect(steps).not.toContainText('seven days')
   // A reload, while the teacher is in their AI chat, comes back to it.
   await page.reload()
@@ -56,7 +56,7 @@ test('the convert page asks only for the test, then opens its import with the pa
   await page.goto('/get-started/convert')
   await page.getByLabel('Your test, a question file, or the file your AI gave back').setInputFiles({ name: 'quiz-photo.png', mimeType: 'image/png', buffer: Buffer.from(picture(600, 800, 3)) })
   await expect(page.getByLabel('About this import')).toContainText('Pictures detectedCropped after importing')
-  await expect(steps).toContainText('attach your photo')
+  await expect(steps).toContainText('Attach the instructions and your photo')
   // The whole step opens the list of assistants.
   await steps.getByRole('button', { name: 'Open your AI' }).click()
   await expect(steps.getByRole('menu', { name: 'Open an AI assistant' }).getByRole('menuitem')).toHaveText(['ChatGPT', 'Claude', 'Gemini'])
@@ -97,7 +97,7 @@ test('a Word document goes to the AI as a labeled copy, and its pictures come fr
     buffer: await wordSourceDocument(),
   })
   await expect(page.getByLabel('About this import')).toContainText('Pictures detected2')
-  await expect(steps).toContainText('attach the labeled document (not your original)')
+  await expect(steps).toContainText('Attach both downloads and send.')
 
   const download = page.waitForEvent('download')
   await steps.getByRole('button', { name: 'Download the labeled document' }).click()

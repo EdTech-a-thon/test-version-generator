@@ -1992,6 +1992,9 @@ button { cursor: pointer; }
   padding-top: 10px; border-top: 1px solid var(--paper-danger-line); color: var(--paper-ink-soft); font-size: 13px;
 }
 .import-error-fix .secondary-button { flex: none; }
+.import-error-help { margin: 8px 0 0; color: var(--paper-ink-soft); font-size: 12.5px; }
+/* An email link reads as the app's other links, not the browser's blue. */
+.import-error-help a, .source-steps-help a { color: var(--paper-accent); font-weight: 600; text-underline-offset: 3px; }
 @media (max-width: 560px) { .import-error-fix { flex-direction: column; align-items: stretch; } }
 
 /* An empty shelf. The dots are the page's own ground showing through a space a
@@ -2946,6 +2949,8 @@ button { cursor: pointer; }
 .source-step-menu button:hover, .source-step-menu button:focus-visible { background: var(--paper-accent-wash); outline: none; }
 .source-steps-drop { margin: 10px 0 0; padding: 22px 18px; }
 .source-steps-foot { margin: 12px 0 0; font-size: 12.5px; }
+.source-steps-intro { margin: 0 0 12px; color: var(--paper-ink-soft); font-size: 14px; line-height: 1.45; }
+.source-steps-help { margin: 12px 0 0; color: var(--paper-ink-soft); font-size: 12.5px; }
 @media (max-width: 640px) {
   .source-step { grid-template-columns: 30px minmax(0, 1fr) auto; gap: 10px; }
 }

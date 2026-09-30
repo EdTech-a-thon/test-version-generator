@@ -12,11 +12,6 @@ export function instructionsFilename(sourceName?: string): string {
   return stem ? `${stem} (instructions).txt` : 'Test Parrot instructions.txt'
 }
 
-/** The message to send with the attachments, since some assistants will not
- *  send attachments alone. It is copied as the AI opens, ready to paste. */
-export const INSTRUCTIONS_NOTE =
-  'Follow the attached Test Parrot instructions to convert my attached test into the .parrot.json file they describe.'
-
 /** Saves the instructions as a text file in the browser's downloads. */
 export function downloadInstructions(instructions: string, sourceName?: string): void {
   const url = URL.createObjectURL(new Blob([instructions], { type: 'text/plain;charset=utf-8' }))

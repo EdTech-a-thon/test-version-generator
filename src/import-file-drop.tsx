@@ -61,11 +61,7 @@ export function ImportFileDrop({
       />
       <UploadCloud aria-hidden="true" />
       <strong>{reading ? 'Reading your file…' : 'Drop your test or question file here'}</strong>
-      <span>
-        or click to choose it. Question files from other tools come straight in, with no AI. A PDF,
-        a Word document or a photo of your test is converted by your AI, and the file it gives back
-        goes here too.
-      </span>
+      <span>or click to choose it</span>
     </label>
     <SupportedSources />
     <TextOnlyChoices busy={reading} onPaste={(file) => void take(file)} />

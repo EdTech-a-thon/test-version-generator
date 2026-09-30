@@ -1,21 +1,21 @@
-import { useEffect, useId, useState } from 'react'
-import { ClipboardPaste, FileCheck } from 'lucide-react'
-import extractInstructions from '../public/extract.md?raw'
-import { fillImageTags } from './image-tag-list'
-import { downloadInstructions } from './instructions-file'
+import { useId, useState } from 'react'
+import { ClipboardPaste } from 'lucide-react'
 import { SUPPORTED_SOURCES } from './question-formats/catalog'
 
+/** What an AI assistant converts, named first because most tests arrive as
+ *  one of these. */
+const CONVERTED_SOURCES = ['PDFs', 'Word documents', 'Photos']
+
 /**
- * What sits under every drop zone that starts an import: the tools whose
- * files come straight in with no AI, and, for questions a teacher has only
- * as text, a box to paste them into — read the way a dropped text file is —
- * or the instructions file to give an AI with them.
+ * What sits under every drop zone that starts an import: what it takes,
+ * converted or read straight in, and, for questions a teacher has only as text, a
+ * box to paste them into — read the way a dropped text file is.
  */
 
 export function SupportedSources() {
-  return <div className="import-sources" aria-label="Question files read without AI">
-    <span>Reads without AI</span>
-    <ul>{SUPPORTED_SOURCES.map((source) => <li key={source}>{source}</li>)}</ul>
+  return <div className="import-sources" aria-label="Supported question files">
+    <span>Supports</span>
+    <ul>{[...CONVERTED_SOURCES, ...SUPPORTED_SOURCES].map((source) => <li key={source}>{source}</li>)}</ul>
   </div>
 }
 
@@ -27,15 +27,8 @@ export function TextOnlyChoices({ busy, onPaste }: {
   const textId = useId()
   const [pasting, setPasting] = useState(false)
   const [pasted, setPasted] = useState('')
-  const [saved, setSaved] = useState(false)
-  useEffect(() => {
-    if (!saved) return
-    const timer = window.setTimeout(() => setSaved(false), 2000)
-    return () => window.clearTimeout(timer)
-  }, [saved])
 
-  return <>
-    {pasting ? (
+  return pasting ? (
       <form
         className="import-paste"
         onSubmit={(event) => {
@@ -70,24 +63,6 @@ export function TextOnlyChoices({ busy, onPaste }: {
         <button type="button" className="link-button" disabled={busy} onClick={() => setPasting(true)}>
           <ClipboardPaste aria-hidden="true" /> Paste your questions
         </button>
-        , or{' '}
-        <button
-          type="button"
-          className="link-button"
-          onClick={() => {
-            downloadInstructions(fillImageTags(extractInstructions, null))
-            setSaved(true)
-          }}
-        >
-          download the instructions
-        </button>{' '}
-        and give them to your AI with it.
       </p>
-    )}
-    {saved && (
-      <div className="copied-toast" role="status">
-        <FileCheck aria-hidden="true" /> Instructions downloaded
-      </div>
-    )}
-  </>
+    )
 }

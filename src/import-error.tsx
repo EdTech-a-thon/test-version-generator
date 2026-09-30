@@ -1,13 +1,15 @@
 import { useEffect, useState } from 'react'
 import { Check, Copy } from 'lucide-react'
 import { aiFixRequest } from './import-file-route'
+import { supportMailto } from './support-email'
 
 /**
  * A file an AI made that Test Parrot cannot import is almost always fixed by
  * the AI that made it: the error says exactly what is wrong, and the chat that
  * wrote the file can write it again. So that error comes with the way back —
  * copy it, paste it into the same chat — rather than leaving a teacher to read
- * a validation message they were never meant to act on themselves.
+ * a validation message they were never meant to act on themselves. And any
+ * error says who can help with the file.
  */
 
 export function ImportError({ message, aiMade = false }: {
@@ -37,5 +39,8 @@ export function ImportError({ message, aiMade = false }: {
         {copied ? 'Copied' : 'Copy error'}
       </button>
     </div>}
+    <p className="import-error-help">
+      Having trouble? <a href={supportMailto('Trouble importing into Test Parrot')}>Email us your file</a> and we’ll help.
+    </p>
   </div>
 }

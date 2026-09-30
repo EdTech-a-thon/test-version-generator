@@ -1,8 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
-import { Check, ChevronRight, FileText, ImageIcon, Library, UploadCloud, type LucideIcon } from 'lucide-react'
-import extractInstructions from '../public/extract.md?raw'
-import { fillImageTags } from './image-tag-list'
-import { downloadInstructions } from './instructions-file'
+import { ChevronRight, FileText, ImageIcon, Library, UploadCloud, type LucideIcon } from 'lucide-react'
 import {
   RECORD_PART_TYPE_LABELS,
   RECORD_TYPE_LABELS,
@@ -565,12 +562,6 @@ export function QuestionBankImportDialog({
   /** A Source Document dropped into Resolve Images for a file that was not
    *  paired with a waiting import. Used for this import only, never kept. */
   const [suppliedSource, setSuppliedSource] = useState<ResolvingSource | null>(null)
-  const [saved, setSaved] = useState(false)
-  useEffect(() => {
-    if (!saved) return
-    const timer = window.setTimeout(() => setSaved(false), 2000)
-    return () => window.clearTimeout(timer)
-  }, [saved])
   const busy = phase !== 'choose'
   const busyRef = useRef(busy)
   busyRef.current = busy
@@ -771,11 +762,6 @@ export function QuestionBankImportDialog({
   const discard = async () => {
     if (waiting) await discardWaitingImport(waiting.id).catch(() => undefined)
     setWaiting(null)
-  }
-
-  const saveInstructions = () => {
-    downloadInstructions(fillImageTags(extractInstructions, null))
-    setSaved(true)
   }
 
   /** Back from a review of the wrong file to the import that waits. */
@@ -1028,25 +1014,14 @@ export function QuestionBankImportDialog({
               />
               <UploadCloud aria-hidden="true" />
               <strong>Drop your test or question file here</strong>
-              <span>
-                or click to choose it. Question files from other tools come straight in, with no AI.
-                A PDF, a Word document or a photo of your test is converted by your AI, and the file
-                it gives back goes here too, as does a Test Parrot file.
-              </span>
+              <span>or click to choose it</span>
             </label>
             {needsConversion ? (
               <div className="bank-import-assist" data-emphasis="true" role="alert">
                 <span>
                   <strong>That file isn’t a Test Parrot file yet.</strong>{' '}
-                  Drop your test here as a PDF or Word document to keep its
-                  pictures, or download these instructions and give them to an AI
-                  along with it — it will produce a file with your questions
-                  and the test itself, ready to drop here.
+                  Drop your test here as a PDF or Word document to convert it.
                 </span>
-                <button type="button" className="primary-button" disabled={busy} onClick={saveInstructions}>
-                  {saved ? <Check aria-hidden="true" /> : <FileText aria-hidden="true" />}
-                  {saved ? 'Downloaded' : 'Download instructions'}
-                </button>
               </div>
             ) : <>
               <SupportedSources />
