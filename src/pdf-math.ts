@@ -1,14 +1,22 @@
-// Mathematics written on the line, for the PDF Export Adapter.
+// Mathematics for the PDF Export Adapter.
 //
-// Print typesets an equation with KaTeX; the PDF adapter draws text with a
-// font and has no typesetter, so it writes an equation the way a test prints
-// one on a single line: a fraction as `a⁄b`, parenthesised where a term needs
-// it, roots, raised and lowered scripts, relations, operators and Greek letters
-// as their symbols, a minus sign as a minus sign, and the commands that only
-// size what follows — `\left`, `\big` — dropped. It is school notation, not all
-// of LaTeX: a command it does not know prints as its name, and never with the
-// backslash or the braces of its arguments, which is how a converted test came
-// to print `dfrac{3x - 4}{2x - 5}` and `-2 le x le 4`.
+// Print typesets an equation with KaTeX. The PDF draws the same equation from
+// MathJax's typesetting of it (`typesetMath`): every glyph, fraction bar,
+// radical and rule an outline, so a fraction stacks and a repeating decimal
+// carries its bar as print shows them — a PDF printed `3⁄5+4⁄15` and
+// `−0.overline3` when it wrote equations on a single line.
+//
+// The equation is also written on the line, invisibly, over what is drawn, so
+// the PDF can be searched and copied from: a fraction as `a⁄b`, parenthesised
+// where a term needs it, roots, raised and lowered scripts, relations,
+// operators and Greek letters as their symbols, a minus sign as a minus sign,
+// and the commands that only size what follows — `\left`, `\big` — dropped. It
+// is school notation, not all of LaTeX: a command it does not know is written
+// as its name, never with the backslash or the braces of its arguments. The
+// same writing is drawn, visibly, for an equation MathJax cannot typeset.
+
+import type { LiteElement } from 'mathjax-full/js/adaptors/lite/Element.js'
+import type { MathJaxTools } from './mathjax'
 
 /** A run of an equation: its text, its size relative to the text around it,
  *  and how far it is raised, in the same relative units. */
@@ -33,6 +41,7 @@ const SYMBOLS: Record<string, string> = {
   int: '∫', partial: '∂', nabla: '∇', lbrace: '{', rbrace: '}',
   langle: '⟨', rangle: '⟩', vert: '|', mid: '|', lvert: '|', rvert: '|',
   lfloor: '⌊', rfloor: '⌋', lceil: '⌈', rceil: '⌉',
+  cong: '≅', ell: 'ℓ',
 }
 
 // Commands that print as their own name, upright, as KaTeX sets them.
@@ -54,7 +63,14 @@ const WORDS = new Set(['text', 'textrm', 'textit', 'textbf', 'mbox'])
 const FACES = new Set([
   'mathrm', 'mathit', 'mathbf', 'mathsf', 'mathtt', 'operatorname',
   'boldsymbol', 'mathbb', 'mathcal',
+  // Accents, bars and boxes, which a line cannot draw over what they mark.
+  'overline', 'underline', 'bar', 'vec', 'hat', 'widehat', 'tilde',
+  'widetilde', 'dot', 'ddot', 'overrightarrow', 'overleftarrow',
+  'overleftrightarrow', 'boxed', 'cancel', 'bcancel', 'xcancel',
 ])
+
+// Commands whose first argument is a colour, not mathematics.
+const COLOURS = new Set(['color', 'textcolor'])
 
 const SPACES: Record<string, string> = {
   ',': ' ', ':': ' ', ';': ' ', ' ': ' ', '!': '', quad: '  ', qquad: '    ',
@@ -171,6 +187,8 @@ export function mathPieces(source: string, scale = 1, rise = 0): MathPiece[] {
         const face = argument(source, index)
         nested(face.inner)
         index = face.end
+      } else if (COLOURS.has(name)) {
+        index = argument(source, index).end
       } else if (IGNORED.has(name)) {
         // `\left.` and `\right.` stand for no delimiter at all.
         if (source[index] === '.') index += 1
@@ -226,4 +244,278 @@ export function mathPieces(source: string, scale = 1, rise = 0): MathPiece[] {
 /** The equation `source` as the plain text it is written as. */
 export function mathText(source: string): string {
   return mathPieces(source).map((piece) => piece.text).join('')
+}
+
+// ---- Typeset ---------------------------------------------------------------
+
+/** An affine map `[a, b, c, d, e, f]`, as PDF and SVG write one. */
+export type Matrix = readonly [number, number, number, number, number, number]
+
+/** A step of a path, every point absolute: a move, a line, a quadratic or
+ *  cubic curve through its control points, or the close of the subpath. */
+export type PathStep =
+  | { op: 'move' | 'line'; to: [number, number] }
+  | { op: 'quadratic'; control: [number, number]; to: [number, number] }
+  | { op: 'cubic'; controls: [number, number, number, number]; to: [number, number] }
+  | { op: 'close' }
+
+/** One mark of a typeset equation, in the coordinates `matrix` maps to the
+ *  equation's own: a path filled or stroked, or text MathJax has no outline
+ *  for. `color` is `currentColor` or what `\color` gave. */
+export type MathMark = (
+  | { kind: 'fill'; path: PathStep[]; matrix: Matrix; color: string }
+  | { kind: 'stroke'; path: PathStep[]; matrix: Matrix; color: string; width: number }
+  | { kind: 'text'; text: string; matrix: Matrix; color: string; size: number }
+) & {
+  /** The boxes it is cut to, as corners in the equation's coordinates:
+   *  MathJax draws part of a stretched glyph in a box that hides the rest. */
+  clips: Clip[]
+}
+
+export type Clip = readonly (readonly [number, number])[]
+
+/** An equation typeset, in ems of its own size: measured from the left of its
+ *  baseline, `y` up, `ascent` above the baseline and `descent` below it. */
+export type TypesetMath = {
+  width: number
+  ascent: number
+  descent: number
+  marks: MathMark[]
+}
+
+/** MathJax's units: a thousand to the em. */
+const UNITS = 1000
+/** The width MathJax's stylesheet gives a table's rules, which the SVG leaves
+ *  unstated. */
+const RULE_WIDTH = 70
+
+function multiply(m: Matrix, n: Matrix): Matrix {
+  return [
+    m[0] * n[0] + m[2] * n[1],
+    m[1] * n[0] + m[3] * n[1],
+    m[0] * n[2] + m[2] * n[3],
+    m[1] * n[2] + m[3] * n[3],
+    m[0] * n[4] + m[2] * n[5] + m[4],
+    m[1] * n[4] + m[3] * n[5] + m[5],
+  ]
+}
+
+/** An SVG `transform`, as the one matrix it applies. */
+function transformOf(value: string | null): Matrix {
+  let matrix: Matrix = [1, 0, 0, 1, 0, 0]
+  for (const [, name, list] of (value ?? '').matchAll(/(\w+)\s*\(([^)]*)\)/g)) {
+    const n = list!.split(/[\s,]+/).filter(Boolean).map(Number)
+    const step: Matrix | null =
+      name === 'translate' ? [1, 0, 0, 1, n[0] ?? 0, n[1] ?? 0]
+      : name === 'scale' ? [n[0] ?? 1, 0, 0, n[1] ?? n[0] ?? 1, 0, 0]
+      : name === 'matrix' && n.length === 6 ? [n[0]!, n[1]!, n[2]!, n[3]!, n[4]!, n[5]!]
+      : name === 'rotate' ? rotation(n[0] ?? 0)
+      : null
+    if (step) matrix = multiply(matrix, step)
+  }
+  return matrix
+}
+
+/** An SVG path's data as absolute steps: `H` and `V` as lines, `T` and `S`
+ *  with the control point they reflect. Arcs, which MathJax's glyphs never
+ *  use, are drawn as lines to their ends. */
+export function pathSteps(data: string): PathStep[] {
+  const steps: PathStep[] = []
+  const tokens = data.match(/-?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?|[A-Za-z]/gi) ?? []
+  let index = 0
+  let command = ''
+  let x = 0
+  let y = 0
+  let startX = 0
+  let startY = 0
+  // The control point a smooth curve reflects, when the step before was a
+  // curve of its kind.
+  let quadratic: [number, number] | null = null
+  let cubic: [number, number] | null = null
+  const next = () => Number(tokens[index++])
+  const point = (relative: boolean): [number, number] => {
+    const px = next()
+    const py = next()
+    return relative ? [x + px, y + py] : [px, py]
+  }
+  while (index < tokens.length) {
+    if (/[A-Za-z]/.test(tokens[index]!)) command = tokens[index++]!
+    else if (!command) break
+    const relative = command === command.toLowerCase()
+    const upper = command.toUpperCase()
+    let nextQuadratic: [number, number] | null = null
+    let nextCubic: [number, number] | null = null
+    if (upper === 'Z') {
+      steps.push({ op: 'close' })
+      x = startX
+      y = startY
+      command = ''
+    } else if (upper === 'M') {
+      ;[x, y] = point(relative)
+      ;[startX, startY] = [x, y]
+      steps.push({ op: 'move', to: [x, y] })
+      // Pairs after a move's first are lines.
+      command = relative ? 'l' : 'L'
+    } else if (upper === 'L' || upper === 'H' || upper === 'V') {
+      if (upper === 'L') [x, y] = point(relative)
+      else if (upper === 'H') x = relative ? x + next() : next()
+      else y = relative ? y + next() : next()
+      steps.push({ op: 'line', to: [x, y] })
+    } else if (upper === 'Q' || upper === 'T') {
+      const control: [number, number] = upper === 'Q'
+        ? point(relative)
+        : quadratic ? [2 * x - quadratic[0], 2 * y - quadratic[1]] : [x, y]
+      ;[x, y] = point(relative)
+      steps.push({ op: 'quadratic', control, to: [x, y] })
+      nextQuadratic = control
+    } else if (upper === 'C' || upper === 'S') {
+      const first: [number, number] = upper === 'C'
+        ? point(relative)
+        : cubic ? [2 * x - cubic[0], 2 * y - cubic[1]] : [x, y]
+      const second = point(relative)
+      ;[x, y] = point(relative)
+      steps.push({ op: 'cubic', controls: [...first, ...second], to: [x, y] })
+      nextCubic = second
+    } else if (upper === 'A') {
+      index += 5
+      ;[x, y] = point(relative)
+      steps.push({ op: 'line', to: [x, y] })
+    } else break
+    quadratic = nextQuadratic
+    cubic = nextCubic
+  }
+  return steps
+}
+
+function apply(m: Matrix, x: number, y: number): [number, number] {
+  return [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]]
+}
+
+function rotation(degrees: number): Matrix {
+  const radians = degrees * Math.PI / 180
+  return [Math.cos(radians), Math.sin(radians), -Math.sin(radians), Math.cos(radians), 0, 0]
+}
+
+/** The equation `source` typeset, or null when MathJax cannot typeset it. */
+export function typesetMath(
+  tools: MathJaxTools,
+  source: string,
+  display: boolean,
+): TypesetMath | null {
+  let svg: LiteElement
+  try {
+    svg = tools.svg(source, display)
+  } catch {
+    return null
+  }
+  const { adaptor } = tools
+  const box: number[] = String(adaptor.getAttribute(svg, 'viewBox') ?? '').split(/\s+/).map(Number)
+  if (box.length !== 4 || box.some((value) => !Number.isFinite(value))) return null
+  const [left, top, width, height] = box as [number, number, number, number]
+  const marks: MathMark[] = []
+  const number = (node: LiteElement, name: string, fallback = 0) => {
+    const value = Number.parseFloat(adaptor.getAttribute(node, name) ?? '')
+    return Number.isFinite(value) ? value : fallback
+  }
+
+  const visit = (
+    node: LiteElement,
+    outer: Matrix,
+    fill: string,
+    stroke: string,
+    clips: Clip[],
+  ) => {
+    const matrix = multiply(outer, transformOf(adaptor.getAttribute(node, 'transform')))
+    fill = adaptor.getAttribute(node, 'fill') ?? fill
+    stroke = adaptor.getAttribute(node, 'stroke') ?? stroke
+    switch (adaptor.kind(node)) {
+      case 'path': {
+        const path = pathSteps(String(adaptor.getAttribute(node, 'd') ?? ''))
+        if (path.length > 0 && fill !== 'none') marks.push({ kind: 'fill', path, matrix, color: fill, clips })
+        return
+      }
+      case 'svg': {
+        // A box of its own at `x`, `y`, its view box scaled into it, and what
+        // falls outside the box hidden.
+        const x = number(node, 'x')
+        const y = number(node, 'y')
+        const boxWidth = number(node, 'width')
+        const boxHeight = number(node, 'height')
+        const corners: Clip = [
+          apply(matrix, x, y),
+          apply(matrix, x + boxWidth, y),
+          apply(matrix, x + boxWidth, y + boxHeight),
+          apply(matrix, x, y + boxHeight),
+        ]
+        const view = String(adaptor.getAttribute(node, 'viewBox') ?? '').split(/\s+/).map(Number)
+        let inner = multiply(matrix, [1, 0, 0, 1, x, y])
+        if (view.length === 4 && view.every(Number.isFinite) && view[2]! > 0 && view[3]! > 0) {
+          inner = multiply(inner, [boxWidth / view[2]!, 0, 0, boxHeight / view[3]!, 0, 0])
+          inner = multiply(inner, [1, 0, 0, 1, -view[0]!, -view[1]!])
+        }
+        for (const child of adaptor.childNodes(node)) {
+          if (adaptor.kind(child as LiteElement) !== '#text') {
+            visit(child as LiteElement, inner, fill, stroke, [...clips, corners])
+          }
+        }
+        return
+      }
+      case 'rect': {
+        // A link's hit box, and the yellow behind an error, are not ink.
+        if (adaptor.getAttribute(node, 'data-hitbox') || adaptor.getAttribute(node, 'data-background')) return
+        const x = number(node, 'x')
+        const y = number(node, 'y')
+        const right = x + number(node, 'width')
+        const bottom = y + number(node, 'height')
+        const path: PathStep[] = [
+          { op: 'move', to: [x, y] },
+          { op: 'line', to: [right, y] },
+          { op: 'line', to: [right, bottom] },
+          { op: 'line', to: [x, bottom] },
+          { op: 'close' },
+        ]
+        if (fill !== 'none') marks.push({ kind: 'fill', path, matrix, color: fill, clips })
+        else if (stroke !== 'none') {
+          marks.push({
+            kind: 'stroke', path, matrix, color: stroke, width: number(node, 'stroke-width', RULE_WIDTH), clips,
+          })
+        }
+        return
+      }
+      case 'line': {
+        if (stroke === 'none') return
+        const path: PathStep[] = [
+          { op: 'move', to: [number(node, 'x1'), number(node, 'y1')] },
+          { op: 'line', to: [number(node, 'x2'), number(node, 'y2')] },
+        ]
+        marks.push({
+          kind: 'stroke', path, matrix, color: stroke, width: number(node, 'stroke-width', RULE_WIDTH), clips,
+        })
+        return
+      }
+      case 'text': {
+        const text = adaptor.textContent(node)
+        if (text) marks.push({ kind: 'text', text, matrix, color: fill, size: number(node, 'font-size', UNITS), clips })
+        return
+      }
+      default:
+        for (const child of adaptor.childNodes(node)) {
+          if (adaptor.kind(child as LiteElement) !== '#text') visit(child as LiteElement, matrix, fill, stroke, clips)
+        }
+    }
+  }
+
+  // The `<svg>` is laid out downward from its view box's corner, its baseline
+  // at y = 0; the equation's own coordinates are ems from the left of that
+  // baseline, upward.
+  const root: Matrix = [1 / UNITS, 0, 0, -1 / UNITS, -left / UNITS, 0]
+  for (const child of adaptor.childNodes(svg)) {
+    visit(child as LiteElement, root, 'currentColor', 'currentColor', [])
+  }
+  return {
+    width: width / UNITS,
+    ascent: -top / UNITS,
+    descent: (top + height) / UNITS,
+    marks,
+  }
 }
