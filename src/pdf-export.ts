@@ -9,11 +9,28 @@
 import fontkit from '@pdf-lib/fontkit'
 import {
   AFRelationship,
+  appendBezierCurve,
+  appendQuadraticCurve,
+  clip,
+  closePath,
+  concatTransformationMatrix,
+  endPath,
+  fill,
   PDFArray,
   PDFDocument,
   PDFName,
+  lineTo,
+  moveTo,
   PDFString,
+  popGraphicsState,
+  pushGraphicsState,
   rgb,
+  setFillingColor,
+  setLineWidth,
+  setStrokingColor,
+  stroke,
+  type Color,
+  type PDFOperator,
   type PDFFont,
   type PDFImage,
   type PDFPage,
@@ -48,7 +65,14 @@ import {
 import { DIFFICULTY_LABELS, WORK_SPACE_LINE_PITCH } from './exam'
 import { bodyScale, pointsOf, sectionHeadingPoints, titlePoints } from './export-typography'
 import type { ProseMirrorJSON } from './question-doc'
-import { mathPieces as writtenMath } from './pdf-math'
+import { mathJaxTools } from './mathjax'
+import {
+  mathPieces as writtenMath,
+  mathText,
+  typesetMath,
+  type PathStep,
+  type TypesetMath,
+} from './pdf-math'
 import {
   QUESTION_BANK_ATTACHMENT_DESCRIPTION,
   QUESTION_BANK_ATTACHMENT_NAME,
@@ -66,6 +90,8 @@ const SHEET_BODY_LINE = 16.3
 let BODY_SIZE = SHEET_BODY_SIZE
 let BODY_LINE = SHEET_BODY_LINE
 const SMALL_SIZE = pointsOf('small')
+/** KaTeX sets an equation at 1.21 times the size of the text around it. */
+const MATH_SIZE = 1.21
 const HEADING_SIZE = pointsOf('sectionTitle')
 const ANSWER_KEY_HEADING_SIZE = pointsOf('answerKeyHeading')
 const INK = rgb(0.2, 0.165, 0.14)
@@ -143,6 +169,8 @@ type DrawContext = {
   width: number
   bottom: number
   pageNumber: number
+  /** An equation typeset, or null when MathJax cannot typeset it. */
+  typeset: (source: string, display: boolean) => TypesetMath | null
 }
 
 type InlinePiece = {
@@ -152,6 +180,11 @@ type InlinePiece = {
   href?: string
   rise?: number
   strike?: boolean
+  /** The source of an inline equation, which `text` stands in for until the
+   *  equation is typeset, */
+  math?: string
+  /** and the equation typeset. */
+  typeset?: TypesetMath
 }
 
 function attrsOf(node: ProseMirrorJSON): Record<string, unknown> {
@@ -253,7 +286,7 @@ function textPieces(node: ProseMirrorJSON): InlinePiece[] {
       return
     }
     if (current.type === 'math_inline') {
-      pieces.push(...mathPieces(stringOf(attrsOf(current).value)))
+      pieces.push({ text: '', font: 'regular', size: BODY_SIZE, math: stringOf(attrsOf(current).value) })
       return
     }
     if (current.type === 'image') {
@@ -266,14 +299,128 @@ function textPieces(node: ProseMirrorJSON): InlinePiece[] {
   return pieces
 }
 
-/** An equation as runs of body text: see `pdf-math.ts`. */
-function mathPieces(source: string): InlinePiece[] {
+/** An equation written on the line as runs of text, for one MathJax cannot
+ *  typeset: see `pdf-math.ts`. */
+function writtenMathPieces(source: string, size: number): InlinePiece[] {
   return writtenMath(source).map((piece) => ({
     text: piece.text,
     font: 'regular',
-    size: BODY_SIZE * piece.scale,
-    rise: BODY_SIZE * piece.rise,
+    size: size * piece.scale,
+    rise: size * piece.rise,
   }))
+}
+
+/** A named `\color`, or a hex one; anything else prints in ink. */
+const MATH_COLORS: Record<string, [number, number, number]> = {
+  black: [0, 0, 0], white: [1, 1, 1], red: [1, 0, 0], green: [0, 0.5, 0],
+  blue: [0, 0, 1], cyan: [0, 1, 1], magenta: [1, 0, 1], yellow: [1, 1, 0],
+  orange: [1, 0.65, 0], purple: [0.5, 0, 0.5], brown: [0.65, 0.16, 0.16],
+  gray: [0.5, 0.5, 0.5], grey: [0.5, 0.5, 0.5],
+}
+
+function mathColor(value: string): Color {
+  const named = MATH_COLORS[value.toLowerCase()]
+  if (named) return rgb(...named)
+  const hex = /^#([\da-f]{3}|[\da-f]{6})$/i.exec(value)?.[1]
+  if (!hex) return INK
+  const full = hex.length === 3 ? [...hex].map((digit) => digit + digit).join('') : hex
+  return rgb(
+    Number.parseInt(full.slice(0, 2), 16) / 255,
+    Number.parseInt(full.slice(2, 4), 16) / 255,
+    Number.parseInt(full.slice(4, 6), 16) / 255,
+  )
+}
+
+/** Draw a typeset equation with the left of its baseline at `x`, `baseline`,
+ *  set at KaTeX's size for text of `size`; and write it over itself,
+ *  invisibly, stretched to its width, so it can be searched and copied. */
+function drawMath(
+  context: DrawContext,
+  typeset: TypesetMath,
+  source: string,
+  x: number,
+  baseline: number,
+  size: number,
+): void {
+  const { page } = context
+  const scale = size * MATH_SIZE
+  for (const mark of typeset.marks) {
+    const color = mathColor(mark.color)
+    page.pushOperators(
+      pushGraphicsState(),
+      concatTransformationMatrix(scale, 0, 0, scale, x, baseline),
+      ...mark.clips.flatMap((corners) => [
+        ...corners.map((corner, index) => (index === 0 ? moveTo : lineTo)(...corner)),
+        closePath(),
+        clip(),
+        endPath(),
+      ]),
+      concatTransformationMatrix(...mark.matrix),
+    )
+    if (mark.kind === 'fill') {
+      page.pushOperators(setFillingColor(color), ...pathOperators(mark.path), fill())
+    }
+    if (mark.kind === 'stroke') {
+      page.pushOperators(
+        setStrokingColor(color),
+        setLineWidth(mark.width),
+        ...pathOperators(mark.path),
+        stroke(),
+      )
+    }
+    if (mark.kind === 'text') {
+      assertSupported(mark.text, context.fonts.regular)
+      // pdf-lib sets a line of text `y` up; MathJax's is `y` down.
+      page.pushOperators(concatTransformationMatrix(1, 0, 0, -1, 0, 0))
+      page.drawText(mark.text, { x: 0, y: 0, size: mark.size, font: context.fonts.regular, color })
+    }
+    page.pushOperators(popGraphicsState())
+  }
+
+  const font = context.fonts.regular
+  const supported = new Set(font.getCharacterSet())
+  const written = [...mathText(source)]
+    .filter((character) => supported.has(character.codePointAt(0)!))
+    .join('')
+    .trim()
+  const writtenWidth = font.widthOfTextAtSize(written, size)
+  if (!written || writtenWidth <= 0) return
+  page.pushOperators(
+    pushGraphicsState(),
+    concatTransformationMatrix(typeset.width * scale / writtenWidth, 0, 0, 1, x, baseline),
+  )
+  page.drawText(written, { x: 0, y: 0, size, font, opacity: 0 })
+  page.pushOperators(popGraphicsState())
+}
+
+function pathOperators(path: readonly PathStep[]): PDFOperator[] {
+  return path.map((step) => {
+    switch (step.op) {
+      case 'move': return moveTo(...step.to)
+      case 'line': return lineTo(...step.to)
+      case 'quadratic': return appendQuadraticCurve(...step.control, ...step.to)
+      case 'cubic': return appendBezierCurve(...step.controls, ...step.to)
+      case 'close': return closePath()
+    }
+  })
+}
+
+/** An equation set on its own, centred in its column, as print sets it. */
+function drawDisplayMath(context: DrawContext, source: string, x: number, width: number): void {
+  const typeset = context.typeset(source, true)
+  if (!typeset) {
+    drawInline(context, writtenMathPieces(source, BODY_SIZE), { x: x + 24, width: width - 48 })
+    context.y -= 4
+    return
+  }
+  const size = BODY_SIZE * MATH_SIZE
+  const gap = BODY_SIZE / 2
+  const height = gap + (typeset.ascent + typeset.descent) * size + gap
+  ensureRoom(context, height)
+  const drawn = typeset.width * size
+  const left = x + Math.max(0, (width - drawn) / 2)
+  drawMath(context, typeset, source, left, context.y - gap - typeset.ascent * size, BODY_SIZE)
+  context.y -= height
 }
 
 function splitPiece(piece: InlinePiece, font: PDFFont, maxWidth: number): InlinePiece[] {
@@ -303,6 +450,9 @@ function splitPiece(piece: InlinePiece, font: PDFFont, maxWidth: number): Inline
   return result
 }
 
+/** A piece of a line, where it starts and how wide it is. */
+type PlacedPiece = { piece: InlinePiece; x: number; width: number }
+
 function drawInline(
   context: DrawContext,
   pieces: readonly InlinePiece[],
@@ -313,62 +463,102 @@ function drawInline(
   const line = options.line ?? BODY_LINE
   const normalized = pieces.flatMap((piece) => {
     const updated = options.size ? { ...piece, size: options.size } : piece
+    if (updated.math !== undefined) {
+      const typeset = context.typeset(updated.math, false)
+      if (typeset) return [{ ...updated, typeset }]
+      return writtenMathPieces(updated.math, updated.size)
+        .flatMap((written) => splitPiece(written, context.fonts[written.font], width))
+    }
     return splitPiece(updated, context.fonts[updated.font], width)
   })
+
+  // Break the pieces into lines first: a line is as tall as the tallest
+  // equation on it needs.
+  const lines: PlacedPiece[][] = [[]]
   let x = x0
-  let lines = 1
-  const nextLine = () => {
-    lines += 1
-    x = x0
-  }
   for (const piece of normalized) {
-    if (piece.text === '\n') {
-      nextLine()
+    if (piece.text === '\n' && !piece.typeset) {
+      lines.push([])
+      x = x0
       continue
     }
-    if (piece.text.startsWith('\uFFFC')) {
-      const source = piece.text.slice(1)
-      const loaded = context.images.get(source)
-      if (!loaded) throw new RequiredMediaError(null)
-      const height = line * 0.85
-      const pieceWidth = height * loaded.source.width / loaded.source.height
-      if (x > x0 && x + pieceWidth > x0 + width) nextLine()
-      ensureRoom(context, lines * line)
-      context.page.drawImage(loaded.image, {
-        x,
-        y: context.y - (lines - 1) * line - height,
-        width: pieceWidth,
-        height,
-      })
-      x += pieceWidth
-      continue
+    const pieceWidth = widthOf(context, piece, line)
+    const visible = piece.typeset !== undefined || piece.text.trim() !== ''
+    if (x > x0 && x + pieceWidth > x0 + width && visible) {
+      lines.push([])
+      x = x0
     }
-    const font = context.fonts[piece.font]
-    const text = piece.text
-    const pieceWidth = font.widthOfTextAtSize(text, piece.size)
-    if (x > x0 && x + pieceWidth > x0 + width && text.trim()) nextLine()
-    if (x === x0 && /^\s+$/.test(text)) continue
-    ensureRoom(context, lines * line)
-    const y = context.y - (lines - 1) * line - piece.size + (piece.rise ?? 0)
-    context.page.drawText(text, {
-      x,
-      y,
-      font,
-      size: piece.size,
-      color: piece.href ? LINK : INK,
-    })
-    if (piece.href) addLink(context, piece.href, x, y, pieceWidth, piece.size + 2)
-    if (piece.strike) {
-      context.page.drawLine({
-        start: { x, y: y + piece.size * 0.45 },
-        end: { x: x + pieceWidth, y: y + piece.size * 0.45 },
-        thickness: 0.6,
-        color: INK,
-      })
-    }
+    if (x === x0 && !visible) continue
+    lines.at(-1)!.push({ piece, x, width: pieceWidth })
     x += pieceWidth
   }
-  context.y -= lines * line
+
+  const top = context.y
+  for (const placed of lines) {
+    // Text sits `size` below the top of its line, with the rest of the line
+    // below its baseline; an equation that reaches past either pushes the
+    // line open by as much.
+    const above = Math.max(0, ...placed.map(({ piece }) => piece.typeset
+      ? piece.typeset.ascent * piece.size * MATH_SIZE - piece.size
+      : 0))
+    const below = Math.max(0, ...placed.map(({ piece }) => piece.typeset
+      ? piece.typeset.descent * piece.size * MATH_SIZE - (line - piece.size)
+      : 0))
+    const height = above + line + below
+    if (placed.length > 0) ensureRoom(context, top - context.y + height)
+    const lineTop = context.y - above
+    for (const { piece, x, width: pieceWidth } of placed) drawPiece(context, piece, x, pieceWidth, lineTop, line)
+    context.y -= height
+  }
+}
+
+function widthOf(context: DrawContext, piece: InlinePiece, line: number): number {
+  if (piece.typeset) return piece.typeset.width * piece.size * MATH_SIZE
+  if (piece.text.startsWith('\uFFFC')) {
+    const loaded = context.images.get(piece.text.slice(1))
+    if (!loaded) throw new RequiredMediaError(null)
+    return line * 0.85 * loaded.source.width / loaded.source.height
+  }
+  return context.fonts[piece.font].widthOfTextAtSize(piece.text, piece.size)
+}
+
+/** One piece of a line whose text starts `line` below `lineTop`. */
+function drawPiece(
+  context: DrawContext,
+  piece: InlinePiece,
+  x: number,
+  pieceWidth: number,
+  lineTop: number,
+  line: number,
+): void {
+  if (piece.typeset) {
+    drawMath(context, piece.typeset, piece.math ?? '', x, lineTop - piece.size, piece.size)
+    return
+  }
+  if (piece.text.startsWith('\uFFFC')) {
+    const loaded = context.images.get(piece.text.slice(1))!
+    const height = line * 0.85
+    context.page.drawImage(loaded.image, { x, y: lineTop - height, width: pieceWidth, height })
+    return
+  }
+  const font = context.fonts[piece.font]
+  const y = lineTop - piece.size + (piece.rise ?? 0)
+  context.page.drawText(piece.text, {
+    x,
+    y,
+    font,
+    size: piece.size,
+    color: piece.href ? LINK : INK,
+  })
+  if (piece.href) addLink(context, piece.href, x, y, pieceWidth, piece.size + 2)
+  if (piece.strike) {
+    context.page.drawLine({
+      start: { x, y: y + piece.size * 0.45 },
+      end: { x: x + pieceWidth, y: y + piece.size * 0.45 },
+      thickness: 0.6,
+      color: INK,
+    })
+  }
 }
 
 function drawTextLine(
@@ -456,17 +646,11 @@ function drawBlocks(
         break
       case 'code_block': {
         const source = childrenOf(node).map((child) => stringOf(child.text)).join('')
-        const displayMath = stringOf(attrs.language).toLowerCase() === 'latex'
-        drawInline(
-          context,
-          displayMath
-            ? mathPieces(source)
-            : [{ text: source, font: 'mono', size: BODY_SIZE }],
-          {
-            x: displayMath ? x + 24 : x,
-            width: displayMath ? width - 48 : width,
-          },
-        )
+        if (stringOf(attrs.language).toLowerCase() === 'latex') {
+          drawDisplayMath(context, source, x, width)
+          break
+        }
+        drawInline(context, [{ text: source, font: 'mono', size: BODY_SIZE }], { x, width })
         context.y -= 4
         break
       }
@@ -989,6 +1173,29 @@ async function embedImages(
   return embedded
 }
 
+/** Whether a plan, or any part of one, holds an equation. */
+function holdsMath(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(holdsMath)
+  if (typeof value !== 'object' || value === null) return false
+  const node = value as ProseMirrorJSON
+  if (node.type === 'math_inline') return true
+  if (node.type === 'code_block' && stringOf(attrsOf(node).language).toLowerCase() === 'latex') return true
+  return Object.values(node).some(holdsMath)
+}
+
+/** Each equation the plans draw typeset once, MathJax loaded only for plans
+ *  that have one. */
+async function mathTypesetter(plans: readonly LayoutPlan[]): Promise<DrawContext['typeset']> {
+  if (!holdsMath(plans)) return () => null
+  const tools = await mathJaxTools()
+  const typeset = new Map<string, TypesetMath | null>()
+  return (source, display) => {
+    const key = `${display ? 'display' : 'inline'}:${source}`
+    if (!typeset.has(key)) typeset.set(key, typesetMath(tools, source, display))
+    return typeset.get(key)!
+  }
+}
+
 async function createPdf(
   plans: readonly LayoutPlan[],
   media: MediaLoader,
@@ -1021,6 +1228,7 @@ async function createPdf(
     if (missing) throw new RequiredMediaError(questionNumberForMedia(plans, missing.src))
   }
   const images = await embedImages(document, loaded)
+  const typeset = await mathTypesetter(plans)
   document.setTitle(plans[0]?.title ?? '')
   document.setCreator('Test Parrot')
 
@@ -1049,6 +1257,7 @@ async function createPdf(
           width: pt(plan.pageSize.contentWidth),
           bottom: margin + footerHeight,
           pageNumber: planned.number,
+          typeset,
         }
         drawFurniture(context, planned.furniture, top, top - headerHeight)
         context.y = top - headerHeight

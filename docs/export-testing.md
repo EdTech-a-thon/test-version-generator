@@ -144,14 +144,18 @@ The implementations are:
   cells' widths.
 - `src/pdf-export.test.ts` — PDF pages, metadata, links, media, embedded fonts,
   unsupported-character rejection, overflow rejection, every matching
-  prompt and Word Bank answer on its planned page, school math notation written
-  as notation, a Blockquote's black border, and a Side-by-Side's pictures beside
+  prompt and Word Bank answer on its planned page, equations drawn as outlines
+  with school notation as their searchable text, a Blockquote's black border,
+  and a Side-by-Side's pictures beside
   one another, centred in their Panels.
 - `src/export-typography.test.ts` — one type scale (`src/export-typography.ts`)
   held against print's stylesheet, the DOCX document defaults and heading
   styles, the DOCX identity line's tab stops, and the PDF's drawn sizes.
   Parity ignores size by design, so this is where a DOCX that falls back to
   Word's own 10pt defaults fails.
+- `src/pdf-math.test.ts` — the PDF's typeset equations: stacked fractions,
+  bars over repeating decimals, stretched glyphs cut to their box, and the
+  SVG path data they are drawn from.
 - `src/doc-view.test.ts` — authored whitespace in the read-only view.
 
 The Playwright suite covers the browser workflow and real IndexedDB behavior:
@@ -214,10 +218,14 @@ environment record. Successful comparisons remove disposable converter state.
 
 - Office Math stores the authored LaTeX source in a native equation object; it
   does not translate LaTeX into fully structured OMML.
-- The PDF adapter has no typesetter: it writes mathematics on the line
-  (`src/pdf-math.ts`) — a fraction as `(3x − 4)⁄(2x − 5)`, relations and Greek
-  letters as their symbols — rather than stacking fractions as print's KaTeX
-  does. A command it does not know prints as its name.
+- The PDF adapter draws each equation from MathJax's typesetting of it
+  (`src/pdf-math.ts`) — glyph outlines, fraction bars, radicals and rules —
+  where print typesets with KaTeX. Both set TeX's own fonts and metrics at
+  KaTeX's 1.21em, so they agree closely but are not the same engine. A line
+  holding a tall equation grows to fit it. Over each drawn equation the PDF
+  writes it again invisibly, on the line — a fraction as `(2x + 1)⁄(x − 3)` —
+  so it can be searched and copied; an equation MathJax cannot typeset is
+  drawn written that way instead.
 - The PDF word comparison cannot adjudicate ruled blanks or typeset math; both
   remain covered structurally.
 - Export History is browser-local. Persistent-storage permission strengthens
