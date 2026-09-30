@@ -40,10 +40,13 @@ const PIXEL_ASSET: QuestionBankRecord['media'][number] = {
   bytes: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
 }
 
+// 0.7.0 is the last version to carry a Media Asset's bytes inline as base64.
+// Files already shared are 0.7.0, so every rule is checked on it; the 0.8.0
+// zip, whose pictures are files, is checked below against the same rules.
 function baseRecord(): QuestionBankRecord {
   return {
     format: QUESTION_BANK_FORMAT,
-    formatVersion: QUESTION_BANK_FORMAT_VERSION,
+    formatVersion: '0.7.0' as typeof QUESTION_BANK_FORMAT_VERSION,
     generator: { name: 'Independent Generator', version: '9.4.2' },
     requiredFeatures: [],
     bank: {
@@ -70,23 +73,23 @@ function multipartQuestion(): QuestionBankRecordQuestion {
   return {
     id: 'q1',
     type: 'multipart',
-    stem: paragraph('The power of the [Ottoman] Empire was waning by 1683 …'),
+    stem: paragraph('The power of the Kingdom of Aldmere was fading by 1450 …'),
     difficulty: 'medium',
-    topics: ['Ottoman Empire'],
+    topics: ['Kingdom of Aldmere'],
     parts: [
       {
         id: 'q1-s1',
         type: 'multiple-choice',
-        stem: paragraph('Which region was controlled by the Ottoman Empire in 1683?'),
+        stem: paragraph('Which region was controlled by the Kingdom of Aldmere in 1450?'),
         choices: [
-          { id: 'q1-s1-c1', content: paragraph('East Asia'), correct: false },
-          { id: 'q1-s1-c2', content: paragraph('Middle East'), correct: true },
+          { id: 'q1-s1-c1', content: paragraph('Eastern Forests'), correct: false },
+          { id: 'q1-s1-c2', content: paragraph('Northern Coast'), correct: true },
         ],
       },
       {
         id: 'q1-s2',
         type: 'short-answer',
-        stem: paragraph('Identify an issue the empire faced.'),
+        stem: paragraph('Identify an issue the kingdom faced.'),
         suggestedAnswer: paragraph('Trade routes moved to the sea.'),
       },
     ],
@@ -113,6 +116,41 @@ async function pdfWith(...attachments: { name: string; description: string; byte
     })
   }
   return pdf.save({ useObjectStreams: false })
+}
+
+// A JPEG as a phone camera writes one: an EXIF Orientation, the frame's stored
+// size, then scan data, padded to make a big photo.
+function photoJpeg(options: { stored: { width: number; height: number }; orientation: number; padding?: number }): Uint8Array {
+  const tiff = new DataView(new ArrayBuffer(26))
+  tiff.setUint16(0, 0x4d4d)
+  tiff.setUint16(2, 42)
+  tiff.setUint32(4, 8)
+  tiff.setUint16(8, 1)
+  tiff.setUint16(10, 0x0112)
+  tiff.setUint16(12, 3)
+  tiff.setUint32(14, 1)
+  tiff.setUint16(18, options.orientation)
+  const exif = [...encoder.encode('Exif'), 0, 0, ...new Uint8Array(tiff.buffer)]
+  const app1 = [0xff, 0xe1, (exif.length + 2) >> 8, (exif.length + 2) & 0xff, ...exif]
+  const { width, height } = options.stored
+  const sof = [0xff, 0xc0, 0x00, 0x0b, 8, height >> 8, height & 0xff, width >> 8, width & 0xff, 1, 1, 0x11, 0]
+  const head = Uint8Array.from([0xff, 0xd8, ...app1, ...sof, 0xff, 0xda, 0x00, 0x02])
+  const bytes = new Uint8Array(head.length + (options.padding ?? 0) + 2)
+  bytes.set(head)
+  bytes.set([0xff, 0xd9], bytes.length - 2)
+  return bytes
+}
+
+async function recordWithPicture(data: Uint8Array, declared: { width: number; height: number }) {
+  const digest = Array.from(
+    new Uint8Array(await crypto.subtle.digest('SHA-256', data)),
+    (byte) => byte.toString(16).padStart(2, '0'),
+  ).join('')
+  const source = baseRecord() as QuestionBankRecord & Record<string, unknown>
+  const id = `sha256:${digest}`
+  source.media = [{ id, mimeType: 'image/jpeg', ...declared, bytes: Buffer.from(data).toString('base64') }]
+  ;(source.bank.questions[0]!.stem.content as unknown[]) = [{ type: 'block-image', asset: id }]
+  return source
 }
 
 function limits(overrides: Partial<QuestionBankImportLimits>): QuestionBankImportLimits {
@@ -218,6 +256,7 @@ describe('hostile Question Bank File inspection', () => {
       '0.5.0',
       '0.6.0',
       '0.7.0',
+      '0.8.0',
     ])
     expect(DEFAULT_QUESTION_BANK_IMPORT_LIMITS).toEqual({
       pdfBytes: 100 * 1024 * 1024,
@@ -243,7 +282,7 @@ describe('hostile Question Bank File inspection', () => {
     expect(proposal.summary).toMatchObject({
       bankName: 'Portable chemistry',
       questionCounts: { 'multiple-choice': 1, 'true-false': 0, matching: 0, 'short-answer': 0 },
-      formatVersion: QUESTION_BANK_FORMAT_VERSION,
+      formatVersion: '0.7.0',
     })
     expect(proposal.record.generator.name).toBe('Independent Generator')
     expect(JSON.stringify(proposal.record)).not.toContain('future')
@@ -251,17 +290,17 @@ describe('hostile Question Bank File inspection', () => {
 
   test('reports the file version and exact supported versions before semantic validation', async () => {
     const source = baseRecord() as QuestionBankRecord & Record<string, unknown>
-    source.formatVersion = '0.8.0'
+    source.formatVersion = '0.9.0'
     source.requiredFeatures = ['also-unknown']
     await rejected(
       inspectQuestionBankRecord(bytesOf(source)),
       'unsupported-version',
-      '0.8.0',
+      '0.9.0',
     )
     await rejected(
       inspectQuestionBankRecord(bytesOf(source)),
       'unsupported-version',
-      '0.1.0, 0.2.0, 0.3.0, 0.4.0, 0.5.0, 0.6.0, 0.7.0',
+      '0.1.0, 0.2.0, 0.3.0, 0.4.0, 0.5.0, 0.6.0, 0.7.0, 0.8.0',
     )
   })
 
@@ -452,7 +491,7 @@ describe('hostile Question Bank File inspection', () => {
     expect(proposal.summary.questionCounts.multipart).toBe(1)
     expect(proposal.summary.questionsWithoutCorrectAnswer).toBe(0)
     const [imported] = importedQuestionsFromRecord(proposal.record)
-    expect(imported).toMatchObject({ type: 'multipart', difficulty: 'medium', topics: ['Ottoman Empire'] })
+    expect(imported).toMatchObject({ type: 'multipart', difficulty: 'medium', topics: ['Kingdom of Aldmere'] })
     // The Short Answer Part's Suggested Answer stays in the document, beside
     // its stem, rather than becoming the Multipart question's own.
     expect(imported!.suggestedAnswer).toBeUndefined()
@@ -464,7 +503,7 @@ describe('hostile Question Bank File inspection', () => {
     expect(JSON.stringify(imported)).not.toContain('q1-s')
     const ids = [imported!.id, ...parts.map((part) => part.id), ...parts[0]!.choices.map((choice) => choice.id)]
     expect(new Set(ids).size).toBe(ids.length)
-    expect(JSON.stringify(imported!.doc)).toContain('The power of the [Ottoman] Empire was waning by 1683')
+    expect(JSON.stringify(imported!.doc)).toContain('The power of the Kingdom of Aldmere was fading by 1450')
   })
 
   test('reads a Multipart question with no Parts as incomplete rather than invalid', async () => {
@@ -527,7 +566,7 @@ describe('hostile Question Bank File inspection', () => {
       'at most one correct choice',
     )
     part.choices![0]!.correct = false
-    part.suggestedAnswer = paragraph('Middle East')
+    part.suggestedAnswer = paragraph('Northern Coast')
     await rejected(
       inspectQuestionBankRecord(bytesOf(source)),
       'invalid-question',
@@ -810,6 +849,25 @@ describe('hostile Question Bank File inspection', () => {
     await rejected(inspectQuestionBankRecord(bytesOf(source)), 'invalid-media', 'malformed base64')
   })
 
+  test('accepts a phone photo whose base64 runs to millions of characters', async () => {
+    // A 4.5 MB photo is about 6 million base64 characters, enough to overflow
+    // a backtracking check.
+    const source = await recordWithPicture(photoJpeg({ stored: { width: 40, height: 30 }, orientation: 1, padding: 4_500_000 }), { width: 40, height: 30 })
+    await expect(inspectQuestionBankRecord(bytesOf(source))).resolves.toMatchObject({ summary: { mediaAssets: 1 } })
+  })
+
+  test('measures a turned camera JPEG upright, as export declares it', async () => {
+    // Orientation 6 stores the pixels sideways: 40 by 30 on disk, 30 by 40 seen.
+    const turned = photoJpeg({ stored: { width: 40, height: 30 }, orientation: 6 })
+    await expect(inspectQuestionBankRecord(bytesOf(await recordWithPicture(turned, { width: 30, height: 40 }))))
+      .resolves.toMatchObject({ summary: { mediaAssets: 1 } })
+    await rejected(
+      inspectQuestionBankRecord(bytesOf(await recordWithPicture(turned, { width: 40, height: 30 }))),
+      'invalid-media',
+      'dimensions do not match',
+    )
+  })
+
   test('checks Question count, semantic node count, and nesting exactly at and immediately over each configured limit', async () => {
     const source = baseRecord()
     source.bank.questions.push({ id: 'q2', type: 'short-answer', stem: paragraph('Second') })
@@ -829,7 +887,7 @@ describe('hostile Question Bank File inspection', () => {
 })
 
 describe('a picture’s Authored Image Size and Picture Crop', () => {
-  const pictured = (image: Record<string, unknown>, version = QUESTION_BANK_FORMAT_VERSION) => {
+  const pictured = (image: Record<string, unknown>, version = '0.7.0') => {
     const record = baseRecord() as QuestionBankRecord & Record<string, unknown>
     record.formatVersion = version as typeof QUESTION_BANK_FORMAT_VERSION
     record.media = [PIXEL_ASSET]

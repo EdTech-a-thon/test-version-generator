@@ -10,7 +10,7 @@ const encode = (text: string) => new TextEncoder().encode(text)
 
 async function read(name: string, bytes: Uint8Array) {
   const reading = await readQuestionFile({ name, bytes })
-  const proposal = await inspectImportValue(reading.record)
+  const proposal = await inspectImportValue(reading.record, undefined, reading.files)
   return { reading, proposal, questions: reading.record.bank.questions }
 }
 

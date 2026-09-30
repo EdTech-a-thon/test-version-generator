@@ -14,8 +14,10 @@ import publicSchema050 from '../public/formats/question-bank/0.5.0/schema.json'
 import applicationSchema050 from './question-bank-record-0.5.0.schema.json'
 import publicSchema060 from '../public/formats/question-bank/0.6.0/schema.json'
 import applicationSchema060 from './question-bank-record-0.6.0.schema.json'
-import publicSchema from '../public/formats/question-bank/0.7.0/schema.json'
-import applicationSchema from './question-bank-record-0.7.0.schema.json'
+import publicSchema070 from '../public/formats/question-bank/0.7.0/schema.json'
+import applicationSchema070 from './question-bank-record-0.7.0.schema.json'
+import publicSchema from '../public/formats/question-bank/0.8.0/schema.json'
+import applicationSchema from './question-bank-record-0.8.0.schema.json'
 import {
   QUESTION_BANK_FORMAT_VERSION,
   SUPPORTED_SEMANTIC_MARK_TYPES,
@@ -30,7 +32,11 @@ import {
   QuestionBankImportError,
   importedQuestionsFromRecord,
   inspectQuestionBankRecord,
+  inspectQuestionBankRecordValue,
+  packageFiles,
+  type QuestionBankImportProposal,
 } from './question-bank-import'
+import { mediaFilePath } from './package-zip'
 import { partsOf } from './exam'
 import type { QuestionBankResource } from './question-bank-workspaces'
 
@@ -41,6 +47,9 @@ function fixtureRootFor(version: string): string {
 const fixtureRoot = fixtureRootFor(QUESTION_BANK_FORMAT_VERSION)
 const exampleRoot = join(fixtureRoot, 'examples')
 const invalidRoot = join(fixtureRoot, 'invalid')
+// The last version whose Media Assets carry base64: an older version's record
+// is made from its examples, since a 0.8.0 example's pictures are files.
+const example070Root = join(fixtureRootFor('0.7.0'), 'examples')
 const decoder = new TextDecoder()
 
 async function filesIn(directory: string): Promise<string[]> {
@@ -53,6 +62,25 @@ async function fixture(directory: string, name: string): Promise<unknown> {
   return JSON.parse(await Bun.file(join(directory, name)).text())
 }
 
+/** The picture files beside a fixture directory's records, keyed as a package
+ *  zip keys them: each directory is laid out as that zip is. */
+async function mediaBeside(directory: string): Promise<Map<string, Uint8Array>> {
+  const media = join(directory, 'media')
+  const files = new Map<string, Uint8Array>()
+  for (const name of (await readdir(media)).sort())
+    files.set(`media/${name}`, await Bun.file(join(media, name)).bytes())
+  return files
+}
+
+/** A 0.8.0 fixture inspected as it would be read out of its zip. */
+async function inspectFixture(directory: string, name: string): Promise<QuestionBankImportProposal> {
+  return inspectQuestionBankRecordValue(
+    await fixture(directory, name),
+    undefined,
+    packageFiles(await mediaBeside(directory)),
+  )
+}
+
 function schemaEnum(definition: 'node' | 'mark', property: string): string[] {
   const schema = publicSchema as {
     $defs: Record<string, { properties: Record<string, { enum: string[] }> }>
@@ -60,18 +88,19 @@ function schemaEnum(definition: 'node' | 'mark', property: string): string[] {
   return schema.$defs[definition]!.properties[property]!.enum
 }
 
-describe('public Question Bank Record 0.7.0 contract', () => {
+describe('public Question Bank Record 0.8.0 contract', () => {
   test('canonical examples validate independently against the published schema', async () => {
     expect(publicSchema.$id).toBe(
-      'https://testparrot.com/formats/question-bank/0.7.0/schema.json',
+      'https://testparrot.com/formats/question-bank/0.8.0/schema.json',
     )
+    expect(publicSchema.properties.formatVersion.const).toBe(QUESTION_BANK_FORMAT_VERSION)
     expect(
       await Bun.file(
         join(
           import.meta.dir,
           '..',
           'public',
-          'question-bank-record-0.7.0.schema.json',
+          'question-bank-record-0.8.0.schema.json',
         ),
       ).json(),
     ).toEqual(publicSchema)
@@ -102,10 +131,40 @@ describe('public Question Bank Record 0.7.0 contract', () => {
     }
   })
 
-  test('a True/False Question states its fixed pair and nothing else', async () => {
+  test('every Media Asset names its file by its digest and type, and every picture file is named', async () => {
+    const pictures = await mediaBeside(exampleRoot)
+    const named = new Set<string>()
+    for (const name of await filesIn(exampleRoot)) {
+      const record = (await fixture(exampleRoot, name)) as {
+        media: { id: string; mimeType: string; file?: string; bytes?: string }[]
+      }
+      for (const asset of record.media) {
+        expect(asset, name).not.toHaveProperty('bytes')
+        expect(asset.file, name).toBe(mediaFilePath(asset.id, asset.mimeType))
+        expect(pictures.has(asset.file!), `${name}: ${asset.file}`).toBe(true)
+        named.add(asset.file!)
+      }
+    }
+    expect([...pictures.keys()].sort()).toEqual([...named].sort())
+  })
+
+  test('a record that declares a Media Asset cannot be read without the files beside it', async () => {
+    try {
+      await inspectQuestionBankRecord(await Bun.file(join(exampleRoot, 'media-rich.json')).bytes())
+      throw new Error('unexpectedly conformed')
+    } catch (error) {
+      expect(error).toBeInstanceOf(QuestionBankImportError)
+      expect((error as QuestionBankImportError).code).toBe('missing-media')
+    }
+    // One with no Media Asset needs none.
     const proposal = await inspectQuestionBankRecord(
-      await Bun.file(join(exampleRoot, 'true-false.json')).bytes(),
+      await Bun.file(join(exampleRoot, 'pending-images.json')).bytes(),
     )
+    expect(proposal.summary.formatVersion).toBe('0.8.0')
+  })
+
+  test('a True/False Question states its fixed pair and nothing else', async () => {
+    const proposal = await inspectFixture(exampleRoot, 'true-false.json')
 
     expect(proposal.summary.questionCounts).toEqual({
       'multiple-choice': 0,
@@ -122,9 +181,7 @@ describe('public Question Bank Record 0.7.0 contract', () => {
   })
 
   test('a Matching Question names its answers from its own Word Bank, distractors and unmatched items included', async () => {
-    const proposal = await inspectQuestionBankRecord(
-      await Bun.file(join(exampleRoot, 'matching.json')).bytes(),
-    )
+    const proposal = await inspectFixture(exampleRoot, 'matching.json')
 
     expect(proposal.summary.questionCounts).toEqual({
       'multiple-choice': 0,
@@ -158,9 +215,7 @@ describe('public Question Bank Record 0.7.0 contract', () => {
   })
 
   test('a Multipart Question keeps its Parts in lettered order, each answering as its own type', async () => {
-    const proposal = await inspectQuestionBankRecord(
-      await Bun.file(join(exampleRoot, 'multipart.json')).bytes(),
-    )
+    const proposal = await inspectFixture(exampleRoot, 'multipart.json')
 
     expect(proposal.summary.questionCounts).toEqual({
       'multiple-choice': 0,
@@ -171,25 +226,25 @@ describe('public Question Bank Record 0.7.0 contract', () => {
     })
     // The third Multipart question has no Parts yet; that is reported, not refused.
     expect(proposal.summary.questionsWithoutCorrectAnswer).toBe(1)
-    const [ottoman, liberty, unfinished] = proposal.record.bank.questions
+    const [aldmere, liberty, unfinished] = proposal.record.bank.questions
     // The source line is ordinary stem content, not a field of its own.
-    expect(JSON.stringify(ottoman!.stem)).toContain('Source: “Ottoman Empire (1301–1922),” BBC online')
-    expect(ottoman).toMatchObject({
+    expect(JSON.stringify(aldmere!.stem)).toContain('Source: “A Short History of Aldmere,” 1998')
+    expect(aldmere).toMatchObject({
       type: 'multipart',
       difficulty: 'medium',
-      topics: ['Ottoman Empire'],
+      topics: ['Kingdom of Aldmere'],
       parts: [
         { id: 'q1-s1', type: 'multiple-choice' },
         { id: 'q1-s2', type: 'multiple-choice' },
       ],
     })
-    expect(ottoman!.parts![0]!.choices!.map((choice) => [choice.id, choice.correct])).toEqual([
+    expect(aldmere!.parts![0]!.choices!.map((choice) => [choice.id, choice.correct])).toEqual([
       ['q1-s1-c1', false],
       ['q1-s1-c2', false],
       ['q1-s1-c3', false],
       ['q1-s1-c4', true],
     ])
-    expect(ottoman!.choices).toBeUndefined()
+    expect(aldmere!.choices).toBeUndefined()
     expect(liberty!.parts!.map((part) => part.type)).toEqual([
       'multiple-choice',
       'short-answer',
@@ -215,9 +270,7 @@ describe('public Question Bank Record 0.7.0 contract', () => {
         async (name) =>
           [
             name,
-            await inspectQuestionBankRecord(
-              await Bun.file(join(exampleRoot, name)).bytes(),
-            ),
+            await inspectFixture(exampleRoot, name),
           ] as const,
       ),
     )
@@ -262,17 +315,15 @@ describe('public Question Bank Record 0.7.0 contract', () => {
   })
 
   test('a Pending Image names a tag or a page, may be shared, and needs no Media Asset', async () => {
-    const proposal = await inspectQuestionBankRecord(
-      await Bun.file(join(exampleRoot, 'pending-images.json')).bytes(),
-    )
+    const proposal = await inspectFixture(exampleRoot, 'pending-images.json')
 
     expect(proposal.summary).toMatchObject({ mediaAssets: 0, pendingImages: 8 })
     const [inStem, asChoices, shared, byPage] = proposal.record.bank.questions
     expect(inStem!.stem.content[1]).toEqual({
       type: 'block-image',
       pending: { image: 1 },
-      alt: 'Map of European trading stations in Africa and Asia around 1750',
-      caption: 'Major European Trading Stations c. 1750',
+      alt: 'Map of the bus routes in the town of Riverton',
+      caption: 'Riverton Bus Routes, 2020',
     })
     expect(asChoices!.choices!.map((choice) => choice.content.content[0]!.pending)).toEqual([
       { image: 2 },
@@ -284,9 +335,7 @@ describe('public Question Bank Record 0.7.0 contract', () => {
   })
 
   test('a Picture Crop keeps part of a whole Media Asset, and its size is a share of its container', async () => {
-    const proposal = await inspectQuestionBankRecord(
-      await Bun.file(join(exampleRoot, 'cropped-picture.json')).bytes(),
-    )
+    const proposal = await inspectFixture(exampleRoot, 'cropped-picture.json')
     const picture = proposal.record.bank.questions[0]!.stem.content[1]!
     const asset = proposal.record.media[0]!
 
@@ -303,7 +352,7 @@ describe('public Question Bank Record 0.7.0 contract', () => {
   })
 
   test('a Pending Image in a record older than 0.5.0 is refused', async () => {
-    const record = (await fixture(exampleRoot, 'pending-images.json')) as { formatVersion: string }
+    const record = (await fixture(example070Root, 'pending-images.json')) as { formatVersion: string }
     record.formatVersion = '0.4.0'
     try {
       await inspectQuestionBankRecord(new TextEncoder().encode(JSON.stringify(record)))
@@ -320,6 +369,7 @@ describe('public Question Bank Record 0.7.0 contract', () => {
     >
     expect(Object.keys(manifest).sort()).toEqual([
       'bad-reference.json',
+      'base64-media.json',
       'crop-inverted.json',
       'crop-on-inline-image.json',
       'crop-on-pending.json',
@@ -329,6 +379,7 @@ describe('public Question Bank Record 0.7.0 contract', () => {
       'malformed-multipart.json',
       'malformed-question.json',
       'malformed-true-false.json',
+      'missing-media-file.json',
       'pending-empty.json',
       'pending-image-and-page.json',
       'pending-negative-page.json',
@@ -347,14 +398,13 @@ describe('public Question Bank Record 0.7.0 contract', () => {
     const validate = new Ajv2020({ allErrors: true, strict: true }).compile(publicSchema)
     for (const [name, code] of Object.entries(manifest)) {
       // An inverted crop is well-formed: only the importer can compare its sides.
-      if (/^(?:pending-|side-by-side-|crop-(?!inverted))/.test(name))
+      if (/^(?:pending-|side-by-side-|crop-(?!inverted)|base64-)/.test(name))
         expect(validate(await fixture(invalidRoot, name)), name).toBe(false)
-      if (name === 'crop-inverted.json')
+      // Only the importer can compare a crop's sides, or look for a file.
+      if (['crop-inverted.json', 'missing-media-file.json', 'invalid-media.json'].includes(name))
         expect(validate(await fixture(invalidRoot, name)), name).toBe(true)
       try {
-        await inspectQuestionBankRecord(
-          await Bun.file(join(invalidRoot, name)).bytes(),
-        )
+        await inspectFixture(invalidRoot, name)
         throw new Error(`${name} unexpectedly conformed`)
       } catch (error) {
         expect(error, name).toBeInstanceOf(QuestionBankImportError)
@@ -495,10 +545,72 @@ describe('public Question Bank Record 0.7.0 contract', () => {
   })
 })
 
-// 0.1.0 through 0.6.0 are retired as producer versions and retained as
+// 0.1.0 through 0.7.0 are retired as producer versions and retained as
 // consumer ones: every Question Bank File a teacher has already shared must
 // still open. Their published contracts are therefore frozen — these are the
 // assertions that keep them that way.
+describe('retained Question Bank Record 0.7.0 contract', () => {
+  const root070 = fixtureRootFor('0.7.0')
+
+  test('the published 0.7.0 schema is unchanged and still checked in twice', async () => {
+    expect(publicSchema070.$id).toBe(
+      'https://testparrot.com/formats/question-bank/0.7.0/schema.json',
+    )
+    expect(publicSchema070.properties.formatVersion.const).toBe('0.7.0')
+    expect(applicationSchema070).toEqual(publicSchema070)
+    expect(
+      await Bun.file(join(import.meta.dir, '..', 'public', 'question-bank-record-0.7.0.schema.json')).json(),
+    ).toEqual(publicSchema070)
+  })
+
+  test('every 0.7.0 canonical example still imports with its base64 Media Assets, migrated to the current version', async () => {
+    const names = await filesIn(join(root070, 'examples'))
+
+    expect(names).toContain('cropped-picture.json')
+    for (const name of names) {
+      const proposal = await inspectQuestionBankRecord(
+        await Bun.file(join(root070, 'examples', name)).bytes(),
+      )
+      expect(proposal.record.formatVersion, name).toBe(QUESTION_BANK_FORMAT_VERSION)
+      expect(proposal.summary.formatVersion, name).toBe('0.7.0')
+    }
+    const media = await inspectQuestionBankRecord(
+      await Bun.file(join(root070, 'examples', 'media-rich.json')).bytes(),
+    )
+    expect(media.summary).toMatchObject({ mediaAssets: 1, decodedMediaBytes: 70 })
+    expect(media.record.media[0]!.bytes).toBeInstanceOf(Uint8Array)
+  })
+
+  test('0.7.0 counterexamples are still rejected with their documented errors', async () => {
+    const manifest = (await fixture(join(root070, 'invalid'), 'manifest.json')) as Record<string, string>
+
+    for (const [name, code] of Object.entries(manifest)) {
+      try {
+        await inspectQuestionBankRecord(await Bun.file(join(root070, 'invalid', name)).bytes())
+        throw new Error(`${name} unexpectedly conformed`)
+      } catch (error) {
+        expect(error, name).toBeInstanceOf(QuestionBankImportError)
+        expect((error as QuestionBankImportError).code, name).toBe(code)
+      }
+    }
+  })
+
+  test('a 0.7.0 record carries its pictures as base64, and cannot name a file', async () => {
+    const record = (await fixture(exampleRoot, 'media-rich.json')) as { formatVersion: string }
+    record.formatVersion = '0.7.0'
+    const validate = new Ajv2020({ allErrors: true, strict: false }).compile(publicSchema070)
+
+    expect(validate(record)).toBe(false)
+    try {
+      await inspectQuestionBankRecordValue(record, undefined, packageFiles(await mediaBeside(exampleRoot)))
+      throw new Error('A 0.7.0 Media Asset naming a file unexpectedly conformed')
+    } catch (error) {
+      expect(error).toBeInstanceOf(QuestionBankImportError)
+      expect((error as QuestionBankImportError).code).toBe('invalid-structure')
+    }
+  })
+})
+
 describe('retained Question Bank Record 0.6.0 contract', () => {
   const root060 = fixtureRootFor('0.6.0')
 
@@ -542,7 +654,7 @@ describe('retained Question Bank Record 0.6.0 contract', () => {
   })
 
   test('a 0.6.0 Authored Image Size keeps its old meaning, and a crop it carries is not read', async () => {
-    const record = (await fixture(exampleRoot, 'cropped-picture.json')) as { formatVersion: string }
+    const record = (await fixture(example070Root, 'cropped-picture.json')) as { formatVersion: string }
     record.formatVersion = '0.6.0'
     const proposal = await inspectQuestionBankRecord(new TextEncoder().encode(JSON.stringify(record)))
     const stem = proposal.record.bank.questions[0]!.stem
@@ -600,7 +712,7 @@ describe('retained Question Bank Record 0.5.0 contract', () => {
   })
 
   test('a 0.5.0 record cannot hold a Side-by-Side, since a 0.5.0 consumer would reject one', async () => {
-    const record = (await fixture(exampleRoot, 'side-by-side.json')) as { formatVersion: string }
+    const record = (await fixture(example070Root, 'side-by-side.json')) as { formatVersion: string }
     record.formatVersion = '0.5.0'
     const validate = new Ajv2020({ allErrors: true, strict: false }).compile(publicSchema050)
 
@@ -659,7 +771,7 @@ describe('retained Question Bank Record 0.4.0 contract', () => {
   })
 
   test('a 0.4.0 record cannot hold a Pending Image, since a 0.4.0 consumer would reject one', async () => {
-    const record = (await fixture(exampleRoot, 'pending-images.json')) as { formatVersion: string }
+    const record = (await fixture(example070Root, 'pending-images.json')) as { formatVersion: string }
     record.formatVersion = '0.4.0'
     const validate = new Ajv2020({ allErrors: true, strict: false }).compile(publicSchema040)
 
@@ -732,7 +844,7 @@ describe('retained Question Bank Record 0.3.0 contract', () => {
 
   test('a 0.3.0 record cannot hold a Multipart question, since a 0.3.0 consumer would reject one', async () => {
     const multipart = (await fixture(
-      join(exampleRoot),
+      example070Root,
       'multipart.json',
     )) as QuestionBankRecord & { formatVersion: string }
     multipart.formatVersion = '0.3.0'
@@ -839,6 +951,7 @@ describe('retained Question Bank Record 0.1.0 contract', () => {
         | typeof publicSchema010
         | typeof publicSchema020
         | typeof publicSchema030
+        | typeof publicSchema070
         | typeof publicSchema,
     ) =>
       (schema as {
@@ -860,6 +973,7 @@ describe('retained Question Bank Record 0.1.0 contract', () => {
       'matching',
       'short-answer',
     ])
+    expect(typeEnum(publicSchema070)).toEqual(typeEnum(publicSchema))
     expect(typeEnum(publicSchema)).toEqual([
       'multiple-choice',
       'true-false',

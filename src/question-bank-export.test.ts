@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs'
 import { partsOf, type Question } from './exam'
-import { mark, paragraph, text } from './export-fixtures'
+import { PIXEL_PNG, mark, paragraph, text } from './export-fixtures'
 import type { ProseMirrorJSON } from './question-doc'
 import type { QuestionBankResource } from './question-bank-workspaces'
 import { PAGE_CONTENT_WIDTH } from './export-plan'
@@ -11,22 +11,40 @@ import {
   prepareQuestionBankExport,
   recordDocumentToEditorNodes,
   questionBankFilename,
+  type PreparedQuestionBankExport,
   type QuestionBankRecord,
 } from './question-bank-export'
 import {
   importedQuestionsFromRecord,
-  inspectQuestionBankRecord,
+  inspectQuestionBankRecordValue,
+  packageFiles,
 } from './question-bank-import'
+import { readPackageZip } from './package-zip'
 import {
   createQuestionBankPdf,
   type QuestionBankPdfFontLoader,
 } from './question-bank-pdf'
 
+/** Read an export's record back the way import reads it: its pictures are
+ *  the files beside it, as they are in its zip. */
+const reinspect = (prepared: PreparedQuestionBankExport) =>
+  inspectQuestionBankRecordValue(JSON.parse(new TextDecoder().decode(prepared.recordBytes)), undefined, packageFiles(prepared.files))
+
+async function pagesText(reader: Awaited<ReturnType<typeof getDocument>['promise']>): Promise<string[]> {
+  return Promise.all(
+    Array.from({ length: reader.numPages }, async (_, index) =>
+      (await (await reader.getPage(index + 1)).getTextContent()).items
+        .map((item) => ('str' in item ? item.str : ''))
+        .join(' '),
+    ),
+  )
+}
+
 const fontFiles = {
-  regular: new URL('../public/fonts/FreeSerif.ttf', import.meta.url).pathname,
-  bold: new URL('../public/fonts/FreeSerifBold.ttf', import.meta.url).pathname,
-  italic: new URL('../public/fonts/FreeSerifItalic.ttf', import.meta.url).pathname,
-  boldItalic: new URL('../public/fonts/FreeSerifBoldItalic.ttf', import.meta.url).pathname,
+  regular: new URL('../public/fonts/FreeSans.ttf', import.meta.url).pathname,
+  bold: new URL('../public/fonts/FreeSansBold.ttf', import.meta.url).pathname,
+  italic: new URL('../public/fonts/FreeSansOblique.ttf', import.meta.url).pathname,
+  boldItalic: new URL('../public/fonts/FreeSansBoldOblique.ttf', import.meta.url).pathname,
   mono: new URL('../public/fonts/FreeMono.ttf', import.meta.url).pathname,
 } as const
 const fonts: QuestionBankPdfFontLoader = async (style) =>
@@ -168,7 +186,7 @@ const matching: Question = {
   id: 'local-matching-id',
   type: 'matching',
   columns: 2,
-  topics: ['Intertestamental period'],
+  topics: ['Early history'],
   doc: {
     type: 'doc',
     content: [
@@ -179,16 +197,16 @@ const matching: Question = {
           {
             type: 'matchingPrompt',
             attrs: { id: 'local-prompt-1', answer: 'local-answer-c' },
-            content: [paragraph(text('The Septuagint was completed.'))],
+            content: [paragraph(text('Bronze tools were first made.'))],
           },
           {
             type: 'matchingPrompt',
             attrs: { id: 'local-prompt-2', answer: 'gone' },
-            content: [paragraph(text('Herod the Great rose to power.'))],
+            content: [paragraph(text('Castles were built.'))],
           },
-          { type: 'matchingAnswer', attrs: { id: 'local-answer-a' }, content: [paragraph(text('Persian'))] },
-          { type: 'matchingAnswer', attrs: { id: 'local-answer-b' }, content: [paragraph(text('Roman'))] },
-          { type: 'matchingAnswer', attrs: { id: 'local-answer-c' }, content: [paragraph(text('Grecian'))] },
+          { type: 'matchingAnswer', attrs: { id: 'local-answer-a' }, content: [paragraph(text('Stone Age'))] },
+          { type: 'matchingAnswer', attrs: { id: 'local-answer-b' }, content: [paragraph(text('Middle Ages'))] },
+          { type: 'matchingAnswer', attrs: { id: 'local-answer-c' }, content: [paragraph(text('Bronze Age'))] },
         ],
       },
     ],
@@ -203,12 +221,12 @@ const multipart: Question = {
   type: 'multipart',
   columns: 2,
   difficulty: 'medium',
-  topics: ['Ottoman Empire'],
+  topics: ['Kingdom of Aldmere'],
   doc: {
     type: 'doc',
     content: [
-      paragraph(text('The power of the [Ottoman] Empire was waning by 1683 …')),
-      paragraph(text('Source: “Ottoman Empire (1301–1922),” BBC online, 2009 (adapted)')),
+      paragraph(text('The power of the Kingdom of Aldmere was fading by 1450 …')),
+      paragraph(text('Source: “A Short History of Aldmere,” 1998 (adapted)')),
       {
         type: 'multipartParts',
         content: [
@@ -218,15 +236,15 @@ const multipart: Question = {
             content: [
               {
                 type: 'multipartPartStem',
-                content: [paragraph(text('Which region was controlled by the Ottoman Empire in 1683?'))],
+                content: [paragraph(text('Which region was controlled by the Kingdom of Aldmere in 1450?'))],
               },
               {
                 type: 'multipleChoice',
                 content: [
-                  choice('local-part-a-1', false, 'Central America'),
-                  choice('local-part-a-2', false, 'South Asia'),
-                  choice('local-part-a-3', false, 'East Asia'),
-                  choice('local-part-a-4', true, 'Middle East'),
+                  choice('local-part-a-1', false, 'Western Hills'),
+                  choice('local-part-a-2', false, 'Southern Plains'),
+                  choice('local-part-a-3', false, 'Eastern Forests'),
+                  choice('local-part-a-4', true, 'Northern Coast'),
                 ],
               },
             ],
@@ -237,11 +255,11 @@ const multipart: Question = {
             content: [
               {
                 type: 'multipartPartStem',
-                content: [paragraph(text('Identify an issue faced by the Ottoman Empire in the 1600s.'))],
+                content: [paragraph(text('Identify an issue faced by the Kingdom of Aldmere in the 1400s.'))],
               },
               {
                 type: 'suggestedAnswer',
-                content: [paragraph(text('Global trade routes shifted.'))],
+                content: [paragraph(text('Its harbors silted up.'))],
               },
             ],
           },
@@ -410,7 +428,7 @@ describe('Question Bank exchange export seam', () => {
   test('writes a Multipart question as its material and lettered Parts, each under a package-local id', async () => {
     const { record } = await prepareQuestionBankExport(bank([multipart, emptyMultipart]))
 
-    expect(record.formatVersion).toBe('0.7.0')
+    expect(record.formatVersion).toBe('0.8.0')
     expect(record.bank.questions[0]).toEqual({
       id: 'q1',
       type: 'multipart',
@@ -419,16 +437,16 @@ describe('Question Bank exchange export seam', () => {
         content: [
           {
             type: 'paragraph',
-            content: [{ type: 'text', text: 'The power of the [Ottoman] Empire was waning by 1683 …' }],
+            content: [{ type: 'text', text: 'The power of the Kingdom of Aldmere was fading by 1450 …' }],
           },
           {
             type: 'paragraph',
-            content: [{ type: 'text', text: 'Source: “Ottoman Empire (1301–1922),” BBC online, 2009 (adapted)' }],
+            content: [{ type: 'text', text: 'Source: “A Short History of Aldmere,” 1998 (adapted)' }],
           },
         ],
       },
       difficulty: 'medium',
-      topics: ['Ottoman Empire'],
+      topics: ['Kingdom of Aldmere'],
       parts: [
         {
           id: 'q1-s1',
@@ -448,7 +466,7 @@ describe('Question Bank exchange export seam', () => {
           suggestedAnswer: {
             type: 'document',
             content: [
-              { type: 'paragraph', content: [{ type: 'text', text: 'Global trade routes shifted.' }] },
+              { type: 'paragraph', content: [{ type: 'text', text: 'Its harbors silted up.' }] },
             ],
           },
         },
@@ -464,7 +482,7 @@ describe('Question Bank exchange export seam', () => {
 
   test('a Multipart question round-trips through the record with its Parts, answers and Suggested Answer intact', async () => {
     const first = await prepareQuestionBankExport(bank([multipart, emptyMultipart]))
-    const inspected = await inspectQuestionBankRecord(first.recordBytes)
+    const inspected = await reinspect(first)
     const imported = importedQuestionsFromRecord(inspected.record)
 
     expect(imported.map((question) => question.type)).toEqual(['multipart', 'multipart'])
@@ -620,8 +638,9 @@ describe('Question Bank exchange export seam', () => {
       mimeType: 'image/png',
       width: 10,
       height: 20,
-      bytes: 'AQID',
+      file: `media/sha256-${digest}.png`,
     }])
+    expect([...prepared.files]).toEqual([[`media/sha256-${digest}.png`, new Uint8Array([1, 2, 3])]])
     expect(JSON.stringify(prepared.record.bank)).toContain(`sha256:${digest}`)
     expect(JSON.stringify(prepared.record.bank)).toContain('"authoredSize":0.5')
   })
@@ -638,7 +657,7 @@ describe('Question Bank exchange export seam', () => {
     )
   })
 
-  test('packages exact source bytes as the sole canonical PDF attachment and renders a complete preview', async () => {
+  test('attaches its bank as a package zip, the sole canonical attachment, and renders a complete preview', async () => {
     const prepared = await prepareQuestionBankExport(
       bank([shortAnswer, multipleChoice]),
     )
@@ -649,29 +668,24 @@ describe('Question Bank exchange export seam', () => {
       disableWorker: true,
     }).promise
     const attachments = await reader.getAttachments()
-    const attachment = attachments?.get('pdfcx.json')
+    const attachment = attachments?.get('parrot.zip')
 
-    expect([...attachments!.keys()]).toEqual(['pdfcx.json'])
-    expect(attachment?.filename).toBe('pdfcx.json')
+    expect([...attachments!.keys()]).toEqual(['parrot.zip'])
     expect(attachment?.description).toBe('pdf-canonical-extraction')
-    expect(await reader.getAttachmentContent('pdfcx.json')).toEqual(
-      prepared.recordBytes,
-    )
-    expect(source).toContain('/Subtype /application#2Fjson')
+    expect(source).toContain('/Subtype /application#2Fzip')
+    const zip = await readPackageZip(await reader.getAttachmentContent('parrot.zip'))
+    const carried = JSON.parse(new TextDecoder().decode(zip.json))
+    expect(carried).toMatchObject({ format: 'test-parrot/package', exams: [] })
+    expect(carried.questionBanks).toEqual([{ id: 'bank-1', record: prepared.record }])
 
-    const textContent = await Promise.all(
-      Array.from({ length: reader.numPages }, async (_, index) =>
-        (await (await reader.getPage(index + 1)).getTextContent()).items
-          .map((item) => ('str' in item ? item.str : ''))
-          .join(' '),
-      ),
-    )
-    const preview = textContent.join(' ')
+    const preview = (await pagesText(reader)).join(' ')
+    expect(preview).toContain('TEST PARROT')
+    expect(preview).toContain('QUESTION BANK FILE')
     expect(preview).toContain('Chemistry / Review')
     expect(preview).toContain('2 Questions')
-    expect(preview).toContain('Teacher Question Bank containing answers')
-    expect(preview).toContain('can be imported into Test Parrot')
-    expect(preview).toContain('rewritten or printed')
+    expect(preview).toContain('A digital file for importing into Test Parrot')
+    expect(preview).toContain('answers included')
+    expect(preview).toContain('saving it again as a PDF')
     expect(preview).toContain('Short Answer')
     expect(preview).toContain('Multiple Choice')
     expect(preview).toMatch(/Difficulty:\s+Hard/)
@@ -684,6 +698,76 @@ describe('Question Bank exchange export seam', () => {
     expect(preview).not.toContain('Answer Section')
     expect(preview).not.toContain('Version A')
     expect(source).toContain('/AFRelationship /Source')
+  })
+
+  test('draws Test Parrot’s logo atop the file and teacher.dev’s beside its credit, both linked where they belong', async () => {
+    const png = async () => new Uint8Array(await Bun.file(new URL('../public/logo.png', import.meta.url).pathname).arrayBuffer())
+    const prepared = await prepareQuestionBankExport(bank([multipleChoice]))
+    const plain = await createQuestionBankPdf(prepared, fonts)
+    const branded = await createQuestionBankPdf(prepared, fonts, { logo: png, teacherDevLogo: png })
+    const imagesOn = async (bytes: Uint8Array) => {
+      const reader = await getDocument({ data: bytes.slice(), disableWorker: true }).promise
+      const operators = await (await reader.getPage(1)).getOperatorList()
+      return operators.fnArray.filter((fn) => fn === 85 /* paintImageXObject */).length
+    }
+    expect(await imagesOn(plain)).toBe(0)
+    expect(await imagesOn(branded)).toBe(2)
+    const reader = await getDocument({ data: branded.slice(), disableWorker: true }).promise
+    const urls = (await (await reader.getPage(1)).getAnnotations()).map((annotation) => annotation.url).filter(Boolean)
+    expect(urls.filter((url) => url === 'https://teacher.dev/')).toHaveLength(2)
+  })
+
+  test('opens with an outline of its Question Types and their Topics, every entry a link into the preview', async () => {
+    const tagged = (question: Question, topics: string[], id: string): Question => ({ ...structuredClone(question), id, topics })
+    const prepared = await prepareQuestionBankExport(bank([
+      tagged(multipleChoice, ['Waves', 'Atoms'], 'wave-mc'),
+      tagged(shortAnswer, [], 'plain-sa'),
+      tagged(multipleChoice, ['Atoms'], 'atom-mc'),
+      tagged(multipleChoice, [], 'plain-mc'),
+    ]))
+    const bytes = await createQuestionBankPdf(prepared, fonts)
+    const reader = await getDocument({ data: bytes.slice(), disableWorker: true }).promise
+    const pages = await pagesText(reader)
+
+    // The front matter lists each type, with its count, then its Topics.
+    const front = pages[0]!
+    const order = ['Question Types', 'Multiple Choice', '3', 'Atoms', '1', 'Waves', '1', 'No topic', '1', 'Short Answer', '1']
+    let from = 0
+    for (const fragment of order) {
+      const at = front.indexOf(fragment, from)
+      expect(at, fragment).toBeGreaterThanOrEqual(0)
+      from = at + fragment.length
+    }
+    // Each type starts a page, and a Question with several Topics is placed
+    // once, under its first.
+    expect(pages[1]).toContain('Multiple Choice')
+    expect(pages.join(' ').match(/Question 1\b/g)).toHaveLength(1)
+    expect(pages.slice(1).join(' ').indexOf('Atoms')).toBeLessThan(pages.slice(1).join(' ').indexOf('Waves'))
+
+    // Every row and bubble links inside the file: 2 types, 3 Multiple Choice
+    // Topics on the front page, and the same Topics again atop their section.
+    const annotations = (await (await reader.getPage(1)).getAnnotations()).filter((annotation) => annotation.subtype === 'Link')
+    const links = annotations.filter((annotation) => annotation.dest)
+    expect(links).toHaveLength(5)
+    // The notice links to Test Parrot's import page, and the credit to teacher.dev.
+    expect(annotations.filter((annotation) => annotation.url).map((annotation) => annotation.url)).toEqual([
+      'https://testparrot.com/imports/new',
+      'https://teacher.dev/',
+    ])
+    expect(front).toContain('Test Parrot is a free exam builder by')
+    const sectionLinks = (await (await reader.getPage(2)).getAnnotations()).filter((annotation) => annotation.subtype === 'Link')
+    expect(sectionLinks).toHaveLength(3)
+    const target = await reader.getPageIndex((links[0]!.dest as [{ num: number; gen: number }])[0])
+    expect(target).toBe(1)
+
+    // The sidebar shows the same outline.
+    const outline = await reader.getOutline()
+    expect(outline.map((item) => item.title)).toEqual([
+      'About this Question Bank',
+      'Multiple Choice (3)',
+      'Short Answer (1)',
+    ])
+    expect(outline[1]!.items.map((item) => item.title)).toEqual(['Atoms (1)', 'Waves (1)', 'No topic (1)'])
   })
 
   test('previews a Multipart question as its material, then its lettered Parts with their answers', async () => {
@@ -700,18 +784,18 @@ describe('Question Bank exchange export seam', () => {
       )
     ).join(' ')
 
-    expect(preview).toMatch(/Question Type:\s+Multipart/)
+    expect(preview).toContain('Multipart')
     const order = [
-      'The power of the [Ottoman] Empire',
+      'The power of the Kingdom of Aldmere',
       'Source:',
       'a.',
       'Which region was controlled',
-      'Middle East',
+      'Northern Coast',
       'Correct answer',
       'b.',
       'Identify an issue',
       'Suggested Answer',
-      'Global trade routes shifted.',
+      'Its harbors silted up.',
       'No Parts yet.',
     ].map((fragment) => preview.indexOf(fragment))
     expect(order.every((position) => position >= 0)).toBe(true)
@@ -736,6 +820,53 @@ describe('Question Bank exchange export seam', () => {
     expect(
       last.items.map((item) => ('str' in item ? item.str : '')).join(' '),
     ).toContain('Complete line 120')
+  })
+})
+
+describe('a Question Bank File’s equations and pictures', () => {
+  const question = (content: unknown[]): Question => ({
+    id: 'local-typeset',
+    type: 'open',
+    columns: 1,
+    doc: { type: 'doc', content: content as never },
+  })
+
+  test('typesets an equation as the Exam PDF does, never printing its LaTeX', async () => {
+    const prepared = await prepareQuestionBankExport(bank([question([
+      paragraph(text('Add '), { type: 'math_inline', attrs: { value: '\\frac{3}{5} + \\frac{4}{15}' } }, text(' now.')),
+      { type: 'code_block', attrs: { language: 'latex' }, content: [text('x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}')] },
+    ])]))
+    const bytes = await createQuestionBankPdf(prepared, fonts)
+    const reader = await getDocument({ data: bytes.slice(), disableWorker: true }).promise
+    const preview = (await pagesText(reader)).join(' ')
+    expect(preview).not.toContain('\\frac')
+    expect(preview).not.toContain('\\sqrt')
+    // Written over what is drawn, invisibly, so it can be searched and copied.
+    expect(preview).toContain('3⁄5')
+    const operators = await (await reader.getPage(2)).getOperatorList()
+    const filledPaths = operators.fnArray.filter((fn) => fn === 91 /* constructPath */).length
+    expect(filledPaths).toBeGreaterThan(10)
+  })
+
+  const pictureWidth = async (attrs: Record<string, unknown>, pixelWidth: number) => {
+    const prepared = await prepareQuestionBankExport(bank([question([
+      { type: 'image-block', attrs: { src: '/local-images/picture', ...attrs } },
+    ])]), async () => ({ data: PIXEL_PNG.data, mimeType: 'image/png', width: pixelWidth, height: pixelWidth / 2 }))
+    // The preview draws what it was given at the width the record asks for;
+    // its pixel size is the one the loader declared.
+    prepared.previewMedia!.forEach((media) => Object.assign(media, { width: pixelWidth, height: pixelWidth / 2 }))
+    const bytes = await createQuestionBankPdf(prepared, fonts)
+    const reader = await getDocument({ data: bytes.slice(), disableWorker: true }).promise
+    const operators = await (await reader.getPage(2)).getOperatorList()
+    const transform = operators.argsArray.find((args, index) =>
+      operators.fnArray[index] === 12 /* transform */ && Array.isArray(args) && args[0] > 1 && args[3] > 1) as number[]
+    return transform[0]!
+  }
+
+  test('draws a picture no one sized at its own width, or the column’s when that is narrower', async () => {
+    expect(await pictureWidth({}, 200)).toBeCloseTo(150)
+    expect(await pictureWidth({}, 2000)).toBeCloseTo(504)
+    expect(await pictureWidth({ size: 0.5 }, 200)).toBeCloseTo(252)
   })
 })
 
@@ -764,7 +895,7 @@ describe('a Question Bank with Pending Images', () => {
     const prepared = await prepareQuestionBankExport(bank([pictured]), async () => {
       throw new Error('a Pending Image has no media to load')
     })
-    expect(prepared.record.formatVersion).toBe('0.7.0')
+    expect(prepared.record.formatVersion).toBe('0.8.0')
     expect(prepared.record.media).toEqual([])
     expect(prepared.record.bank.questions[0]!.stem.content[1]).toEqual({
       type: 'block-image',
@@ -775,17 +906,15 @@ describe('a Question Bank with Pending Images', () => {
 
     const bytes = await createQuestionBankPdf(prepared, fonts)
     const reader = await getDocument({ data: bytes.slice(), disableWorker: true }).promise
-    const preview = (await (await reader.getPage(1)).getTextContent()).items
-      .map((item) => ('str' in item ? item.str : ''))
-      .join(' ')
+    const preview = (await pagesText(reader)).join(' ')
     expect(preview).toContain('Picture needed')
     expect(preview).toContain('IMG 3')
     expect(preview).toContain('page 2')
 
-    const { importedQuestionsFromRecord, inspectQuestionBankFile } = await import('./question-bank-import')
-    const reimported = await inspectQuestionBankFile(bytes)
-    expect(reimported.summary.pendingImages).toBe(2)
-    const [question] = importedQuestionsFromRecord(reimported.record)
+    const { inspectImportFile } = await import('./package-import')
+    const [reimported] = (await inspectImportFile(bytes)).banks
+    expect(reimported!.summary.pendingImages).toBe(2)
+    const [question] = importedQuestionsFromRecord(reimported!.record)
     expect(JSON.stringify(question!.doc)).toContain('"pending":{"image":3}')
     expect(JSON.stringify(question!.doc)).toContain('"pending":{"page":2}')
   })
@@ -873,7 +1002,7 @@ describe('a Question Bank with Side-by-Sides', () => {
 
   test('round-trips through the record: export, import, and export again write the same bank', async () => {
     const first = await prepareQuestionBankExport(bank([compared, passage]), pixels)
-    const inspected = await inspectQuestionBankRecord(first.recordBytes)
+    const inspected = await reinspect(first)
     expect(inspected.summary.mediaAssets).toBe(1)
     const imported = importedQuestionsFromRecord(inspected.record)
 
@@ -968,7 +1097,7 @@ describe('a picture’s Authored Image Size and Picture Crop in Record 0.7.0', (
     })
     expect(JSON.stringify(prepared.record)).not.toContain('"width":40,"height":20}')
 
-    const reimported = await inspectQuestionBankRecord(prepared.recordBytes)
+    const reimported = await reinspect(prepared)
     const [question] = importedQuestionsFromRecord(reimported.record)
     const image = (question!.doc.content as ProseMirrorJSON[])[1]!
     expect(image.attrs).toMatchObject({ size: 0.35, crop })

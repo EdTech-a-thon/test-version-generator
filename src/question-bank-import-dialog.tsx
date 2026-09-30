@@ -33,8 +33,8 @@ import { ExportPreview } from './exam-page'
 import { ImportError } from './import-error'
 import { inspectQuestionFile, inspectUploadedFile, isRecordFile, needsConversion as fileNeedsConversion } from './question-bank-upload'
 import { QuestionFileReport } from './question-file-report'
+import { supportMailto } from './support-email'
 import { SupportedSources, TextOnlyChoices } from './import-choices'
-import type { FormatId } from './question-formats'
 import {
   checkAgainstSourceDocument,
   pendingImagesOf,
@@ -109,7 +109,7 @@ type PreviewPicture = { src: string; size?: number }
  * `recordDocumentToEditorNodes` addresses an image as `/local-images/<hash>`,
  * which resolves only for media that already lives here. Nothing has been
  * imported yet, so the preview would draw every image broken; the file's own
- * Media Assets are the only copy that exists, and they are already base64.
+ * Media Assets are the only copy that exists, so each is drawn from its bytes.
  * A Pending Image carries its key (`withPendingKeys`), which the preview keeps
  * as `pictureKey` so that clicking it opens that picture's choices.
  */
@@ -152,7 +152,7 @@ function mediaSources(proposal: ImportProposal): Map<string, string> {
     for (const asset of bank.record.media) {
       sources.set(
         `/local-images/${asset.id.slice('sha256:'.length)}`,
-        `data:${asset.mimeType};base64,${asset.bytes}`,
+        pictureSource(asset),
       )
     }
   }
@@ -676,27 +676,6 @@ export function QuestionBankImportDialog({
     if (own) return { source: own, check: checkAgainstSourceDocument(next, own) }
     return bestWaitingImport(next)
   }
-  /** Read the file under review again as another format. The reading on
-   *  show stays until the new one succeeds. */
-  const readAs = (format: FormatId) => {
-    const file = inspectedFile.current
-    if (!file || busy) return
-    setPhase('inspecting')
-    setError(null)
-    void inspectQuestionFile(file, { format }).then(
-      (next) => {
-        setProposal(next)
-        setSelection(initialSelection(next, targetBankId ? { targetBankId } : {}))
-        setNames(Object.fromEntries(next.banks.map((bank) => [bank.id, bank.record.bank.name])))
-        setFocus({ kind: 'bank', id: next.banks[0]!.id })
-        setPhase('choose')
-      },
-      (reason) => {
-        failed(reason)
-        setPhase('choose')
-      },
-    )
-  }
 
   /** A Word document read as questions, converted by an AI after all. */
   const convertInstead = () => {
@@ -977,7 +956,13 @@ export function QuestionBankImportDialog({
         aria-busy={busy}
       >
         <header className="dialog-header">
-          <h2 id={titleId}>Import</h2>
+          <div className="bank-import-title">
+            <h2 id={titleId}>Import</h2>
+            {proposal?.reading && <span className="bank-import-read-as">Read as {proposal.reading.label}</span>}
+          </div>
+          <a className="bank-import-help" href={supportMailto('Trouble importing into Test Parrot', { askForFile: true })}>
+            Something wrong with your import? Email us
+          </a>
         </header>
 
         {!proposal && waiting && (
@@ -1070,7 +1055,6 @@ export function QuestionBankImportDialog({
           <QuestionFileReport
             reading={proposal.reading}
             busy={busy}
-            onReadAs={readAs}
             onConvertInstead={proposal.reading.word ? convertInstead : undefined}
           />
         )}

@@ -1,6 +1,6 @@
 # Test Parrot Package 0.1.0
 
-A **Test Parrot Package** carries one or more Question Bank Records and any number of [Exam Records](exam-record-0.1.0.md) that reference Questions in them. It travels as a standalone JSON file, conventionally named `*.parrot.json`, or embedded in an exported Exam PDF whose Content Selection includes the answer key. Importing it lets the teacher choose which banks and Exams to bring in. See ADR-0022.
+A **Test Parrot Package** carries one or more Question Bank Records and any number of [Exam Records](exam-record-0.1.0.md) that reference Questions in them. It travels in a [package zip](#the-package-zip) beside the pictures its records name: embedded in every Question Bank File and in every exported Exam PDF whose Content Selection includes the answer key, or downloaded on its own as `*.parrot.zip`. Importing it lets the teacher choose which banks and Exams to bring in. See ADR-0022 and ADR-0036.
 
 ## Published contract
 
@@ -19,10 +19,12 @@ A **Test Parrot Package** carries one or more Question Bank Records and any numb
 | `formatVersion`    | Exactly `0.1.0`. |
 | `generator`        | `{ name, version }` of the software that wrote the package. Informational. |
 | `requiredFeatures` | Features a reader must understand. Test Parrot 0.1.0 defines none, so a non-empty list is rejected. |
-| `questionBanks`    | At least one `{ "id", "record" }`. `id` is a package-local bank id, unique within the package. `record` is a complete [Question Bank Record](question-bank-record-0.7.0.md) of any version Test Parrot reads, validated by that version's own schema and rules. |
+| `questionBanks`    | At least one `{ "id", "record" }`. `id` is a package-local bank id, unique within the package. `record` is a complete [Question Bank Record](question-bank-record-0.8.0.md) of any version Test Parrot reads, validated by that version's own schema and rules. |
 | `exams`            | Zero or more complete Exam Records, each validated by its own version's schema and rules. |
 
 A bare Question Bank Record file remains importable and reads as a package with one bank and no Exams. An Exam Record on its own is not importable.
+
+The package format did not change when pictures moved out of the record: it validates each record against that record's own version, so a package may carry `0.1.0`–`0.7.0` records with base64 Media Assets beside `0.8.0` records that name files in the zip.
 
 ## Validation
 
@@ -40,10 +42,32 @@ A bank may hold Questions no Exam uses. An Exam may draw on several banks in its
 
 Every Question Bank Record limit applies to each bank. The Question count and total decoded media limits also apply across the whole package, and a package holds at most 100 banks and 100 Exams.
 
+## The package zip
+
+Test Parrot writes every package as a zip:
+
+- `parrot.json` at the zip's root is the package, UTF-8 JSON;
+- `media/` holds each picture a Media Asset of a [Question Bank Record 0.8.0](question-bank-record-0.8.0.md) names in its `file`, named by its SHA-256 digest and MIME type, such as `media/sha256-<64 hex digits>.png`, `.jpg` or `.webp`.
+
+Nothing about the zip is in the package: a Media Asset's `file` says only where its bytes are found. The importer reads a zip file directly, or takes one out of a PDF, then reads it one way. A zip with no `parrot.json`, a `0.8.0` Media Asset whose file is not in the zip, and a file under `media/` that no Media Asset names each reject the whole zip. Any other file in the zip is ignored.
+
+A bare JSON package or record, without a zip, is still accepted — an AI assistant cannot write a zip, and never carries picture bytes, so its pictures arrive as Pending Images. It has no files, so a `0.8.0` record in it may declare no Media Asset; a `0.1.0`–`0.7.0` record keeps its base64 ones.
+
 ## Importing
 
 The teacher allows or denies each bank and Exam. Denying a bank denies every Exam that uses it; allowing an Exam allows every bank it uses. Each allowed bank goes into a new Question Bank, named from its record unless the teacher renames it, or is added to an existing Question Bank. Adding always appends fresh Questions, never deduplicates, and keeps the existing bank's name, description, author and license. Every Question and answer gets a fresh local identity, and Media Assets are stored by content hash.
 
-## Exam PDF carrier
+## PDF carriers
 
-An Exam PDF exported with its answer key carries a package under the same attachment identity a Question Bank File uses (`pdfcx.json`, `application/json`, description `pdf-canonical-extraction`, relationship `Source`). It holds one Exam Record for exactly what that PDF printed and, for each bank the Exam draws on, a Question Bank Record containing only the Questions that Exam uses. Student-only PDFs and DOCX exports carry nothing.
+A Question Bank File and an Exam PDF exported with its answer key each carry the package zip as one attachment with this metadata:
+
+| PDF attachment property                          | Exact value                |
+| ------------------------------------------------ | -------------------------- |
+| file name                                        | `parrot.zip`               |
+| MIME type                                        | `application/zip`          |
+| description (`/Desc`)                            | `pdf-canonical-extraction` |
+| associated-file relationship (`/AFRelationship`) | `Source`                   |
+
+The importer finds the attachment by its description, so one importer reads both. A PDF written before the zip carries its record or package as `pdfcx.json`, `application/json`, under the same description, and still imports.
+
+A Question Bank File's package holds exactly one bank and no Exams. An Exam PDF's package holds one Exam Record for exactly what that PDF printed and one bank, named “‹Exam name› Question Bank”, containing exactly that Exam's Questions in Exam order, whichever banks they came from. The owning banks' names and descriptions stay home; an author or license travels only when every contributing bank declares the same one. Student-only PDFs and DOCX exports carry nothing.

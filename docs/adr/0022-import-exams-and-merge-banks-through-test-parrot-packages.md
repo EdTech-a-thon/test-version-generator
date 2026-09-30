@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: accepted; the Exam PDF package carrying each owning bank is superseded by ADR-0036
 ---
 
 # Import Exams and merge into existing banks through Test Parrot Packages

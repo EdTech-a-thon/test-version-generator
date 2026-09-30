@@ -16,6 +16,8 @@ import {
 } from './question-doc'
 import type { QuestionBankResource } from './question-bank-workspaces'
 import { PAGE_CONTENT_WIDTH } from './export-plan'
+import { mediaFilePath } from './package-zip'
+import { jpegOrientation } from './export-media'
 import {
   MIN_SIZE,
   clampSize,
@@ -25,7 +27,7 @@ import {
 } from './picture-geometry'
 
 export const QUESTION_BANK_FORMAT = 'test-parrot/question-bank'
-export const QUESTION_BANK_FORMAT_VERSION = '0.7.0'
+export const QUESTION_BANK_FORMAT_VERSION = '0.8.0'
 export const QUESTION_BANK_ATTACHMENT_NAME = 'pdfcx.json'
 export const QUESTION_BANK_ATTACHMENT_DESCRIPTION = 'pdf-canonical-extraction'
 
@@ -214,18 +216,22 @@ export type QuestionBankRecord = {
     license?: { name: string; url?: string }
     questions: QuestionBankRecordQuestion[]
   }
+  /** Each Media Asset's bytes are the file it names, beside the record in
+   *  its package's zip (ADR-0036). */
   media: {
     id: string
     mimeType: 'image/png' | 'image/jpeg' | 'image/webp'
     width: number
     height: number
-    bytes: string
+    file: string
   }[]
 }
 
 export type PreparedQuestionBankExport = {
   record: QuestionBankRecord
   recordBytes: Uint8Array
+  /** Each Media Asset's original bytes, by the path its `file` names. */
+  files: Map<string, Uint8Array>
   filename: string
   /** Renderer-oriented bytes; canonical source bytes remain in record.media. */
   previewMedia?: Map<string, { data: Uint8Array; type: 'png' | 'jpg'; width: number; height: number }>
@@ -677,7 +683,20 @@ const browserQuestionBankMedia: QuestionBankMediaLoader = async (source) => {
       let mimeType: QuestionBankMediaSource['mimeType']
       let previewData = data
       let previewType: 'png' | 'jpg'
-      if (originalMimeType === 'image/png' || originalMimeType === 'image/jpeg') {
+      if (originalMimeType === 'image/jpeg' && jpegOrientation(data) !== 1) {
+        // A camera photo stored turned: the record keeps its bytes as they
+        // are, but a PDF draws stored pixels as they are, so the preview is
+        // drawn from the bitmap, which the browser has already turned upright.
+        mimeType = originalMimeType
+        const canvas = document.createElement('canvas')
+        canvas.width = bitmap.width
+        canvas.height = bitmap.height
+        canvas.getContext('2d')?.drawImage(bitmap, 0, 0)
+        const jpeg = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.92))
+        if (!jpeg) return null
+        previewData = new Uint8Array(await jpeg.arrayBuffer())
+        previewType = 'jpg'
+      } else if (originalMimeType === 'image/png' || originalMimeType === 'image/jpeg') {
         mimeType = originalMimeType
         previewType = originalMimeType === 'image/jpeg' ? 'jpg' : 'png'
       } else {
@@ -705,12 +724,6 @@ const browserQuestionBankMedia: QuestionBankMediaLoader = async (source) => {
   }
 }
 
-function base64(bytes: Uint8Array): string {
-  let value = ''
-  for (const byte of bytes) value += String.fromCharCode(byte)
-  return btoa(value)
-}
-
 export async function prepareQuestionBankExport(
   bank: QuestionBankResource,
   loadMedia: QuestionBankMediaLoader = browserQuestionBankMedia,
@@ -727,6 +740,7 @@ export async function prepareQuestionBankExport(
   const loaded = await Promise.all(sources.map((source) => loadMedia(source)))
   const mediaIds = new Map<string, EmbeddedMedia>()
   const media: QuestionBankRecord['media'] = []
+  const files = new Map<string, Uint8Array>()
   const previewMedia = new Map<string, NonNullable<PreparedQuestionBankExport['previewMedia']> extends Map<string, infer V> ? V : never>()
   for (const [index, source] of sources.entries()) {
     const asset = loaded[index]
@@ -735,7 +749,9 @@ export async function prepareQuestionBankExport(
     const id = `sha256:${digest}`
     mediaIds.set(source, { id, width: asset.width })
     if (!media.some((candidate) => candidate.id === id)) {
-      media.push({ id, mimeType: asset.mimeType, width: asset.width, height: asset.height, bytes: base64(asset.data) })
+      const file = mediaFilePath(id, asset.mimeType)
+      media.push({ id, mimeType: asset.mimeType, width: asset.width, height: asset.height, file })
+      files.set(file, asset.data)
       previewMedia.set(id, {
         data: asset.previewData ?? asset.data,
         type: asset.previewType ?? (asset.mimeType === 'image/jpeg' ? 'jpg' : 'png'),
@@ -760,6 +776,7 @@ export async function prepareQuestionBankExport(
   return {
     record: serialized.record,
     recordBytes: serialized.bytes,
+    files,
     filename: questionBankFilename(bank.name),
     previewMedia,
   }

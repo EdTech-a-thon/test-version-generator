@@ -67,7 +67,7 @@ const textOf = async (bytes: Uint8Array) => wordText((await readZip(bytes))!)
 
 async function read(name: string, bytes: Uint8Array) {
   const reading = await readQuestionFile({ name, bytes })
-  const proposal = await inspectImportValue(reading.record)
+  const proposal = await inspectImportValue(reading.record, undefined, reading.files)
   return { reading, proposal, questions: reading.record.bank.questions }
 }
 
@@ -75,31 +75,31 @@ const text = (document: { content: unknown[] } | undefined) =>
   document ? blocksText(document.content as never) : ''
 
 describe('Word document text', () => {
-  test('reads the customer’s tagged format typed into Word as the Blackboard Test Generator’s', async () => {
+  test('reads the tagged format typed into Word as the Blackboard Test Generator’s', async () => {
     const bytes = await docx([
       'MC',
-      'What metaphor would developmentalists use to describe a child who flourishes despite adverse childhood experiences?',
-      'a rose',
-      'a tulip',
-      '*a dandelion',
-      'an orchid',
+      'Which planet is closest to the Sun?',
+      'Venus',
+      'Earth',
+      '*Mercury',
+      'Mars',
       '',
       'TF',
-      'Resilience is fixed at birth.',
+      'The Sun is a planet.',
       '*F',
     ])
     expect(await textOf(bytes)).toBe([
       'MC',
-      'What metaphor would developmentalists use to describe a child who flourishes despite adverse childhood experiences?',
-      'a rose', 'a tulip', '*a dandelion', 'an orchid', '', 'TF', 'Resilience is fixed at birth.', '*F',
+      'Which planet is closest to the Sun?',
+      'Venus', 'Earth', '*Mercury', 'Mars', '', 'TF', 'The Sun is a planet.', '*F',
     ].join('\n'))
-    const { reading, proposal, questions } = await read('psych.docx', bytes)
+    const { reading, proposal, questions } = await read('planets.docx', bytes)
     expect(reading.format).toBe('bb-generator')
     expect(proposal.banks).toHaveLength(1)
     expect(reading.issues).toEqual([])
     expect(questions.map((question) => question.type)).toEqual(['multiple-choice', 'true-false'])
     expect(questions[0]!.choices!.map((choice) => [text(choice.content), choice.correct])).toEqual([
-      ['a rose', false], ['a tulip', false], ['a dandelion', true], ['an orchid', false],
+      ['Venus', false], ['Earth', false], ['Mercury', true], ['Mars', false],
     ])
     expect(questions[1]!.choices!.map((choice) => choice.correct)).toEqual([false, true])
   })

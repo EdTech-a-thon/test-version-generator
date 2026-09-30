@@ -120,11 +120,12 @@ export type ExportRecord = {
   plans: LayoutPlan[]
   mediaHashes: string[]
   sourceRecordId?: string
-  /** The Test Parrot Package this export's PDF carries, serialized exactly as
-   *  attached, so a re-export attaches the same bytes. Only a PDF including
+  /** The Test Parrot Package this export's PDF carries, exactly as attached,
+   *  so a re-export attaches the same bytes: a package zip with its pictures
+   *  (ADR-0036), or JSON on a record made before it. Only a PDF including
    *  the answer key has one. It sits beside the plans, not in them: nothing
    *  about the pages depends on it. */
-  examPackage?: string
+  examPackage?: Uint8Array | string
   /** The names of the shuffled Versions this export printed, in order. Absent
    *  when it shuffled nothing, as on every record made before Versions
    *  existed. Each plan names its Version in `arrangement.version`. */

@@ -261,14 +261,6 @@ function hex(bytes: ArrayBuffer): string {
   return Array.from(new Uint8Array(bytes), (byte) => byte.toString(16).padStart(2, '0')).join('')
 }
 
-function base64(bytes: Uint8Array): string {
-  let value = ''
-  for (let at = 0; at < bytes.length; at += 0x8000) {
-    value += String.fromCharCode(...bytes.subarray(at, at + 0x8000))
-  }
-  return btoa(value)
-}
-
 /** The Media Asset declaration for a picture's bytes, addressed by content —
  *  so one tag used in several places is one asset. */
 export async function mediaAssetOf(
@@ -280,7 +272,7 @@ export async function mediaAssetOf(
   const dimensions = mediaDimensions(mimeType, bytes)
   if (!dimensions) throw new Error(`This picture is not a valid ${mimeType} image.`)
   const digest = hex(await crypto.subtle.digest('SHA-256', bytes.slice().buffer as ArrayBuffer))
-  return { id: `sha256:${digest}`, mimeType, ...dimensions, bytes: base64(bytes) }
+  return { id: `sha256:${digest}`, mimeType, ...dimensions, bytes: bytes.slice() }
 }
 
 /** What the text check needs of a Source Document. */

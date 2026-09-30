@@ -15,7 +15,7 @@ const PNG = Uint8Array.from(
 /** A file read, then checked by the import every Test Parrot file goes through. */
 async function read(name: string, bytes: Uint8Array) {
   const reading = await readQuestionFile({ name, bytes })
-  const proposal = await inspectImportValue(reading.record)
+  const proposal = await inspectImportValue(reading.record, undefined, reading.files)
   return { reading, proposal, questions: reading.record.bank.questions }
 }
 

@@ -7,6 +7,7 @@ import examSchema020 from './exam-record-0.2.0.schema.json'
 import examSchema030 from './exam-record-0.3.0.schema.json'
 import packageSchema010 from './test-parrot-package-0.1.0.schema.json'
 import type { QuestionFileSummary } from './question-formats'
+import { PackageZipError, isPackageZip, readPackageZip } from './package-zip'
 import {
   QUESTION_BANK_FORMAT,
   RECORD_TYPE_ORDER,
@@ -19,15 +20,18 @@ import {
   QuestionBankImportError,
   decodeRecordJson,
   inspectQuestionBankRecordValue,
+  packageFiles,
   readCanonicalAttachment,
+  type PackageFiles,
   type ParsedQuestionBankRecord,
   type QuestionBankRecordSummary,
 } from './question-bank-import'
 
 /**
  * Reading whatever a teacher hands the importer — a bare Question Bank Record
- * or a Test Parrot Package, as JSON or inside a Test Parrot PDF — into one
- * proposal: every bank, every Exam, and which depends on which.
+ * or a Test Parrot Package, as JSON, as a package zip with its pictures
+ * (ADR-0036), or inside a Test Parrot PDF — into one proposal: every bank,
+ * every Exam, and which depends on which.
  *
  * The whole file is accepted or rejected. Each embedded record goes through
  * its own format's parser and rules first, then the package's own rules bind
@@ -483,6 +487,7 @@ function proposedExam(
 async function inspectPackageValue(
   value: unknown,
   limits: PackageImportLimits,
+  files: PackageFiles | undefined,
 ): Promise<ImportProposal> {
   const testParrotPackage = parserFor(SUPPORTED_PACKAGE_VERSIONS, 'Test Parrot Package', value)(value)
   if (testParrotPackage.requiredFeatures.length > 0) {
@@ -518,7 +523,7 @@ async function inspectPackageValue(
   let questions = 0
   let mediaBytes = 0
   for (const { id, record } of testParrotPackage.questionBanks) {
-    const inspected = await inspectQuestionBankRecordValue(record, limits)
+    const inspected = await inspectQuestionBankRecordValue(record, limits, files)
     questions += inspected.record.bank.questions.length
     if (questions > limits.questions) {
       throw new QuestionBankImportError(
@@ -563,21 +568,43 @@ async function inspectPackageValue(
 }
 
 /** Inspect one decoded JSON value: a bare Question Bank Record, which reads
- *  as a package with one bank and no Exams, or a Test Parrot Package. */
+ *  as a package with one bank and no Exams, or a Test Parrot Package. `files`
+ *  are the pictures beside it in its zip, when it came in one. */
 export async function inspectImportValue(
   value: unknown,
   limits: PackageImportLimits = DEFAULT_PACKAGE_IMPORT_LIMITS,
+  files?: ReadonlyMap<string, Uint8Array>,
+): Promise<ImportProposal> {
+  const carried = files ? packageFiles(files) : undefined
+  const proposal = await inspectValue(value, limits, carried)
+  // A picture no Media Asset names is refused, as a Media Asset nothing shows
+  // is. Anything outside `media/` is not the package's, and is ignored.
+  for (const path of files?.keys() ?? []) {
+    if (path.startsWith('media/') && !carried!.used.has(path)) {
+      throw new QuestionBankImportError(
+        'invalid-media',
+        `This zip holds “${path}”, which no Media Asset names.`,
+      )
+    }
+  }
+  return proposal
+}
+
+async function inspectValue(
+  value: unknown,
+  limits: PackageImportLimits,
+  files: PackageFiles | undefined,
 ): Promise<ImportProposal> {
   const format = stringAt(value, 'format')
   if (format === QUESTION_BANK_FORMAT) {
-    const { record, summary } = await inspectQuestionBankRecordValue(value, limits)
+    const { record, summary } = await inspectQuestionBankRecordValue(value, limits, files)
     return {
       source: { format: QUESTION_BANK_FORMAT, formatVersion: record.sourceVersion },
       banks: [{ id: BARE_RECORD_BANK_ID, record, summary, exams: [] }],
       exams: [],
     }
   }
-  if (format === PACKAGE_FORMAT) return inspectPackageValue(value, limits)
+  if (format === PACKAGE_FORMAT) return inspectPackageValue(value, limits, files)
   if (format === EXAM_FORMAT) {
     throw new QuestionBankImportError(
       'unsupported-format',
@@ -590,12 +617,13 @@ export async function inspectImportValue(
   )
 }
 
-/** Inspect a JSON file's bytes. */
+/** Inspect a file's bytes: a package zip with its pictures, or JSON. */
 export async function inspectImportRecord(
   bytes: Uint8Array,
   options: { limits?: PackageImportLimits } = {},
 ): Promise<ImportProposal> {
   const limits = options.limits ?? DEFAULT_PACKAGE_IMPORT_LIMITS
+  if (isPackageZip(bytes)) return inspectPackageZip(bytes, limits)
   if (bytes.byteLength > limits.recordBytes) {
     throw new QuestionBankImportError(
       'record-size-limit',
@@ -605,6 +633,29 @@ export async function inspectImportRecord(
   return inspectImportValue(decodeRecordJson(bytes), limits)
 }
 
+async function inspectPackageZip(bytes: Uint8Array, limits: PackageImportLimits): Promise<ImportProposal> {
+  if (bytes.byteLength > limits.pdfBytes) {
+    throw new QuestionBankImportError(
+      'record-size-limit',
+      `The zip exceeds the ${limits.pdfBytes} byte limit.`,
+    )
+  }
+  let opened: Awaited<ReturnType<typeof readPackageZip>>
+  try {
+    opened = await readPackageZip(bytes)
+  } catch (reason) {
+    if (reason instanceof PackageZipError) throw new QuestionBankImportError('invalid-zip', reason.message)
+    throw reason
+  }
+  if (opened.json.byteLength > limits.recordBytes) {
+    throw new QuestionBankImportError(
+      'record-size-limit',
+      `The package in this zip exceeds the ${limits.recordBytes} byte limit.`,
+    )
+  }
+  return inspectImportValue(decodeRecordJson(opened.json), limits, opened.files)
+}
+
 /** Inspect a Test Parrot PDF: a Question Bank File or an Exam PDF exported
  *  with its answer key. Both carry their record the same way. */
 export async function inspectImportFile(
@@ -612,8 +663,5 @@ export async function inspectImportFile(
   options: { limits?: PackageImportLimits } = {},
 ): Promise<ImportProposal> {
   const limits = options.limits ?? DEFAULT_PACKAGE_IMPORT_LIMITS
-  return inspectImportValue(
-    decodeRecordJson(await readCanonicalAttachment(bytes, limits)),
-    limits,
-  )
+  return inspectImportRecord(await readCanonicalAttachment(bytes, limits), { limits })
 }

@@ -9,7 +9,7 @@ const fixture = (path: string) => new Uint8Array(readFileSync(new URL(`./fixture
 /** A file read, then checked by the import every Test Parrot file goes through. */
 async function read(name: string, bytes: Uint8Array) {
   const reading = await readQuestionFile({ name, bytes })
-  const proposal = await inspectImportValue(reading.record)
+  const proposal = await inspectImportValue(reading.record, undefined, reading.files)
   return { reading, proposal, questions: reading.record.bank.questions }
 }
 
@@ -17,21 +17,21 @@ const text = (document: { content: unknown[] } | undefined) =>
   document ? blocksText(document.content as never) : ''
 
 describe('Blackboard Test Generator text', () => {
-  test('reads the customer’s tagged sample as one Multiple Choice question', async () => {
-    const { reading, questions } = await read('psych.txt', fixture('bb-generator/customer-sample.txt'))
+  test('reads a tagged sample as one Multiple Choice question', async () => {
+    const { reading, questions } = await read('planets.txt', fixture('bb-generator/tagged-sample.txt'))
     expect(reading.format).toBe('bb-generator')
     expect(reading.issues).toEqual([])
     expect(questions).toHaveLength(1)
     const [question] = questions
     expect(question!.type).toBe('multiple-choice')
     expect(text(question!.stem)).toBe(
-      'What metaphor would developmentalists use to describe a child who flourishes despite adverse childhood experiences?',
+      'Which planet is closest to the Sun?',
     )
     expect(question!.choices!.map((choice) => [text(choice.content), choice.correct])).toEqual([
-      ['a rose', false],
-      ['a tulip', false],
-      ['a dandelion', true],
-      ['an orchid', false],
+      ['Venus', false],
+      ['Earth', false],
+      ['Mercury', true],
+      ['Mars', false],
     ])
   })
 
