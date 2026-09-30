@@ -17,15 +17,15 @@ import { seedAuthoringState } from './seed-authoring'
 
 const paragraph = (text: string) => ({ type: 'paragraph', content: [{ type: 'text', text }] })
 
-const ottoman = {
+const aldmere = {
   id: 's1',
   type: 'multipart',
   columns: 2,
   doc: {
     type: 'doc',
     content: [
-      paragraph('The power of the Empire was waning by 1683.'),
-      paragraph('Source: BBC online, 2009 (adapted)'),
+      paragraph('The power of the Kingdom was fading by 1450.'),
+      paragraph('Source: A Short History of Aldmere, 1998 (adapted)'),
       {
         type: 'multipartParts',
         content: [
@@ -33,10 +33,10 @@ const ottoman = {
             type: 'multipartPart',
             attrs: { id: 's1-a', columns: 2 },
             content: [
-              { type: 'multipartPartStem', content: [paragraph('Which region was controlled in 1683?')] },
+              { type: 'multipartPartStem', content: [paragraph('Which region was controlled in 1450?')] },
               {
                 type: 'multipleChoice',
-                content: ['Central America', 'Middle East'].map((answer, index) => ({
+                content: ['Western Hills', 'Northern Coast'].map((answer, index) => ({
                   type: 'multipleChoiceChoice',
                   attrs: { correct: index === 1, id: `s1-a${index}` },
                   content: [paragraph(answer)],
@@ -49,7 +49,7 @@ const ottoman = {
             attrs: { id: 's1-b', columns: 2 },
             content: [
               { type: 'multipartPartStem', content: [paragraph('Identify an issue faced in the 1600s.')] },
-              { type: 'suggestedAnswer', content: [paragraph('Trade routes shifted.')] },
+              { type: 'suggestedAnswer', content: [paragraph('Its harbors silted up.')] },
             ],
           },
         ],
@@ -60,7 +60,7 @@ const ottoman = {
 
 async function openExam(page: Page) {
   await seedAuthoringState(page, {
-    questionBank: { questions: [ottoman] },
+    questionBank: { questions: [aldmere] },
     workingCopy: { title: 'Multipart', questionIds: ['s1'] },
     dirty: false,
   } as never)
@@ -76,11 +76,11 @@ test('the sheet prints the Multipart question under one number with its Parts le
   const question = page.locator('.exam-question')
   await expect(question.locator('.question-count')).toHaveText('1.')
   await expect(question.locator('.part-count')).toHaveText(['a.', 'b.'])
-  await expect(question).toContainText('The power of the Empire was waning by 1683.')
-  await expect(question).toContainText('Which region was controlled in 1683?')
-  await expect(question.locator('.choice-grid')).toContainText('Middle East')
+  await expect(question).toContainText('The power of the Kingdom was fading by 1450.')
+  await expect(question).toContainText('Which region was controlled in 1450?')
+  await expect(question.locator('.choice-grid')).toContainText('Northern Coast')
   // The Suggested Answer is the Answer Key's, never the student's.
-  await expect(question).not.toContainText('Trade routes shifted.')
+  await expect(question).not.toContainText('Its harbors silted up.')
 })
 
 test('the editor nests the Parts under the Multipart question, each tagged with its letter and kind', async ({ page }) => {
@@ -184,17 +184,17 @@ test('a Part switches kind from its type badge, and switching back brings its an
   }
 
   await part.locator('.mc-choice-body').first().click()
-  await page.keyboard.type('Middle East')
+  await page.keyboard.type('Northern Coast')
   await switchTo('Short Answer')
   await expect(partTags(page).first()).toContainText('Short Answer')
   await expect(part.getByText('Suggested Answer')).toBeVisible()
   await expect(part.locator('[data-type="multiple-choice"]')).toHaveCount(0)
 
   await part.locator('.sa-body').click()
-  await page.keyboard.type('Trade routes shifted.')
+  await page.keyboard.type('Its harbors silted up.')
   await switchTo('Multiple Choice')
-  await expect(part.locator('.mc-choice-body').first()).toHaveText('Middle East')
-  await expect(part).not.toContainText('Trade routes shifted.')
+  await expect(part.locator('.mc-choice-body').first()).toHaveText('Northern Coast')
+  await expect(part).not.toContainText('Its harbors silted up.')
   await switchTo('Short Answer')
-  await expect(part.locator('.sa-body')).toHaveText('Trade routes shifted.')
+  await expect(part.locator('.sa-body')).toHaveText('Its harbors silted up.')
 })

@@ -304,10 +304,10 @@ A matching section is a list of numbered items on one side and a lettered word b
 ```text
 Matching: Match each event to the correct time period.
 
-____ 22. The Jewish synagogue system was set up.        A. Persian
-____ 23. The Septuagint was completed.                  B. Grecian
-____ 24. Herod the Great was able to rise to power.     C. Maccabean—Hasmonean
-                                                        D. Roman
+____ 1. People made their first tools from stone.      A. Stone Age
+____ 2. Bronze tools were first made.                  B. Bronze Age
+____ 3. Castles were built across Europe.              C. Iron Age
+                                                       D. Middle Ages
 ```
 
 Convert **one whole set — every item that shares one word bank — as one `matching` Question**, even though each item carries its own number in the source. Do not split a set into one Question per item, and do not merge two sets that have different word banks. Test Parrot numbers the items again when it prints the test, one number per item, and prints the word bank beside them.
@@ -321,7 +321,7 @@ A Matching Question:
 - gives each item an `answer` — the ID of the word bank answer the source's answer key matches it with — or no `answer` member at all when the key gives none;
 - does not have `choices` or `suggestedAnswer`.
 
-The letters are positions, not content: `A.` is `q3-a1`, `B.` is `q3-a2`, and so on, so leave the letters out of the answer content and out of the item content. Leave the source numbers and the blanks out too — they are furniture. A key of `22. C` means the item numbered 22 names the third word bank answer. Several items may name the same answer when the key says so, and a word bank may hold answers no item names; keep those distractors in authored order. Never infer a match from general knowledge, and never reorder either list.
+The letters are positions, not content: `A.` is `q3-a1`, `B.` is `q3-a2`, and so on, so leave the letters out of the answer content and out of the item content. Leave the source numbers and the blanks out too — they are furniture. A key of `2. C` means the item numbered 2 names the third word bank answer. Several items may name the same answer when the key says so, and a word bank may hold answers no item names; keep those distractors in authored order. Never infer a match from general knowledge, and never reorder either list.
 
 ```json
 {
@@ -352,7 +352,7 @@ The letters are positions, not content: `A.` is `q3-a1`, `B.` is `q3-a2`, and so
             "content": [
               {
                 "type": "text",
-                "text": "The Jewish synagogue system was set up."
+                "text": "People made their first tools from stone."
               }
             ]
           }
@@ -368,7 +368,7 @@ The letters are positions, not content: `A.` is `q3-a1`, `B.` is `q3-a2`, and so
           {
             "type": "paragraph",
             "content": [
-              { "type": "text", "text": "The Septuagint was completed." }
+              { "type": "text", "text": "Bronze tools were first made." }
             ]
           }
         ]
@@ -385,7 +385,7 @@ The letters are positions, not content: `A.` is `q3-a1`, `B.` is `q3-a2`, and so
             "content": [
               {
                 "type": "text",
-                "text": "Herod the Great was able to rise to power."
+                "text": "Castles were built across Europe."
               }
             ]
           }
@@ -402,7 +402,7 @@ The letters are positions, not content: `A.` is `q3-a1`, `B.` is `q3-a2`, and so
         "content": [
           {
             "type": "paragraph",
-            "content": [{ "type": "text", "text": "Persian" }]
+            "content": [{ "type": "text", "text": "Stone Age" }]
           }
         ]
       }
@@ -414,7 +414,7 @@ The letters are positions, not content: `A.` is `q3-a1`, `B.` is `q3-a2`, and so
         "content": [
           {
             "type": "paragraph",
-            "content": [{ "type": "text", "text": "Grecian" }]
+            "content": [{ "type": "text", "text": "Bronze Age" }]
           }
         ]
       }
@@ -426,7 +426,7 @@ The letters are positions, not content: `A.` is `q3-a1`, `B.` is `q3-a2`, and so
         "content": [
           {
             "type": "paragraph",
-            "content": [{ "type": "text", "text": "Maccabean—Hasmonean" }]
+            "content": [{ "type": "text", "text": "Iron Age" }]
           }
         ]
       }
@@ -438,7 +438,7 @@ The letters are positions, not content: `A.` is `q3-a1`, `B.` is `q3-a2`, and so
         "content": [
           {
             "type": "paragraph",
-            "content": [{ "type": "text", "text": "Roman" }]
+            "content": [{ "type": "text", "text": "Middle Ages" }]
           }
         ]
       }
@@ -498,19 +498,19 @@ A Multipart question is a stem of shared material — a passage, a quote, a spee
 Base your answers to questions 12 and 13 on the passage below and on your
 knowledge of social studies.
 
-    The power of the [Ottoman] Empire was waning by 1683 …
+    The power of the Kingdom of Aldmere was fading by 1450 …
 
-        Source: “Ottoman Empire (1301–1922),” BBC online, 2009 (adapted)
+        Source: “A Short History of Aldmere,” 1998 (adapted)
 
-12 Which region was controlled by the Ottoman Empire in 1683?
-   (1) Central America        (3) East Asia
-   (2) South Asia             (4) Middle East
+12 Which region was controlled by the Kingdom of Aldmere in 1450?
+   (1) Western Hills          (3) Eastern Forests
+   (2) Southern Plains        (4) Northern Coast
 
-13 Based on the passage, identify an issue faced by the Ottoman Empire in the 1600s.
-   (1) The empire became too large to govern.
-   (2) Global trade routes shifted.
+13 Based on the passage, identify an issue faced by the Kingdom of Aldmere in the 1400s.
+   (1) The kingdom became too large to govern.
+   (2) Its harbors silted up.
    (3) Rulers were responsive to the needs of the people.
-   (4) Trade increased in the empire.
+   (4) Trade increased in the kingdom.
 ```
 
 Convert **the material and every question asked about it as one `multipart` Question**, even though the source numbers each question separately. Each of those questions becomes one **Part** of the Multipart question, in printed order. Do not split the block into one Question per source number, do not repeat the material in several Questions, and never convert a Part as a standalone Question without its material: a student cannot answer it. Test Parrot prints the Multipart question under one number and letters its Parts beneath it (`a.`, `b.`, …).
@@ -550,7 +550,7 @@ Leave the source's question numbers (`12`, `13`) out of each Part's stem, and it
             "content": [
               {
                 "type": "text",
-                "text": "The power of the [Ottoman] Empire was waning by 1683 …"
+                "text": "The power of the Kingdom of Aldmere was fading by 1450 …"
               }
             ]
           }
@@ -561,13 +561,13 @@ Leave the source's question numbers (`12`, `13`) out of each Part's stem, and it
         "content": [
           {
             "type": "text",
-            "text": "Source: “Ottoman Empire (1301–1922),” BBC online, 2009 (adapted)"
+            "text": "Source: “A Short History of Aldmere,” 1998 (adapted)"
           }
         ]
       }
     ]
   },
-  "topics": ["Ottoman Empire"],
+  "topics": ["Kingdom of Aldmere"],
   "parts": [
     {
       "id": "q5-s1",
@@ -580,17 +580,17 @@ Leave the source's question numbers (`12`, `13`) out of each Part's stem, and it
             "content": [
               {
                 "type": "text",
-                "text": "Which region was controlled by the Ottoman Empire in 1683?"
+                "text": "Which region was controlled by the Kingdom of Aldmere in 1450?"
               }
             ]
           }
         ]
       },
       "choices": [
-        { "id": "q5-s1-c1", "content": { "type": "document", "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Central America" }] }] }, "correct": false },
-        { "id": "q5-s1-c2", "content": { "type": "document", "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "South Asia" }] }] }, "correct": false },
-        { "id": "q5-s1-c3", "content": { "type": "document", "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "East Asia" }] }] }, "correct": false },
-        { "id": "q5-s1-c4", "content": { "type": "document", "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Middle East" }] }] }, "correct": true }
+        { "id": "q5-s1-c1", "content": { "type": "document", "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Western Hills" }] }] }, "correct": false },
+        { "id": "q5-s1-c2", "content": { "type": "document", "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Southern Plains" }] }] }, "correct": false },
+        { "id": "q5-s1-c3", "content": { "type": "document", "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Eastern Forests" }] }] }, "correct": false },
+        { "id": "q5-s1-c4", "content": { "type": "document", "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Northern Coast" }] }] }, "correct": true }
       ]
     },
     {
@@ -604,17 +604,17 @@ Leave the source's question numbers (`12`, `13`) out of each Part's stem, and it
             "content": [
               {
                 "type": "text",
-                "text": "Based on the passage, identify an issue faced by the Ottoman Empire in the 1600s."
+                "text": "Based on the passage, identify an issue faced by the Kingdom of Aldmere in the 1400s."
               }
             ]
           }
         ]
       },
       "choices": [
-        { "id": "q5-s2-c1", "content": { "type": "document", "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "The empire became too large to govern." }] }] }, "correct": false },
-        { "id": "q5-s2-c2", "content": { "type": "document", "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Global trade routes shifted." }] }] }, "correct": true },
+        { "id": "q5-s2-c1", "content": { "type": "document", "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "The kingdom became too large to govern." }] }] }, "correct": false },
+        { "id": "q5-s2-c2", "content": { "type": "document", "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Its harbors silted up." }] }] }, "correct": true },
         { "id": "q5-s2-c3", "content": { "type": "document", "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Rulers were responsive to the needs of the people." }] }] }, "correct": false },
-        { "id": "q5-s2-c4", "content": { "type": "document", "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Trade increased in the empire." }] }] }, "correct": false }
+        { "id": "q5-s2-c4", "content": { "type": "document", "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Trade increased in the kingdom." }] }] }, "correct": false }
       ]
     }
   ]
@@ -635,7 +635,7 @@ A Short Answer Part is written the same way, without `choices`:
         "content": [
           {
             "type": "text",
-            "text": "Explain one reason the Ottoman Empire's power was waning by 1683."
+            "text": "Explain one reason the Kingdom of Aldmere's power was fading by 1450."
           }
         ]
       }
@@ -805,8 +805,8 @@ If an image is meaningful Question Content—for example, a graph or diagram the
 {
   "type": "block-image",
   "pending": { "image": 3 },
-  "alt": "Map of European trading stations in Africa and Asia around 1750",
-  "caption": "Major European Trading Stations and Possessions in Africa and Asia c. 1750"
+  "alt": "Map of the bus routes in the town of Riverton",
+  "caption": "Riverton Bus Routes and Stops, 2020"
 }
 ```
 

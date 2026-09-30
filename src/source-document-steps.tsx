@@ -262,7 +262,7 @@ export function SourceDocumentSteps({
     {error && <p className="home-error" role="alert">{error}</p>}
     <p className="source-steps-help">
       Think we should convert this kind of file automatically?{' '}
-      <a href={supportMailto('A file type for Test Parrot to convert')}>Email us your file</a>.
+      <a href={supportMailto('A file type for Test Parrot to convert', { askForFile: true })}>Email us your file</a>.
     </p>
     {onStartOver && <p className="source-steps-foot">
       <button type="button" className="link-button" disabled={busy} onClick={onStartOver}>Start over with another file</button>

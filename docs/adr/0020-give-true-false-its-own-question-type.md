@@ -4,7 +4,7 @@ status: accepted
 
 # Give True/False its own Question Type
 
-A teacher reported that a document they uploaded held True/False questions with nowhere to put them, and that the Multiple Choice directions did not match the questions printed under them. Both complaints are the same omission: True/False was not a Question Type, so a True/False question could only arrive as a two-choice Multiple Choice question and then printed under Multiple Choice's heading and its directions.
+Source documents hold True/False questions, and they had nowhere to go: True/False was not a Question Type, so a True/False question could only arrive as a two-choice Multiple Choice question, and then printed under Multiple Choice's heading and directions, which did not match it.
 
 `'true-false'` is therefore a third Question Type, between Multiple Choice and Short Answer in Section order. It reuses the answer-choice machinery rather than a new correctness field: a True/False question stores the same `multipleChoice` node with exactly two choices, `True` and `False`, so correctness, stable choice identity, duplication, and the portable record all work as they already did. What the type changes is what a teacher can do with the pair and what the paper shows.
 

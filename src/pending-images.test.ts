@@ -20,10 +20,10 @@ const proposal = async () => inspectImportRecord(await Bun.file(example).bytes()
 const tags = (...numbers: number[]) => numbers.map((tag) => ({ tag }))
 
 const PAGES = [
-  'World History Unit 4. 1. Use the map to name the trading station farthest east!',
-  '2. WHICH graph shows a function that is increasing everywhere? 3. Which European power held the most stations on the map?',
+  'Social Studies Unit 4. 1. Use the map to name the bus stop farthest east!',
+  '2. WHICH graph shows a function that is increasing everywhere? 3. Which bus route has the most stops on the map?',
   '',
-  '4) Describe   the circuit shown below. 5. Source: Punch, 1911 (adapted). What is the main idea of this cartoon? Use the chart on page 4 to explain one cause of that decline.',
+  '4) Describe   the circuit shown below. 5. Source: Riverton Times, 2019 (adapted). What is the main idea of this cartoon? Use the chart on page 4 to explain one cause of the flooding.',
 ]
 
 describe('checking a record against its Source Document', () => {
@@ -154,7 +154,7 @@ describe('sizing a picture from its page', () => {
     expect(estimatedSize(crop(850, 1 / 3), { where: 'Item 2' })).toBeUndefined()
   })
 
-  // A converted precalculus test's answers were four graphs, each a third of
+  // A converted math test's answers were four graphs, each a third of
   // its page wide. Left to fill its cell, each printed as wide as the question
   // whenever the answers were in one column.
   test('knows the columns an imported Exam prints each Question’s answers in', () => {

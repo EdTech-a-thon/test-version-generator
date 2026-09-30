@@ -65,7 +65,7 @@ export function stemPreview(question: Question): StemPreview {
 
 /**
  * Everything a stem search reads for this question: the row's own line and,
- * for a Multipart question, each Part's stem as well — a teacher looking for "Ottoman"
+ * for a Multipart question, each Part's stem as well — a teacher looking for "Aldmere"
  * should find the Multipart question whether the word is in the passage or in the
  * question asked about it. Answers stay out of reach, as they do for any
  * question.

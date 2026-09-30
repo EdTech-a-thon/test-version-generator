@@ -22,10 +22,10 @@ export async function sourceDocument() {
   const font = await pdf.embedFont(StandardFonts.Helvetica)
   const [map, graph] = await Promise.all([pdf.embedPng(picture(120, 80, 1)), pdf.embedPng(picture(120, 80, 2))])
   const first = pdf.addPage([612, 792])
-  first.drawText('1. Use the map to name the trading station farthest east.', { x: 60, y: 730, size: 12, font })
+  first.drawText('1. Use the map to name the bus stop farthest east.', { x: 60, y: 730, size: 12, font })
   first.drawImage(map, { x: 60, y: 480, width: 300, height: 200 })
   const second = pdf.addPage([612, 792])
-  second.drawText('2. Which European power held the most stations on the map?', { x: 60, y: 730, size: 12, font })
+  second.drawText('2. Which bus route has the most stops on the map?', { x: 60, y: 730, size: 12, font })
   second.drawText('3. Describe the graph of the function shown below.', { x: 60, y: 700, size: 12, font })
   second.drawImage(graph, { x: 60, y: 460, width: 300, height: 200 })
   second.drawText('4. Describe the circuit drawn below.', { x: 60, y: 420, size: 12, font })
@@ -45,9 +45,9 @@ export async function wordSourceDocument() {
     sections: [{
       properties: { page: { size: { width: 12240, height: 15840 } } },
       children: [
-        line('1. Use the map to name the trading station farthest east.'),
+        line('1. Use the map to name the bus stop farthest east.'),
         placed(picture(120, 80, 1)),
-        line('2. Which European power held the most stations on the map?'),
+        line('2. Which bus route has the most stops on the map?'),
         line('3. Describe the graph of the function shown below.'),
         placed(picture(120, 80, 2)),
         line('4. Describe the circuit drawn below.'),
@@ -60,19 +60,19 @@ export async function wordSourceDocument() {
 
 export const paragraph = (text: string) => ({ type: 'paragraph', content: [{ type: 'text', text }] })
 export const doc = (...content: unknown[]) => ({ type: 'document', content })
-const map = { type: 'block-image', pending: { image: 1 }, alt: 'Map of trading stations', caption: 'Trading stations c. 1750' }
+const map = { type: 'block-image', pending: { image: 1 }, alt: 'Map of bus routes', caption: 'Bus routes, 2020' }
 
 /** What an assistant would write back for that test. */
 export function assistantPackage() {
   const questions = [
-    { id: 'q1', type: 'short-answer', stem: doc(paragraph('Use the map to name the trading station farthest east.'), map) },
+    { id: 'q1', type: 'short-answer', stem: doc(paragraph('Use the map to name the bus stop farthest east.'), map) },
     {
       id: 'q2',
       type: 'multiple-choice',
-      stem: doc(map, paragraph('Which European power held the most stations on the map?')),
+      stem: doc(map, paragraph('Which bus route has the most stops on the map?')),
       choices: [
-        { id: 'q2-c1', content: doc(paragraph('Portugal')), correct: true },
-        { id: 'q2-c2', content: doc(paragraph('Denmark')), correct: false },
+        { id: 'q2-c1', content: doc(paragraph('Route 4')), correct: true },
+        { id: 'q2-c2', content: doc(paragraph('Route 9')), correct: false },
       ],
     },
     {
@@ -103,14 +103,14 @@ export function assistantPackage() {
         formatVersion: '0.7.0',
         generator: { name: 'Assistant', version: '1' },
         requiredFeatures: [],
-        bank: { name: 'Trading Stations', questions },
+        bank: { name: 'Bus Routes', questions },
         media: [],
       },
     }],
     exams: [{
       format: 'test-parrot/exam',
       formatVersion: '0.1.0',
-      name: 'Trading Stations Quiz',
+      name: 'Bus Routes Quiz',
       positions: questions.map(({ id }) => ({ question: { bank: 'history', question: id } })),
     }],
   }))

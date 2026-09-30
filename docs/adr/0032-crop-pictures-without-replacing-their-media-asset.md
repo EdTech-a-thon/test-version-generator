@@ -4,7 +4,7 @@ status: accepted
 
 # Crop pictures without replacing their Media Asset
 
-A teacher asked to crop an imported problem down to its triangle and numbers. The first cut made a new Media Asset from what the crop kept. That lost the rest of the picture for good, so a crop could not be widened again, and it gave the editor nothing to show as a ghost of what was cut away. Teachers also kept missing the one bar Crepe gives for resizing a picture.
+Teachers need to crop an imported picture down to the part a question uses. The first cut made a new Media Asset from what the crop kept. That lost the rest of the picture for good, so a crop could not be widened again, and it gave the editor nothing to show as a ghost of what was cut away. Teachers also kept missing the one bar Crepe gives for resizing a picture.
 
 **A Picture Crop is an attribute, and the Media Asset stays whole.** A block image carries `crop`: the kept part as `{ left, top, right, bottom }`, fractions 0–1 of the upright picture (after a camera photo's EXIF turn), and Question Bank Record 0.7.0 carries it as the image node's `crop`. Media Assets stay immutable and content-addressed (ADR-0017), and a cropped picture protects the original bytes it names. We did not keep baking new bytes and also remember the original: that would be two truths about one picture.
 

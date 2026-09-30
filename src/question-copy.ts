@@ -20,6 +20,7 @@ import { keptPixels, legacyRatioOf, pictureCropOf, pictureKey, pictureSizeOf, pr
 import { layOutColumns, MATCHING_BESIDE_LIMIT, TRUE_FALSE_MARKS } from './export-plan'
 import { pendingImageOf, stemNodesOf, type ProseMirrorJSON } from './question-doc'
 import { choicesOf, partsOf, promptsOf, type ColumnSetting, type Question } from './exam'
+import { mathJaxTools } from './mathjax'
 
 /** One paragraph's worth of a copied Question: blocks of Question Content,
  *  led by a label such as "A. " or "_____ ", and indented under a Part when it
@@ -481,48 +482,6 @@ const EX_PX = 7.5
  *  sharp when the destination is zoomed or printed. */
 const MATH_SCALE = 3
 
-type MathJaxTools = {
-  svg: (source: string, display: boolean) => string
-  mathml: (source: string, display: boolean) => string
-}
-
-let mathJax: Promise<MathJaxTools> | null = null
-
-/** MathJax's TeX to SVG and to MathML, loaded the first time it is needed. */
-function mathJaxTools(): Promise<MathJaxTools> {
-  mathJax ??= (async () => {
-    const [
-      { mathjax }, { TeX }, { SVG }, { liteAdaptor }, { RegisterHTMLHandler },
-      { AllPackages }, { SerializedMmlVisitor }, { STATE },
-    ] = await Promise.all([
-      import('mathjax-full/js/mathjax.js'),
-      import('mathjax-full/js/input/tex.js'),
-      import('mathjax-full/js/output/svg.js'),
-      import('mathjax-full/js/adaptors/liteAdaptor.js'),
-      import('mathjax-full/js/handlers/html.js'),
-      import('mathjax-full/js/input/tex/AllPackages.js'),
-      import('mathjax-full/js/core/MmlTree/SerializedMmlVisitor.js'),
-      import('mathjax-full/js/core/MathItem.js'),
-    ])
-    const adaptor = liteAdaptor()
-    RegisterHTMLHandler(adaptor)
-    const document = mathjax.document('', {
-      InputJax: new TeX({ packages: AllPackages }),
-      OutputJax: new SVG({ fontCache: 'none' }),
-    })
-    const visitor = new SerializedMmlVisitor()
-    return {
-      svg: (source, display) => adaptor.innerHTML(document.convert(source, { display })),
-      mathml: (source, display) => {
-        const serialized = visitor.visitTree(document.convert(source, { display, end: STATE.CONVERT }))
-        // One line: some editors read the whitespace between elements as text.
-        return serialized.replace(/>\s+</g, '><')
-      },
-    }
-  })()
-  return mathJax
-}
-
 /** A formula's SVG, sized in CSS pixels and drawn in black: MathJax sizes in
  *  `ex` and paints with `currentColor`, neither of which an image has. */
 export function sizedMathSvg(svg: string): { svg: string; width: number; height: number } | null {
@@ -548,7 +507,8 @@ async function loadImage(src: string): Promise<HTMLImageElement> {
 }
 
 async function mathPicture(source: string, display: boolean): Promise<CopyPicture | null> {
-  const sized = sizedMathSvg((await mathJaxTools()).svg(source, display))
+  const tools = await mathJaxTools()
+  const sized = sizedMathSvg(tools.adaptor.outerHTML(tools.svg(source, display)))
   if (!sized) return null
   const url = URL.createObjectURL(new Blob([sized.svg], { type: 'image/svg+xml' }))
   try {

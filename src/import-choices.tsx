@@ -43,7 +43,7 @@ export function TextOnlyChoices({ busy, onPaste }: {
           rows={10}
           spellCheck={false}
           autoFocus
-          placeholder={'MC\nWhich flower grows almost anywhere?\na rose\n*a dandelion\nan orchid\n\nTF\nDandelions are perennials.\nT'}
+          placeholder={'MC\nWhich planet is closest to the Sun?\nVenus\n*Mercury\nMars\n\nTF\nThe Sun is a star.\nT'}
           onChange={(event) => setPasted(event.target.value)}
         />
         <p>

@@ -218,7 +218,7 @@ function parseTagged(block: Line[], active: Tag | null): { parsed: Parsed; activ
       if (!answerLines.length) return next({ error: 'a multiple choice question needs its answers, each on its own line below the question, with * before the correct one.' })
       const answers = withoutLetters(answerLines.map(starred))
       const correct = answers.filter((answer) => answer.correct).length
-      if (correct === 0) return next({ error: 'no answer is marked correct. Put * directly before the correct answer, e.g. “*a dandelion”.' })
+      if (correct === 0) return next({ error: 'no answer is marked correct. Put * directly before the correct answer, e.g. “*Mercury”.' })
       const trueFalse = trueFalseChoices(answers)
       if (trueFalse !== undefined) return next({ question: { kind: 'true-false', line, sourceType: tag, stem, answer: trueFalse } })
       const choices = answers.map(({ correct: isCorrect, text }) => ({ correct: isCorrect, content: plainBlocks(text) }))
