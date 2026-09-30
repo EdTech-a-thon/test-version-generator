@@ -145,7 +145,8 @@ The implementations are:
 - `src/pdf-export.test.ts` — PDF pages, metadata, links, media, embedded fonts,
   unsupported-character rejection, overflow rejection, every matching
   prompt and Word Bank answer on its planned page, equations drawn as outlines
-  with school notation as their searchable text, a Blockquote's black border, and a Side-by-Side's pictures beside
+  with school notation as their searchable text, a Blockquote's black border,
+  and a Side-by-Side's pictures beside
   one another, centred in their Panels.
 - `src/export-typography.test.ts` — one type scale (`src/export-typography.ts`)
   held against print's stylesheet, the DOCX document defaults and heading
