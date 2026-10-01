@@ -17,6 +17,7 @@
 // Arrangement, and nothing here writes anything back.
 
 import { isExamHeader, sameExamHeader } from './page-header'
+import { DEFAULT_QUESTION_STYLE, isQuestionStyle } from './question-style'
 import {
   DEFAULT_HEADING_SIZE,
   isHeadingSize,
@@ -169,6 +170,10 @@ export function selectedExam(
       : undefined
   const textSize =
     isTextSize(draft.textSize) && draft.textSize !== DEFAULT_TEXT_SIZE ? draft.textSize : undefined
+  const questionStyle =
+    isQuestionStyle(draft.questionStyle) && draft.questionStyle !== DEFAULT_QUESTION_STYLE
+      ? draft.questionStyle
+      : undefined
   const header =
     isExamHeader(draft.header) && Object.keys(draft.header).length > 0 ? draft.header : undefined
   const exam: Exam =
@@ -184,6 +189,7 @@ export function selectedExam(
     && previous.exam.headingSize === headingSize
     && sameExamHeader(previous.exam.header, header)
     && previous.exam.textSize === textSize
+    && previous.exam.questionStyle === questionStyle
       ? previous.exam
       : {
           title: draft.title,
@@ -194,6 +200,7 @@ export function selectedExam(
           ...(sectionHeadings ? { sectionHeadings } : {}),
           ...(headingSize ? { headingSize } : {}),
           ...(textSize ? { textSize } : {}),
+          ...(questionStyle ? { questionStyle } : {}),
           ...(header ? { header } : {}),
         }
 

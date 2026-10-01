@@ -135,6 +135,10 @@ The implementations are:
   shuffled Versions (distinctness, what moves, names), and partial reprints.
 - `src/export-plan.test.ts` — semantic derivation, numbering, grids, geometry,
   packing, splitting, furniture, streams, and breaks.
+- `src/question-style.test.ts` — each Question Style's rules through the
+  plan: what prints before a number, answer and Word Bank letters and layout,
+  the Work Space a style supplies and what overrides it, the question gap
+  handed to `Measure`, and an Answer Key that never changes with the style.
 - `src/export-parity.test.ts` — each fixture through the plan, print-reference,
   and DOCX fingerprints, including deliberate degradation checks.
 - `src/docx-export.test.ts` — DOCX packaging, page sections, friendly names,

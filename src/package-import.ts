@@ -2,9 +2,11 @@ import Ajv2020, { type ErrorObject } from 'ajv/dist/2020'
 import type { ColumnSetting, WorkSpace } from './exam'
 import type { HeadingSize, SectionHeadings, TextSize } from './section-headings'
 import type { ExamHeader } from './page-header'
+import type { QuestionStyle } from './question-style'
 import examSchema010 from './exam-record-0.1.0.schema.json'
 import examSchema020 from './exam-record-0.2.0.schema.json'
 import examSchema030 from './exam-record-0.3.0.schema.json'
+import examSchema040 from './exam-record-0.4.0.schema.json'
 import packageSchema010 from './test-parrot-package-0.1.0.schema.json'
 import type { QuestionFileSummary } from './question-formats'
 import { PackageZipError, isPackageZip, readPackageZip } from './package-zip'
@@ -40,7 +42,7 @@ import {
  */
 
 export const EXAM_FORMAT = 'test-parrot/exam'
-export const EXAM_FORMAT_VERSION = '0.3.0'
+export const EXAM_FORMAT_VERSION = '0.4.0'
 export const PACKAGE_FORMAT = 'test-parrot/package'
 export const PACKAGE_FORMAT_VERSION = '0.1.0'
 /** The conventional extension a standalone package is saved under. */
@@ -115,6 +117,9 @@ export type ExamRecord = {
   sectionHeadings?: Partial<Record<QuestionBankRecordQuestionType, ExamRecordSectionHeading>>
   headingSize?: HeadingSize
   textSize?: TextSize
+  /** From 0.4.0: how every question on the Exam prints; only when not
+   *  Standard. */
+  questionStyle?: QuestionStyle
   /** The Exam's own test-page header lines; only departures from the default. */
   header?: ExamHeader
   positions: ExamRecordPosition[]
@@ -160,6 +165,7 @@ export type ProposedExam = {
   sectionHeadings?: SectionHeadings
   headingSize?: HeadingSize
   textSize?: TextSize
+  questionStyle?: QuestionStyle
   header?: ExamHeader
   /** Positions regrouped Section by Section — in `sections` order, or for an
    *  older record in Test Parrot's fixed type order — keeping only the order
@@ -185,6 +191,7 @@ const ajv = new Ajv2020({ allErrors: true, strict: false })
 const validateExam010 = ajv.compile(examSchema010)
 const validateExam020 = ajv.compile(examSchema020)
 const validateExam030 = ajv.compile(examSchema030)
+const validateExam040 = ajv.compile(examSchema040)
 const validatePackage010 = ajv.compile(packageSchema010)
 
 function schemaFailure(
@@ -244,6 +251,7 @@ function localHeadingsOf(
   sectionHeadings?: SectionHeadings
   headingSize?: HeadingSize
   textSize?: TextSize
+  questionStyle?: QuestionStyle
   header?: ExamHeader
 } {
   const entries = Object.entries(exam.sectionHeadings ?? {}) as [
@@ -260,6 +268,9 @@ function localHeadingsOf(
     ...(entries.length > 0 ? { sectionHeadings } : {}),
     ...(exam.headingSize && exam.headingSize !== 'normal' ? { headingSize: exam.headingSize } : {}),
     ...(exam.textSize && exam.textSize !== 'normal' ? { textSize: exam.textSize } : {}),
+    ...(exam.questionStyle && exam.questionStyle !== 'standard'
+      ? { questionStyle: exam.questionStyle }
+      : {}),
     ...(exam.header && Object.keys(exam.header).length > 0 ? { header: { ...exam.header } } : {}),
   }
 }
@@ -318,12 +329,25 @@ const examParser030: ExamParser = (value) => {
   }
 }
 
+// 0.4.0 adds only `questionStyle` (ADR-0041); everything 0.3.0 says, it says
+// the same way.
+const examParser040: ExamParser = (value) => {
+  if (!validateExam040(value)) throw schemaFailure('Exam Record', validateExam040.errors)
+  const { questionStyle, ...rest } = value as ExamRecord
+  return {
+    ...examParser030({ ...rest, formatVersion: '0.3.0' }),
+    formatVersion: '0.4.0',
+    ...(questionStyle ? { questionStyle } : {}),
+  }
+}
+
 /** Exact versions only, as for the Question Bank Record: each supported
  *  version names its own parser, which migrates it forward. */
 export const SUPPORTED_EXAM_VERSIONS = Object.freeze({
   '0.1.0': examParser010,
   '0.2.0': examParser020,
   '0.3.0': examParser030,
+  '0.4.0': examParser040,
 } satisfies Record<string, ExamParser>)
 
 type PackageParser = (value: unknown) => TestParrotPackage

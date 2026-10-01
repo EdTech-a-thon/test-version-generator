@@ -37,7 +37,7 @@ The versioned, format-owned machine-readable representation of one Question Bank
 _Avoid_: PDF metadata, extracted questions
 
 **Exam Record**:
-The versioned, format-owned machine-readable composition of one Exam: its name and, for each position, the Question it references in a Question Bank Record travelling in the same Test Parrot Package, with that position's answer columns, answer order, and Work Space. It never references a Question outside its package, and it carries no Section order, because Sections always follow Test Parrot's own order.
+The versioned, format-owned machine-readable composition of one Exam: its name and, for each position, the Question it references in a Question Bank Record travelling in the same Test Parrot Package, with that position's answer columns, answer order, and Work Space, and the Exam's heading and text sizes and Question Style. It never references a Question outside its package, and it carries no Section order, because Sections always follow Test Parrot's own order.
 _Avoid_: Exam layout, test JSON
 
 **Test Parrot Package**:
@@ -134,7 +134,7 @@ What a Question asks for, settled when it is created and never changed afterward
 _Avoid_: Question format, question kind
 
 **True/False**:
-A Question Type whose answer is one of exactly two fixed choices, True and False, which the teacher picks between rather than writes. The pair is not printed as lettered answers: a T and an F print beside its number for a student to circle, and the Answer Key records T or F rather than a choice letter. It does not Vary: True before False is a convention a student reads, not an authored order.
+A Question Type whose answer is one of exactly two fixed choices, True and False, which the teacher picks between rather than writes. The pair is not printed as lettered answers: a T and an F print beside its number for a student to circle — or, under a Question Style that asks for one, an answer blank to write on — and the Answer Key records T or F rather than a choice letter. It does not Vary: True before False is a convention a student reads, not an authored order.
 _Avoid_: Binary question, T/F question, two-choice multiple choice
 
 **Matching**:
@@ -166,8 +166,12 @@ One lettered question within a Multipart question, in authored order: a Multiple
 _Avoid_: Sub-question, item (Item is Matching's), sub-part
 
 **Work Space**:
-Room an Exam leaves below a Short Answer question or Short Answer Part for a student's working: blank or ruled, as tall as the teacher drags it, or filling the rest of its page. It is Exam presentation set on the exam sheet like answer columns, never Question Content, so the same Question may take different room on another Exam; Duplicate copies it.
+Room an Exam leaves below a Short Answer question or Short Answer Part for a student's working: blank or ruled, as tall as the teacher drags it, or filling the rest of its page. It is Exam presentation set on the exam sheet like answer columns, never Question Content, so the same Question may take different room on another Exam; Duplicate copies it. Where the teacher has set none, the Exam's Question Style supplies it — ruled lines under ExamView and Worksheet, none otherwise — and a Work Space the teacher set, None included, always wins.
 _Avoid_: White space, answer box, response area
+
+**Question Style**:
+One preset for how every question on an Exam prints — Standard, ExamView, Condensed or Worksheet — chosen from the Format menu and never set per question or per Question Type. It decides what prints before a question's number (T and F to circle, or an answer blank to write on), how answers and a Word Bank are lettered and laid out, how far apart questions stand, and what Work Space a Short Answer question or Part leaves when the teacher has set none. It is Exam presentation like the heading and text sizes; Standard is the sheet as it always printed, and the Answer Key is the same under every style.
+_Avoid_: Theme, template, question format, layout preset
 
 **Page Header**:
 The line an Exam prints at the top of each test page, beside the paper's ID. By default it is Name, Class and Date blanks on the first page and a Name blank on later ones; an Exam may reword the first page's line and the later pages' line, as plain text in which underscores are the blanks, or clear either. The ID is the one value the header fills in for each paper and is never part of the line. The Exam's title prints on its own line under the first page's header, and Answer Key pages carry the ID alone.

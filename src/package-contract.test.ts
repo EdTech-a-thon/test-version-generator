@@ -8,6 +8,8 @@ import publicExamSchema020 from '../public/formats/exam/0.2.0/schema.json'
 import applicationExamSchema020 from './exam-record-0.2.0.schema.json'
 import publicExamSchema030 from '../public/formats/exam/0.3.0/schema.json'
 import applicationExamSchema030 from './exam-record-0.3.0.schema.json'
+import publicExamSchema040 from '../public/formats/exam/0.4.0/schema.json'
+import applicationExamSchema040 from './exam-record-0.4.0.schema.json'
 import publicPackageSchema from '../public/formats/package/0.1.0/schema.json'
 import applicationPackageSchema from './test-parrot-package-0.1.0.schema.json'
 import publicQuestionBankSchema from '../public/formats/question-bank/0.3.0/schema.json'
@@ -23,6 +25,7 @@ const formats = join(import.meta.dir, '..', 'public', 'formats')
 // contract stays pinned while Test Parrot writes the current version.
 const examRoot = join(formats, 'exam', '0.1.0')
 const examRoot020 = join(formats, 'exam', '0.2.0')
+const examRoot030 = join(formats, 'exam', '0.3.0')
 const currentExamRoot = join(formats, 'exam', EXAM_FORMAT_VERSION)
 const packageRoot = join(formats, 'package', PACKAGE_FORMAT_VERSION)
 
@@ -86,10 +89,6 @@ describe('public Exam Record 0.2.0 contract', () => {
 })
 
 describe('public Exam Record 0.3.0 contract', () => {
-  test('is the version Test Parrot writes', () => {
-    expect(EXAM_FORMAT_VERSION).toBe('0.3.0')
-  })
-
   test('the published schema is the one the application reads', async () => {
     expect(publicExamSchema030.$id).toBe('https://testparrot.com/formats/exam/0.3.0/schema.json')
     expect(applicationExamSchema030).toEqual(publicExamSchema030)
@@ -100,10 +99,10 @@ describe('public Exam Record 0.3.0 contract', () => {
 
   test('canonical examples validate independently against the published schema', async () => {
     const validate = strict().compile(publicExamSchema030)
-    const names = await filesIn(join(currentExamRoot, 'examples'))
+    const names = await filesIn(join(examRoot030, 'examples'))
     expect(names).toEqual(['minimal.json', 'sections.json'])
     for (const name of names) {
-      expect(validate(await read(join(currentExamRoot, 'examples'), name)), `${name}: ${JSON.stringify(validate.errors)}`).toBe(true)
+      expect(validate(await read(join(examRoot030, 'examples'), name)), `${name}: ${JSON.stringify(validate.errors)}`).toBe(true)
     }
   })
 
@@ -140,7 +139,7 @@ describe('public Exam Record 0.3.0 contract', () => {
   })
 
   test('the example with Sections imports as its Sections', async () => {
-    const example = await read(join(currentExamRoot, 'examples'), 'sections.json')
+    const example = await read(join(examRoot030, 'examples'), 'sections.json')
     const testParrotPackage = await read(join(packageRoot, 'examples'), 'bank-and-exam.json')
     // Beside the bank-and-exam example's bank, under that bank's package id.
     const exam = JSON.parse(JSON.stringify(example).replaceAll('"bank":"bank"', '"bank":"cells"'))
@@ -156,6 +155,57 @@ describe('public Exam Record 0.3.0 contract', () => {
     // Warm-up and Challenge each hold Questions of two types.
     expect(proposal.exams[0]!.positions.map(({ question, section }) => `${section}:${question.question}`))
       .toEqual(['0:q1', '0:q3', '1:q5', '2:q2', '2:q4'])
+  })
+})
+
+// 0.4.0 adds `questionStyle` to 0.3.0 and nothing else of its own (ADR-0041).
+describe('public Exam Record 0.4.0 contract', () => {
+  test('is the version Test Parrot writes', () => {
+    expect(EXAM_FORMAT_VERSION).toBe('0.4.0')
+  })
+
+  test('the published schema is the one the application reads', async () => {
+    expect(publicExamSchema040.$id).toBe('https://testparrot.com/formats/exam/0.4.0/schema.json')
+    expect(applicationExamSchema040).toEqual(publicExamSchema040)
+    expect(
+      await Bun.file(join(import.meta.dir, '..', 'public', 'exam-record-0.4.0.schema.json')).json(),
+    ).toEqual(publicExamSchema040)
+  })
+
+  test('canonical examples validate independently against the published schema', async () => {
+    const validate = strict().compile(publicExamSchema040)
+    const names = await filesIn(join(currentExamRoot, 'examples'))
+    expect(names).toEqual(['minimal.json', 'question-style.json'])
+    for (const name of names) {
+      expect(validate(await read(join(currentExamRoot, 'examples'), name)), `${name}: ${JSON.stringify(validate.errors)}`).toBe(true)
+    }
+  })
+
+  test('a Question Style is one of four, for the whole Exam', () => {
+    const validate = strict().compile(publicExamSchema040)
+    const exam = (questionStyle: unknown) => ({
+      format: 'test-parrot/exam', formatVersion: '0.4.0', name: 'Quiz', sections: [], positions: [], questionStyle,
+    })
+    for (const style of ['standard', 'examview', 'condensed', 'worksheet']) {
+      expect(validate(exam(style)), style).toBe(true)
+    }
+    expect(validate(exam('ExamView'))).toBe(false)
+    expect(validate(exam(2))).toBe(false)
+    expect(validate({
+      format: 'test-parrot/exam', formatVersion: '0.4.0', name: 'Quiz', sections: [], positions: [],
+    })).toBe(true)
+  })
+
+  test('the example with a Question Style imports with it, and with its Work Space of none', async () => {
+    const example = await read(join(currentExamRoot, 'examples'), 'question-style.json')
+    const testParrotPackage = await read(join(packageRoot, 'examples'), 'bank-and-exam.json')
+    const exam = JSON.parse(JSON.stringify(example).replaceAll('"bank":"bank"', '"bank":"cells"'))
+    const proposal = await inspectImportRecord(
+      new TextEncoder().encode(JSON.stringify({ ...testParrotPackage, exams: [exam] })),
+    )
+    expect(proposal.exams[0]!.questionStyle).toBe('examview')
+    expect(proposal.exams[0]!.formatVersion).toBe('0.4.0')
+    expect(proposal.exams[0]!.positions.at(-1)!.workSpace).toEqual({ height: 0, style: 'blank', fill: false })
   })
 })
 

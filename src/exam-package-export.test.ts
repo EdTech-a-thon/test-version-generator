@@ -17,7 +17,7 @@ import { createPublicationPdf, type PdfFontLoader } from './pdf-export'
 import { examPackage, withExamPackage } from './exam-package-export'
 import { initialSelection } from './import-selection'
 import { planImport } from './package-commit'
-import { inspectImportFile, inspectImportRecord } from './package-import'
+import { inspectImportFile, inspectImportRecord, type ExamRecord } from './package-import'
 import { selectedExam } from './selected-exam'
 import type { QuestionBankResource } from './question-bank-workspaces'
 
@@ -143,6 +143,27 @@ function printed(sheet: Exam, order: Arrangement) {
 }
 
 describe('an Exam PDF carrying its Exam', () => {
+  test('carries the Question Style, and only the Work Space the teacher set, "None" included where the style rules lines', async () => {
+    const recordOf = async (sheet: Exam) =>
+      (await examPackage({ exam: sheet, arrangement, ownerOf, loadMedia: noImages })).package.exams[0]!
+    const shortAnswerOf = (record: ExamRecord) =>
+      record.positions.find((position) => position.workSpace !== undefined)?.workSpace
+
+    // The room the style rules is the style's, and is not written out.
+    const ruled = await recordOf({ ...exam, workSpace: {}, questionStyle: 'worksheet' })
+    expect(ruled.questionStyle).toBe('worksheet')
+    expect(shortAnswerOf(ruled)).toBeUndefined()
+
+    // "None" set against the style travels, so it still wins on import.
+    const none = { height: 0, style: 'blank' as const, fill: false }
+    const cleared = await recordOf({ ...exam, workSpace: { 'forces-1': none }, questionStyle: 'examview' })
+    expect(shortAnswerOf(cleared)).toEqual(none)
+
+    const plain = await recordOf(exam)
+    expect(plain).not.toHaveProperty('questionStyle')
+    expect(shortAnswerOf(plain)).toEqual({ height: 96, style: 'lines', fill: false })
+  })
+
   test('re-importing an answer-key PDF reproduces exactly what it printed', async () => {
     const withPackage = await withExamPackage(
       prepared({ format: 'pdf', selection: { test: true, answerKey: true } }),
@@ -312,7 +333,7 @@ describe('a Multipart question in an Exam package', () => {
     const carried = (await examPackage({ exam: worded, arrangement, ownerOf, loadMedia: noImages })).package
     // Each derived Section travels with its wording in full, and no type.
     expect(carried.exams[0]).toMatchObject({
-      formatVersion: '0.3.0',
+      formatVersion: '0.4.0',
       sections: [
         { title: 'Multiple Choice', instructions: 'Identify the choice that best completes the statement or answers the question.' },
         { title: 'Vocabulary', instructions: 'Match each item with the correct answer from the word bank. Write its letter in the blank.' },
@@ -378,7 +399,7 @@ describe('an Exam’s stored Sections in its package', () => {
   test('travel in print order, empty ones included, each position naming its Section', async () => {
     const carried = (await examPackage({ exam: sheet, arrangement, ownerOf, loadMedia: noImages })).package
     const record = carried.exams[0]!
-    expect(record.formatVersion).toBe('0.3.0')
+    expect(record.formatVersion).toBe('0.4.0')
     expect(record.sections).toEqual([
       { title: 'Warm-up', instructions: 'Answer each question.' },
       { title: 'Written', instructions: '' },

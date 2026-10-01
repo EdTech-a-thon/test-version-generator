@@ -17,8 +17,8 @@ import { Check, RotateCcw } from 'lucide-react'
 import { DifficultyBadge, TopicBadge } from './badges'
 import { DocView } from './doc-view'
 import {
-  hasLegacyAnswerBlank,
-  hasMarks,
+  hasAnswerBlank,
+  numberColumnOf,
   printsNumberLine,
   type AnswerKeyEntryItem,
   type AnswerKeySectionItem,
@@ -241,22 +241,23 @@ export function QuestionContent({
   renderPartWorkSpace?: (part: PlannedPart, space: PlannedWorkSpace) => ReactNode
 }) {
   const numbered = printsNumberLine(item)
+  const column = numberColumnOf(item.question)
   return (
     <>
-      {/* The column holds the number alone, and a True/False question's marks
-          before it — `questionIndentOf` in export-plan.ts is the same width
-          for the adapters. */}
+      {/* The column holds the number, and whatever the Question Style puts
+          before it — a True/False question's marks, or an answer blank —
+          `questionIndentOf` in export-plan.ts is the same width for the
+          adapters. */}
       <div
         className={
-          hasLegacyAnswerBlank(item.question)
-            ? 'question-number question-number--legacy-blank'
-            : hasMarks(item.question.type)
-              ? 'question-number question-number--marks'
-              : 'question-number'
+          column === 'plain' ? 'question-number' : `question-number question-number--${column}`
         }
       >
         {numbered && item.question.marks.length > 0 && (
-          <span className="question-marks" aria-label={hasLegacyAnswerBlank(item.question) ? undefined : 'Circle one'}>
+          <span
+            className="question-marks"
+            aria-label={hasAnswerBlank(item.question) ? 'Answer blank' : 'Circle one'}
+          >
             {item.question.marks.map((mark) => (
               <span key={mark} className="question-mark">{mark}</span>
             ))}

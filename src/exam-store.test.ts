@@ -1085,6 +1085,23 @@ describe('the dirty flag and persistence', () => {
     expect(store.getState().dirty).toBe(false)
   })
 
+  test('the Question Style is saved Exam presentation, undoable, and Standard stores nothing', async () => {
+    const { store } = await withExamWorkingCopy(1)
+    await store.save()
+
+    store.setQuestionStyle('examview')
+    expect(store.getState().dirty).toBe(true)
+    expect(store.selectedExam().exam.questionStyle).toBe('examview')
+
+    store.setQuestionStyle('standard')
+    expect(store.getState().workingCopy.questionStyle).toBeUndefined()
+    expect(store.selectedExam().exam.questionStyle).toBeUndefined()
+    expect(store.getState().dirty).toBe(false)
+
+    store.undo()
+    expect(store.selectedExam().exam.questionStyle).toBe('examview')
+  })
+
   test('header lines are saved Exam presentation, and the default stores nothing', async () => {
     const { store } = await withExamWorkingCopy(1)
     await store.save()
@@ -1114,6 +1131,7 @@ describe('the dirty flag and persistence', () => {
       (store) => store.setHeadingSize('large'),
       (store) => store.setHeaderLine('later', ''),
       (store) => store.setTextSize('small'),
+      (store) => store.setQuestionStyle('condensed'),
     ]
     for (const act of cases) {
       const { backend, store, questions } = await withExamWorkingCopy(1)
@@ -1516,6 +1534,33 @@ describe('work space', () => {
 
     store.setQuestionWorkSpace([id], { height: 0, fill: false })
     expect(store.getState().workingCopy.workSpace?.[id]).toBeUndefined()
+  })
+
+  test('under a Question Style that rules lines, starts from its lines, and keeps "None" as a setting of its own', async () => {
+    const { store, questions } = await withExamWorkingCopy(1, 'open')
+    const id = questions[0]!.id
+    store.setQuestionStyle('examview')
+    // Nothing stored: the position prints the style's three lines.
+    expect(store.getState().workingCopy.workSpace?.[id]).toBeUndefined()
+
+    store.setQuestionWorkSpace([id], { fill: true })
+    expect(store.getState().workingCopy.workSpace?.[id]).toEqual({ height: 96, style: 'lines', fill: true })
+
+    // Taking the room away is stored, so it wins over the style's lines.
+    store.setQuestionWorkSpace([id], { height: 0, fill: false })
+    expect(store.getState().workingCopy.workSpace?.[id]).toEqual({ height: 0, style: 'lines', fill: false })
+    expect(store.selectedExam().exam.workSpace?.[id]?.height).toBe(0)
+  })
+
+  test('is never changed by switching Question Style', async () => {
+    const { store, questions } = await withExamWorkingCopy(1, 'open')
+    const id = questions[0]!.id
+    store.setQuestionWorkSpace([id], { height: 160, style: 'blank' })
+    const stored = store.getState().workingCopy.workSpace
+    for (const style of ['examview', 'condensed', 'worksheet', 'standard'] as const) {
+      store.setQuestionStyle(style)
+      expect(store.getState().workingCopy.workSpace).toEqual(stored)
+    }
   })
 
   test('leaves every other Question Type in a selection alone', async () => {

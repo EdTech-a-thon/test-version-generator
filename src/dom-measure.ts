@@ -23,9 +23,10 @@
 
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { PAGE_CONTENT_WIDTH, type Measure, type PageItem } from './export-plan'
+import { PAGE_CONTENT_WIDTH, type Measure, type PageItem, type PlannedChoice } from './export-plan'
 import { BODY_PX } from './export-typography'
-import { PageItemMeasureView } from './page-item-view'
+import { ChoiceGridView, PageItemMeasureView } from './page-item-view'
+import type { QuestionStyle } from './question-style'
 import type { TextSize } from './section-headings'
 import type { ProseMirrorJSON } from './question-doc'
 
@@ -73,16 +74,18 @@ const HEIGHT_CACHE_LIMIT = 600
 // there would be fighting React's own scheduling for no gain — nothing in a
 // measured item is interactive or stateful.
 //
-// The host carries the Exam's text size exactly as a page's content does, and
-// the size is part of what a height is remembered by.
-function itemHeight(item: PageItem, textSize?: TextSize): number {
+// The host carries the Exam's text size and Question Style exactly as a page's
+// content does, and both are part of what a height is remembered by.
+function itemHeight(item: PageItem, textSize?: TextSize, questionStyle?: QuestionStyle): number {
   const element = measureHost()
   if (!element) return 0
   const markup = renderToStaticMarkup(createElement(PageItemMeasureView, { item }))
-  const key = `${textSize ?? 'normal'}:${markup}`
+  const key = `${textSize ?? 'normal'}:${questionStyle ?? 'standard'}:${markup}`
   const remembered = heights.get(key)
   if (remembered !== undefined) return remembered
   element.style.fontSize = textSize && textSize !== 'normal' ? `${BODY_PX[textSize]}px` : ''
+  if (questionStyle) element.dataset.questionStyle = questionStyle
+  else delete element.dataset.questionStyle
   element.innerHTML = markup
   // Fractional, unlike `scrollHeight`: the heights of a dozen items are summed
   // against a fixed box, and a rounded pixel each would be a rounded page.
@@ -96,6 +99,49 @@ function itemHeight(item: PageItem, textSize?: TextSize): number {
   if (heights.size >= HEIGHT_CACHE_LIMIT) heights.clear()
   heights.set(key, height)
   return height
+}
+
+let naturalHost: HTMLElement | null | undefined
+
+// A second host, as wide as what it holds rather than the page, for asking
+// how wide an answer is when nothing makes it wrap.
+function naturalMeasureHost(): HTMLElement | null {
+  if (naturalHost === undefined) {
+    if (typeof document === 'undefined') {
+      naturalHost = null
+    } else {
+      naturalHost = document.createElement('div')
+      naturalHost.className = 'exam-page measure-host measure-host--natural'
+      naturalHost.setAttribute('aria-hidden', 'true')
+      document.body.appendChild(naturalHost)
+    }
+  }
+  return naturalHost
+}
+
+const widths = new Map<string, number>()
+
+// An answer drawn alone in a one-cell choice grid, through the same component
+// a page draws it with, on one line: the width that cell then takes, letter
+// and padding included, is the least a column must give it. Remembered by its
+// markup and size like a height, and never while a picture is still loading.
+function choiceWidth(choice: PlannedChoice, textSize?: TextSize): number {
+  const element = naturalMeasureHost()
+  if (!element) return Infinity
+  const markup = renderToStaticMarkup(
+    createElement(ChoiceGridView, { grid: { columns: 1, rows: 1, cells: [[choice]] } }),
+  )
+  const key = `${textSize ?? 'normal'}:${markup}`
+  const remembered = widths.get(key)
+  if (remembered !== undefined) return remembered
+  element.style.fontSize = textSize && textSize !== 'normal' ? `${BODY_PX[textSize]}px` : ''
+  element.innerHTML = markup
+  const grid = element.querySelector('.choice-grid')
+  const width = grid ? grid.getBoundingClientRect().width : Infinity
+  if ([...element.querySelectorAll('img')].some((image) => !image.complete)) return width
+  if (widths.size >= HEIGHT_CACHE_LIMIT) widths.clear()
+  widths.set(key, width)
+  return width
 }
 
 // Pictures already loaded or on their way, by source.
@@ -133,6 +179,7 @@ function loadImages(sources: Iterable<string>): Promise<void> {
 // call this first, or they will re-measure straight out of a stale cache.
 function invalidate(): void {
   heights.clear()
+  widths.clear()
 }
 
 /** Every picture source in question documents, stems and answers alike. */
@@ -154,6 +201,7 @@ export const domMeasure: Measure & {
   loadImages(sources: Iterable<string>): Promise<void>
 } = {
   itemHeight,
+  choiceWidth,
   invalidate,
   loadImages,
 }

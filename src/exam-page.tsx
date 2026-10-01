@@ -1299,7 +1299,11 @@ export function ExportPreview({ plan }: { plan: LayoutPlan }) {
       {plan.pages.map((page) => (
         <article className="exam-page" key={`${page.stream}-${page.header}-${page.number}`}>
           <PageHeaderContent header={page.header} furniture={page.furniture} />
-          <div className="page-content" style={pageContentStyle(plan.textSize)}>
+          <div
+            className="page-content"
+            style={pageContentStyle(plan.textSize)}
+            data-question-style={plan.questionStyle}
+          >
             {page.items.map((item) => (
               <PageItemMeasureView key={keyOf(item)} item={item} />
             ))}
@@ -1772,6 +1776,7 @@ export function ExamPage({
           <div
             className="page-content"
             style={pageContentStyle(plan.textSize)}
+            data-question-style={plan.questionStyle}
             onClick={clearOnBackground}
           >
             {/* An exam with nothing in it yet offers the first question where

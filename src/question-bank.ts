@@ -46,6 +46,8 @@ export type ExamWorkingCopy = {
   sectionHeadings?: import('./section-headings').SectionHeadings
   headingSize?: import('./section-headings').HeadingSize
   textSize?: import('./section-headings').TextSize
+  /** How every question on this Exam prints; absent means Standard. */
+  questionStyle?: import('./question-style').QuestionStyle
   /** This Exam's own test-page header lines; absent means the default. */
   header?: import('./page-header').ExamHeader
 }

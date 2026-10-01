@@ -35,6 +35,7 @@ import {
   prepareExport,
 } from './export-preparation'
 import { printFingerprint } from './print-fingerprint'
+import { QUESTION_STYLES } from './question-style'
 import {
   SUPPORTED_MARKS,
   SUPPORTED_NODES,
@@ -240,6 +241,11 @@ describe('the supported document vocabulary', () => {
     // Taken from the vocabulary rather than written out, so a new Question
     // Section owes the corpus a fixture the day it is added.
     expect([...types].sort()).toEqual([...SECTION_ORDER].sort())
+  })
+
+  test('every Question Style appears in a fixture', () => {
+    const styles = new Set(FIXTURES.map((fixture) => fixture.exam.questionStyle ?? 'standard'))
+    expect([...styles].sort()).toEqual([...QUESTION_STYLES].sort())
   })
 
   test('every page-header variant appears in a fixture', () => {

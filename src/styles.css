@@ -831,6 +831,12 @@ button { cursor: pointer; }
   visibility: hidden; pointer-events: none;
   overflow: visible; background: none; box-shadow: none;
 }
+/* The host an answer is measured in on one line (`choiceWidth` in
+   dom-measure.ts): as wide as its content, the grid sized by it rather than
+   by the page, and nothing allowed to wrap. */
+.measure-host--natural { width: max-content; }
+.measure-host--natural .choice-grid { width: auto; table-layout: auto; }
+.measure-host--natural .doc-content { white-space: pre; }
 
 .exam-section { margin: 16px 0 18px; }
 .section-title { margin: 0; font: 700 17px/1.3 Georgia, serif; }
@@ -889,14 +895,28 @@ button { cursor: pointer; }
   margin-bottom: 26px; border-radius: 4px; cursor: grab;
   transition: background-color 90ms ease, box-shadow 90ms ease;
 }
-/* No question prints an answer blank, so the number column is only as wide as
-   a three-digit number; a True/False question's T and F, which a student
-   circles, sit before its number in a wider one. `questionIndentOf` in
+/* On a Standard Exam no question prints an answer blank, so the number column
+   is only as wide as a three-digit number; a True/False question's T and F,
+   which a student circles, sit before its number in a wider one. A Question
+   Style that prints an answer blank before the number widens it again — the
+   column an Export Record made before Sections were stored reprints its blank
+   in too — and a Worksheet's long True/False blank more. `questionIndentOf` in
    export-plan.ts holds the same widths for the adapters. */
 .exam-question:has(> .question-number--marks) { grid-template-columns: 64px 1fr; }
-/* An Export Record made before Sections were stored reprints the answer blank
-   its questions had, in the column it had (`questionIndentOf`). */
-.exam-question:has(> .question-number--legacy-blank) { grid-template-columns: 92px 1fr; }
+.exam-question:has(> .question-number--blank) { grid-template-columns: 92px 1fr; }
+.exam-question:has(> .question-number--long-blank) { grid-template-columns: 140px 1fr; }
+/* The number always prints whole: a two-digit number, or a larger text size,
+   shortens the blank before it rather than pushing into the question. */
+.question-number--blank .question-marks,
+.question-number--long-blank .question-marks { min-width: 0; overflow: hidden; white-space: nowrap; }
+.question-number--blank .question-count,
+.question-number--long-blank .question-count { flex: none; }
+/* A Condensed Exam stands its questions closer together: the Question Style's
+   `questionGap` in question-style.ts. The drop line keeps to the middle of
+   the narrower gap. */
+[data-question-style='condensed'] .exam-question { margin-bottom: 12px; }
+[data-question-style='condensed'] .exam-question[data-drop="before"]::after { top: -7px; }
+[data-question-style='condensed'] .exam-question[data-drop="after"]::after { bottom: -7px; }
 .exam-question, .exam-question * { -webkit-user-drag: none; }
 .exam-question:active { cursor: grabbing; }
 
@@ -1285,6 +1305,13 @@ button { cursor: pointer; }
 }
 .context-menu-format-icon svg { width: 18px; height: 14px; stroke-width: 1.4; }
 .context-menu-item-label { flex: 1; }
+/* A radio's line of description, under its label: what choosing it does. */
+.context-menu-item-description {
+  display: block; margin-top: 1px;
+  color: #8b7868; font-size: 12px; line-height: 1.35; white-space: normal;
+}
+/* What a submenu has chosen now, beside its label. */
+.context-menu-item-value { color: #8b7868; }
 .context-menu-radio-indicator {
   flex: none; display: flex; align-items: center; justify-content: center;
   width: 12px; height: 16px;
@@ -1305,6 +1332,9 @@ button { cursor: pointer; }
   padding: 4px; border: 1px solid #e0d3c2; border-radius: 8px; background: #fffdf8;
   box-shadow: 0 10px 30px rgb(55 42 33 / 18%), 0 2px 6px rgb(55 42 33 / 10%);
 }
+/* A submenu whose choices each say what they do is wide enough to say it in
+   a line or two. */
+.context-submenu:has(.context-menu-item-description) { min-width: 320px; }
 .context-menu[data-side='left'] .context-submenu {
   right: calc(100% + 5px); left: auto;
 }
