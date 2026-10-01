@@ -1273,6 +1273,13 @@ button { cursor: pointer; }
 .exam-question--sizing .work-space-grip { background: #9f5037; }
 .work-space-handle:focus-visible { outline: 2px solid #9f5037; outline-offset: 1px; }
 .exam-question--sizing, .exam-question--sizing * { cursor: ns-resize !important; }
+/* The note and the bar start where the body does: past the number column and
+   its 6px gap, however wide the Question Style makes that column. Condensed's
+   narrower gap between questions takes a smaller note. */
+.exam-question:has(> .question-number--marks) > :is(.answer-visibility-note, .work-space-handle) { left: 70px; }
+.exam-question:has(> .question-number--blank) > :is(.answer-visibility-note, .work-space-handle) { left: 98px; }
+.exam-question:has(> .question-number--long-blank) > :is(.answer-visibility-note, .work-space-handle) { left: 146px; }
+[data-question-style='condensed'] .answer-visibility-note { bottom: -12px; font-size: 10px; line-height: 12px; }
 
 /* The handles: a plus and a grip in the margin beside a question, hidden until
    it is hovered or one of them has focus, so the page still reads as paper.
