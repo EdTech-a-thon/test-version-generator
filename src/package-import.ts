@@ -1,5 +1,5 @@
 import Ajv2020, { type ErrorObject } from 'ajv/dist/2020'
-import type { ColumnSetting, StoredWordBankLayout, WorkSpace } from './exam'
+import type { ColumnSetting, WordBankLayout, WorkSpace } from './exam'
 import type { HeadingSize, SectionHeadings, TextSize } from './section-headings'
 import type { ExamHeader } from './page-header'
 import type { PageMargins } from './page-margins'
@@ -75,7 +75,7 @@ export type ExamRecordPosition = {
   workSpace?: WorkSpace
   /** From Exam Record 0.4.0: where a Matching position's Word Bank prints,
    *  when not left to the fit rule. */
-  wordBankLayout?: StoredWordBankLayout
+  wordBankLayout?: WordBankLayout
 }
 
 /**
@@ -355,8 +355,9 @@ const examParser030: ExamParser = sectionedParser(validateExam030, '0.3.0')
 // incorrect answers it leaves off (ADR-0038); a Matching position's
 // `wordBankLayout`; the Exam's Page Margins (ADR-0039); and its
 // `questionStyle` (ADR-0041) — and nothing else. A record without them hides
-// nothing, leaves every Word Bank to the fit rule, prints today's margins, and
-// prints in the standard style.
+// nothing, prints today's margins and prints in the standard style; a Matching
+// position without a `wordBankLayout` takes one on import, from its style and
+// the fit rule (`planImport`).
 const sectionedParser040: ExamParser = sectionedParser(validateExam040, '0.4.0', (position) => ({
   ...(position.hiddenAnswers !== undefined ? { hiddenAnswers: [...position.hiddenAnswers] } : {}),
   ...(position.wordBankLayout !== undefined ? { wordBankLayout: position.wordBankLayout } : {}),

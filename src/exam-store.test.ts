@@ -1843,7 +1843,45 @@ describe('work space', () => {
 })
 
 describe('a Matching question’s Word Bank layout', () => {
-  test('is set on Matching questions alone, Auto stored as nothing, one undo step each', async () => {
+  /** A store whose Word Bank answers all measure `width` wide. */
+  async function measuredStore(width: number) {
+    const backend = memory()
+    const savedBackend = createMemoryBackend<SavedState>()
+    const store = await loadExamStore(backend, savedBackend, () => width)
+    return store
+  }
+
+  test('is concrete from the moment a Matching question is added, by the fit rule when it can measure', async () => {
+    const { store, questions } = await withExamWorkingCopy(2, 'matching')
+    // Nothing measures here, so a short bank goes beside by its count.
+    expect(store.getState().workingCopy.wordBankLayout).toEqual({
+      [questions[0]!.id]: 'beside',
+      [questions[1]!.id]: 'beside',
+    })
+
+    const wide = await measuredStore(2000)
+    const tooWide = createQuestion('matching')
+    wide.createInQuestionBank(tooWide)
+    wide.addManyToWorkingCopy([tooWide])
+    expect(wide.getState().workingCopy.wordBankLayout).toEqual({ [tooWide.id]: 'above' })
+
+    const narrow = await measuredStore(40)
+    const fits = createQuestion('matching')
+    narrow.createInQuestionBank(fits)
+    narrow.addToWorkingCopy(fits.id)
+    expect(narrow.getState().workingCopy.wordBankLayout).toEqual({ [fits.id]: 'beside' })
+  })
+
+  test('arrives above under Classic, whatever fits', async () => {
+    const store = await measuredStore(40)
+    store.setQuestionStyle('classic')
+    const question = createQuestion('matching')
+    store.createInQuestionBank(question)
+    store.addToWorkingCopy(question)
+    expect(store.getState().workingCopy.wordBankLayout).toEqual({ [question.id]: 'above' })
+  })
+
+  test('is set on Matching questions alone, one undo step each', async () => {
     const { store, questions } = await withExamWorkingCopy(2, 'matching')
     const multipleChoice = createQuestion('multiple-choice')
     store.createInQuestionBank(multipleChoice)
@@ -1851,21 +1889,64 @@ describe('a Matching question’s Word Bank layout', () => {
     const [first, second] = questions.map(({ id }) => id)
     await store.save()
 
-    store.setWordBankLayout([first!, second!, multipleChoice.id], 'beside')
-    expect(store.getState().workingCopy.wordBankLayout).toEqual({ [first!]: 'beside', [second!]: 'beside' })
-    expect(store.selectedExam().exam.wordBankLayout).toEqual({ [first!]: 'beside', [second!]: 'beside' })
+    store.setWordBankLayout([first!, second!, multipleChoice.id], 'above')
+    expect(store.getState().workingCopy.wordBankLayout).toEqual({ [first!]: 'above', [second!]: 'above' })
+    expect(store.selectedExam().exam.wordBankLayout).toEqual({ [first!]: 'above', [second!]: 'above' })
     expect(store.getState().dirty).toBe(true)
 
+    // Choosing what a question already prints changes nothing.
     store.setWordBankLayout([first!], 'above')
-    store.setWordBankLayout([second!], 'auto')
-    expect(store.getState().workingCopy.wordBankLayout).toEqual({ [first!]: 'above' })
+    store.setWordBankLayout([second!], 'beside')
+    expect(store.getState().workingCopy.wordBankLayout).toEqual({ [first!]: 'above', [second!]: 'beside' })
 
     store.undo()
+    expect(store.getState().workingCopy.wordBankLayout).toEqual({ [first!]: 'above', [second!]: 'above' })
+    store.undo()
+    expect(store.getState().workingCopy.wordBankLayout).toEqual({ [first!]: 'beside', [second!]: 'beside' })
+    expect(store.getState().dirty).toBe(false)
+  })
+
+  test('is set again for every Matching question when the Question Style changes, in one undo step', async () => {
+    const { store, questions } = await withExamWorkingCopy(2, 'matching')
+    const [first, second] = questions.map(({ id }) => id)
+    store.setWordBankLayout([first!], 'above')
+    expect(store.getState().workingCopy.wordBankLayout).toEqual({ [first!]: 'above', [second!]: 'beside' })
+
+    store.setQuestionStyle('classic')
+    expect(store.getState().workingCopy.wordBankLayout).toEqual({ [first!]: 'above', [second!]: 'above' })
+    // A teacher's own choice holds until the style changes again.
+    store.setWordBankLayout([second!], 'beside')
+    store.setQuestionStyle('standard')
+    expect(store.getState().workingCopy.wordBankLayout).toEqual({ [first!]: 'beside', [second!]: 'beside' })
+    // Choosing the style the Exam already has changes nothing.
+    store.setQuestionStyle('standard')
+
+    store.undo()
+    expect(store.getState().workingCopy.questionStyle).toBe('classic')
     expect(store.getState().workingCopy.wordBankLayout).toEqual({ [first!]: 'above', [second!]: 'beside' })
     store.undo()
     store.undo()
-    expect(store.getState().workingCopy).not.toHaveProperty('wordBankLayout')
-    expect(store.getState().dirty).toBe(false)
+    expect(store.getState().workingCopy).not.toHaveProperty('questionStyle')
+    expect(store.getState().workingCopy.wordBankLayout).toEqual({ [first!]: 'above', [second!]: 'beside' })
+  })
+
+  test('reads a position stored without one by its count, and stores it once set', async () => {
+    const { store, questions } = await withExamWorkingCopy(1, 'matching')
+    const id = questions[0]!.id
+    const state = store.getState()
+    const unplaced = { ...state.workingCopy }
+    delete unplaced.wordBankLayout
+    const reloaded = createExamStore({
+      backend: memory(),
+      initial: { ...state, workingCopy: unplaced },
+      saved: { questionBank: state.questionBank, workingCopy: unplaced },
+    })
+    expect(reloaded.selectedExam().exam).not.toHaveProperty('wordBankLayout')
+    // It prints beside by its count, so choosing beside changes nothing.
+    reloaded.setWordBankLayout([id], 'beside')
+    expect(reloaded.getState().dirty).toBe(false)
+    reloaded.setWordBankLayout([id], 'above')
+    expect(reloaded.getState().workingCopy.wordBankLayout).toEqual({ [id]: 'above' })
   })
 
   test('goes with a question Removed from the Exam, and comes with a duplicate', async () => {

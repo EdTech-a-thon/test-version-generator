@@ -167,20 +167,35 @@ describe('an Exam PDF carrying its Exam', () => {
 
   test('carries where a Matching question’s Word Bank prints, and brings it back on import', async () => {
     const matchingId = exam.questions.find((question) => question.type === 'matching')!.id
+    const matchingPosition = (record: ExamRecord) =>
+      record.positions.filter((position) => position.wordBankLayout !== undefined)
     const sheet: Exam = { ...exam, wordBankLayout: { [matchingId]: 'above' } }
     const { package: written } = await examPackage({ exam: sheet, arrangement, ownerOf, loadMedia: noImages })
-    const positions = written.exams[0]!.positions
-    expect(positions.filter((position) => position.wordBankLayout !== undefined).map((position) => position.wordBankLayout))
-      .toEqual(['above'])
-    // Auto is the absence of a choice, and is never written.
+    expect(matchingPosition(written.exams[0]!).map((position) => position.wordBankLayout)).toEqual(['above'])
+    // Every Matching position says where its Word Bank prints, one stored
+    // before every position carried a layout included.
     const plain = await examPackage({ exam, arrangement, ownerOf, loadMedia: noImages })
-    expect(plain.package.exams[0]!.positions.every((position) => position.wordBankLayout === undefined)).toBe(true)
+    expect(matchingPosition(plain.package.exams[0]!)).toHaveLength(1)
 
     const proposal = await inspectImportRecord(new TextEncoder().encode(JSON.stringify(written)))
     const planned = planImport(proposal, initialSelection(proposal)).exams[0]!
     const imported = selectedExam(planned.saved.questionBank, planned.saved.workingCopy).exam
     const importedMatching = imported.questions.find((question) => question.type === 'matching')!
     expect(imported.wordBankLayout).toEqual({ [importedMatching.id]: 'above' })
+  })
+
+  test('places a Word Bank on import that its record does not, by its Question Style and the fit rule', async () => {
+    const { package: written } = await examPackage({ exam, arrangement, ownerOf, loadMedia: noImages })
+    for (const position of written.exams[0]!.positions) delete position.wordBankLayout
+    const importedWith = async (questionStyle: Exam['questionStyle'], width: number) => {
+      const record = { ...written, exams: [{ ...written.exams[0]!, ...(questionStyle ? { questionStyle } : {}) }] }
+      const proposal = await inspectImportRecord(new TextEncoder().encode(JSON.stringify(record)))
+      const planned = planImport(proposal, initialSelection(proposal), undefined, undefined, () => width).exams[0]!
+      return Object.values(planned.saved.workingCopy.wordBankLayout ?? {})
+    }
+    expect(await importedWith(undefined, 40)).toEqual(['beside'])
+    expect(await importedWith(undefined, 2000)).toEqual(['above'])
+    expect(await importedWith('classic', 40)).toEqual(['above'])
   })
 
   test('re-importing an answer-key PDF reproduces exactly what it printed', async () => {

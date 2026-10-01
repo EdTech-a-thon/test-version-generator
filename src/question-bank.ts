@@ -31,9 +31,9 @@ export type ExamWorkingCopy = {
    *  on the exam sheet and never in the question editor. Absent means none. */
   workSpace?: Record<string, import('./exam').WorkSpace>
   /** Where each Matching question's Word Bank prints on this Exam, keyed by
-   *  Question Bank record id, where the teacher chose Beside or Above. Exam
-   *  presentation like `columns`; absent leaves every one to Auto. */
-  wordBankLayout?: Record<string, import('./exam').StoredWordBankLayout>
+   *  Question Bank record id: Beside or Above, stored for every Matching
+   *  position as it arrives. Exam presentation like `columns`. */
+  wordBankLayout?: Record<string, import('./exam').WordBankLayout>
   /** The Working Copy's answer arrangement, keyed by Question Bank record id.
    *  Absent means authored order, preserving compatibility with drafts stored
    *  before answer shuffling existed. */

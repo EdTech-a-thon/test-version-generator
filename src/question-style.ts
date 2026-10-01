@@ -57,10 +57,12 @@ export const ANSWER_BLANK = '_______'
  *  generator's own key reads "ANS: A" beside a test lettered "a.". */
 export type Lettering = 'upper' | 'lower'
 
-/** Where a matching set's Word Bank prints: beside its Items up to
- *  `MATCHING_BESIDE_LIMIT` answers and above them past it (`'auto'`), or
- *  always above them. */
-export type BankPlacement = 'auto' | 'above'
+/** Where a Matching position's Word Bank goes when it takes a layout — when
+ *  the question arrives on the Exam, or the Exam takes this style: beside its
+ *  Items wherever it fits and above them otherwise (`'fit'`), or above them
+ *  (`'above'`). A teacher may then move any one; the style sets them all
+ *  again only when the Exam changes style (`wordBankLayoutFor`). */
+export type BankPlacement = 'fit' | 'above'
 
 export type QuestionStyleRules = {
   /** What prints before a True/False question's number. */
@@ -107,7 +109,7 @@ export const QUESTION_STYLE_RULES: Record<QuestionStyle, QuestionStyleRules> = {
     multipleChoiceMarks: [],
     lettering: 'upper',
     answersAcross: false,
-    bankPlacement: 'auto',
+    bankPlacement: 'fit',
     defaultWorkSpace: null,
     questionGap: STANDARD_QUESTION_GAP,
     workSpacePitch: STANDARD_WORK_SPACE_PITCH,
@@ -135,7 +137,7 @@ export const QUESTION_STYLE_RULES: Record<QuestionStyle, QuestionStyleRules> = {
     multipleChoiceMarks: [],
     lettering: 'upper',
     answersAcross: true,
-    bankPlacement: 'auto',
+    bankPlacement: 'fit',
     defaultWorkSpace: { height: 96, style: 'lines', fill: false },
     questionGap: 12,
     workSpacePitch: 24,

@@ -2929,7 +2929,10 @@ export default function App({
       history: { fileName: string; kind: import('./import-history').ImportFileKind; waitingImportId?: string }
     },
   ) => {
-    const result = await bankWorkspaces.commitImport(proposal, selection, options)
+    const result = await bankWorkspaces.commitImport(proposal, selection, {
+      ...options,
+      bankAnswerWidth: domMeasure.bankAnswerWidth,
+    })
     // One Exam is what a converted test is: it opens in the editor with the
     // banks it was built from as its tabs, from onboarding as from anywhere.
     const [onlyExam, ...otherExams] = result.createdExamIds
@@ -3023,6 +3026,7 @@ export default function App({
       saved,
       initial: target,
       initialHistory: session.history,
+      bankAnswerWidth: domMeasure.bankAnswerWidth,
     }))
     setEditorId(targetId)
   }, [editorStore, workspaces])
@@ -3202,7 +3206,7 @@ export default function App({
       void (async () => {
         await bankWorkspaces.carryWorkspace({ examId: editorId }, { examId: id })
         if (!await workspaces.open(id)) return
-        setEditorStore(await loadExamStore(workspaces.backendFor(id)))
+        setEditorStore(await loadExamStore(workspaces.backendFor(id), undefined, domMeasure.bankAnswerWidth))
         setEditorId(id)
       })()
     }}

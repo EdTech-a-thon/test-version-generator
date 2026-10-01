@@ -178,7 +178,7 @@ async function examPreviewPlan(
   const selected = importedExam(proposal, examKey, (question: Question): Question => ({
     ...question,
     doc: resolveMedia(question.doc, sources, pictures),
-  }))
+  }), domMeasure.bankAnswerWidth)
   if (!selected) return null
   // Pictures measure as nothing until their bytes arrive, so the page is not
   // planned until every one has.

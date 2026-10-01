@@ -142,9 +142,10 @@ The implementations are:
   the Work Space a style supplies and what overrides it, the question gap
   handed to `Measure`, and an Answer Key that never changes with the style.
 - `src/word-bank-layout.test.ts` — where a matching set's Word Bank prints:
-  beside its Items wherever its widest answer fits, at every text size,
-  margin and under Condensed, above them otherwise, or where the teacher put
-  it for that question.
+  the layout a position takes when it arrives or the style changes (beside
+  its Items wherever its widest answer fits, at every text size, margin and
+  under Condensed, above them otherwise, above under Classic), and that the
+  plan then prints the stored layout without measuring where it goes.
 - `src/import-preview.test.ts` — the plan the import review previews, Work
   Space and the lines a Question Style rules included.
 - `src/export-parity.test.ts` — each fixture through the plan, print-reference,

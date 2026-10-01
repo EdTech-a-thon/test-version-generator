@@ -48,6 +48,7 @@ import {
   type PlannedPart,
   type PlannedQuestion,
   type PlannedWorkSpace,
+  wordBankLayoutOf,
 } from './export-plan'
 import {
   DEFAULT_COLUMNS,
@@ -62,7 +63,6 @@ import {
   questionsInSection,
   sectionsOf,
   splitSection,
-  wordBankLayoutOf,
   workSpaceOf,
   type ColumnSetting,
   type WordBankLayout,
@@ -73,12 +73,8 @@ import {
 } from './exam'
 import type { Selection } from './use-selection'
 import { selectAllPaneProps, useSelectAll } from './use-select-all'
-import {
-  answerVisibilityNote,
-  hiddenAnswerIdsOf,
-  shownIncorrectRange,
-  type ShownIncorrectRange,
-} from './hidden-answers'
+import { answerVisibilityNote } from './hidden-answers'
+import { shownIncorrectChoices, shownIncorrectMenuOf, type ShownIncorrectMenu } from './question-menu'
 import type { SectionHeadingChange } from './section-headings'
 import { sectionHeadingStyles } from './export-typography'
 import type { WorkspaceDrag } from './use-workspace-drag'
@@ -94,6 +90,7 @@ import {
   Columns2,
   Copy,
   Ellipsis,
+  EyeOff,
   EllipsisVertical,
   FoldVertical,
   ListRestart,
@@ -104,7 +101,6 @@ import {
   SeparatorHorizontal,
   Shuffle,
   SquareDashed,
-  WandSparkles,
   X,
 } from 'lucide-react'
 import { ColumnLayoutIcon } from './column-layout-icon'
@@ -179,10 +175,10 @@ function columnsMenu(
 }
 
 // Where a Matching question's Word Bank prints on this Exam, offered as Multiple
-// Choice answer columns are: Auto, the default, leaves it to the Layout Plan,
-// which puts it beside the Items wherever it fits.
+// Choice answer columns are: always one of the two, which the question took
+// from the Question Style when it arrived and which a change of style sets
+// again (ADR-0041).
 const WORD_BANK_MENU_OPTIONS: readonly { label: string; value: WordBankLayout; icon: ReactNode }[] = [
-  { label: 'Auto', value: 'auto', icon: <WandSparkles /> },
   { label: 'Beside items', value: 'beside', icon: <Columns2 /> },
   { label: 'Above items', value: 'above', icon: <Rows2 /> },
 ]
@@ -199,6 +195,39 @@ function wordBankMenu(layout: WordBankLayout, onSelect: (layout: WordBankLayout)
       checked: option.value === layout,
       icon: option.icon,
       onSelect: () => onSelect(option.value),
+    })),
+  }
+}
+
+/** The Incorrect answers shown submenu, for a Multiple Choice question:
+ *  every count it may show, or disabled with the reason none can hide any. */
+function shownIncorrectMenu(
+  state: ShownIncorrectMenu,
+  onSelect: (count: number) => void,
+): MenuItem {
+  if (state.disabled) {
+    return {
+      kind: 'submenu',
+      label: 'Incorrect answers shown',
+      icon: <EyeOff />,
+      disabled: true,
+      description: state.hint,
+      items: [],
+    }
+  }
+  const { range, shown } = state
+  return {
+    kind: 'submenu',
+    label: 'Incorrect answers shown',
+    icon: <EyeOff />,
+    value: shown === range.max ? 'All' : `${shown} of ${range.max}`,
+    items: shownIncorrectChoices(range).map(({ count, label }) => ({
+      kind: 'radio',
+      label,
+      checked: count === shown,
+      // All of them is all of each question's, however many it has; a
+      // smaller count is clamped to what each one allows.
+      onSelect: () => onSelect(count === range.max ? Infinity : count),
     })),
   }
 }
@@ -267,13 +296,6 @@ type QuestionSectionActions = {
   onMoveToNewSection: (questionIds: readonly string[]) => void
 }
 
-/** Each count of incorrect answers a question may show, all of them first. */
-function shownIncorrectOptions(range: ShownIncorrectRange): number[] {
-  const counts: number[] = []
-  for (let count = range.max; count >= range.min; count -= 1) counts.push(count)
-  return counts
-}
-
 // One list, however it was opened. The grip beside a question and a right-click
 // on the question itself raise exactly the same actions, which is what makes
 // the grip discoverable rather than a second, lesser control.
@@ -299,9 +321,10 @@ function questionMenuItems({
   question: PlannedQuestion
   /** Present in the editor: what this menu can do to the Exam's Sections. */
   sectionActions?: QuestionSectionActions
-  /** How many incorrect answers this question may show and shows, or null
-   *  when it must show every answer. */
-  shownIncorrect: { range: ShownIncorrectRange; shown: number } | null
+  /** The Incorrect answers shown entry: how many incorrect answers this
+   *  question, or another it acts on, may show and shows, or why none can
+   *  hide any; null when it is not Multiple Choice. */
+  shownIncorrect: ShownIncorrectMenu | null
   onSetShownIncorrect?: (questionIds: readonly string[], count: number) => void
   columns: ColumnSetting
   workSpace: WorkSpace
@@ -363,47 +386,51 @@ function questionMenuItems({
           },
     )
   }
-  // Columns are a multiple-choice question's business. An open question has no
-  // answers to lay out, so the group is absent rather than present and inert.
+  // How a question's answers print, grouped: answer columns and how many
+  // incorrect answers show for Multiple Choice, where the Word Bank stands for
+  // Matching, and each Multiple Choice Part's columns — for that Part alone,
+  // since Parts of different Multipart questions have nothing to line up with
+  // one another. A question with no answers to lay out has no group, rather
+  // than one present and inert. Like every other row, these follow the type
+  // of the question raising the menu; the store leaves any other type in the
+  // selection alone.
+  const answerFormat: MenuItem[] = []
   if (question.type === 'multiple-choice') {
-    items.push(
-      { kind: 'separator' },
-      columnsMenu('Answer columns', columns, (next) => onSetColumns(actedOnIds, next)),
-    )
+    answerFormat.push(columnsMenu('Answer columns', columns, (next) => onSetColumns(actedOnIds, next)))
   }
-  // A matching set's Word Bank layout is its own, the way answer columns are a
-  // Multiple Choice question's; the store leaves any other type alone.
+  if (shownIncorrect && onSetShownIncorrect) {
+    answerFormat.push(shownIncorrectMenu(shownIncorrect, (count) => onSetShownIncorrect(actedOnIds, count)))
+  }
   if (question.type === 'matching' && onSetWordBankLayout) {
-    items.push(
-      { kind: 'separator' },
-      wordBankMenu(wordBankLayout, (next) => onSetWordBankLayout(actedOnIds, next)),
+    answerFormat.push(wordBankMenu(wordBankLayout, (next) => onSetWordBankLayout(actedOnIds, next)))
+  }
+  for (const part of question.parts ?? []) {
+    if (part.type !== 'multiple-choice') continue
+    answerFormat.push(
+      columnsMenu(
+        `Part ${part.letter} · Answer columns`,
+        part.grid?.columns ?? DEFAULT_COLUMNS,
+        (next) => onSetColumns([part.id], next),
+      ),
     )
   }
-  // A Multipart question lays out each Part the way a question of its kind is laid out,
-  // so each Part gets the controls a question of its kind would — for that
-  // Part alone, since Parts of different Multipart questions have nothing to
-  // line up with one another.
+  if (answerFormat.length > 0) {
+    items.push({ kind: 'separator' }, { kind: 'label', label: 'Answer format' }, ...answerFormat)
+  }
+  // A Short Answer Part leaves room under its own id, as a Short Answer
+  // question does under its.
   for (const part of question.parts ?? []) {
-    items.push({ kind: 'separator' })
-    if (part.type === 'multiple-choice') {
-      items.push(
-        columnsMenu(
-          `Part ${part.letter} · Answer columns`,
-          part.grid?.columns ?? DEFAULT_COLUMNS,
-          (next) => onSetColumns([part.id], next),
-        ),
-      )
-    } else {
-      items.push(
-        ...workSpaceMenu(
-          `Part ${part.letter} · Work space`,
-          `Part ${part.letter} · Fill rest of page`,
-          workSpaceOfPart(part.id),
-          [part.id],
-          onSetWorkSpace,
-        ),
-      )
-    }
+    if (part.type === 'multiple-choice') continue
+    items.push(
+      { kind: 'separator' },
+      ...workSpaceMenu(
+        `Part ${part.letter} · Work space`,
+        `Part ${part.letter} · Fill rest of page`,
+        workSpaceOfPart(part.id),
+        [part.id],
+        onSetWorkSpace,
+      ),
+    )
   }
   // Room for working is a Short Answer question's business, set here on the
   // sheet rather than in the question editor: how much a student needs depends
@@ -421,43 +448,19 @@ function questionMenuItems({
     // Both shuffles sit side by side under one heading, each with its own
     // icon: crossed arrows for reordering questions across the sheet, a list
     // with a return arrow for reordering the answers inside each question.
+    // Shuffling answers keeps how many incorrect answers each question shows
+    // and draws again which ones (ADR-0038).
     {
       kind: 'action',
       label: 'Shuffle question order',
       icon: <Shuffle />,
       onSelect: () => onShuffleSelected(actedOnIds),
     },
-    // Answers get a submenu of their own: Shuffle answers first, then — for a
-    // Multiple Choice question that can hide some — how many incorrect answers
-    // show, most first, the way a count is read (ADR-0038). Shuffling keeps
-    // the count and draws again which ones show.
     {
-      kind: 'submenu',
-      label: 'Vary answers',
+      kind: 'action',
+      label: 'Shuffle answer order',
       icon: <ListRestart />,
-      items: [
-        {
-          kind: 'action',
-          label: 'Shuffle answers',
-          icon: <Shuffle />,
-          onSelect: () => onShuffleSelectedAnswers(actedOnIds),
-        },
-        ...(shownIncorrect && onSetShownIncorrect
-          ? shownIncorrectOptions(shownIncorrect.range).map((count): MenuItem & { kind: 'radio' } => ({
-              kind: 'radio',
-              label: count === shownIncorrect.range.max
-                ? `Show all ${count} incorrect answers`
-                : `Show ${count} of ${shownIncorrect.range.max} incorrect`,
-              checked: count === shownIncorrect.shown,
-              // All of them is all of each question's, however many it has;
-              // a smaller count is clamped to what each one allows.
-              onSelect: () => onSetShownIncorrect(
-                actedOnIds,
-                count === shownIncorrect.range.max ? Infinity : count,
-              ),
-            }))
-          : []),
-      ],
+      onSelect: () => onShuffleSelectedAnswers(actedOnIds),
     },
   )
   // Remove, never Delete: this takes the question off the Working Copy and leaves
@@ -2125,15 +2128,19 @@ export function ExamPage({
             onShuffleSelectedAnswers,
             shownIncorrect: (() => {
               const question = exam.questions.find(({ id }) => id === menuQuestion.id)
-              const range = question ? shownIncorrectRange(question) : null
-              return question && range
-                ? { range, shown: range.max - hiddenAnswerIdsOf(question, arrangement).length }
-                : null
+              if (!question) return null
+              const actedOn = selection.selectedIds.has(question.id)
+                ? exam.questions.filter(({ id }) => selection.selectedIds.has(id))
+                : [question]
+              return shownIncorrectMenuOf(question, actedOn, arrangement)
             })(),
             onSetShownIncorrect,
             onRemove,
             onSetColumns,
-            wordBankLayout: wordBankLayoutOf(exam, menuQuestion.id),
+            wordBankLayout: (() => {
+              const question = exam.questions.find(({ id }) => id === menuQuestion.id)
+              return question?.type === 'matching' ? wordBankLayoutOf(exam, question) : 'beside'
+            })(),
             onSetWordBankLayout,
             workSpace: workSpaceOf(exam, menuQuestion.id),
             workSpaceOfPart: (partId) => workSpaceOf(exam, partId),

@@ -73,6 +73,17 @@ export function hideableAnswerIdsOf(question: Question): string[] {
   return eligibility.ok ? eligibility.hideable : []
 }
 
+/** Why a Multiple Choice question must show every answer it has, or null
+ *  when it may hide some: no answer is marked correct, a Locked Answer names
+ *  others by letter, or no incorrect answer is free to hide. */
+export function whyEveryAnswerShows(
+  question: Question,
+): 'no-correct-answer' | 'names-letters' | 'nothing-to-hide' | null {
+  const eligibility = eligibilityOf(question)
+  if (eligibility.ok) return null
+  return eligibility.reason ?? 'nothing-to-hide'
+}
+
 /** How many incorrect answers this question may show, or null when it must
  *  show every answer it has. */
 export function shownIncorrectRange(question: Question): ShownIncorrectRange | null {

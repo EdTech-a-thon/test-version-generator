@@ -30,7 +30,7 @@ import {
 import {
   columnsOf,
   readExamSection,
-  isStoredWordBankLayout,
+  isWordBankLayout,
   isWorkSpace,
   sameSectionOf,
   sameSections,
@@ -40,7 +40,7 @@ import {
   type Exam,
   type Arrangement,
   type Question,
-  type StoredWordBankLayout,
+  type WordBankLayout,
   type WorkSpace,
 } from './exam'
 import type { ProseMirrorJSON } from './question-doc'
@@ -161,9 +161,9 @@ export function selectedExam(
   const matchingIds = new Set(
     bankedQuestions.filter((question) => question.type === 'matching').map(({ id }) => id),
   )
-  const wordBankLayout: Record<string, StoredWordBankLayout> = {}
+  const wordBankLayout: Record<string, WordBankLayout> = {}
   for (const [id, layout] of Object.entries(draft.wordBankLayout ?? {})) {
-    if (matchingIds.has(id) && isStoredWordBankLayout(layout)) wordBankLayout[id] = layout
+    if (matchingIds.has(id) && isWordBankLayout(layout)) wordBankLayout[id] = layout
   }
   const hasAnyWordBankLayout = Object.keys(wordBankLayout).length > 0
   // Section wording and size are this Exam's presentation too, carried only

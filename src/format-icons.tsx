@@ -61,10 +61,10 @@ export function MarginsIcon(props: SVGProps<SVGSVGElement>) {
 
 // A Question Style at a glance, beside its name in the Questions submenu: the
 // one thing it changes most, in a 32 by 24 sketch of a question or two, with
-// a small "1." where that style prints the question's number. Lines sit on
-// half pixels at a one-pixel stroke so they draw crisp at 1x and 2x; the
-// numbers and letters are real text in the sheet's own serif. Decorative: the
-// row's label and description carry what it means.
+// a small "1." where that style prints the question's number. The menu draws
+// it half as large again (`.context-menu-preview`), keeping its strokes a
+// pixel wide; the numbers and letters are real text in the sheet's own serif.
+// Decorative: the row's label and description carry what it means.
 function Mark({ x, y, children, bold = false }: { x: number; y: number; children: string; bold?: boolean }) {
   return (
     <text

@@ -9,11 +9,10 @@ import {
   takesWorkSpace,
   defaultWorkSpaceOf,
   isWorkSpace,
-  wordBankLayoutOf,
   type Arrangement,
   type Exam,
-  type StoredWordBankLayout,
 } from './exam'
+import { wordBankLayoutOf } from './export-plan'
 import type { PreparedExport } from './export-preparation'
 import { hiddenAnswerIdsOf } from './hidden-answers'
 import {
@@ -129,9 +128,8 @@ export async function examPackage({
       ...(hiddenAnswerIdsOf(question, arrangement).length > 0
         ? { hiddenAnswers: hiddenAnswerIdsOf(question, arrangement).map((id) => ids.answers.get(id)!) }
         : {}),
-      ...(question.type === 'matching' && wordBankLayoutOf(exam, question.id) !== 'auto'
-        ? { wordBankLayout: wordBankLayoutOf(exam, question.id) as StoredWordBankLayout }
-        : {}),
+      // Every Matching position says where its Word Bank prints.
+      ...(question.type === 'matching' ? { wordBankLayout: wordBankLayoutOf(exam, question) } : {}),
       ...(takesWorkSpace(question.type) && space && isWorkSpace(space)
         && (hasWorkSpace(space) || hasWorkSpace(defaultWorkSpaceOf(exam.questionStyle)))
         ? { workSpace: { ...space } }

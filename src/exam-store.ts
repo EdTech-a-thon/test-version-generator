@@ -19,7 +19,7 @@ import {
   duplicateQuestion,
   hasWorkSpace,
   isExamSection,
-  isStoredWordBankLayout,
+  isWordBankLayout,
   isWorkSpace,
   moveSection,
   deleteSection,
@@ -51,7 +51,6 @@ import {
   type Question,
   type SectionPlacement,
   type SectionTarget,
-  type StoredWordBankLayout,
   type WordBankLayout,
   type WorkSpace,
 } from './exam'
@@ -93,6 +92,7 @@ import {
   type ExportHistory,
   type ExportRecord,
 } from './export-preparation'
+import { wordBankLayoutFor, wordBankLayoutOf, type BankAnswerWidth } from './export-plan'
 
 /** Everything authoring owns: canonical content, the selection made from it,
  *  and whether that has reached the saved state yet. */
@@ -184,12 +184,12 @@ function isColumnSettings(value: unknown): value is Record<string, ColumnSetting
   )
 }
 
-function isWordBankLayoutSettings(value: unknown): value is Record<string, StoredWordBankLayout> {
+function isWordBankLayoutSettings(value: unknown): value is Record<string, WordBankLayout> {
   return (
     typeof value === 'object'
     && value !== null
     && !Array.isArray(value)
-    && Object.values(value).every(isStoredWordBankLayout)
+    && Object.values(value).every(isWordBankLayout)
   )
 }
 
@@ -576,6 +576,7 @@ function withQuestionsAdded(
   current: AuthoringState,
   questionsOrIds: readonly (string | Question)[],
   target: SectionTarget | null,
+  bankAnswerWidth?: BankAnswerWidth,
 ): AuthoringState {
   let bank = current.questionBank
   // An Exam written before Sections were stored has them stored first, as
@@ -632,8 +633,37 @@ function withQuestionsAdded(
   return {
     ...current,
     questionBank: bank,
-    workingCopy: withInsertedColumns(bank, workingCopy, added),
+    workingCopy: withWordBankLayouts(
+      bank,
+      withInsertedColumns(bank, workingCopy, added),
+      added.map(({ id }) => id),
+      bankAnswerWidth,
+    ),
   }
+}
+
+/** Each of `questionIds` that is a Matching question on this Exam takes the
+ *  Word Bank layout its Question Style and the fit rule give it now
+ *  (`wordBankLayoutFor`), replacing any it had: how a Matching position gets
+ *  its layout when it arrives, and how a change of style sets them all again. */
+function withWordBankLayouts(
+  bank: QuestionBank,
+  workingCopy: ExamWorkingCopy,
+  questionIds: readonly string[],
+  bankAnswerWidth: BankAnswerWidth | undefined,
+): ExamWorkingCopy {
+  const prior = workingCopy.wordBankLayout ?? {}
+  let next: Record<string, WordBankLayout> | null = null
+  for (const questionId of questionIds) {
+    if (!workingCopy.questionIds.includes(questionId)) continue
+    const question = bankQuestionById(bank, questionId)
+    if (question?.type !== 'matching') continue
+    const layout = wordBankLayoutFor(question, workingCopy, bankAnswerWidth)
+    if (prior[questionId] === layout) continue
+    next ??= { ...prior }
+    next[questionId] = layout
+  }
+  return next ? { ...workingCopy, wordBankLayout: next } : workingCopy
 }
 
 /** An inserted Multiple Choice question starts with the answer columns of the
@@ -681,8 +711,14 @@ export function createExamStore(options: {
   exportHistory?: ExportHistory
   initial?: AuthoringState
   initialHistory?: { undo: AuthoringState[]; redo: AuthoringState[] }
+  /** Measures a Word Bank answer, so a Matching question takes the layout
+   *  that fits when it arrives or the style changes (`wordBankLayoutFor`).
+   *  The editor passes `domMeasure`'s; without it, a bank is placed by its
+   *  count. Only ever read inside an action, whose result is stored, so undo,
+   *  redo and every Layout Plan read the same layout back. */
+  bankAnswerWidth?: BankAnswerWidth
 }): ExamStore {
-  const { backend, savedBackend } = options
+  const { backend, savedBackend, bankAnswerWidth } = options
   const durableBackend = 'commitSaved' in backend
     ? (backend as DurableAuthoringBackend)
     : null
@@ -833,8 +869,17 @@ export function createExamStore(options: {
     setQuestionStyle: (style) =>
       change((current) => {
         if ((current.workingCopy.questionStyle ?? DEFAULT_QUESTION_STYLE) === style) return current
-        const workingCopy: ExamWorkingCopy = { ...current.workingCopy, questionStyle: style }
-        if (style === DEFAULT_QUESTION_STYLE) delete workingCopy.questionStyle
+        const styled: ExamWorkingCopy = { ...current.workingCopy, questionStyle: style }
+        if (style === DEFAULT_QUESTION_STYLE) delete styled.questionStyle
+        // A style is a preset for the whole sheet: taking one sets every
+        // Matching question's Word Bank where that style puts it, over any
+        // the teacher moved, in the same undoable step (ADR-0041).
+        const workingCopy = withWordBankLayouts(
+          current.questionBank,
+          styled,
+          styled.questionIds,
+          bankAnswerWidth,
+        )
         return { ...current, workingCopy }
       }),
 
@@ -953,16 +998,17 @@ export function createExamStore(options: {
         let changed = false
         for (const questionId of new Set(questionIds)) {
           if (!current.workingCopy.questionIds.includes(questionId)) continue
-          if (bankQuestionById(current.questionBank, questionId)?.type !== 'matching') continue
-          if ((next[questionId] ?? 'auto') === layout) continue
-          if (layout === 'auto') delete next[questionId]
-          else next[questionId] = layout
+          const question = bankQuestionById(current.questionBank, questionId)
+          if (question?.type !== 'matching') continue
+          // What the position prints now, a layout stored before every
+          // position carried one included.
+          if (wordBankLayoutOf(current.workingCopy, question) === layout) continue
+          next[questionId] = layout
           changed = true
         }
-        if (!changed) return current
-        const workingCopy: ExamWorkingCopy = { ...current.workingCopy, wordBankLayout: next }
-        if (Object.keys(next).length === 0) delete workingCopy.wordBankLayout
-        return { ...current, workingCopy }
+        return changed
+          ? { ...current, workingCopy: { ...current.workingCopy, wordBankLayout: next } }
+          : current
       })
     },
 
@@ -1063,11 +1109,11 @@ export function createExamStore(options: {
               : {}),
             // A duplicate looks like its original on the sheet, work space
             // and Word Bank layout included.
-            ...(workingCopy.wordBankLayout?.[questionId]
+            ...(original.type === 'matching'
               ? {
                   wordBankLayout: {
-                    ...workingCopy.wordBankLayout,
-                    [copy.id]: workingCopy.wordBankLayout[questionId]!,
+                    ...(workingCopy.wordBankLayout ?? {}),
+                    [copy.id]: wordBankLayoutOf(selected.exam, original),
                   },
                 }
               : {}),
@@ -1084,10 +1130,10 @@ export function createExamStore(options: {
       }),
 
     addToWorkingCopy: (questionOrId, target = null) =>
-      change((current) => withQuestionsAdded(current, [questionOrId], target)),
+      change((current) => withQuestionsAdded(current, [questionOrId], target, bankAnswerWidth)),
 
     addManyToWorkingCopy: (questions, target = null) =>
-      change((current) => withQuestionsAdded(current, questions, target)),
+      change((current) => withQuestionsAdded(current, questions, target, bankAnswerWidth)),
 
     moveInWorkingCopy: (questionIds, target) =>
       change((current) => {
@@ -1320,6 +1366,7 @@ export function createExamStore(options: {
 export async function loadExamStore(
   backend: Backend<AuthoringState>,
   savedBackend?: Backend<SavedState>,
+  bankAnswerWidth?: BankAnswerWidth,
 ): Promise<ExamStore> {
   let stored: AuthoringState | null = null
   let saved: SavedState | null = null
@@ -1355,5 +1402,6 @@ export async function loadExamStore(
     saved,
     initial,
     exportHistory,
+    bankAnswerWidth,
   })
 }

@@ -73,6 +73,10 @@ export type MenuItem =
       icon?: ReactNode
       /** What is chosen in it now, shown beside the label. */
       value?: string
+      /** Shown but not openable, with `description` saying why. */
+      disabled?: boolean
+      /** A line under the label, such as why it is disabled. */
+      description?: string
     }
   | { kind: 'label'; label: string }
   | { kind: 'separator' }
@@ -329,6 +333,7 @@ export function ContextMenu({
               key={index}
               className="context-menu-submenu"
               onMouseEnter={() => {
+                if (item.disabled) return
                 cancelSubmenuClose()
                 setActive(index)
                 setOpenSubmenu(index)
@@ -350,6 +355,7 @@ export function ContextMenu({
                 aria-expanded={open}
                 className="context-menu-item"
                 tabIndex={index === active ? 0 : -1}
+                disabled={item.disabled}
                 onFocus={() => setActive(index)}
                 // Opens, never toggles: a pointer has already opened it by
                 // hovering on its way to the click, which would otherwise
@@ -359,7 +365,7 @@ export function ContextMenu({
                 <span className="context-menu-icon" aria-hidden="true">
                   {item.icon}
                 </span>
-                <span className="context-menu-item-label">{item.label}</span>
+                <ItemLabel label={item.label} description={item.description} />
                 {item.value && <span className="context-menu-item-value">{item.value}</span>}
                 <span className="context-menu-submenu-arrow" aria-hidden="true">›</span>
               </button>

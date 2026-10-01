@@ -146,7 +146,7 @@ One numbered thing to match in a Matching set, in authored order. It is matched 
 _Avoid_: Prompt (in teacher-facing text), stem (for an Item), left side
 
 **Word Bank**:
-The lettered answers a Matching set's Items are matched against, in authored order. A letter is a position — Vary may shuffle a Word Bank, as it shuffles Multiple Choice answers — and no answer is correct on its own: several Items may name the same answer, and an answer no Item names is a distractor. A Word Bank prints beside its Items wherever its widest answer fits a column beside them, and above them in columns otherwise, unless the teacher puts it beside or above for that question on the Exam — Exam presentation, like a Multiple Choice question's answer columns.
+The lettered answers a Matching set's Items are matched against, in authored order. A letter is a position — Vary may shuffle a Word Bank, as it shuffles Multiple Choice answers — and no answer is correct on its own: several Items may name the same answer, and an answer no Item names is a distractor. Where a Word Bank prints is Exam presentation, like a Multiple Choice question's answer columns, and always one of two: beside its Items or above them in columns. A Matching question takes one when it arrives on an Exam — by its Question Style, which puts it above under Classic and otherwise beside its Items when its widest answer fits a column beside them — and keeps it until the teacher flips it or the Exam changes Question Style, which sets every Matching question's again.
 _Avoid_: Choices (for a Matching set), answer list, right side
 
 **Locked Answer**:

@@ -128,10 +128,10 @@ export type Exam = {
    *  Question may want a quarter page on one test and none on another. Absent
    *  means no work space anywhere. */
   workSpace?: Record<string, WorkSpace>
-  /** Where a Matching question's Word Bank prints, keyed by question id, where
-   *  the teacher chose other than Auto. Exam presentation like answer columns.
-   *  See `wordBankLayoutOf`. */
-  wordBankLayout?: Record<string, StoredWordBankLayout>
+  /** Where each Matching question's Word Bank prints, keyed by question id.
+   *  Exam presentation like answer columns, stored for every Matching
+   *  position. See `wordBankLayoutOf` in export-plan.ts. */
+  wordBankLayout?: Record<string, WordBankLayout>
   /** This Exam's Question Sections, in the order they print. Absent on an Exam
    *  written before Sections were stored: its Sections are then derived, one
    *  per Question Type (see `sectionsOf`). */
@@ -291,22 +291,17 @@ export function defaultWorkSpaceOf(style: QuestionStyle | undefined): WorkSpace 
   return questionStyleRules(style).defaultWorkSpace ?? NO_WORK_SPACE
 }
 
-/** Where a Matching question's Word Bank prints on one Exam: wherever the
- *  Layout Plan finds it fits (`'auto'`, the default), beside its Items, or
- *  above them in columns. Exam presentation, set on the sheet like a Multiple
- *  Choice question's answer columns; only a choice other than Auto is stored. */
-export type WordBankLayout = 'auto' | 'beside' | 'above'
-export type StoredWordBankLayout = Exclude<WordBankLayout, 'auto'>
+/** Where a Matching question's Word Bank prints on one Exam: beside its
+ *  Items, or above them in columns. Exam presentation, set on the sheet like a
+ *  Multiple Choice question's answer columns, and always a concrete choice:
+ *  a position takes one when it arrives on the Exam, from its Question Style
+ *  and whether its Word Bank fits beside (`wordBankLayoutFor` in
+ *  export-plan.ts), and a change of style sets every one again. */
+export type WordBankLayout = 'beside' | 'above'
 
 /** Whether a stored value is a Word Bank layout this build can print. */
-export function isStoredWordBankLayout(value: unknown): value is StoredWordBankLayout {
+export function isWordBankLayout(value: unknown): value is WordBankLayout {
   return value === 'beside' || value === 'above'
-}
-
-/** A Matching question's Word Bank layout on this Exam; Auto unless set. */
-export function wordBankLayoutOf(exam: Pick<Exam, 'wordBankLayout'>, questionId: string): WordBankLayout {
-  const layout = exam.wordBankLayout?.[questionId]
-  return isStoredWordBankLayout(layout) ? layout : 'auto'
 }
 
 /** Whether a work space prints anything at all. */

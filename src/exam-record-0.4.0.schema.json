@@ -175,7 +175,7 @@
           }
         },
         "wordBankLayout": {
-          "description": "Where a Matching position's Word Bank prints: `beside` its Items, or `above` them in columns. Absent leaves it where it fits: beside the Items when its widest answer fits a column beside them, above them otherwise.",
+          "description": "Where a Matching position's Word Bank prints: `beside` its Items, or `above` them in columns. Absent, the importer places it once, by the Exam's `questionStyle` and whether its widest answer fits a column beside the Items, and stores that.",
           "enum": [
             "beside",
             "above"

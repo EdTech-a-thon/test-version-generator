@@ -1,6 +1,8 @@
-// Where a matching set's Word Bank prints: beside its Items whenever it fits,
-// measured, and above them in columns otherwise — or wherever the teacher put
-// it on this Exam. Read through the planner's own interface.
+// Where a matching set's Word Bank prints: where its position stores, beside
+// its Items or above them in columns. A position takes its layout when it
+// arrives on an Exam or the Exam changes style — beside its Items whenever it
+// fits, measured, and above them otherwise, or above under Classic — and the
+// Layout Plan reads it from then on. Read through the planner's own interface.
 
 import { describe, expect, test } from 'bun:test'
 import {
@@ -15,6 +17,7 @@ import {
   type MatchingSet,
   type Measure,
   type PlannedBankAnswer,
+  wordBankLayoutFor,
 } from './export-plan'
 import { DEFAULT_COLUMNS, type Arrangement, type Exam, type Question } from './exam'
 import type { ProseMirrorJSON } from './question-doc'
@@ -73,57 +76,79 @@ const beside = (set: MatchingSet) => set.bankGrid === null
 /** The widest answer that still fits beside the Items, on today's sheet. */
 const FITS = PAGE_CONTENT_WIDTH - MATCHING_INDENT - MATCHING_PROMPTS_MIN_WIDTH - MATCHING_BANK_INSET
 
-describe('a Word Bank left to Auto', () => {
-  test('stands beside its Items whenever its widest answer fits, however many answers it has', () => {
+/** Where a Matching position's Word Bank goes when it takes a layout, with
+ *  every answer measured as `widths` says. */
+const placed = (
+  question: Question,
+  width: number | ((answer: PlannedBankAnswer) => number),
+  settings: Partial<Exam> = {},
+) => wordBankLayoutFor(question, settings, widths(width).bankAnswerWidth)
+
+describe('the Word Bank layout a Matching position takes', () => {
+  test('is beside its Items whenever its widest answer fits, however many answers it has', () => {
     // Seven answers once went above by count alone.
-    expect(beside(setOf(exam(matching('m', 6, 7)), widths(100)))).toBe(true)
-    expect(beside(setOf(exam(matching('m', 6, 7)), widths(FITS)))).toBe(true)
-    expect(beside(setOf(exam(matching('m', 6, 7)), widths(FITS + 1)))).toBe(false)
+    expect(placed(matching('m', 6, 7), 100)).toBe('beside')
+    expect(placed(matching('m', 6, 7), FITS)).toBe('beside')
+    expect(placed(matching('m', 6, 7), FITS + 1)).toBe('above')
   })
 
-  test('goes above its Items, in columns, when one answer is too wide to stand beside them', () => {
-    const set = setOf(exam(matching('m', 3, 3)), widths(({ id }) => (id === 'm-w2' ? 400 : 60)))
-    expect(set.bankGrid?.columns).toBe(2)
+  test('is above its Items when one answer is too wide to stand beside them', () => {
+    expect(placed(matching('m', 3, 3), ({ id }) => (id === 'm-w2' ? 400 : 60))).toBe('above')
   })
 
   test('is measured at the Exam’s text size', () => {
     const width = Math.floor(FITS / 1.1)
-    expect(beside(setOf(exam(matching('m', 3, 3)), widths(width)))).toBe(true)
-    expect(beside(setOf(exam(matching('m', 3, 3), { textSize: 'large' }), widths(width)))).toBe(false)
+    expect(placed(matching('m', 3, 3), width)).toBe('beside')
+    expect(placed(matching('m', 3, 3), width, { textSize: 'large' })).toBe('above')
   })
 
   test('leaves the Items less room on a page with deeper side margins', () => {
     const margins = { top: 0.75, right: 1.5, bottom: 0.75, left: 1.5 }
     const narrow = pageSizeOf(margins).contentWidth - MATCHING_INDENT - MATCHING_PROMPTS_MIN_WIDTH - MATCHING_BANK_INSET
     expect(narrow).toBeLessThan(FITS)
-    expect(beside(setOf(exam(matching('m', 3, 3), { margins }), widths(narrow)))).toBe(true)
-    expect(beside(setOf(exam(matching('m', 3, 3), { margins }), widths(narrow + 1)))).toBe(false)
+    expect(placed(matching('m', 3, 3), narrow, { margins })).toBe('beside')
+    expect(placed(matching('m', 3, 3), narrow + 1, { margins })).toBe('above')
   })
 
-  test('stands beside more often under Condensed, whose Items may narrow further', () => {
+  test('is beside more often under Condensed, whose Items may narrow further', () => {
     const width = FITS + (MATCHING_PROMPTS_MIN_WIDTH - CONDENSED_MATCHING_PROMPTS_MIN_WIDTH)
-    expect(beside(setOf(exam(matching('m', 3, 3)), widths(width)))).toBe(false)
-    expect(beside(setOf(exam(matching('m', 3, 3), { questionStyle: 'condensed' }), widths(width)))).toBe(true)
+    expect(placed(matching('m', 3, 3), width)).toBe('above')
+    expect(placed(matching('m', 3, 3), width, { questionStyle: 'condensed' })).toBe('beside')
   })
 
-  test('widens its column for a wide answer, and keeps today’s column otherwise', () => {
-    expect(setOf(exam(matching('m', 3, 3)), widths(100)).bankWidth).toBeUndefined()
-    expect(setOf(exam(matching('m', 3, 3)), widths(280)).bankWidth).toBe(280 + MATCHING_BANK_INSET)
-  })
-
-  test('goes above when it is far taller than its Items, rather than repeat beside every piece', () => {
-    expect(beside(setOf(exam(matching('m', 2, 12)), widths(60)))).toBe(false)
-    expect(beside(setOf(exam(matching('m', 6, 12)), widths(60)))).toBe(true)
+  test('is above when its bank is far taller than its Items, rather than repeat beside every piece', () => {
+    expect(placed(matching('m', 2, 12), 60)).toBe('above')
+    expect(placed(matching('m', 6, 12), 60)).toBe('beside')
   })
 
   test('falls back to its count when nothing can measure it', () => {
-    const unmeasured: Measure = { itemHeight: () => 0 }
-    expect(beside(setOf(exam(matching('m', 3, 5)), unmeasured))).toBe(true)
-    expect(beside(setOf(exam(matching('m', 3, 6)), unmeasured))).toBe(false)
+    expect(wordBankLayoutFor(matching('m', 3, 5), {})).toBe('beside')
+    expect(wordBankLayoutFor(matching('m', 3, 6), {})).toBe('above')
   })
 
-  test('keeps the Classic style’s place above its Items', () => {
+  test('is always above under Classic', () => {
+    expect(placed(matching('m', 3, 3), 60, { questionStyle: 'classic' })).toBe('above')
+    expect(wordBankLayoutFor(matching('m', 3, 3), { questionStyle: 'classic' })).toBe('above')
+  })
+})
+
+describe('a Word Bank on the sheet', () => {
+  test('prints where its position stores, never measured again at layout', () => {
+    // Too wide to fit, yet stored beside: it stays beside.
+    expect(beside(setOf(exam(matching('m', 6, 7), { wordBankLayout: { m: 'beside' } }), widths(FITS + 100)))).toBe(true)
+    // Narrow enough to fit, yet stored above: it stays above, in columns.
+    expect(setOf(exam(matching('m', 3, 3), { wordBankLayout: { m: 'above' } }), widths(40)).bankGrid?.columns).toBe(2)
+  })
+
+  test('without a stored layout, goes where its count puts it, however it measures', () => {
+    expect(beside(setOf(exam(matching('m', 6, 7)), widths(100)))).toBe(false)
+    expect(beside(setOf(exam(matching('m', 3, 3)), widths(FITS + 100)))).toBe(true)
     expect(beside(setOf(exam(matching('m', 3, 3), { questionStyle: 'classic' }), widths(60)))).toBe(false)
+  })
+
+  test('widens its column beside for a wide answer, and keeps today’s column otherwise', () => {
+    expect(setOf(exam(matching('m', 3, 3)), widths(100)).bankWidth).toBeUndefined()
+    expect(setOf(exam(matching('m', 3, 3)), widths(280)).bankWidth).toBe(280 + MATCHING_BANK_INSET)
   })
 })
 

@@ -283,7 +283,7 @@ describe('public Exam Record 0.4.0 contract', () => {
     })
     expect(validate(exam('q4', 'beside'))).toBe(true)
     expect(validate(exam('q4', 'above'))).toBe(true)
-    // Auto is the absence of a choice, never written.
+    // There is no Auto: a position's layout is always one of the two.
     expect(validate(exam('q4', 'auto'))).toBe(false)
     expect(validate(exam('q4', 'left'))).toBe(false)
 

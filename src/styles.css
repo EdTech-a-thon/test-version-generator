@@ -1247,13 +1247,19 @@ button { cursor: pointer; }
 
 /* How many incorrect answers a question shows, when it hides some (ADR-0038):
    a quiet line in the gap below its answers, over the body column, taking none
-   of the question's measured height. The sheet alone shows it. */
+   of the question's measured height. The sheet alone shows it, and only while
+   its question is hovered or selected, fading in as the work space handle
+   does, so a sheet at rest reads as the page will print. */
 .answer-visibility-note {
   position: absolute; left: 40px; right: 0; bottom: -18px; z-index: 1;
   margin: 0; overflow: hidden; color: #8a7767;
   font: italic 11px/16px Arial, Helvetica, sans-serif;
   white-space: nowrap; text-overflow: ellipsis; pointer-events: none;
+  opacity: 0; transition: opacity 90ms ease-in;
 }
+.exam-question:hover .answer-visibility-note,
+.exam-question--selected .answer-visibility-note,
+.exam-question:focus-within .answer-visibility-note { opacity: 1; }
 
 /* The bar that drags a work space open: in the gap below the question, over
    the body column, taking none of the question's measured height. */
@@ -1353,11 +1359,16 @@ button { cursor: pointer; }
 /* A radio's picture of what choosing it looks like — a Question Style's
    sketch — in place of its icon: wider than an icon, at its own 1:1 size so
    its one-pixel lines stay crisp, and set against the label's first line. */
+/* A Question Style's sketch, drawn half as large again as its 32 by 24
+   viewBox: its label and two lines of description already make the row that
+   tall, so the sketch can use the room. Strokes stay a pixel wide. */
 .context-menu-preview {
   flex: none; align-self: flex-start; display: flex;
-  width: 32px; height: 24px; margin-top: 1px; color: #8b7868;
+  width: 48px; height: 36px; margin-top: 2px; color: #8b7868;
 }
-.context-menu-preview svg { width: 32px; height: 24px; }
+.context-menu-preview svg { width: 48px; height: 36px; }
+.context-menu-preview svg path,
+.context-menu-preview svg circle { vector-effect: non-scaling-stroke; }
 .context-menu-item[aria-checked='true'] .context-menu-preview { color: #9f5037; }
 .context-menu-item-label { flex: 1; }
 /* A radio's line of description, under its label: what choosing it does. */

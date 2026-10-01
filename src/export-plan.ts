@@ -37,7 +37,8 @@ import {
   topicsOf,
   laidWorkSpaceHeight,
   rowsIn,
-  wordBankLayoutOf,
+  isWordBankLayout,
+  choicesOf,
   WORK_SPACE_LINE_PITCH,
   workSpaceOf,
   workSpaceRowsOf,
@@ -48,7 +49,6 @@ import {
   type Arrangement,
   type PartType,
   type WorkSpaceRows,
-  type StoredWordBankLayout,
   type WordBankLayout,
   type WorkSpace,
   type WorkSpaceStyle,
@@ -108,8 +108,10 @@ export type Measure = {
    *  line, as the sheet always did. */
   titleLines?(title: string, size: HeadingSize | undefined, width: number): number
   /** The width in px a Word Bank answer needs on one line, its letter
-   *  included. Optional: a measure without it places a Word Bank by its count
-   *  alone (`MATCHING_BESIDE_LIMIT`), as the sheet did before. */
+   *  included: how wide a bank beside its Items is drawn, and — read once,
+   *  when a Matching position takes its layout (`wordBankLayoutFor`) — whether
+   *  it goes there at all. Optional: a measure without it draws every bank
+   *  beside its Items at `MATCHING_BANK_WIDTH`. */
   bankAnswerWidth?(answer: PlannedBankAnswer, textSize?: TextSize): number
 }
 
@@ -191,9 +193,9 @@ export type MatchingSet = {
   bankWidth?: number
 }
 
-/** The longest Word Bank that prints beside its items when nothing can
+/** The longest Word Bank that is placed beside its items when nothing can
  *  measure it. A measured bank is placed by whether it fits
- *  (`fitWordBanks`). */
+ *  (`wordBankLayoutFor`). */
 export const MATCHING_BESIDE_LIMIT = 5
 
 /** The least room a matching set's prompts keep beside a Word Bank, their
@@ -314,9 +316,10 @@ export type PlannedQuestion = {
    *  teacher identify and review the Questions without exposing it to students. */
   difficulty?: Difficulty
   topics?: string[]
-  /** Where a Matching question's Word Bank prints when the teacher chose for
-   *  it; absent leaves it to the Question Style and the fit rule. */
-  wordBankLayout?: StoredWordBankLayout
+  /** Where a Matching question's Word Bank prints on this Exam, as its
+   *  position stores it. Absent on a plan recorded before every Matching
+   *  position stored one, and on every other Question Type. */
+  wordBankLayout?: WordBankLayout
   /** A Short Answer question's Suggested Answer, as top-level blocks. Never
    *  printed on the test; the Answer Key prints it under the question's line. */
   suggestedAnswer?: ProseMirrorJSON[]
@@ -819,10 +822,10 @@ function printedChoices(choices: PlannedChoice[], rules: QuestionStyleRules): Pl
 // one the bank no longer holds, is unmatched and gets no letter.
 //
 // The Question Style decides how the bank is lettered on the test. Where it
-// sits is the teacher's choice when they made one, then the style's; left to
-// Auto, it is beside the prompts while short and above them once long, until
-// `fitWordBanks` measures whether it really fits. A prompt's letter, the
-// key's, is a capital whatever the bank prints.
+// sits is the position's own stored layout, beside or above, decided when the
+// question arrived on the Exam or its style last changed (`wordBankLayoutFor`)
+// and never again at layout time. A prompt's letter, the key's, is a capital
+// whatever the bank prints.
 function deriveMatching(
   question: Question,
   arrangement: Arrangement,
@@ -838,8 +841,6 @@ function deriveMatching(
     node: answer.node,
   }))
   const above = layout === 'above'
-    || (layout === 'auto' && rules.bankPlacement === 'above')
-    || (layout === 'auto' && bank.length > MATCHING_BESIDE_LIMIT)
   return {
     prompts: promptsOf(question).map((prompt, index) => ({
       id: prompt.id,
@@ -952,11 +953,9 @@ function deriveQuestion(
       ? null
       : layOutGrid(printedChoices(choices, rules), columnsOf(question)),
     matching: matching
-      ? deriveMatching(question, arrangement, number, rules, wordBankLayoutOf(exam, question.id))
+      ? deriveMatching(question, arrangement, number, rules, wordBankLayoutOf(exam, question))
       : null,
-    ...(matching && wordBankLayoutOf(exam, question.id) !== 'auto'
-      ? { wordBankLayout: wordBankLayoutOf(exam, question.id) as StoredWordBankLayout }
-      : {}),
+    ...(matching ? { wordBankLayout: wordBankLayoutOf(exam, question) } : {}),
     workSpace: takesWorkSpace(question.type)
       ? plannedWorkSpace(workSpaceOf(exam, question.id), workSpaceRowsOf(exam.questionStyle))
       : null,
@@ -1667,26 +1666,18 @@ function fitAnswersAcross(
   })
 }
 
-// Where a matching set's Word Bank sits, decided with real measurement: beside
-// the prompts when its widest answer fits on one line in a column that still
-// leaves the prompts `MATCHING_PROMPTS_MIN_WIDTH` — narrower under Condensed —
-// past their number column, and above them in columns otherwise. A bank is
-// also kept above when it has more than twice as many answers as there are
-// prompts and more than `MATCHING_BESIDE_LIMIT`: beside, the set would stand as
-// tall as its bank, and a set split across pages repeats its whole bank
-// beside each piece, so a tall bank beside few prompts spends the most paper
-// for the least gain. The column beside is `MATCHING_BANK_WIDTH` wide unless
-// its widest answer needs more. A bank the teacher put beside stays there,
-// given the widest column the prompts allow, its answers wrapping in it when
-// even that is too narrow; one they put above, or that the Question Style
-// prints above, is left alone. A measure that cannot tell widths leaves every
-// bank where its count put it.
+// How wide a Word Bank set beside its Items is drawn, with real measurement.
+// Where it sits is decided before layout and stored (`wordBankLayoutFor`), so
+// this never moves one: a bank beside its Items is given the column its widest
+// answer needs, `MATCHING_BANK_WIDTH` at least and never more than leaves the
+// prompts their least width, its answers wrapping in it when even that is too
+// narrow, rather than overflowing the page. A bank above its Items is left
+// alone, and so is every bank when the measure cannot tell widths.
 function fitWordBanks(
   items: readonly PageItem[],
   measure: Measure,
   textSize: TextSize | undefined,
   contentWidth: number,
-  rules: QuestionStyleRules,
   promptsMinWidth: number,
 ): PageItem[] {
   const widthOf = measure.bankAnswerWidth
@@ -1696,23 +1687,84 @@ function fitWordBanks(
     if (item.kind !== 'question' || !item.question.matching) return item
     const { question } = item
     const set = question.matching!
-    const chosen: WordBankLayout = question.wordBankLayout
-      ?? (rules.bankPlacement === 'above' ? 'above' : 'auto')
-    if (chosen === 'above' || set.bank.length === 0) return item
-    const needed = MATCHING_BANK_INSET
-      + Math.max(...set.bank.map((answer) => Math.ceil(widthOf(answer, textSize))))
-    const tall = set.bank.length > Math.max(MATCHING_BESIDE_LIMIT, 2 * set.prompts.length)
-    const beside = chosen === 'beside' || (needed <= widest && !tall)
-    const width = Math.min(Math.max(needed, MATCHING_BANK_WIDTH), Math.max(widest, MATCHING_BANK_WIDTH))
-    const matching: MatchingSet = beside
-      ? { prompts: set.prompts, bank: set.bank, bankGrid: null, ...(width > MATCHING_BANK_WIDTH ? { bankWidth: width } : {}) }
-      : {
-          prompts: set.prompts,
-          bank: set.bank,
-          bankGrid: { columns: MATCHING_BANK_COLUMNS, ...layOutColumns(set.bank, MATCHING_BANK_COLUMNS) },
-        }
-    return wholeQuestion({ ...question, matching })
+    if (set.bankGrid || set.bank.length === 0) return item
+    const width = Math.min(
+      Math.max(bankNeeds(set.bank, widthOf, textSize), MATCHING_BANK_WIDTH),
+      Math.max(widest, MATCHING_BANK_WIDTH),
+    )
+    if (width <= MATCHING_BANK_WIDTH) return item
+    return wholeQuestion({ ...question, matching: { ...set, bankWidth: width } })
   })
+}
+
+/** How a Word Bank answer's one-line width is measured: `Measure.bankAnswerWidth`. */
+export type BankAnswerWidth = NonNullable<Measure['bankAnswerWidth']>
+
+/** What an Exam's choice of Word Bank layout reads beside the question. */
+export type WordBankSettings = Pick<Exam, 'questionStyle' | 'textSize' | 'margins'>
+
+/** The width a column beside the Items needs to hold every answer of a Word
+ *  Bank on one line, its inset included. */
+function bankNeeds(
+  bank: readonly PlannedBankAnswer[],
+  widthOf: BankAnswerWidth,
+  textSize: TextSize | undefined,
+): number {
+  return MATCHING_BANK_INSET + Math.max(...bank.map((answer) => Math.ceil(widthOf(answer, textSize))))
+}
+
+/** The least room a style leaves a matching set's prompts beside its bank. */
+function promptsMinWidthOf(style: QuestionStyle | undefined): number {
+  return style === 'condensed' ? CONDENSED_MATCHING_PROMPTS_MIN_WIDTH : MATCHING_PROMPTS_MIN_WIDTH
+}
+
+/**
+ * The Word Bank layout a Matching question takes when it arrives on an Exam —
+ * added, dragged, imported without one — or when the Exam's Question Style
+ * changes: the style's own placement, and where the style leaves it to fit,
+ * beside its Items when its widest answer, measured on one line at the Exam's
+ * text size, fits a column that still leaves the Items their least width on a
+ * page as wide as the Exam's margins leave, and above them otherwise. A bank
+ * with more than twice as many answers as there are Items, and more than
+ * `MATCHING_BESIDE_LIMIT`, goes above: beside, the set would stand as tall as
+ * its bank. Without `widthOf` — where nothing can measure, and for a position
+ * stored before every one carried a layout — a bank goes beside up to
+ * `MATCHING_BESIDE_LIMIT` answers and above past it.
+ *
+ * The result is stored on the position and read as it is from then on, so a
+ * Layout Plan never measures where a bank goes.
+ */
+export function wordBankLayoutFor(
+  question: Question,
+  settings: WordBankSettings,
+  widthOf?: BankAnswerWidth,
+): WordBankLayout {
+  const rules = questionStyleRules(settings.questionStyle)
+  if (rules.bankPlacement === 'above') return 'above'
+  const answers = choicesOf(question)
+  if (answers.length === 0) return 'beside'
+  if (answers.length > Math.max(MATCHING_BESIDE_LIMIT, 2 * promptsOf(question).length)) return 'above'
+  if (!widthOf) return answers.length > MATCHING_BESIDE_LIMIT ? 'above' : 'beside'
+  const bank: PlannedBankAnswer[] = answers.map((answer, index) => ({
+    id: answer.id,
+    letter: rules.lettering === 'lower' ? letterAt(index).toLowerCase() : letterAt(index),
+    node: answer.node,
+  }))
+  const widest = pageSizeOf(settings.margins).contentWidth
+    - MATCHING_INDENT
+    - promptsMinWidthOf(settings.questionStyle)
+  return bankNeeds(bank, widthOf, settings.textSize) <= widest ? 'beside' : 'above'
+}
+
+/** A Matching question's Word Bank layout on this Exam: the one its position
+ *  stores, or — for a position stored before every one carried a layout —
+ *  the one `wordBankLayoutFor` gives it unmeasured, the same on every read. */
+export function wordBankLayoutOf(
+  exam: WordBankSettings & Pick<Exam, 'wordBankLayout'>,
+  question: Question,
+): WordBankLayout {
+  const stored = exam.wordBankLayout?.[question.id]
+  return isWordBankLayout(stored) ? stored : wordBankLayoutFor(question, exam)
 }
 
 /** Layout resolution, on its own: an Export Document onto sheets. Keeping the
@@ -1753,8 +1805,7 @@ function resolveLayout(
       measure,
       textSize,
       pageSize.contentWidth,
-      rules,
-      questionStyle === 'condensed' ? CONDENSED_MATCHING_PROMPTS_MIN_WIDTH : MATCHING_PROMPTS_MIN_WIDTH,
+      promptsMinWidthOf(questionStyle),
     )
     pages.push(...paginate(test, sized, pageSize, 'test', 'first', 'later', titleExtra))
   }
