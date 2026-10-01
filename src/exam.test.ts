@@ -841,3 +841,113 @@ describe('Difficulty and Topics', () => {
   })
 })
 
+describe('Locked Answers', () => {
+  function answer(id: string, text: string, locked?: boolean): ProseMirrorJSON {
+    return {
+      type: 'multipleChoiceChoice',
+      attrs: { correct: false, id, ...(locked === undefined ? {} : { locked }) },
+      content: [{ type: 'paragraph', content: [{ type: 'text', text }] }],
+    }
+  }
+
+  function withAnswers(id: string, answers: ProseMirrorJSON[]): Question {
+    return {
+      id,
+      type: 'multiple-choice',
+      doc: { type: 'doc', content: [{ type: 'paragraph' }, { type: 'multipleChoice', content: answers }] },
+      columns: 2,
+    }
+  }
+
+  const question = withAnswers('q1', [
+    answer('a', 'Mercury'),
+    answer('b', 'Venus'),
+    answer('c', 'Earth'),
+    answer('d', 'Mars'),
+    answer('e', 'All of the above'),
+  ])
+
+  test('an answer worded like "All of the above" is locked until the teacher unlocks it', () => {
+    expect(choicesOf(question).map((choice) => choice.locked)).toEqual([false, false, false, false, true])
+    const unlocked = withAnswers('q1', [answer('a', 'Mercury'), answer('e', 'All of the above', false)])
+    expect(choicesOf(unlocked).map((choice) => choice.locked)).toEqual([false, false])
+    const locked = withAnswers('q1', [answer('a', 'Mercury', true), answer('b', 'Venus')])
+    expect(choicesOf(locked).map((choice) => choice.locked)).toEqual([true, false])
+  })
+
+  test('Vary shuffles the other answers around a locked one', () => {
+    const exam = examOf([question])
+    for (const draw of [0, 0.3, 0.6, 0.99]) {
+      const shuffled = shuffleSelectedAnswers(exam, arrangementOf(['q1']), ['q1'], () => draw)
+      const order = shuffled.choiceOrder.q1!
+      expect(order[4]).toBe('e')
+      expect(order.slice(0, 4).sort()).toEqual(['a', 'b', 'c', 'd'])
+      expect(order.slice(0, 4)).not.toEqual(['a', 'b', 'c', 'd'])
+    }
+  })
+
+  test('a locked answer in the middle keeps its letter too', () => {
+    const middle = withAnswers('q1', [
+      answer('a', 'Red'),
+      answer('b', 'Both A and C'),
+      answer('c', 'Blue'),
+      answer('d', 'Green'),
+    ])
+    const shuffled = shuffleSelectedAnswers(examOf([middle]), arrangementOf(['q1']), ['q1'], () => 0)
+    expect(shuffled.choiceOrder.q1![1]).toBe('b')
+    expect(shuffled.choiceOrder.q1).not.toEqual(['a', 'b', 'c', 'd'])
+  })
+
+  test('a question with fewer than two answers free to move cannot Vary', () => {
+    const exam = examOf([
+      withAnswers('q1', [answer('a', 'Red'), answer('b', 'Neither A nor C'), answer('c', 'None of the above')]),
+    ])
+    const arrangement = arrangementOf(['q1'])
+    expect(shuffleSelectedAnswers(exam, arrangement, ['q1'], () => 0)).toBe(arrangement)
+  })
+
+  test('an order stored before an answer was locked puts it back at its authored position', () => {
+    const arrangement = arrangementOf(['q1'], { q1: ['e', 'd', 'c', 'b', 'a'] })
+    expect(orderedChoices(question, arrangement).map((choice) => choice.id)).toEqual(['d', 'c', 'b', 'a', 'e'])
+  })
+
+  test("a Multiple Choice Part's locked answer stays put while the others Vary", () => {
+    const multipart: Question = {
+      id: 'm1',
+      type: 'multipart',
+      columns: 2,
+      doc: {
+        type: 'doc',
+        content: [
+          { type: 'paragraph' },
+          {
+            type: 'multipartParts',
+            content: [
+              {
+                type: 'multipartPart',
+                attrs: { id: 's1', columns: 2 },
+                content: [
+                  { type: 'multipartPartStem', content: [{ type: 'paragraph' }] },
+                  {
+                    type: 'multipleChoice',
+                    content: [answer('a', 'One'), answer('b', 'Two'), answer('c', 'Three'), answer('d', 'None of these')],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    }
+    const shuffled = shuffleSelectedAnswers(examOf([multipart]), arrangementOf(['m1']), ['m1'], () => 0)
+    expect(shuffled.choiceOrder.s1![3]).toBe('d')
+    expect(shuffled.choiceOrder.s1!.slice(0, 3)).not.toEqual(['a', 'b', 'c'])
+  })
+
+  test('a matching Word Bank and a True/False pair are never locked', () => {
+    const bank = matching('x1', [''], ['all of the above', 'none of these'])
+    expect(choicesOf(bank).map((choice) => choice.locked)).toEqual([false, false])
+    expect(choicesOf(trueFalse('t1')).map((choice) => choice.locked)).toEqual([false, false])
+  })
+})
+

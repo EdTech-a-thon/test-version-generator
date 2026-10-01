@@ -1,5 +1,7 @@
 # Question Bank Record 0.8.0
 
+> **Superseded by [Question Bank Record 0.9.0](question-bank-record-0.9.0.md).** Test Parrot no longer produces `0.8.0` records; it still reads them, and this contract is frozen so that every Question Bank File already shared keeps opening. A `0.8.0` record says nothing about Locked Answers, so its answers are locked or not by their wording once imported. The one fixture that changes after publication is `invalid/unsupported-version.json`, which names a version no Test Parrot parser implements — each time a newer version ships, it has to name the one after that to keep meaning it.
+
 The **Question Bank Record** is the authoritative, portable representation of one complete Question Bank. It travels inside a [Test Parrot Package](test-parrot-package-0.1.0.md), which travels in a zip beside the picture files the record names. That zip is embedded in a **Question Bank File**, whose PDF pages are only a teacher-readable preview. The record, not the pages, controls import.
 
 ## Published contract

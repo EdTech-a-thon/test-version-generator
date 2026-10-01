@@ -19,6 +19,7 @@ import { initialSelection } from './import-selection'
 import { planImport } from './package-commit'
 import { inspectImportFile, inspectImportRecord } from './package-import'
 import { selectedExam } from './selected-exam'
+import { shownChoices } from './hidden-answers'
 import type { QuestionBankResource } from './question-bank-workspaces'
 
 const fontFiles = {
@@ -172,6 +173,30 @@ describe('an Exam PDF carrying its Exam', () => {
     expect(printed(imported, importedOrder)).toEqual(printed(exam, arrangement))
   })
 
+  test('a position that hides incorrect answers carries them, and imports hiding the same ones', async () => {
+    const hiding: Arrangement = { ...arrangement, hiddenAnswers: { 'cells-1': ['cells-1-choice-3', 'cells-1-choice-1'] } }
+    const carried = (await examPackage({ exam, arrangement: hiding, ownerOf, loadMedia: noImages })).package
+    const position = carried.exams[0]!.positions.find(({ hiddenAnswers }) => hiddenAnswers)!
+    // The bank keeps every answer; the position names the two it leaves off.
+    expect(position.hiddenAnswers).toEqual(['q2-c4', 'q2-c2'])
+    const record = carried.questionBanks[0]!.record as { bank: { questions: { id: string; choices?: unknown[] }[] } }
+    expect(record.bank.questions.find(({ id }) => id === 'q2')!.choices).toHaveLength(4)
+
+    const proposal = await inspectImportRecord(new TextEncoder().encode(JSON.stringify(carried)))
+    let next = 0
+    const plan = planImport(proposal, initialSelection(proposal), () => `local-${next++}`)
+    const { exam: imported, arrangement: importedOrder } = selectedExam(
+      plan.exams[0]!.saved.questionBank,
+      plan.exams[0]!.saved.workingCopy,
+    )
+    const shownTexts = (sheet: Exam, order: Arrangement) => {
+      const question = sheet.questions.find((candidate) => text(candidate) === 'Which organelle releases energy?')!
+      return shownChoices(question, order).map((choice) => JSON.stringify(choice.node).match(/"text":"([^"]+)"/)![1])
+    }
+    expect(shownTexts(imported, importedOrder)).toEqual(['Ribosome', 'Mitochondrion'])
+    expect(shownTexts(imported, importedOrder)).toEqual(shownTexts(exam, hiding))
+  })
+
   test('a shuffled answer-key PDF carries the Exam as authored, not one Exam per Version', async () => {
     const shuffled = await withExamPackage(
       prepared({
@@ -312,7 +337,7 @@ describe('a Multipart question in an Exam package', () => {
     const carried = (await examPackage({ exam: worded, arrangement, ownerOf, loadMedia: noImages })).package
     // Each derived Section travels with its wording in full, and no type.
     expect(carried.exams[0]).toMatchObject({
-      formatVersion: '0.3.0',
+      formatVersion: '0.4.0',
       sections: [
         { title: 'Multiple Choice', instructions: 'Identify the choice that best completes the statement or answers the question.' },
         { title: 'Vocabulary', instructions: 'Match each item with the correct answer from the word bank. Write its letter in the blank.' },
@@ -378,7 +403,7 @@ describe('an Exam’s stored Sections in its package', () => {
   test('travel in print order, empty ones included, each position naming its Section', async () => {
     const carried = (await examPackage({ exam: sheet, arrangement, ownerOf, loadMedia: noImages })).package
     const record = carried.exams[0]!
-    expect(record.formatVersion).toBe('0.3.0')
+    expect(record.formatVersion).toBe('0.4.0')
     expect(record.sections).toEqual([
       { title: 'Warm-up', instructions: 'Answer each question.' },
       { title: 'Written', instructions: '' },

@@ -414,6 +414,26 @@ describe('shuffled Versions', () => {
   const testsOf = (plans: readonly LayoutPlan[]) =>
     plans.filter((plan) => plan.pages[0]?.stream === 'test')
 
+  test('each Version hides as many incorrect answers as the Working Copy, drawn for itself, and its record reprints exactly that', () => {
+    const base = shuffledRequest({ questions: false, answers: true }, 4)
+    const hiding = { ...base, arrangement: { ...base.arrangement, hiddenAnswers: { mc1: ['a2'] } } }
+    const prepared = prepareExport(hiding)
+    const printedMc1 = testsOf(prepared.documents).map((plan) => printedOrder(plan).answers.mc1!)
+    for (const answers of printedMc1) {
+      expect(answers).toHaveLength(2)
+      expect(answers).toContain('a1')
+    }
+    // Over four Versions, more than one distractor came up.
+    expect(new Set(printedMc1.flat()).size).toBe(3)
+
+    const historical = prepareHistoricalExport({
+      record: prepared.record,
+      createdAt: '2026-09-11T09:00:00.000Z',
+      createId: () => 'record-2',
+    })
+    expect(testsOf(historical.documents).map((plan) => printedOrder(plan).answers.mc1)).toEqual(printedMc1)
+  })
+
   test('a shuffled export prints every Version’s test, then every Version’s key, each page named', () => {
     const prepared = prepareExport(shuffledRequest({ questions: true, answers: true }, 3))
     const names = prepared.record.versions!

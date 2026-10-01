@@ -366,6 +366,54 @@ describe('rejecting a Test Parrot Package whole', () => {
   })
 })
 
+describe('Exam Record 0.4.0 hidden answers', () => {
+  const bank = () => bankRecord('Mixed', [multipleChoice('q1', 4), shortAnswer('q2')])
+  const exam = (version: string, position: Record<string, unknown>) => ({
+    format: 'test-parrot/exam',
+    formatVersion: version,
+    name: 'Hiding',
+    sections: [{ title: 'All', instructions: '' }],
+    positions: [{ question: { bank: 'b', question: 'q1' }, section: 0, ...position }],
+  })
+
+  test('a Multiple Choice position may leave incorrect answers off', async () => {
+    const proposal = await inspectImportRecord(bytesOf(packageOf(
+      [{ id: 'b', record: bank() }],
+      [exam('0.4.0', { hiddenAnswers: ['q1-c2', 'q1-c4'] })],
+    )))
+    expect(proposal.exams[0]!.positions[0]!.hiddenAnswers).toEqual(['q1-c2', 'q1-c4'])
+  })
+
+  test('only its own incorrect answers, and only on Multiple Choice', async () => {
+    await rejected(
+      packageOf([{ id: 'b', record: bank() }], [exam('0.4.0', { hiddenAnswers: ['q1-c9'] })]),
+      'dangling-reference',
+      'q1-c9',
+    )
+    await rejected(
+      packageOf([{ id: 'b', record: bank() }], [exam('0.4.0', { hiddenAnswers: ['q1-c1'] })]),
+      'invalid-position',
+      'correct answer',
+    )
+    await rejected(
+      packageOf([{ id: 'b', record: bank() }], [{
+        ...exam('0.4.0', {}),
+        positions: [{ question: { bank: 'b', question: 'q2' }, section: 0, hiddenAnswers: ['q1-c2'] }],
+      }]),
+      'invalid-position',
+      'only a Multiple Choice Question',
+    )
+  })
+
+  test('a 0.3.0 record has no hidden answers: the member is ignored', async () => {
+    const proposal = await inspectImportRecord(bytesOf(packageOf(
+      [{ id: 'b', record: bank() }],
+      [exam('0.3.0', { hiddenAnswers: ['q1-c2'] })],
+    )))
+    expect(proposal.exams[0]!.positions[0]!.hiddenAnswers).toBeUndefined()
+  })
+})
+
 describe('Exam Record 0.3.0 Sections', () => {
   const mixed = () => bankRecord('Mixed', [
     multipleChoice('q1'), multipleChoice('q2'), trueFalse('q3'), shortAnswer('q4'),

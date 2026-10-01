@@ -13,6 +13,7 @@
 import {
   choiceIdOf,
   choiceIsCorrect,
+  choiceIsLocked,
   choiceNodesOf,
   emptyDoc,
   matchingBankNodesOf,
@@ -216,15 +217,22 @@ export type Arrangement = {
   letter: string
   questionOrder: string[]
   choiceOrder: Record<string, string[]>
+  /** The incorrect answers each Multiple Choice question leaves off, by
+   *  question id: Exam presentation like `choiceOrder`, tolerated rather than
+   *  validated (see `hidden-answers.ts`, ADR-0038). Absent shows them all. */
+  hiddenAnswers?: Record<string, string[]>
 }
 
 // A choice as the page sees it: its stable id, whether it is the correct
-// answer, and the document node to render. A matching set's Word Bank answers
-// are choices in this sense too — they are what an arrangement orders — but
-// none of them is correct on its own, so `correct` is always false for one.
+// answer, whether it is a Locked Answer that keeps its authored letter however
+// answers are shuffled, and the document node to render. A matching set's
+// Word Bank answers are choices in this sense too — they are what an
+// arrangement orders — but none of them is correct on its own, so `correct`
+// is always false for one, and none is locked (ADR-0038).
 export type Choice = {
   id: string
   correct: boolean
+  locked: boolean
   node: ProseMirrorJSON
 }
 
@@ -729,12 +737,16 @@ export function choicesOf(question: Question): Choice[] {
     return matchingBankNodesOf(question.doc).map((node) => ({
       id: choiceIdOf(node),
       correct: false,
+      locked: false,
       node,
     }))
   }
+  // A True/False pair never moves, so neither of its answers needs a lock.
+  const lockable = question.type === 'multiple-choice'
   return choiceNodesOf(question.doc).map((node) => ({
     id: choiceIdOf(node),
     correct: choiceIsCorrect(node),
+    locked: lockable && choiceIsLocked(node),
     node,
   }))
 }
@@ -766,6 +778,7 @@ export function partsOf(question: Question): Part[] {
           ? choiceNodesOf({ content: answer ? [answer] : [] }).map((choice) => ({
               id: choiceIdOf(choice),
               correct: choiceIsCorrect(choice),
+              locked: choiceIsLocked(choice),
               node: choice,
             }))
           : [],
@@ -803,14 +816,44 @@ export function presentationIdsOf(question: Question): string[] {
   return [question.id, ...partsOf(question).map((part) => part.id)]
 }
 
+/** Answers in an arrangement's order with every Locked Answer back at its
+ *  authored position: the unlocked ones fill the other positions in the order
+ *  the arrangement gives them. This is what keeps an order stored before an
+ *  answer was locked, or one an Exam Record carries, from moving it. */
+function withLockedInPlace(authored: readonly Choice[], ordered: readonly Choice[]): Choice[] {
+  if (!authored.some((choice) => choice.locked)) return [...ordered]
+  const moving = ordered.filter((choice) => !choice.locked)
+  let next = 0
+  return authored.map((choice) => (choice.locked ? choice : moving[next++]!))
+}
+
+/** Answers in `authored` order, arranged by `order` around their Locked
+ *  Answers. */
+function arrangedChoices(authored: readonly Choice[], order: readonly string[]): Choice[] {
+  const byId = new Map(authored.map((choice) => [choice.id, choice]))
+  return withLockedInPlace(
+    authored,
+    reconcileOrder(order, authored.map((choice) => choice.id)).map((id) => byId.get(id)!),
+  )
+}
+
+/** The ids of the answers a shuffle may move, in their current order: every
+ *  one but the Locked Answers. */
+export function movableAnswerIds(current: readonly Choice[]): string[] {
+  return current.filter((choice) => !choice.locked).map((choice) => choice.id)
+}
+
+/** The answer order `current` takes when its movable answers are put in
+ *  `moving`'s order and every Locked Answer stays where it is. */
+export function withAnswersMoved(current: readonly Choice[], moving: readonly string[]): string[] {
+  let next = 0
+  return current.map((choice) => (choice.locked ? choice.id : moving[next++]!))
+}
+
 /** A Multiple Choice Part's answers in the order this arrangement puts them
  *  in, keyed in `choiceOrder` by the Part's id as a question's are by its own. */
 export function orderedPartChoices(part: Part, arrangement: Arrangement): Choice[] {
-  const byId = new Map(part.choices.map((choice) => [choice.id, choice]))
-  return reconcileOrder(
-    arrangement.choiceOrder[part.id] ?? [],
-    part.choices.map((choice) => choice.id),
-  ).map((id) => byId.get(id)!)
+  return arrangedChoices(part.choices, arrangement.choiceOrder[part.id] ?? [])
 }
 
 // A matching set's prompts in authoring order — the order they are numbered
@@ -826,14 +869,10 @@ export function promptsOf(question: Question): Prompt[] {
 
 // The question's answers in the order this arrangement puts them in. A choice's
 // letter on the printed page is its position here, so correctness follows its
-// choice with no bookkeeping.
+// choice with no bookkeeping. A Locked Answer is always at its authored
+// position, whatever the arrangement says.
 export function orderedChoices(question: Question, arrangement: Arrangement): Choice[] {
-  const choices = choicesOf(question)
-  const byId = new Map(choices.map((choice) => [choice.id, choice]))
-  return reconcileOrder(
-    arrangement.choiceOrder[question.id] ?? [],
-    choices.map((choice) => choice.id),
-  ).map((id) => byId.get(id)!)
+  return arrangedChoices(choicesOf(question), arrangement.choiceOrder[question.id] ?? [])
 }
 
 export function withQuestionAppended(
@@ -918,11 +957,12 @@ export function shuffleSelectedQuestions(
  * and every prompt still names the same answer under its new letter.
  *
  * A selected Short Answer question, an unknown question, and a question with
- * fewer than two answers cannot vary and are left alone. So does a True/False
- * question: True before False is a convention a student reads rather than an
- * authored order, and reversing it varies nothing. As with question shuffling,
- * an identity Fisher–Yates draw is rotated so every eligible selected question
- * visibly changes order.
+ * fewer than two answers that may move cannot vary and are left alone. So does
+ * a True/False question: True before False is a convention a student reads
+ * rather than an authored order, and reversing it varies nothing. A Locked
+ * Answer keeps its position, and the others shuffle among the positions left
+ * (ADR-0038). As with question shuffling, an identity Fisher–Yates draw is
+ * rotated so every eligible selected question visibly changes order.
  */
 export function shuffleSelectedAnswers(
   exam: Exam,
@@ -952,9 +992,10 @@ export function shuffleSelectedAnswers(
   }
 
   for (const { id, current } of targets) {
-    if (current.length < 2) continue
+    const movable = movableAnswerIds(current)
+    if (movable.length < 2) continue
 
-    const shuffled = current.map((choice) => choice.id)
+    const shuffled = [...movable]
     for (let index = shuffled.length - 1; index > 0; index -= 1) {
       const swapIndex = Math.floor(random() * (index + 1))
       ;[shuffled[index], shuffled[swapIndex]] = [
@@ -962,12 +1003,12 @@ export function shuffleSelectedAnswers(
         shuffled[index]!,
       ]
     }
-    if (shuffled.every((id, index) => id === current[index]!.id)) {
+    if (shuffled.every((id, index) => id === movable[index])) {
       shuffled.push(shuffled.shift()!)
     }
 
     if (!changed) choiceOrder = { ...choiceOrder }
-    choiceOrder[id] = shuffled
+    choiceOrder[id] = withAnswersMoved(current, shuffled)
     changed = true
   }
 

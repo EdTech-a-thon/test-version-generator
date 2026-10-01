@@ -1,0 +1,18 @@
+# Exam Record 0.4.0 fixtures
+
+- [`schema.json`](schema.json) is a version-pinned copy of the public schema whose
+  stable identifier is `https://testparrot.com/formats/exam/0.4.0/schema.json`.
+- [`examples/`](examples/) contains conforming Exam Records. An Exam Record is
+  importable only inside a Test Parrot Package. A Section holds Questions of any
+  type. `sections.json` has a Warm-up Section holding a Multiple Choice and a
+  True/False Question, a Short Answer Section whose directions are cleared, a
+  Challenge Section holding a Multiple Choice and a Matching Question, and an
+  empty Extra Credit Section; it prints every heading large and its text small,
+  and rewords the first page's header line.
+- `hidden-answers.json` has a Multiple Choice position that shows its answers
+  in a shuffled order and leaves one incorrect answer off.
+- Invalid counterexamples are with the package, in
+  [`../../package/0.1.0/invalid/`](../../package/0.1.0/invalid/).
+
+The prose contract is in
+[`docs/exam-record-0.4.0.md`](../../../../docs/exam-record-0.4.0.md).

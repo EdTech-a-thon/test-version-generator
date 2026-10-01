@@ -6,6 +6,7 @@ import {
   RECORD_TYPE_ORDER,
   recordDocumentToEditorNodes,
   wordBankLettersOf,
+  type QuestionBankRecordChoice,
   type QuestionBankRecordQuestion,
   type SemanticDocument,
 } from './question-bank-export'
@@ -13,7 +14,8 @@ import { TopicBadge } from './badges'
 import type { Question } from './exam'
 import { QuestionReading } from './question-reading'
 import type { QuestionReadingContent } from './question-reading-content'
-import { pendingImageOf, type ProseMirrorJSON } from './question-doc'
+import { pendingImageOf, plainTextOf, type ProseMirrorJSON } from './question-doc'
+import { isLocked } from './locked-answers'
 import type { ImportProposal, ProposedBank, ProposedExam } from './package-import'
 import {
   deniedBanksOf,
@@ -201,17 +203,24 @@ function readingOfRecordQuestion(
   previewDocument: (document: SemanticDocument) => ProseMirrorJSON[],
 ): QuestionReadingContent {
   const letters = wordBankLettersOf(question)
+  // A choice is locked as it will be once imported: as the record says, or
+  // by its wording where the record leaves it undecided. True/False never is.
+  const choiceOf = (choice: QuestionBankRecordChoice, lockable: boolean) => {
+    const content = previewDocument(choice.content)
+    return {
+      id: choice.id,
+      content,
+      correct: choice.correct,
+      locked: lockable && isLocked(choice.locked, plainTextOf({ type: 'doc', content })),
+    }
+  }
   return {
     typeLabel: RECORD_TYPE_LABELS[question.type],
     difficulty: question.difficulty,
     topics: question.topics ?? [],
     stem: previewDocument(question.stem),
     ...(question.choices ? {
-      choices: question.choices.map((choice) => ({
-        id: choice.id,
-        content: previewDocument(choice.content),
-        correct: choice.correct,
-      })),
+      choices: question.choices.map((choice) => choiceOf(choice, question.type === 'multiple-choice')),
     } : {}),
     ...(question.prompts && question.wordBank ? {
       matching: {
@@ -234,11 +243,7 @@ function readingOfRecordQuestion(
         typeLabel: RECORD_PART_TYPE_LABELS[part.type],
         stem: previewDocument(part.stem),
         ...(part.choices ? {
-          choices: part.choices.map((choice) => ({
-            id: choice.id,
-            content: previewDocument(choice.content),
-            correct: choice.correct,
-          })),
+          choices: part.choices.map((choice) => choiceOf(choice, true)),
         } : {}),
         ...(part.suggestedAnswer ? { suggestedAnswer: previewDocument(part.suggestedAnswer) } : {}),
       })),

@@ -10,6 +10,7 @@ import questionBankSchema050 from './question-bank-record-0.5.0.schema.json'
 import questionBankSchema060 from './question-bank-record-0.6.0.schema.json'
 import questionBankSchema070 from './question-bank-record-0.7.0.schema.json'
 import questionBankSchema080 from './question-bank-record-0.8.0.schema.json'
+import questionBankSchema090 from './question-bank-record-0.9.0.schema.json'
 import {
   QUESTION_BANK_ATTACHMENT_DESCRIPTION,
   QUESTION_BANK_FORMAT,
@@ -19,6 +20,7 @@ import {
   partLetter,
   recordDocumentToEditorNodes,
   type QuestionBankRecord,
+  type QuestionBankRecordChoice,
   type QuestionBankRecordPart,
   type QuestionBankRecordQuestion,
   type QuestionBankRecordQuestionType,
@@ -117,7 +119,8 @@ export type ParsedMediaAsset = {
 }
 
 /** A Media Asset as a record declares it, before its bytes are checked:
- *  0.1.0–0.7.0 carry them as base64, 0.8.0 names a file in the package's zip. */
+ *  0.1.0–0.7.0 carry them as base64, 0.8.0 and later name a file in the
+ *  package's zip. */
 type DeclaredMediaAsset = Omit<ParsedMediaAsset, 'bytes'> & ({ bytes: string } | { file: string })
 
 /** A record structurally parsed, its Media Assets still as declared. */
@@ -238,7 +241,7 @@ function importedParts(
                   answerIds.set(choice.id, choiceId)
                   return {
                     type: 'multipleChoiceChoice',
-                    attrs: { id: choiceId, correct: choice.correct },
+                    attrs: { id: choiceId, correct: choice.correct, ...lockAttrOf(choice) },
                     content: recordDocumentToEditorNodes(choice.content),
                   }
                 }),
@@ -253,6 +256,14 @@ function importedParts(
       }
     }),
   }
+}
+
+/** The teacher's decision a record's choice carries, as the editor keeps it.
+ *  A choice that says nothing has no decision, and its wording locks it or
+ *  not — so an older record's “All of the above”, a Question File's or an
+ *  assistant's is locked on import as a typed one is (ADR-0038). */
+function lockAttrOf(choice: QuestionBankRecordChoice): { locked?: boolean } {
+  return choice.locked === undefined ? {} : { locked: choice.locked }
 }
 
 /** A document's blocks, or one empty paragraph for a visibly blank one — a
@@ -294,7 +305,11 @@ export function importedQuestionIdentities(
                       answers.set(choice.id, id)
                       return {
                         type: 'multipleChoiceChoice',
-                        attrs: { id, correct: choice.correct },
+                        attrs: {
+                          id,
+                          correct: choice.correct,
+                          ...(question.type === 'multiple-choice' ? lockAttrOf(choice) : {}),
+                        },
                         content: recordDocumentToEditorNodes(choice.content),
                       }
                     }),
@@ -339,6 +354,7 @@ const validate050 = ajv.compile(questionBankSchema050)
 const validate060 = ajv.compile(questionBankSchema060)
 const validate070 = ajv.compile(questionBankSchema070)
 const validate080 = ajv.compile(questionBankSchema080)
+const validate090 = ajv.compile(questionBankSchema090)
 
 function schemaMessage(errors: ErrorObject[] | null | undefined): string {
   const first = errors?.[0]
@@ -354,12 +370,18 @@ function schemaMessage(errors: ErrorObject[] | null | undefined): string {
 type CopyContext = {
   currentSize: boolean
   crops: boolean
+  /** Whether the record's choices may say they are locked; an older record
+   *  that carries `locked` carries an unknown optional field, ignored. */
+  locks: boolean
   media: ReadonlyMap<string, { width: number; height: number }>
 }
 
 /** The versions whose `authoredSize` is a share of the picture's container,
  *  and which know the Picture Crop — both added in 0.7.0. */
-const SHARE_SIZE_VERSIONS: ReadonlySet<string> = new Set(['0.7.0', '0.8.0'])
+const SHARE_SIZE_VERSIONS: ReadonlySet<string> = new Set(['0.7.0', '0.8.0', '0.9.0'])
+
+/** The versions that know the Locked Answer, added in 0.9.0. */
+const LOCKED_ANSWER_VERSIONS: ReadonlySet<string> = new Set(['0.9.0'])
 
 function copyPicture(node: SemanticNode, context: CopyContext): Partial<SemanticNode> {
   const size =
@@ -414,6 +436,12 @@ function copyQuestion(question: QuestionBankRecordQuestion, context: CopyContext
     type: 'document',
     content: document.content.map((node) => copyNode(node, context)),
   })
+  const copyChoice = (choice: QuestionBankRecordChoice): QuestionBankRecordChoice => ({
+    id: choice.id,
+    content: copyDocument(choice.content),
+    correct: choice.correct,
+    ...(context.locks && choice.locked !== undefined ? { locked: choice.locked } : {}),
+  })
   return {
     id: question.id,
     type: question.type,
@@ -421,13 +449,7 @@ function copyQuestion(question: QuestionBankRecordQuestion, context: CopyContext
     ...(question.difficulty !== undefined ? { difficulty: question.difficulty } : {}),
     ...(question.topics !== undefined ? { topics: [...question.topics] } : {}),
     ...(question.choices !== undefined
-      ? {
-          choices: question.choices.map((choice) => ({
-            id: choice.id,
-            content: copyDocument(choice.content),
-            correct: choice.correct,
-          })),
-        }
+      ? { choices: question.choices.map(copyChoice) }
       : {}),
     ...(question.prompts !== undefined
       ? {
@@ -453,13 +475,7 @@ function copyQuestion(question: QuestionBankRecordQuestion, context: CopyContext
             type: part.type,
             stem: copyDocument(part.stem),
             ...(part.choices !== undefined
-              ? {
-                  choices: part.choices.map((choice) => ({
-                    id: choice.id,
-                    content: copyDocument(choice.content),
-                    correct: choice.correct,
-                  })),
-                }
+              ? { choices: part.choices.map(copyChoice) }
               : {}),
             ...(part.suggestedAnswer !== undefined
               ? { suggestedAnswer: copyDocument(part.suggestedAnswer) }
@@ -486,10 +502,10 @@ function valueAt(value: unknown, pointer: string): unknown {
 }
 
 /** The versions that know the Pending Image, added in 0.5.0. */
-const PENDING_IMAGE_VERSIONS: ReadonlySet<string> = new Set(['0.5.0', '0.6.0', '0.7.0', '0.8.0'])
+const PENDING_IMAGE_VERSIONS: ReadonlySet<string> = new Set(['0.5.0', '0.6.0', '0.7.0', '0.8.0', '0.9.0'])
 
 /** The versions that know the Side-by-Side, added in 0.6.0. */
-const SIDE_BY_SIDE_VERSIONS: ReadonlySet<string> = new Set(['0.6.0', '0.7.0', '0.8.0'])
+const SIDE_BY_SIDE_VERSIONS: ReadonlySet<string> = new Set(['0.6.0', '0.7.0', '0.8.0', '0.9.0'])
 
 /** Where a Side-by-Side may stand: a top-level block of a Question's stem or
  *  of a Multipart Part's stem, and nowhere else. */
@@ -708,6 +724,7 @@ function parseWith(
         copyQuestion(question, {
           currentSize: SHARE_SIZE_VERSIONS.has(sourceVersion),
           crops: SHARE_SIZE_VERSIONS.has(sourceVersion),
+          locks: LOCKED_ANSWER_VERSIONS.has(sourceVersion),
           media: new Map(record.media.map((asset) => [asset.id, asset])),
         }),
       ),
@@ -728,7 +745,9 @@ function parseWith(
  * added Pending Images to 0.4.0, 0.6.0 added the Side-by-Side to 0.5.0, and
  * 0.7.0 added the Picture Crop to 0.6.0; none can appear in an older record.
  * 0.8.0 changed only how a Media Asset's bytes travel: it names a file in the
- * package's zip where 0.1.0–0.7.0 carry base64 (ADR-0036).
+ * package's zip where 0.1.0–0.7.0 carry base64 (ADR-0036). 0.9.0 added a
+ * choice's optional `locked` (ADR-0038); a choice of an older record has none,
+ * and is locked by its wording once imported, as an undecided one is.
  * 0.7.0 is the one version that changed something an older record already
  * says: its `authoredSize` is a share of the picture's container, where
  * 0.1.0–0.6.0's was Crepe's ratio against the size the picture fit at. An
@@ -752,6 +771,8 @@ const parser070: Parser = (value) => parseWith(validate070, '0.7.0', value)
 
 const parser080: Parser = (value) => parseWith(validate080, '0.8.0', value)
 
+const parser090: Parser = (value) => parseWith(validate090, '0.9.0', value)
+
 /** Exact versions only: adding compatibility requires adding an explicit parser or migration. */
 export const SUPPORTED_QUESTION_BANK_VERSIONS: Readonly<Record<string, Parser>> =
   Object.freeze({
@@ -763,6 +784,7 @@ export const SUPPORTED_QUESTION_BANK_VERSIONS: Readonly<Record<string, Parser>> 
     '0.6.0': parser060,
     '0.7.0': parser070,
     '0.8.0': parser080,
+    '0.9.0': parser090,
   })
 
 const utf8 = new TextDecoder('utf-8', { fatal: true })
@@ -1313,7 +1335,7 @@ async function validateSemantics(
   return { summary, media }
 }
 
-/** The bytes of the zip file a 0.8.0 Media Asset names. A record read
+/** The bytes of the zip file a 0.8.0 or later Media Asset names. A record read
  *  outside its zip has none, so it may declare no Media Asset at all. */
 function packageFile(asset: DeclaredMediaAsset & { file: string }, files: PackageFiles | undefined): Uint8Array {
   const bytes = files?.get(asset.file)

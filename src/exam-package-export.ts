@@ -12,6 +12,7 @@ import {
   type Exam,
 } from './exam'
 import type { PreparedExport } from './export-preparation'
+import { hiddenAnswerIdsOf } from './hidden-answers'
 import {
   QUESTION_BANK_FORMAT_VERSION,
   prepareQuestionBankExport,
@@ -118,6 +119,9 @@ export async function examPackage({
       ...(question.type === 'multiple-choice' ? { columns: columnsOf(question) } : {}),
       ...(question.type === 'multiple-choice' || question.type === 'matching'
         ? { answerOrder: orderedChoices(question, arrangement).map(({ id }) => ids.answers.get(id)!) }
+        : {}),
+      ...(hiddenAnswerIdsOf(question, arrangement).length > 0
+        ? { hiddenAnswers: hiddenAnswerIdsOf(question, arrangement).map((id) => ids.answers.get(id)!) }
         : {}),
       ...(takesWorkSpace(question.type) && hasWorkSpace(space) ? { workSpace: { ...space } } : {}),
     }
