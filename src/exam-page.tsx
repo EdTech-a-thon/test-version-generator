@@ -30,13 +30,10 @@ import {
 } from './page-item-view'
 import { headerLineOf, type HeaderLine } from './page-header'
 import { pageContentStyle } from './export-typography'
+import { pageGeometry } from './page-geometry'
 import {
-  FOOTER_HEIGHT,
-  MAX_WORK_SPACE_HEIGHT,
-  HEADER_HEIGHT,
-  PAGE_HEIGHT,
-  PAGE_MARGIN,
-  PAGE_WIDTH,
+  US_LETTER,
+  maxWorkSpaceHeight,
   numberLabelOf,
   planExport,
   unmeasured,
@@ -397,17 +394,21 @@ function QuestionHandles({
 function WorkSpaceHandle({
   label,
   height,
+  max,
   onPreview,
   onCommit,
 }: {
   label: string
   height: number
+  /** The most room a drag may open: less on an Exam whose margins leave a
+   *  shorter page (`maxWorkSpaceHeight`). */
+  max: number
   onPreview: (height: number | null) => void
   onCommit: (height: number) => void
 }) {
   const gesture = useRef<{ id: number; startY: number; next: number } | null>(null)
   const settle = (next: number) => {
-    const snapped = snapWorkSpaceHeight(next, MAX_WORK_SPACE_HEIGHT)
+    const snapped = snapWorkSpaceHeight(next, max)
     if (snapped !== height) onCommit(snapped)
   }
   const lines = Math.floor(height / WORK_SPACE_LINE_PITCH)
@@ -418,7 +419,7 @@ function WorkSpaceHandle({
       aria-orientation="horizontal"
       aria-label={label}
       aria-valuemin={0}
-      aria-valuemax={MAX_WORK_SPACE_HEIGHT / WORK_SPACE_LINE_PITCH}
+      aria-valuemax={max / WORK_SPACE_LINE_PITCH}
       aria-valuenow={lines}
       aria-valuetext={`${lines} ${lines === 1 ? 'line' : 'lines'} of work space`}
       title="Drag to change the work space"
@@ -440,7 +441,7 @@ function WorkSpaceHandle({
         event.stopPropagation()
         const next = snapWorkSpaceHeight(
           height + event.clientY - drag.startY,
-          MAX_WORK_SPACE_HEIGHT,
+          max,
         )
         if (next === drag.next) return
         drag.next = next
@@ -468,7 +469,7 @@ function WorkSpaceHandle({
           event.key === 'ArrowDown' ? height + step
             : event.key === 'ArrowUp' ? height - step
               : event.key === 'Home' ? 0
-                : event.key === 'End' ? MAX_WORK_SPACE_HEIGHT
+                : event.key === 'End' ? max
                   : null
         if (next === null) return
         event.preventDefault()
@@ -495,6 +496,7 @@ function QuestionView({
   onEdit,
   onOpenMenu,
   onSetWorkSpace,
+  maxWorkSpace,
   dragging,
   dropped,
   dropState,
@@ -507,6 +509,7 @@ function QuestionView({
   /** The Question Section this question is in, which a gesture reads. */
   sectionId: string
   onSetWorkSpace: SetWorkSpace
+  maxWorkSpace: number
   selected: boolean
   orderedIds: readonly string[]
   selection: Selection
@@ -564,6 +567,7 @@ function QuestionView({
       <WorkSpaceHandle
         label={`Work space for question ${numberLabelOf(question)} part ${part.letter}`}
         height={item.parts?.find(({ id }) => id === part.id)?.workSpace?.height ?? space.height}
+        max={maxWorkSpace}
         onPreview={(height) =>
           setPartPreview(height === null ? null : { partId: part.id, height })}
         onCommit={(height) => onSetWorkSpace([part.id], { height, fill: false })}
@@ -694,6 +698,7 @@ function QuestionView({
         <WorkSpaceHandle
           label={`Work space for question ${numberLabelOf(question)}`}
           height={item.workSpace.height}
+          max={maxWorkSpace}
           onPreview={setPreviewHeight}
           onCommit={(height) => onSetWorkSpace([question.id], { height, fill: false })}
         />
@@ -998,6 +1003,7 @@ function PageItemView({
   onEdit,
   onOpenMenu,
   onSetWorkSpace,
+  maxWorkSpace,
   draggedQuestionIds,
   droppedQuestionIds,
   dropState,
@@ -1031,6 +1037,8 @@ function PageItemView({
   onEdit: (questionId: string) => void
   onOpenMenu: (questionId: string, point: MenuPoint, side?: MenuSide) => void
   onSetWorkSpace: SetWorkSpace
+  /** The most room a work space may be dragged to on this sheet. */
+  maxWorkSpace: number
   draggedQuestionIds: ReadonlySet<string>
   droppedQuestionIds: ReadonlySet<string>
   dropState: (item: QuestionItem) => QuestionDropState
@@ -1071,6 +1079,7 @@ function PageItemView({
           onEdit={onEdit}
           onOpenMenu={onOpenMenu}
           onSetWorkSpace={onSetWorkSpace}
+          maxWorkSpace={maxWorkSpace}
           dragging={draggedQuestionIds.has(item.question.id)}
           dropped={droppedQuestionIds.has(item.question.id) && item.numbered}
           dropState={dropState(item)}
@@ -1126,19 +1135,8 @@ function clearOnBackgroundClick(selection: Selection) {
   }
 }
 
-// The geometry `export-plan.ts` packed against, handed to CSS. Screen and paper
-// agree only if the sheet is laid out at the size it was packed for, and the
-// only way to be sure of that is for both to read the same numbers.
-export const PAGE_GEOMETRY = {
-  '--page-width': `${PAGE_WIDTH}px`,
-  '--page-height': `${PAGE_HEIGHT}px`,
-  '--page-margin': `${PAGE_MARGIN}px`,
-  '--page-header-first': `${HEADER_HEIGHT.first}px`,
-  '--page-header-later': `${HEADER_HEIGHT.later}px`,
-  '--page-header-answer-key': `${HEADER_HEIGHT['answer-key']}px`,
-  '--page-header-answer-key-later': `${HEADER_HEIGHT['answer-key-later']}px`,
-  '--page-footer': `${FOOTER_HEIGHT}px`,
-} as CSSProperties
+/** Today's sheet, for a page drawn with no plan of its own behind it. */
+export const PAGE_GEOMETRY = pageGeometry(US_LETTER)
 
 // How long *editing* settles before the page is measured and packed again.
 // Measurement is the expensive, DOM-touching half of the render, and the exam
@@ -1295,7 +1293,7 @@ function usePaginatedExam(
 // Each document is its own workspace, and print CSS breaks a page between them.
 export function ExportPreview({ plan }: { plan: LayoutPlan }) {
   return (
-    <main className="exam-workspace" style={PAGE_GEOMETRY}>
+    <main className="exam-workspace" style={pageGeometry(plan.pageSize)}>
       {plan.pages.map((page) => (
         <article className="exam-page" key={`${page.stream}-${page.header}-${page.number}`}>
           <PageHeaderContent header={page.header} furniture={page.furniture} />
@@ -1713,7 +1711,7 @@ export function ExamPage({
     <main
       className={workspaceClasses.join(' ')}
       ref={workspace}
-      style={PAGE_GEOMETRY}
+      style={pageGeometry(plan.pageSize)}
       data-drop-zone=""
       data-active={startsFirstSection ? 'true' : undefined}
       onClick={clearOnBackground}
@@ -1804,6 +1802,7 @@ export function ExamPage({
                 onEdit={onEdit}
                 onOpenMenu={openMenu}
                 onSetWorkSpace={onSetWorkSpace}
+                maxWorkSpace={maxWorkSpaceHeight(plan.pageSize)}
                 draggedQuestionIds={draggedQuestionIds}
                 droppedQuestionIds={droppedQuestionIds}
                 dropState={questionDropState}

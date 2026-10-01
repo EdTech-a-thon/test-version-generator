@@ -34,6 +34,7 @@ import {
   type TextSize,
 } from './section-headings'
 import type { ExamHeader } from './page-header'
+import type { PageMargins } from './page-margins'
 import { newMatchingNode } from './matching'
 import { newMultipartPartsNode } from './multipart'
 
@@ -144,6 +145,9 @@ export type Exam = {
   /** This Exam's own test-page header lines, where they depart from the
    *  default blanks. See `page-header.ts`. */
   header?: ExamHeader
+  /** How far in from each edge its pages print, in inches, where it departs
+   *  from the default. See `page-margins.ts`. */
+  margins?: PageMargins
 }
 
 /** What a work space prints as: an empty area, or ruled writing lines. */

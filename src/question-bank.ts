@@ -48,6 +48,8 @@ export type ExamWorkingCopy = {
   textSize?: import('./section-headings').TextSize
   /** This Exam's own test-page header lines; absent means the default. */
   header?: import('./page-header').ExamHeader
+  /** This Exam's Page Margins, in inches; absent means the default. */
+  margins?: import('./page-margins').PageMargins
 }
 
 export function createQuestionBank(): QuestionBank {

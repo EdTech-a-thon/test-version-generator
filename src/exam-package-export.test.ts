@@ -308,11 +308,12 @@ describe('a Multipart question in an Exam package', () => {
       headingSize: 'small',
       header: { first: 'Student: ____  Period: __', later: '' },
       textSize: 'large',
+      margins: { top: 1, right: 0.6, bottom: 1, left: 1.25 },
     }
     const carried = (await examPackage({ exam: worded, arrangement, ownerOf, loadMedia: noImages })).package
     // Each derived Section travels with its wording in full, and no type.
     expect(carried.exams[0]).toMatchObject({
-      formatVersion: '0.3.0',
+      formatVersion: '0.4.0',
       sections: [
         { title: 'Multiple Choice', instructions: 'Identify the choice that best completes the statement or answers the question.' },
         { title: 'Vocabulary', instructions: 'Match each item with the correct answer from the word bank. Write its letter in the blank.' },
@@ -321,6 +322,7 @@ describe('a Multipart question in an Exam package', () => {
       headingSize: 'small',
       header: { first: 'Student: ____  Period: __', later: '' },
       textSize: 'large',
+      margins: { top: 1, right: 0.6, bottom: 1, left: 1.25 },
     })
     expect(carried.exams[0]).not.toHaveProperty('sectionHeadings')
 
@@ -336,6 +338,7 @@ describe('a Multipart question in an Exam package', () => {
     expect(imported.headingSize).toBe('small')
     expect(imported.header).toEqual(worded.header)
     expect(imported.textSize).toBe('large')
+    expect(imported.margins).toEqual(worded.margins)
   })
 
   test('an Exam that keeps the default headings writes their wording out in full, and no sizes', async () => {
@@ -378,7 +381,9 @@ describe('an Exam’s stored Sections in its package', () => {
   test('travel in print order, empty ones included, each position naming its Section', async () => {
     const carried = (await examPackage({ exam: sheet, arrangement, ownerOf, loadMedia: noImages })).package
     const record = carried.exams[0]!
-    expect(record.formatVersion).toBe('0.3.0')
+    expect(record.formatVersion).toBe('0.4.0')
+    // An Exam that keeps today's margins writes none.
+    expect(record).not.toHaveProperty('margins')
     expect(record.sections).toEqual([
       { title: 'Warm-up', instructions: 'Answer each question.' },
       { title: 'Written', instructions: '' },

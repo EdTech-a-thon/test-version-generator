@@ -59,6 +59,7 @@ import {
   type TextSize,
 } from './section-headings'
 import { isExamHeader, sameExamHeader, withHeaderLine, type HeaderLine } from './page-header'
+import { isPageMargins, sameMargins, withMargin, type MarginSide } from './page-margins'
 import {
   bankQuestionById,
   createWorkingCopy,
@@ -210,7 +211,8 @@ function isWorkingCopy(value: unknown): value is ExamWorkingCopy {
     (draft.sectionHeadings === undefined || isSectionHeadings(draft.sectionHeadings)) &&
     (draft.headingSize === undefined || isHeadingSize(draft.headingSize)) &&
     (draft.header === undefined || isExamHeader(draft.header)) &&
-    (draft.textSize === undefined || isTextSize(draft.textSize))
+    (draft.textSize === undefined || isTextSize(draft.textSize)) &&
+    (draft.margins === undefined || isPageMargins(draft.margins))
   )
 }
 
@@ -240,6 +242,7 @@ const WORKING_COPY_SETTINGS: Readonly<Record<string, (value: unknown) => boolean
   headingSize: isHeadingSize,
   header: isExamHeader,
   textSize: isTextSize,
+  margins: isPageMargins,
 }
 
 // A draft an earlier build stored, in the current shape. Its questions are
@@ -310,6 +313,10 @@ export type ExamStore = {
   setTextSize(size: TextSize): void
   /** Rewords one test-page header line; `null` restores its default. */
   setHeaderLine(line: HeaderLine, text: string | null): void
+  /** Sets how far in from `sides` of the sheet the Exam's pages print, in
+   *  inches. A change `continuing` a drag of the margin slider joins the undo
+   *  step its first change made, so one drag is one step. */
+  setMargins(sides: readonly MarginSide[], inches: number, options?: { continuing?: boolean }): void
   /** Refreshes the canonical Questions projected from open Question Banks.
    * Workspace browsing is not an Exam command and creates no Undo step. */
   syncCanonicalQuestions(questions: readonly Question[]): void
@@ -443,6 +450,7 @@ function sameExamWorkingCopy(left: ExamWorkingCopy, right: ExamWorkingCopy): boo
     && (left.headingSize ?? DEFAULT_HEADING_SIZE) === (right.headingSize ?? DEFAULT_HEADING_SIZE)
     && sameExamHeader(left.header, right.header)
     && (left.textSize ?? DEFAULT_TEXT_SIZE) === (right.textSize ?? DEFAULT_TEXT_SIZE)
+    && sameMargins(left.margins, right.margins)
 }
 
 /** The Part with this id, when it belongs to a Multipart question this Exam references.
@@ -770,6 +778,15 @@ export function createExamStore(options: {
         if (!header) delete workingCopy.header
         return { ...current, workingCopy }
       }),
+
+    setMargins: (sides, inches, options) =>
+      apply((current) => {
+        const margins = withMargin(current.workingCopy.margins, sides, inches)
+        if (sameMargins(margins, current.workingCopy.margins)) return current
+        const workingCopy: ExamWorkingCopy = { ...current.workingCopy, margins }
+        if (!margins) delete workingCopy.margins
+        return { ...current, workingCopy }
+      }, true, !options?.continuing),
 
     syncCanonicalQuestions: (questions) => {
       let working = state

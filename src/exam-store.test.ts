@@ -1102,6 +1102,41 @@ describe('the dirty flag and persistence', () => {
     expect(store.selectedExam().exam.header).toEqual({ first: 'Student: ____' })
   })
 
+  test('page margins are saved Exam presentation, and the default stores nothing', async () => {
+    const { store } = await withExamWorkingCopy(1)
+    await store.save()
+
+    store.setMargins(['top', 'right', 'bottom', 'left'], 1)
+    expect(store.getState().dirty).toBe(true)
+    expect(store.selectedExam().exam.margins).toEqual({ top: 1, right: 1, bottom: 1, left: 1 })
+
+    store.setMargins(['left'], 1.25)
+    expect(store.selectedExam().exam.margins).toEqual({ top: 1, right: 1, bottom: 1, left: 1.25 })
+
+    store.setMargins(['top', 'right', 'bottom', 'left'], 0.75)
+    expect(store.getState().workingCopy.margins).toBeUndefined()
+    expect(store.selectedExam().exam.margins).toBeUndefined()
+    expect(store.getState().dirty).toBe(false)
+
+    store.undo()
+    expect(store.selectedExam().exam.margins).toEqual({ top: 1, right: 1, bottom: 1, left: 1.25 })
+  })
+
+  test('one drag of the margin slider is one undo step', async () => {
+    const { store } = await withExamWorkingCopy(1)
+    await store.save()
+
+    store.setMargins(['top', 'right', 'bottom', 'left'], 0.8)
+    store.setMargins(['top', 'right', 'bottom', 'left'], 0.9, { continuing: true })
+    store.setMargins(['top', 'right', 'bottom', 'left'], 1.1, { continuing: true })
+    expect(store.selectedExam().exam.margins?.top).toBe(1.1)
+
+    store.undo()
+    expect(store.selectedExam().exam.margins).toBeUndefined()
+    store.redo()
+    expect(store.selectedExam().exam.margins?.top).toBe(1.1)
+  })
+
   test('a change that changes nothing costs no undo step, dirty flag, or write', async () => {
     // The store's one-action invariant cuts both ways: an action that leaves
     // the state exactly as it found it is not an action. Setting the title it
@@ -1114,6 +1149,7 @@ describe('the dirty flag and persistence', () => {
       (store) => store.setHeadingSize('large'),
       (store) => store.setHeaderLine('later', ''),
       (store) => store.setTextSize('small'),
+      (store) => store.setMargins(['bottom'], 1),
     ]
     for (const act of cases) {
       const { backend, store, questions } = await withExamWorkingCopy(1)

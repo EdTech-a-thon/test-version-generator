@@ -27,6 +27,24 @@ export const EXAM_TYPE_PX = {
 
 export type ExamTypeRole = keyof typeof EXAM_TYPE_PX
 
+// How the body text is spaced, as multiples of its own size so every text size
+// keeps the same proportions. The lines of one paragraph sit close and a new
+// paragraph opens a clear gap, so a paragraph break reads as one rather than as
+// one more line; a list's items sit nearly as close as the lines within them.
+// Print sets these on `.exam-page` and its question text, the PDF spaces its
+// lines and blocks by them, and DOCX sets them on its body paragraphs.
+
+/** A line of body text, as a multiple of the type's size. Was 1.45. */
+export const BODY_LINE_HEIGHT = 1.3
+
+/** The gap between two paragraphs of a question's text — or between a
+ *  paragraph and a list — in ems. Print's own paragraph spacing, now stated. */
+export const PARAGRAPH_GAP_EM = 1
+
+/** The gap between two items of a bulleted or numbered list, in ems. Each item
+ *  used to open a paragraph gap of its own. */
+export const LIST_ITEM_GAP_EM = 0.2
+
 const POINTS_PER_PX = 0.75
 
 /** A role's size in PDF points. */

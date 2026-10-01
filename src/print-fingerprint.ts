@@ -22,6 +22,7 @@ import {
   type ContentLine,
   type ExportFingerprint,
   type PageFingerprint,
+  type PageMarginsPx,
   type Segment,
   workSpaceLine,
 } from './export-fingerprint'
@@ -548,7 +549,7 @@ function pageFingerprint(
     number: page.furniture.pageNumber,
     width: plan.pageSize.width,
     height: plan.pageSize.height,
-    margin: plan.pageSize.margin,
+    margins: { ...plan.pageSize.margins },
     header: furnitureLines(
       renderToStaticMarkup(
         createElement(PageHeaderContent, {
@@ -609,7 +610,7 @@ export type PrintedDocument = {
   arrangement: string
   width: number
   height: number
-  margin: number
+  margins: PageMarginsPx
 }
 
 /**
@@ -632,7 +633,7 @@ export function printDocumentFingerprint(
       number: index + 1,
       width: document.width,
       height: document.height,
-      margin: document.margin,
+      margins: document.margins,
       header: header ? furnitureLines(header, reader) : [],
       footer: footer
         ? [line('para', normalizeSpace(textOf(footer)).trim())]

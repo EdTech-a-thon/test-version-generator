@@ -17,6 +17,7 @@
 // Arrangement, and nothing here writes anything back.
 
 import { isExamHeader, sameExamHeader } from './page-header'
+import { isPageMargins, sameMargins } from './page-margins'
 import {
   DEFAULT_HEADING_SIZE,
   isHeadingSize,
@@ -171,6 +172,8 @@ export function selectedExam(
     isTextSize(draft.textSize) && draft.textSize !== DEFAULT_TEXT_SIZE ? draft.textSize : undefined
   const header =
     isExamHeader(draft.header) && Object.keys(draft.header).length > 0 ? draft.header : undefined
+  const margins =
+    isPageMargins(draft.margins) && !sameMargins(draft.margins, undefined) ? draft.margins : undefined
   const exam: Exam =
     previous
     && previous.exam.title === draft.title
@@ -184,6 +187,7 @@ export function selectedExam(
     && previous.exam.headingSize === headingSize
     && sameExamHeader(previous.exam.header, header)
     && previous.exam.textSize === textSize
+    && previous.exam.margins === margins
       ? previous.exam
       : {
           title: draft.title,
@@ -195,6 +199,7 @@ export function selectedExam(
           ...(headingSize ? { headingSize } : {}),
           ...(textSize ? { textSize } : {}),
           ...(header ? { header } : {}),
+          ...(margins ? { margins } : {}),
         }
 
   // Only ids the bank can resolve: an ordering may tolerate a stranger, but an
