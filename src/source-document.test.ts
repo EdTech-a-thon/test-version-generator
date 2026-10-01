@@ -60,6 +60,10 @@ const boxOf = (left: number, top: number, width: number, height: number): PageBo
   bottom: ((top + height) / H) * 1000,
 })
 
+const near = (actual: PageBox, expected: PageBox) => {
+  for (const side of ['left', 'top', 'right', 'bottom'] as const) expect(actual[side]).toBeCloseTo(expected[side], 0)
+}
+
 const QUESTION = 'Which graph shows a function that is increasing everywhere?'
 const grid = picture(40, 30, 1)
 let source: Uint8Array
@@ -98,7 +102,7 @@ beforeAll(async () => {
   pdf.addPage([W, H]).drawText('Answer every question.', { x: 72, y: H - 80, size: 12, font })
 
   // 6: a graph drawn with lines, as a browser saves an SVG, above a table
-  // ruled with straight lines.
+  // ruled with straight lines, and a rule across the foot of the page.
   const sixth = pdf.addPage([W, H])
   sixth.drawLine({ start: { x: 100, y: H - 300 }, end: { x: 300, y: H - 300 } })
   sixth.drawLine({ start: { x: 100, y: H - 300 }, end: { x: 100, y: H - 150 } })
@@ -107,6 +111,45 @@ beforeAll(async () => {
   for (let row = 0; row < 3; row += 1)
     for (let column = 0; column < 3; column += 1)
       sixth.drawRectangle({ x: 100 + column * 80, y: H - 500 - row * 30, width: 80, height: 30, borderWidth: 1 })
+  sixth.drawLine({ start: { x: 72, y: H - 700 }, end: { x: 400, y: H - 700 } })
+
+  // 7: structures drawn with straight bonds, their atoms as text, as a
+  // chemistry program saves them.
+  const seventh = pdf.addPage([W, H])
+  const bonds = (left: number, top: number, count: number) => {
+    for (let at = 0; at < count; at += 1)
+      seventh.drawLine({
+        start: { x: left + at * 17, y: H - top - (at % 2 ? 0 : 10) },
+        end: { x: left + (at + 1) * 17, y: H - top - (at % 2 ? 10 : 0) },
+      })
+  }
+  const label = (text: string, left: number, baseline: number) =>
+    seventh.drawText(text, { x: left, y: H - baseline, size: 10, font })
+  // An ester: a chain, its oxygen, and the chain beyond the oxygen.
+  bonds(100, 100, 3)
+  label('O', 153, 106)
+  bonds(163, 100, 2)
+  // A reaction: a structure, a plus sign, a structure, an arrow and a
+  // question mark for its product.
+  bonds(100, 250, 3)
+  label('+', 175, 259)
+  bonds(200, 250, 3)
+  seventh.drawLine({ start: { x: 275, y: H - 255 }, end: { x: 325, y: H - 255 } })
+  seventh.drawLine({ start: { x: 325, y: H - 255 }, end: { x: 319, y: H - 252 } })
+  seventh.drawLine({ start: { x: 325, y: H - 255 }, end: { x: 319, y: H - 258 } })
+  label('?', 345, 259)
+  // Two structures to compare, which are two answer choices.
+  bonds(100, 400, 4)
+  label('vs.', 190, 409)
+  bonds(240, 400, 4)
+  // An empty answer box with rounded corners, and a formula that is only
+  // typed.
+  seventh.drawSvgPath(
+    'M 10 0 H 190 A 10 10 0 0 1 200 10 V 70 A 10 10 0 0 1 190 80 H 10 A 10 10 0 0 1 0 70 V 10 A 10 10 0 0 1 10 0 Z',
+    { x: 100, y: H - 500, borderWidth: 1 },
+  )
+  label('pH', 110, 575)
+  label('H2O', 100, 650)
 
   source = await pdf.save()
   analysis = await analyzeSourceDocument(source)
@@ -114,7 +157,7 @@ beforeAll(async () => {
 
 describe('analyzing a Source Document', () => {
   test('tags every picture across the document, page by page, in reading order', () => {
-    expect(analysis.pageCount).toBe(6)
+    expect(analysis.pageCount).toBe(7)
     expect(analysis.tags.map(({ tag, page }) => [tag, page])).toEqual([
       [1, 1],
       [2, 1],
@@ -125,11 +168,12 @@ describe('analyzing a Source Document', () => {
       [7, 4],
       [8, 4],
       [9, 6],
+      [10, 6],
+      [11, 7],
+      [12, 7],
+      [13, 7],
+      [14, 7],
     ])
-    const near = (actual: PageBox, expected: PageBox) => {
-      for (const side of ['left', 'top', 'right', 'bottom'] as const)
-        expect(actual[side]).toBeCloseTo(expected[side], 0)
-    }
     near(analysis.tags[0]!.box, boxOf(72, 120, 200, 150))
     near(analysis.tags[1]!.box, boxOf(320, 120, 200, 150))
     near(analysis.tags[2]!.box, boxOf(72, 300, 200, 150))
@@ -140,15 +184,32 @@ describe('analyzing a Source Document', () => {
     expect(analysis.tags[0]).toMatchObject({ width: 40, height: 30 })
   })
 
-  test('tags a figure drawn with lines, but not a table ruled with them', () => {
-    const drawn = analysis.tags.filter((tag) => tag.drawn)
-    expect(drawn.map((tag) => tag.tag)).toEqual([9])
+  test('tags a figure drawn with lines, and a table ruled with them, but not a rule', () => {
+    const drawn = analysis.tags.filter((tag) => tag.drawn && tag.page === 6)
+    expect(drawn.map((tag) => tag.tag)).toEqual([9, 10])
     // From the axes' corner to the top of the highest dot.
     const box = drawn[0]!.box
     expect(box.left).toBeCloseTo((100 / W) * 1000, -1)
     expect(box.right).toBeCloseTo((300 / W) * 1000, -1)
     expect(box.top).toBeCloseTo((150 / H) * 1000, -1)
     expect(box.bottom).toBeCloseTo((300 / H) * 1000, -1)
+    near(drawn[1]!.box, boxOf(100, 470, 240, 90))
+  })
+
+  test('tags each structure drawn with straight bonds, and a reaction as one, but not an empty box', () => {
+    const tags = analysis.tags.filter((tag) => tag.page === 7)
+    expect(tags.every((tag) => tag.drawn)).toBe(true)
+    // The ester whole, joined through its oxygen.
+    expect(tags[0]!.box.left).toBeCloseTo((100 / W) * 1000, 0)
+    expect(tags[0]!.box.right).toBeCloseTo((197 / W) * 1000, 0)
+    // The reaction, from its first structure to its product.
+    expect(tags[1]!.box.left).toBeCloseTo((100 / W) * 1000, 0)
+    expect(tags[1]!.box.right).toBeGreaterThan((345 / W) * 1000)
+    // The structures on either side of “vs.”, each its own.
+    near(tags[2]!.box, boxOf(100, 400, 68, 10))
+    near(tags[3]!.box, boxOf(240, 400, 68, 10))
+    // Nothing reaches the answer box or the typed formula.
+    expect(tags.every((tag) => tag.box.bottom < (500 / H) * 1000)).toBe(true)
   })
 
   test('gives no tag to an equation-sized image or a full-page scan', () => {
@@ -255,14 +316,20 @@ describe('the labeled copy', () => {
       expect(label.x).toBeGreaterThan(box.left)
       expect(label.x).toBeLessThan(box.left + (box.right - box.left) / 2)
       expect(label.y).toBeGreaterThan(box.top)
-      expect(label.y).toBeLessThan(box.top + (box.bottom - box.top) / 2)
+      // A label shrinks to fit a short figure, so it may fill its height.
+      expect(label.y).toBeLessThan(Math.max(box.top + (box.bottom - box.top) / 2, box.bottom - 1))
     }
     const overlaps = (a: PageBox, b: PageBox) =>
       a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom
+    const within = (a: PageBox, b: PageBox) =>
+      a.left >= b.left - 1 && a.right <= b.right + 1 && a.top >= b.top - 1 && a.bottom <= b.bottom + 1
     expect(words.length).toBeGreaterThan(0)
     for (const word of words)
-      for (const tag of analysis.tags.filter((tag) => tag.page === word.page))
+      for (const tag of analysis.tags.filter((tag) => tag.page === word.page)) {
+        // A drawn figure's own words, such as its atoms, are part of it.
+        if (tag.drawn && within(word.box, tag.box)) continue
         expect(overlaps(word.box, tag.box)).toBe(false)
+      }
     // The labels are drawn, not embedded: the copy tags the same pictures.
     expect((await analyzeSourceDocument(labeled)).tags).toEqual(analysis.tags)
   })
