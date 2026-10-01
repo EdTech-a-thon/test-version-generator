@@ -1,10 +1,13 @@
 import Ajv2020, { type ErrorObject } from 'ajv/dist/2020'
-import type { ColumnSetting, WorkSpace } from './exam'
+import type { ColumnSetting, WordBankLayout, WorkSpace } from './exam'
 import type { HeadingSize, SectionHeadings, TextSize } from './section-headings'
 import type { ExamHeader } from './page-header'
+import type { PageMargins } from './page-margins'
+import type { QuestionStyle } from './question-style'
 import examSchema010 from './exam-record-0.1.0.schema.json'
 import examSchema020 from './exam-record-0.2.0.schema.json'
 import examSchema030 from './exam-record-0.3.0.schema.json'
+import examSchema040 from './exam-record-0.4.0.schema.json'
 import packageSchema010 from './test-parrot-package-0.1.0.schema.json'
 import type { QuestionFileSummary } from './question-formats'
 import { PackageZipError, isPackageZip, readPackageZip } from './package-zip'
@@ -40,7 +43,7 @@ import {
  */
 
 export const EXAM_FORMAT = 'test-parrot/exam'
-export const EXAM_FORMAT_VERSION = '0.3.0'
+export const EXAM_FORMAT_VERSION = '0.4.0'
 export const PACKAGE_FORMAT = 'test-parrot/package'
 export const PACKAGE_FORMAT_VERSION = '0.1.0'
 /** The conventional extension a standalone package is saved under. */
@@ -66,7 +69,13 @@ export type ExamRecordPosition = {
   section?: number
   columns?: ColumnSetting
   answerOrder?: string[]
+  /** From Exam Record 0.4.0: the incorrect answers a Multiple Choice position
+   *  leaves off, by the record's choice ids (ADR-0038). */
+  hiddenAnswers?: string[]
   workSpace?: WorkSpace
+  /** From Exam Record 0.4.0: where a Matching position's Word Bank prints,
+   *  when not left to the fit rule. */
+  wordBankLayout?: WordBankLayout
 }
 
 /**
@@ -115,8 +124,14 @@ export type ExamRecord = {
   sectionHeadings?: Partial<Record<QuestionBankRecordQuestionType, ExamRecordSectionHeading>>
   headingSize?: HeadingSize
   textSize?: TextSize
+  /** From 0.4.0: how every question on the Exam prints; only when not
+   *  Standard. */
+  questionStyle?: QuestionStyle
   /** The Exam's own test-page header lines; only departures from the default. */
   header?: ExamHeader
+  /** From 0.4.0: the Exam's Page Margins in inches, every side; only when they
+   *  depart from the default. */
+  margins?: PageMargins
   positions: ExamRecordPosition[]
 }
 
@@ -160,7 +175,9 @@ export type ProposedExam = {
   sectionHeadings?: SectionHeadings
   headingSize?: HeadingSize
   textSize?: TextSize
+  questionStyle?: QuestionStyle
   header?: ExamHeader
+  margins?: PageMargins
   /** Positions regrouped Section by Section — in `sections` order, or for an
    *  older record in Test Parrot's fixed type order — keeping only the order
    *  within each Section. */
@@ -185,6 +202,7 @@ const ajv = new Ajv2020({ allErrors: true, strict: false })
 const validateExam010 = ajv.compile(examSchema010)
 const validateExam020 = ajv.compile(examSchema020)
 const validateExam030 = ajv.compile(examSchema030)
+const validateExam040 = ajv.compile(examSchema040)
 const validatePackage010 = ajv.compile(packageSchema010)
 
 function schemaFailure(
@@ -244,7 +262,9 @@ function localHeadingsOf(
   sectionHeadings?: SectionHeadings
   headingSize?: HeadingSize
   textSize?: TextSize
+  questionStyle?: QuestionStyle
   header?: ExamHeader
+  margins?: PageMargins
 } {
   const entries = Object.entries(exam.sectionHeadings ?? {}) as [
     QuestionBankRecordQuestionType,
@@ -260,7 +280,11 @@ function localHeadingsOf(
     ...(entries.length > 0 ? { sectionHeadings } : {}),
     ...(exam.headingSize && exam.headingSize !== 'normal' ? { headingSize: exam.headingSize } : {}),
     ...(exam.textSize && exam.textSize !== 'normal' ? { textSize: exam.textSize } : {}),
+    ...(exam.questionStyle && exam.questionStyle !== 'standard'
+      ? { questionStyle: exam.questionStyle }
+      : {}),
     ...(exam.header && Object.keys(exam.header).length > 0 ? { header: { ...exam.header } } : {}),
+    ...(exam.margins ? { margins: { ...exam.margins } } : {}),
   }
 }
 
@@ -300,21 +324,53 @@ const examParser020: ExamParser = (value) => {
 // 0.3.0 stores the Exam's Sections, each with its own wording, and places
 // every position in one. A Section holds Questions of any type, and
 // per-type `sectionHeadings` is gone (ADR-0029).
-const examParser030: ExamParser = (value) => {
-  if (!validateExam030(value)) throw schemaFailure('Exam Record', validateExam030.errors)
-  const exam = value as ExamRecord
+function sectionedParser(
+  validate: typeof validateExam030,
+  formatVersion: '0.3.0' | '0.4.0',
+  extra: (position: ExamRecordPosition) => Partial<ExamRecordPosition> = () => ({}),
+): ExamParser {
+  return (value) => {
+    if (!validate(value)) throw schemaFailure('Exam Record', validate.errors)
+    const exam = value as ExamRecord
+    return {
+      format: EXAM_FORMAT,
+      formatVersion,
+      name: exam.name,
+      sections: exam.sections!.map(({ title, instructions }) => ({ title, instructions })),
+      ...(exam.headingSize ? { headingSize: exam.headingSize } : {}),
+      ...(exam.textSize ? { textSize: exam.textSize } : {}),
+      ...(exam.header ? { header: { ...exam.header } } : {}),
+      positions: exam.positions.map((position) => ({
+        ...copyPosition(position),
+        section: position.section!,
+        ...extra(position),
+      })),
+    }
+  }
+}
+
+const examParser030: ExamParser = sectionedParser(validateExam030, '0.3.0')
+
+// 0.4.0 adds to 0.3.0 a Multiple Choice position's `hiddenAnswers`, the
+// incorrect answers it leaves off (ADR-0038); a Matching position's
+// `wordBankLayout`; the Exam's Page Margins (ADR-0039); and its
+// `questionStyle` (ADR-0041) — and nothing else. A record without them hides
+// nothing, prints today's margins and prints in the standard style; a Matching
+// position without a `wordBankLayout` takes one on import, from its style and
+// the fit rule (`planImport`).
+const sectionedParser040: ExamParser = sectionedParser(validateExam040, '0.4.0', (position) => ({
+  ...(position.hiddenAnswers !== undefined ? { hiddenAnswers: [...position.hiddenAnswers] } : {}),
+  ...(position.wordBankLayout !== undefined ? { wordBankLayout: position.wordBankLayout } : {}),
+}))
+
+const examParser040: ExamParser = (value) => {
+  const parsed = sectionedParser040(value)
+  const { questionStyle, margins } = value as ExamRecord
+  const { top, right, bottom, left } = margins ?? {}
   return {
-    format: EXAM_FORMAT,
-    formatVersion: '0.3.0',
-    name: exam.name,
-    sections: exam.sections!.map(({ title, instructions }) => ({ title, instructions })),
-    ...(exam.headingSize ? { headingSize: exam.headingSize } : {}),
-    ...(exam.textSize ? { textSize: exam.textSize } : {}),
-    ...(exam.header ? { header: { ...exam.header } } : {}),
-    positions: exam.positions.map((position) => ({
-      ...copyPosition(position),
-      section: position.section!,
-    })),
+    ...parsed,
+    ...(questionStyle ? { questionStyle } : {}),
+    ...(margins ? { margins: { top: top!, right: right!, bottom: bottom!, left: left! } } : {}),
   }
 }
 
@@ -324,6 +380,7 @@ export const SUPPORTED_EXAM_VERSIONS = Object.freeze({
   '0.1.0': examParser010,
   '0.2.0': examParser020,
   '0.3.0': examParser030,
+  '0.4.0': examParser040,
 } satisfies Record<string, ExamParser>)
 
 type PackageParser = (value: unknown) => TestParrotPackage
@@ -429,6 +486,12 @@ function proposedExam(
         `${where} sets answer columns, which only a Multiple Choice Question has.`,
       )
     }
+    if (position.wordBankLayout !== undefined && question.type !== 'matching') {
+      throw new QuestionBankImportError(
+        'invalid-position',
+        `${where} sets a Word Bank layout, which only a Matching Question has.`,
+      )
+    }
     if (position.workSpace !== undefined && question.type !== 'short-answer') {
       throw new QuestionBankImportError(
         'invalid-position',
@@ -453,6 +516,30 @@ function proposedExam(
           'invalid-answer-order',
           `${where} has an answer order that does not list each of Question “${questionId}”’s answers exactly once.`,
         )
+      }
+    }
+    if (position.hiddenAnswers !== undefined) {
+      if (question.type !== 'multiple-choice') {
+        throw new QuestionBankImportError(
+          'invalid-position',
+          `${where} hides answers, which only a Multiple Choice Question may.`,
+        )
+      }
+      const choices = new Map((question.choices ?? []).map((choice) => [choice.id, choice]))
+      for (const id of position.hiddenAnswers) {
+        const choice = choices.get(id)
+        if (!choice) {
+          throw new QuestionBankImportError(
+            'dangling-reference',
+            `${where} hides “${id}”, which is not one of Question “${questionId}”’s answers.`,
+          )
+        }
+        if (choice.correct) {
+          throw new QuestionBankImportError(
+            'invalid-position',
+            `${where} hides “${id}”, Question “${questionId}”’s correct answer.`,
+          )
+        }
       }
     }
     // A 0.3.0 record places each position in one of its own Sections, which

@@ -12,7 +12,7 @@ Always create one complete UTF-8 JSON file using the **Test Parrot Package `0.1.
 
 A package always holds exactly one Question Bank Record `0.7.0` with every converted Question. What else goes in it depends on the source, so triage it first:
 
-- **The source is a test** — an exam, quiz, worksheet or any paper a student sits, with its questions in a printed order: also add one Exam Record `0.1.0` that lays the Questions out as the test does (see [Tests](#tests)).
+- **The source is a test** — an exam, quiz, worksheet or any paper a student sits, with its questions in a printed order: also add one Exam Record `0.3.0` that lays the Questions out as the test does, in its printed order and under its own section headings (see [Tests](#tests)).
 - **The source is only questions** — a question pool, a study list, a bank exported from elsewhere, anything not laid out as one paper: add no Exam. `exams` is an empty array.
 
 When it is unclear whether the source is a test, ask the user; if you cannot ask, add no Exam and say so in the report. Never invent an Exam the source does not show. Everything below about Questions applies either way: the package's bank is an ordinary Question Bank Record.
@@ -40,8 +40,8 @@ Use these resources as the source of truth:
 - [Provenance and links example](./formats/question-bank/0.7.0/examples/provenance-and-links.json)
 - [Pending Images example](./formats/question-bank/0.7.0/examples/pending-images.json)
 - [Side-by-side example](./formats/question-bank/0.7.0/examples/side-by-side.json)
-- [Test Parrot Package JSON Schema](./formats/package/0.1.0/schema.json) and [Exam Record JSON Schema](./formats/exam/0.1.0/schema.json)
-- [Package example: a test, with its bank and Exam](./formats/package/0.1.0/examples/bank-and-exam.json)
+- [Test Parrot Package JSON Schema](./formats/package/0.1.0/schema.json) and [Exam Record JSON Schema](./formats/exam/0.3.0/schema.json)
+- [Package example: a test, with its bank and its Exam's sections as printed](./formats/package/0.1.0/examples/printed-test.json)
 - [Package example: questions only, with a bank and no Exam](./formats/package/0.1.0/examples/bank-only.json)
 
 The Question Bank Record inside the package has this top-level shape:
@@ -84,11 +84,16 @@ The file itself is the package, with the Question Bank Record under `questionBan
   "exams": [
     {
       "format": "test-parrot/exam",
-      "formatVersion": "0.1.0",
+      "formatVersion": "0.3.0",
       "name": "The test's title",
+      "sections": [
+        { "title": "Part I: Vocabulary", "instructions": "Circle the letter of the best answer." },
+        { "title": "Part II", "instructions": "" }
+      ],
       "positions": [
-        { "question": { "bank": "bank", "question": "q1" }, "columns": 2 },
-        { "question": { "bank": "bank", "question": "q2" } }
+        { "question": { "bank": "bank", "question": "q1" }, "section": 0, "columns": 2 },
+        { "question": { "bank": "bank", "question": "q2" }, "section": 0 },
+        { "question": { "bank": "bank", "question": "q3" }, "section": 1 }
       ]
     }
   ]
@@ -100,13 +105,32 @@ The file itself is the package, with the Question Bank Record under `questionBan
 When triage says the source is a test:
 
 - Name the bank after the subject or unit, and name the Exam after the test's own title as printed.
-- Give the Exam one position for every converted Question, in printed order, each naming `"bank": "bank"` and that Question's ID. Use each Question exactly once. An unconverted question gets no position. A Multipart question is one Question, so it takes one position, however many source numbers its Parts carried.
+- Record the test's sections in `sections` (see [Sections](#sections)).
+- Give the Exam one position for every converted Question, in printed order, each naming `"bank": "bank"` and that Question's ID, and with `section` set to the index, from 0, of the section the test prints it in. Use each Question exactly once. An unconverted question gets no position. A Multipart question is one Question, so it takes one position, however many source numbers its Parts carried.
 - Write every Question's choices and Word Bank answers into the bank in the order the test prints them. That records the test's answer order, so leave out `answerOrder`: answers print in the order the bank records them, and the answer key's letters stay right.
 - Record `columns` (`1`, `2` or `4`) on a Multiple Choice position whenever the source layout shows how many columns its answers are printed in: count the answers side by side on one line. Four answers across one line is `4`. Answers printed as a grid of two across — (A) beside (B), (C) beside (D), a 2 × 2 grid — are `2`. Answers printed one under another are `1`. Answers that are pictures, such as four graphs to choose from, are nearly always printed as a grid: look at the page and record it, since a picture answer with no `columns` prints as wide as the whole question. Leave `columns` out only when the layout truly cannot be read, such as answers split across a page break. Never put `columns` on any other Question Type.
-- Never add `workSpace`. Room left for writing is not something to guess from a scan; the teacher sets it in Test Parrot.
-- Do not add point values, section headings, instructions, or any other member: the Exam Record has none of these.
+- Record `workSpace` on a Short Answer position whenever the source prints room to write its answer below it, so the test arrives with the room it printed: `{ "height": <lines × 32>, "style": "lines", "fill": false }` when the room is ruled, counting the printed lines (three lines is `96`); and `{ "height": <rows × 32>, "style": "blank", "fill": false }` when it is empty space, as many 32-pixel rows as the space is tall at 96 pixels to the inch (about one row per third of an inch, never fewer than one). Leave `workSpace` out when the source prints the answer on the same line, leaves no room, or its room cannot be read, such as an answer split across a page break. Never put `workSpace` on any other Question Type, nor on a Multipart question: its Short Answer Parts take Test Parrot's defaults.
+- Do not add `headingSize`, `textSize`, `header`, point values, or any other member. The teacher sets how the test prints in Test Parrot.
 
-Test Parrot always prints Sections in the order Multiple Choice, True/False, Matching, Short Answer, Multipart. Keep the source's printed order anyway; Test Parrot regroups the Sections itself and keeps the order within each.
+Test Parrot prints the Exam exactly in the order you record: its sections in the order `sections` lists them, and the questions in each in the order of their positions. It never sorts them by Question Type, so the order you write is the order the teacher gets. Reproduce the test as printed, question by question.
+
+### Sections
+
+A section is a heading the test divides its questions under, such as “Part A”, “Section II: Multiple Choice”, “Vocabulary” or “Extra Credit”, with the line of directions printed under it. Write one entry in `sections` for each, in the order the test prints them:
+
+- `title` is the heading exactly as printed, including its numbering and point values: “Part B – Short Answer (10 points)”. Leave out only a range of source question numbers, such as “(Questions 1–10)” or “Questions 11 through 20”, since Test Parrot numbers the questions itself.
+- `instructions` is the directions printed under that heading, exactly as printed, such as “Circle the letter of the best answer.” or “Answer in complete sentences.”. Leave out a sentence that only names source question numbers, for the same reason. Write `""` when the heading has no directions.
+- A section holds whatever the test prints under it, in printed order, whatever its Question Types. Never split a section by Question Type, and never merge two sections because their questions are of the same type.
+- `title` is only ever text the test prints as a heading. Never make one up, and never add words to a heading to tell two sections apart.
+- A test often prints several lines of directions under one heading, each followed by its own questions: “Answer the following questions.”, then a few questions, then “Write the capital of each country below.”, then more. Each new line of directions starts a new section. The first takes the heading; each later one has `"title": ""` and its directions as `instructions`, so it prints its directions and no heading, as the test does.
+- A heading repeated at the top of a later page, such as “Weather and Climate (continued)”, continues the section it repeats. It starts no section.
+- Everything printed between a heading and its first question is that section's `instructions`, in printed order: a line such as “Read pages 40–45 before you begin.” as well as the directions after it.
+- Questions printed before the test's first heading go in a section of their own, first, with `"title": ""`.
+- When the test prints no section headings at all, write exactly one section, with `"title": ""` and, as its `instructions`, the directions printed above the questions, or `""`. A section whose `title` and `instructions` are both `""` prints no heading.
+- The test's own title is the Exam's `name`, not a section. A name or date line, a school or teacher name, and page headers and footers are not sections; leave them out.
+- Keep a section even when you could not convert any of its questions: it prints its heading, and the teacher adds the missing questions under it. Name its unconverted questions in the report as usual.
+- Directions printed under a section heading belong to the section, never to a Question as well. A Matching set whose only directions are its section's has a blank paragraph as its stem (see [Matching](#matching)); write the same directions in only one place.
+- Text you cannot tell apart as a heading or directions, or as part of a question, is a materially ambiguous question boundary: ask the user, or keep it with the question and say so in the report.
 
 ## Completeness is mandatory—but do not force uncertain content
 
@@ -127,11 +151,12 @@ Completeness means accounting for every source question, not pretending every qu
 ### During conversion
 
 1. Classify a question as `multiple-choice`, `true-false`, `matching`, `short-answer` or `multipart` only when the source supports that classification. Version `0.7.0` supports only those five types. If its type is uncertain or it cannot be represented without material loss, leave it out and report it explicitly; never coerce it into the closest supported type.
-2. Preserve the exact wording, punctuation, capitalization, symbols, units, and meaningful whitespace.
+2. Preserve the exact wording, punctuation, capitalization, symbols, units, and meaningful whitespace. A Question's stem is what the source prints at its number, and nothing more: never add the directions printed above a group of questions to each one. Under “Write the capital of each country below.”, the item `18. Peru` has the stem “Peru”.
 3. Preserve authored question and choice order.
 4. Preserve paragraphs, headings, blockquotes, lists, code, rules, tables, equations, hard breaks, links, images, captions, content printed side by side, and text formatting when present (see [Page layout: boxes and side-by-side content](#page-layout-boxes-and-side-by-side-content)).
 5. Do not rewrite, summarize, correct, simplify, or “improve” source content unless the user explicitly requests editing.
 6. Never invent missing text, choices, answers, correctness, Difficulty, Topics, attribution, or license information.
+   **Mark an answer only where the source gives one** — an answer key, a circled or highlighted choice, a filled-in blank. Many tests, worksheets and study guides give none. Then every Multiple Choice and True/False choice is `"correct": false` and no Matching item has an `answer`, even when you are sure what the answer is. Test Parrot prints what you mark in the teacher's answer key, so an answer you supply yourself becomes a key the teacher never wrote.
 7. Ask the user about materially ambiguous OCR, unreadable symbols, unclear question boundaries, missing choices, uncertain Question Types, and uncertain answer keys instead of guessing.
 8. If an essential element cannot be represented, leave that Question unconverted and identify its exact location and limitation rather than silently dropping or coercing it.
 
@@ -142,14 +167,14 @@ Perform a second pass against the original source and verify all of the followin
 - every source page or image was inspected;
 - every source question is accounted for as either converted exactly once or explicitly listed as unconverted;
 - converted Questions remain in authored order, even when an unconverted question creates a gap in source numbering;
-- every converted stem and choice is complete;
+- every converted stem and choice is complete, and no stem repeats directions printed above it;
 - every supplied answer and correctness indicator was copied accurately;
 - every matching item names the word bank answer the source's key gives it, or none when the key gives none;
-- every block of questions that shares one passage, quote, image or table is one Multipart Question with its Parts in printed order, or is listed as unconverted;
-- correctness was never inferred from general knowledge;
+- every block of questions that shares one passage, quote, image, table or piece of notation — including the questions after “Use the chart …” or “Refer to the map …” — is one Multipart Question with its Parts in printed order, or is listed as unconverted, and the shared material is in its stem rather than in its first Part;
+- correctness was never inferred from general knowledge: with no answer key in the source, no choice is `correct` and no Matching item has an `answer`;
 - all supplied Difficulty and Topics values were preserved;
 - meaningful formatting, especially subscript and superscript, was preserved semantically;
-- every image, caption, table, list, equation, hard break, and safe link was preserved;
+- every image, caption, table, list, equation, hard break, and safe link was preserved, and every table is a block of its own in a `content` list, never nested inside a paragraph;
 - all Question, choice, item, word bank, Part and Part choice IDs are unique and sequential;
 - every meaningful image, including an image used as an answer choice, matching item or word bank answer, is a Pending Image;
 - every picture has its own Pending Image, with pictures printed side by side split rather than merged — one per `panel` of a `side-by-side`;
@@ -160,8 +185,10 @@ Perform a second pass against the original source and verify all of the followin
 - every Pending Image names the tag printed on its picture, or its page when the picture has no tag;
 - every tag in the [image tag list](#image-tags-in-this-document) is accounted for in the conversion report;
 - the Question Bank Record's `media` is an empty array;
-- for a test, the Exam has one position per converted Question, in printed order, each naming an existing Question ID in the package's bank, and no Question twice;
-- for a test, every Multiple Choice position whose answers the source prints side by side — a row of four, a 2 × 2 grid, a grid of pictures — has the `columns` that layout shows, every `columns` value sits only on a Multiple Choice position (never on a Multipart question), and no position has `workSpace`;
+- for a test, the Exam has one position per converted Question, in printed order, each naming an existing Question ID in the package's bank and the section the test prints it in, and no Question twice;
+- for a test, `sections` lists every section heading the test prints, in printed order, each `title` and `instructions` transcribed exactly — or is one section with an empty `title` when the test prints no headings — and no section was split or merged by Question Type;
+- for a test, every `title` is text the test prints as a heading, and each later line of directions under one heading is a section with an empty `title`;
+- for a test, every Multiple Choice position whose answers the source prints side by side — a row of four, a 2 × 2 grid, a grid of pictures — has the `columns` that layout shows, every `columns` value sits only on a Multiple Choice position (never on a Multipart question), and every Short Answer position whose source prints room to write below it has the `workSpace` that room shows, on no other position;
 - the file is a Test Parrot Package with exactly one Question Bank Record, and it holds an Exam only if the source is a test;
 - the final JSON passes the public schema and semantic rules.
 
@@ -315,7 +342,7 @@ Convert **one whole set — every item that shares one word bank — as one `mat
 A Matching Question:
 
 - has an ID such as `q3`;
-- keeps the set's own directions (for example “Match each event to the correct time period.”) in the `stem`; the stem may be a blank paragraph when the source has none beyond the section heading;
+- keeps the set's own directions (for example “Match each event to the correct time period.”) in the `stem`; the stem may be a blank paragraph when the source has none beyond the section heading. In a test, directions printed under the section heading are that section's `instructions` instead (see [Sections](#sections)): never write them in both;
 - has `prompts`: the items, at least one, in authored order, with IDs such as `q3-p1`, `q3-p2`, and so on;
 - has `wordBank`: the lettered answers, at least two, in authored order, with IDs such as `q3-a1`, `q3-a2`, and so on;
 - gives each item an `answer` — the ID of the word bank answer the source's answer key matches it with — or no `answer` member at all when the key gives none;
@@ -515,13 +542,19 @@ knowledge of social studies.
 
 Convert **the material and every question asked about it as one `multipart` Question**, even though the source numbers each question separately. Each of those questions becomes one **Part** of the Multipart question, in printed order. Do not split the block into one Question per source number, do not repeat the material in several Questions, and never convert a Part as a standalone Question without its material: a student cannot answer it. Test Parrot prints the Multipart question under one number and letters its Parts beneath it (`a.`, `b.`, …).
 
-Recognise a Multipart question by an instruction such as “Base your answers to questions 12 and 13 on …”, “Use the map below to answer questions 4 through 6”, or “Read the passage and answer the questions that follow”, or by any shared material that the following questions refer to. A single question introduced this way (“Base your answer to question 5 on the graph below”) is a Multipart question with one Part.
+Recognise a Multipart question by an instruction such as “Base your answers to questions 12 and 13 on …”, “Use the map below to answer questions 4 through 6”, “Read the passage and answer the questions that follow”, “Use the chart to answer the questions below” or “Refer to the map above”, or by any shared material that the following questions refer to. A single question introduced this way (“Base your answer to question 5 on the graph below”) is a Multipart question with one Part.
+
+Two or more numbered blanks that label one picture, diagram or piece of notation — `8.` and `9.` pointing at two parts of one labelled drawing of a flower — are one Multipart question too: the picture or notation is its stem, and each numbered blank is a Short Answer Part, in printed order.
+
+The test is shared material, not shared directions. Questions that all need the same picture, table, passage or notation are one Multipart question. Questions that only share a line of directions, such as “Answer the following questions.” or “Write the capital of each country below.”, are separate Questions in a section with those directions (see [Sections](#sections)). When the directions name shared material (“Use the chart …”), the material goes in the Multipart question's stem and the directions are its section's `instructions`.
+
+A question that names other questions by their source numbers, such as “Which of the cities in questions 5–8 …”, keeps its wording. Test Parrot renumbers the test, so list it in the report as a question whose numbers the teacher must check.
 
 A Multipart Question:
 
 - has an ID such as `q5`;
 - keeps the shared material in the `stem`: the passage, quote, image, table or diagram, with any source or attribution line (for example “Source: …”, “— Patrick Henry, 1775”, a caption under a map) written as ordinary content in the stem, where the source prints it;
-- leaves out the “Base your answers to questions 12 and 13 …” instruction itself, since it names source numbers that Test Parrot replaces, and it prints its own directions for the Multipart section;
+- leaves out the “Base your answers to questions 12 and 13 …” instruction itself, since it names source numbers that Test Parrot replaces, and its section prints its own directions;
 - has `parts`: the questions asked about the material, in printed order, with IDs such as `q5-s1`, `q5-s2`, and so on;
 - gives `difficulty` and `topics` to the Multipart Question, never to a Part;
 - does not have `choices`, `prompts`, `wordBank` or `suggestedAnswer` of its own — each Part carries its own answers.
@@ -688,6 +721,46 @@ Supported marks on `text` nodes are:
 
 Split text into separate nodes whenever its marks change. Marks apply only to the text node that carries them.
 
+### Tables
+
+A table is a block of its own, written in a `content` list beside the paragraphs around it — never inside a paragraph or under any member but `content`. Test Parrot reads child nodes only from `content`, and refuses a file that hides them anywhere else. A `table` holds `table-row`s, each row holds `table-cell`s, and each cell holds blocks such as paragraphs. Mark the header row and its cells with `"header": true`. A cell the student fills in holds one empty paragraph. For example, a stem with a line of directions and then a table:
+
+```json
+{
+  "type": "document",
+  "content": [
+    {
+      "type": "paragraph",
+      "content": [{ "type": "text", "text": "Complete the table." }]
+    },
+    {
+      "type": "table",
+      "content": [
+        {
+          "type": "table-row",
+          "header": true,
+          "content": [
+            { "type": "table-cell", "header": true, "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Planet" }] }] },
+            { "type": "table-cell", "header": true, "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Moons" }] }] }
+          ]
+        },
+        {
+          "type": "table-row",
+          "content": [
+            { "type": "table-cell", "content": [{ "type": "paragraph", "content": [{ "type": "inline-math", "source": "x^{2}" }] }] },
+            { "type": "table-cell", "content": [{ "type": "paragraph" }] }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+Write every row and every cell the source prints, empty ones included, so the table keeps its shape. Write notation inside a cell, such as an exponent, as math, exactly as you would outside a table.
+
+A table the student completes, with source question numbers printed in some of its cells, is one Short Answer Question whose stem is the table. Leave the numbers out of the cells, since Test Parrot numbers the Question itself, and say in the report that those source numbers became one Question.
+
 ### Subscript and superscript are required formatting
 
 Do not flatten subscript or superscript to baseline text. OCR commonly loses this formatting, so inspect the source visually instead of trusting extracted plain text alone.
@@ -799,7 +872,7 @@ If an image is meaningful Question Content—for example, a graph or diagram the
 
 **Do not create Media Assets, and never write base64.** Instead, write a **Pending Image**: an image node that names the picture by its tag. Test Parrot takes the picture from the original file when the teacher imports the JSON.
 
-**The file you were given may be a labeled copy**, and the [image tag list](#image-tags-in-this-document) below says whether it is. In a labeled PDF, Test Parrot has printed a small red tag, such as **IMG 3**, in the top-left corner of every image embedded in the document. In a labeled Word document, the red tag sits in the text just before its picture: it names the picture that follows it. The tags are not part of the source: never copy a tag into Question Content, `alt`, or `caption`, and describe each picture as if its tag were not there.
+**The file you were given may be a labeled copy**, and the [image tag list](#image-tags-in-this-document) below says whether it is. In a labeled PDF, Test Parrot has printed a small red tag, such as **IMG 3**, in the top-left corner of every image embedded in the document and every figure it found drawn with lines. In a labeled Word document, the red tag sits in the text just before its picture: it names the picture that follows it. The tags are not part of the source: never copy a tag into Question Content, `alt`, or `caption`, and describe each picture as if its tag were not there.
 
 ```json
 {
@@ -815,7 +888,7 @@ Rules:
 - A Pending Image has a `pending` member and **no `asset` member**.
 - `pending` holds `image`: the number on the tag printed on that picture. Read the number from the tag; do not count images yourself.
 - A picture with no tag, such as a diagram Test Parrot did not recognize or a picture on a scanned page, gets `"pending": { "page": <n> }` instead, where `n` is the 1-based page of the file as a PDF viewer counts it (in a Word document, always `1`). Do not add coordinates or any other location.
-- **Not every tag is a picture.** Test Parrot tags every embedded image and every figure it finds drawn with lines, and some documents store a reading passage, a table, an equation, or a caption as an image. Transcribe those as ordinary content—text, a table, or math—exactly as you would if they were typed, and do not write a Pending Image for their tag. A tagged image that holds only words, such as a boxed reading passage with its source line, is text: transcribe it as a `blockquote` with its source line as the paragraph right after it (see [Page layout: boxes and side-by-side content](#page-layout-boxes-and-side-by-side-content)). A passage that several questions share is written once, in the stem of the Multipart Question those questions become (see [Multipart](#multipart)). Keep a picture only for genuine artwork, such as a map, chart, cartoon, photograph or graph. Write a Pending Image for a tag of words only if you cannot read its words reliably, and say so in the conversion report.
+- **Not every tag is a picture.** Test Parrot tags generously: it tags every embedded image and every figure it finds drawn with lines, so a tag may cover a table, typed text, an equation, a caption, a structure made of characters, or only part of a larger figure, and some documents store a reading passage, a table, an equation, or a caption as an image. Transcribe those as ordinary content—text, a table, or math—exactly as you would if they were typed, and do not write a Pending Image for their tag. A tagged image that holds only words, such as a boxed reading passage with its source line, is text: transcribe it as a `blockquote` with its source line as the paragraph right after it (see [Page layout: boxes and side-by-side content](#page-layout-boxes-and-side-by-side-content)). A passage that several questions share is written once, in the stem of the Multipart Question those questions become (see [Multipart](#multipart)). Keep a picture only for genuine artwork, such as a map, chart, cartoon, photograph or graph. Write a Pending Image for a tag of words only if you cannot read its words reliably, and say so in the conversion report. When two or three adjacent tags are parts of one figure, write a Pending Image for each, in reading order, in the panels of one `side-by-side`, so they print together as that figure. Leave out any tag that is not Question Content, such as a lone mark or a decoration, and list it in the conversion report as not Question Content.
 - Put the Pending Image exactly where the picture belongs: in the `stem` when the picture belongs to the question, or in the choice's `content` when the picture is that answer choice.
 - **Write one Pending Image per picture.** Two graphs side by side, such as “Graph of f” and “Graph of g”, are two pictures and need two Pending Images, in reading order, each in its own `panel` of one `side-by-side`. When you cannot tell whether something is one picture or several, write several: an extra Pending Image is easy for the teacher to fill, and a missing one is not.
 - **Shared pictures belong to a Multipart Question.** When one picture serves several questions, those questions are the Parts of one Multipart Question, and the picture is written once, in its stem. Directions such as “Use the information above for problems 3 – 5” mean that problems 3, 4, and 5 are the Parts of one Multipart Question whose stem holds the pictures those directions refer to; never copy the pictures into each Part's stem or into separate Questions (see [Multipart](#multipart)). The same tag appears in more than one place only when the source itself uses the same picture as content of two unrelated Questions, and then every occurrence names that tag.
@@ -853,7 +926,7 @@ Include only information explicitly present in the source or supplied by the use
 
 ## Final validation and delivery
 
-Validate the package against the [package schema](./formats/package/0.1.0/schema.json), its Question Bank Record against the [Question Bank Record schema](./formats/question-bank/0.7.0/schema.json), and any Exam against the [Exam Record schema](./formats/exam/0.1.0/schema.json). Schema validation alone is not sufficient: also verify Question cardinality, unique IDs, that every matching `answer` names an ID in the same Question's `wordBank`, that every Multipart Part is Multiple Choice with at least two choices or Short Answer with none, that every `side-by-side` has two or three panels and stands directly in a stem, safe links, and that every Pending Image follows the rules above.
+Validate the package against the [package schema](./formats/package/0.1.0/schema.json), its Question Bank Record against the [Question Bank Record schema](./formats/question-bank/0.7.0/schema.json), and any Exam against the [Exam Record schema](./formats/exam/0.3.0/schema.json). Schema validation alone is not sufficient: also verify Question cardinality, unique IDs, that every matching `answer` names an ID in the same Question's `wordBank`, that every Multipart Part is Multiple Choice with at least two choices or Short Answer with none, that every `side-by-side` has two or three panels and stands directly in a stem, safe links, and that every Pending Image follows the rules above.
 
 Relevant import limits include:
 
@@ -880,9 +953,16 @@ Also include a concise conversion report containing:
 - whether triage treated the source as a test (the package has an Exam) or as questions only (no Exam), and for a test which Multiple Choice positions were given `columns`;
 - total Questions converted;
 - counts by Question Type (a matching set is one Question; also give its item count; a Multipart question is one Question; also give its Part count);
-- whether answer correctness was supplied or left incomplete;
+- whether answer correctness was supplied by the source's answer key or left unmarked because it has none;
+- every question that names other questions by their source numbers, and every set of source numbers that became one Question (a Multipart question, a table to complete), so the teacher can check the numbering;
 - every image tag, and which Questions and answers use it as a picture, or how it was transcribed instead;
 - every ambiguity, omission, normalization, or unsupported element—or “None” when there were none;
 - an **Unconverted Questions** section listing each source page and question identifier, opening words, and the reason it could not be converted—or “None” when every question was converted.
+
+End by telling the user they can ask you to change anything they see in Test Parrot's preview, and that Test Parrot updates its preview when they drop in the new file.
+
+### Corrections
+
+The user may come back after looking at the import in Test Parrot, with a correction such as “questions 4 to 7 all use the map, so make them one Multipart question”, a picture placed on the wrong question, or an error message Test Parrot showed. Make the change against the source and these instructions, then deliver the **whole corrected file** again, in the same way as the first — never only the changed part, since Test Parrot replaces the file it is previewing. Keep every other Question, ID and position as it was, and say in a line or two what you changed. Test Parrot numbers Questions continuously across the test, so a number the user quotes from its preview may not be the source's number: find the question by its words.
 
 Do not describe the result as complete if the Unconverted Questions section is not “None.” It is acceptable and safer to deliver a valid partial JSON file with an explicit warning than to corrupt meaning by forcing an uncertain question into the wrong type.

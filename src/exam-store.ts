@@ -19,10 +19,16 @@ import {
   duplicateQuestion,
   hasWorkSpace,
   isExamSection,
+  isWordBankLayout,
   isWorkSpace,
   moveSection,
   deleteSection,
-  NO_WORK_SPACE,
+  insertSection,
+  mergeSection,
+  moveToNewSection,
+  splitSection,
+  defaultWorkSpaceOf,
+  workSpaceIn,
   placeQuestions,
   rewordSection,
   sameSectionOf,
@@ -36,15 +42,16 @@ import {
   orderedPartChoices,
   orderedQuestions,
   partsOf,
-  shuffleSelectedAnswers,
   shuffleSelectedQuestions,
   type Arrangement,
   type ColumnSetting,
-  newSectionWording,
+  newSectionWordingOf,
   type ExamSection,
   type Part,
   type Question,
+  type SectionPlacement,
   type SectionTarget,
+  type WordBankLayout,
   type WorkSpace,
 } from './exam'
 import {
@@ -59,11 +66,14 @@ import {
   type TextSize,
 } from './section-headings'
 import { isExamHeader, sameExamHeader, withHeaderLine, type HeaderLine } from './page-header'
+import { isPageMargins, sameMargins, withMargin, type MarginSide } from './page-margins'
+import { DEFAULT_QUESTION_STYLE, isQuestionStyle, type QuestionStyle } from './question-style'
 import {
   bankQuestionById,
   createWorkingCopy,
   createQuestionBank,
   withChoiceOrder,
+  withHiddenAnswers,
   withQuestionBanked,
   withReferenceAdded,
   withReferenceOrder,
@@ -73,6 +83,7 @@ import {
   type QuestionBank,
 } from './question-bank'
 import { selectedExam, type SelectedExam } from './selected-exam'
+import { hiddenAnswerIdsOf, varySelectedAnswers, withShownIncorrect } from './hidden-answers'
 import { withCanonicalQuestionProjection } from './canonical-question-projection'
 import { withoutQuestions } from './question-deletion'
 import { upgradeStoredQuestion } from './stored-upgrade'
@@ -81,6 +92,7 @@ import {
   type ExportHistory,
   type ExportRecord,
 } from './export-preparation'
+import { wordBankLayoutFor, wordBankLayoutOf, type BankAnswerWidth } from './export-plan'
 
 /** Everything authoring owns: canonical content, the selection made from it,
  *  and whether that has reached the saved state yet. */
@@ -172,6 +184,15 @@ function isColumnSettings(value: unknown): value is Record<string, ColumnSetting
   )
 }
 
+function isWordBankLayoutSettings(value: unknown): value is Record<string, WordBankLayout> {
+  return (
+    typeof value === 'object'
+    && value !== null
+    && !Array.isArray(value)
+    && Object.values(value).every(isWordBankLayout)
+  )
+}
+
 function isSectionList(value: unknown): value is ExamWorkingCopy['sections'] {
   return Array.isArray(value) && value.every(isExamSection)
 }
@@ -204,13 +225,17 @@ function isWorkingCopy(value: unknown): value is ExamWorkingCopy {
     draft.questionIds.every((id) => typeof id === 'string') &&
     (draft.columns === undefined || isColumnSettings(draft.columns)) &&
     (draft.workSpace === undefined || isWorkSpaceSettings(draft.workSpace)) &&
+    (draft.wordBankLayout === undefined || isWordBankLayoutSettings(draft.wordBankLayout)) &&
     (draft.choiceOrder === undefined || isChoiceOrder(draft.choiceOrder)) &&
+    (draft.hiddenAnswers === undefined || isChoiceOrder(draft.hiddenAnswers)) &&
     (draft.sections === undefined || isSectionList(draft.sections)) &&
     (draft.sectionOf === undefined || isSectionPlacement(draft.sectionOf)) &&
     (draft.sectionHeadings === undefined || isSectionHeadings(draft.sectionHeadings)) &&
     (draft.headingSize === undefined || isHeadingSize(draft.headingSize)) &&
     (draft.header === undefined || isExamHeader(draft.header)) &&
-    (draft.textSize === undefined || isTextSize(draft.textSize))
+    (draft.textSize === undefined || isTextSize(draft.textSize)) &&
+    (draft.margins === undefined || isPageMargins(draft.margins)) &&
+    (draft.questionStyle === undefined || isQuestionStyle(draft.questionStyle))
   )
 }
 
@@ -233,13 +258,18 @@ function isAuthoringState(value: unknown): value is AuthoringState {
 const WORKING_COPY_SETTINGS: Readonly<Record<string, (value: unknown) => boolean>> = {
   columns: isColumnSettings,
   workSpace: isWorkSpaceSettings,
+  wordBankLayout: isWordBankLayoutSettings,
   choiceOrder: isChoiceOrder,
+  // The same shape as an order: ids, keyed by question.
+  hiddenAnswers: isChoiceOrder,
   sections: isSectionList,
   sectionOf: isSectionPlacement,
   sectionHeadings: isSectionHeadings,
   headingSize: isHeadingSize,
   header: isExamHeader,
   textSize: isTextSize,
+  margins: isPageMargins,
+  questionStyle: isQuestionStyle,
 }
 
 // A draft an earlier build stored, in the current shape. Its questions are
@@ -305,11 +335,30 @@ export type ExamStore = {
   /** Deletes one Section and Removes the questions it holds. Undoable, like
    *  every other action here, so it asks nothing. */
   deleteSection(sectionId: string): void
+  /** Starts a new Section at one question: it and the questions after it in
+   *  its Section move into a Section of their own directly below. */
+  splitSection(questionId: string): void
+  /** Makes these questions one new Section, placed where the first of them
+   *  is, splitting its Section around them. */
+  moveToNewSection(questionIds: readonly string[]): void
+  /** Inserts an empty Section above or below one, and returns its id — or
+   *  `null` when there is no such Section to insert beside. */
+  insertSection(sectionId: string, placement: SectionPlacement): string | null
+  /** Merges one Section with its neighbour above (`-1`) or below (`1`), under
+   *  this Section's wording; the emptied neighbour is deleted. */
+  mergeSection(sectionId: string, direction: -1 | 1): void
   /** How large every section heading prints on this Exam. */
   setHeadingSize(size: HeadingSize): void
   setTextSize(size: TextSize): void
+  /** How every question on this Exam prints. Switching never touches a Work
+   *  Space the teacher set. */
+  setQuestionStyle(style: QuestionStyle): void
   /** Rewords one test-page header line; `null` restores its default. */
   setHeaderLine(line: HeaderLine, text: string | null): void
+  /** Sets how far in from `sides` of the sheet the Exam's pages print, in
+   *  inches. A change `continuing` a scrub of a margin field joins the undo
+   *  step its first change made, so one drag is one step. */
+  setMargins(sides: readonly MarginSide[], inches: number, options?: { continuing?: boolean }): void
   /** Refreshes the canonical Questions projected from open Question Banks.
    * Workspace browsing is not an Exam command and creates no Undo step. */
   syncCanonicalQuestions(questions: readonly Question[]): void
@@ -327,6 +376,10 @@ export type ExamStore = {
    *  save is never lost. */
   updateInQuestionBank(question: Question): void
   setQuestionColumns(questionIds: readonly string[], columns: ColumnSetting): void
+  /** Sets where the Word Bank of each Matching question in `questionIds`
+   *  prints on this Exam — Auto, Beside or Above — as one authoring action.
+   *  Any other Question Type is left alone, and Auto is stored as nothing. */
+  setWordBankLayout(questionIds: readonly string[], layout: WordBankLayout): void
   /** Changes the room left for work below Short Answer questions — its
    *  height, whether it is blank or ruled, and whether it runs to the foot of
    *  the page — as one authoring action. Only the fields given change; any
@@ -361,8 +414,13 @@ export type ExamStore = {
   shuffleSelectedQuestions(questionIds: readonly string[]): void
   /** Shuffles each selected eligible Multiple Choice question's answers in one
    *  authoring action. The order belongs to the Working Copy, not Question
-   *  Content, so its canonical authored order remains intact. */
+   *  Content, so its canonical authored order remains intact. A question that
+   *  hides some incorrect answers draws again which ones (ADR-0038). */
   shuffleSelectedAnswers(questionIds: readonly string[]): void
+  /** Has each selected Multiple Choice question show `count` of its incorrect
+   *  answers, clamped to what each allows; `Infinity` shows them all. Exam
+   *  presentation, like answer order: the Question keeps every answer. */
+  setShownIncorrect(questionIds: readonly string[], count: number): void
   /** Removes references from the Working Copy, leaving their Question Bank
    *  records exactly as they were. Remove excludes; it never deletes. */
   removeFromWorkingCopy(questionIds: readonly string[]): void
@@ -434,7 +492,11 @@ function sameExamWorkingCopy(left: ExamWorkingCopy, right: ExamWorkingCopy): boo
     && sameEntries(left.workSpace, right.workSpace, (first, second) =>
       first.height === second.height && first.style === second.style && first.fill === second.fill,
     )
+    && sameEntries(left.wordBankLayout, right.wordBankLayout, (first, second) => first === second)
     && sameEntries(left.choiceOrder, right.choiceOrder, (first, second) =>
+      first.length === second.length && first.every((id, index) => id === second[index]),
+    )
+    && sameEntries(left.hiddenAnswers, right.hiddenAnswers, (first, second) =>
       first.length === second.length && first.every((id, index) => id === second[index]),
     )
     && sameSections(left.sections, right.sections)
@@ -443,6 +505,8 @@ function sameExamWorkingCopy(left: ExamWorkingCopy, right: ExamWorkingCopy): boo
     && (left.headingSize ?? DEFAULT_HEADING_SIZE) === (right.headingSize ?? DEFAULT_HEADING_SIZE)
     && sameExamHeader(left.header, right.header)
     && (left.textSize ?? DEFAULT_TEXT_SIZE) === (right.textSize ?? DEFAULT_TEXT_SIZE)
+    && sameMargins(left.margins, right.margins)
+    && (left.questionStyle ?? DEFAULT_QUESTION_STYLE) === (right.questionStyle ?? DEFAULT_QUESTION_STYLE)
 }
 
 /** The Part with this id, when it belongs to a Multipart question this Exam references.
@@ -504,14 +568,15 @@ function withDirtyFlag(current: AuthoringState, saved: SavedState | null): Autho
  *
  * With a target, every question lands there, in the order given. Without one —
  * Add and Add all — they go to the end of the last Section, and on an Exam
- * with no Section yet, into a new one worded for the first of them. A question
- * already referenced is left where it is: a reference occurs at most once, so
- * adding one twice is not a move.
+ * with no Section yet, into one new one, worded by `newSectionWordingOf`. A
+ * question already referenced is left where it is: a reference occurs at most
+ * once, so adding one twice is not a move.
  */
 function withQuestionsAdded(
   current: AuthoringState,
   questionsOrIds: readonly (string | Question)[],
   target: SectionTarget | null,
+  bankAnswerWidth?: BankAnswerWidth,
 ): AuthoringState {
   let bank = current.questionBank
   // An Exam written before Sections were stored has them stored first, as
@@ -538,9 +603,13 @@ function withQuestionsAdded(
 
   if (!hadSections) {
     // An Exam with nothing on it: whatever arrives, however it was asked for,
-    // starts its first Section, in the order given, worded for the first of
-    // them.
-    const section: ExamSection = { id: crypto.randomUUID(), ...newSectionWording(added[0]!.type, workingCopy.sectionHeadings) }
+    // starts its first Section, in the order given — never sorted by type, and
+    // never split into a Section per type — worded for their type when they
+    // share one, and untitled when they mix.
+    const section: ExamSection = {
+      id: crypto.randomUUID(),
+      ...newSectionWordingOf(added.map(({ type }) => type), workingCopy.sectionHeadings),
+    }
     workingCopy = withSectionLayout(workingCopy, {
       sections: [section],
       sectionOf: Object.fromEntries(added.map(({ id }) => [id, section.id])),
@@ -564,8 +633,37 @@ function withQuestionsAdded(
   return {
     ...current,
     questionBank: bank,
-    workingCopy: withInsertedColumns(bank, workingCopy, added),
+    workingCopy: withWordBankLayouts(
+      bank,
+      withInsertedColumns(bank, workingCopy, added),
+      added.map(({ id }) => id),
+      bankAnswerWidth,
+    ),
   }
+}
+
+/** Each of `questionIds` that is a Matching question on this Exam takes the
+ *  Word Bank layout its Question Style and the fit rule give it now
+ *  (`wordBankLayoutFor`), replacing any it had: how a Matching position gets
+ *  its layout when it arrives, and how a change of style sets them all again. */
+function withWordBankLayouts(
+  bank: QuestionBank,
+  workingCopy: ExamWorkingCopy,
+  questionIds: readonly string[],
+  bankAnswerWidth: BankAnswerWidth | undefined,
+): ExamWorkingCopy {
+  const prior = workingCopy.wordBankLayout ?? {}
+  let next: Record<string, WordBankLayout> | null = null
+  for (const questionId of questionIds) {
+    if (!workingCopy.questionIds.includes(questionId)) continue
+    const question = bankQuestionById(bank, questionId)
+    if (question?.type !== 'matching') continue
+    const layout = wordBankLayoutFor(question, workingCopy, bankAnswerWidth)
+    if (prior[questionId] === layout) continue
+    next ??= { ...prior }
+    next[questionId] = layout
+  }
+  return next ? { ...workingCopy, wordBankLayout: next } : workingCopy
 }
 
 /** An inserted Multiple Choice question starts with the answer columns of the
@@ -613,8 +711,14 @@ export function createExamStore(options: {
   exportHistory?: ExportHistory
   initial?: AuthoringState
   initialHistory?: { undo: AuthoringState[]; redo: AuthoringState[] }
+  /** Measures a Word Bank answer, so a Matching question takes the layout
+   *  that fits when it arrives or the style changes (`wordBankLayoutFor`).
+   *  The editor passes `domMeasure`'s; without it, a bank is placed by its
+   *  count. Only ever read inside an action, whose result is stored, so undo,
+   *  redo and every Layout Plan read the same layout back. */
+  bankAnswerWidth?: BankAnswerWidth
 }): ExamStore {
-  const { backend, savedBackend } = options
+  const { backend, savedBackend, bankAnswerWidth } = options
   const durableBackend = 'commitSaved' in backend
     ? (backend as DurableAuthoringBackend)
     : null
@@ -762,6 +866,23 @@ export function createExamStore(options: {
         return { ...current, workingCopy }
       }),
 
+    setQuestionStyle: (style) =>
+      change((current) => {
+        if ((current.workingCopy.questionStyle ?? DEFAULT_QUESTION_STYLE) === style) return current
+        const styled: ExamWorkingCopy = { ...current.workingCopy, questionStyle: style }
+        if (style === DEFAULT_QUESTION_STYLE) delete styled.questionStyle
+        // A style is a preset for the whole sheet: taking one sets every
+        // Matching question's Word Bank where that style puts it, over any
+        // the teacher moved, in the same undoable step (ADR-0041).
+        const workingCopy = withWordBankLayouts(
+          current.questionBank,
+          styled,
+          styled.questionIds,
+          bankAnswerWidth,
+        )
+        return { ...current, workingCopy }
+      }),
+
     setHeaderLine: (line, text) =>
       change((current) => {
         const header = withHeaderLine(current.workingCopy.header, line, text)
@@ -770,6 +891,15 @@ export function createExamStore(options: {
         if (!header) delete workingCopy.header
         return { ...current, workingCopy }
       }),
+
+    setMargins: (sides, inches, options) =>
+      apply((current) => {
+        const margins = withMargin(current.workingCopy.margins, sides, inches)
+        if (sameMargins(margins, current.workingCopy.margins)) return current
+        const workingCopy: ExamWorkingCopy = { ...current.workingCopy, margins }
+        if (!margins) delete workingCopy.margins
+        return { ...current, workingCopy }
+      }, true, !options?.continuing),
 
     syncCanonicalQuestions: (questions) => {
       let working = state
@@ -862,6 +992,26 @@ export function createExamStore(options: {
       })
     },
 
+    setWordBankLayout: (questionIds, layout) => {
+      change((current) => {
+        const next = { ...(current.workingCopy.wordBankLayout ?? {}) }
+        let changed = false
+        for (const questionId of new Set(questionIds)) {
+          if (!current.workingCopy.questionIds.includes(questionId)) continue
+          const question = bankQuestionById(current.questionBank, questionId)
+          if (question?.type !== 'matching') continue
+          // What the position prints now, a layout stored before every
+          // position carried one included.
+          if (wordBankLayoutOf(current.workingCopy, question) === layout) continue
+          next[questionId] = layout
+          changed = true
+        }
+        return changed
+          ? { ...current, workingCopy: { ...current.workingCopy, wordBankLayout: next } }
+          : current
+      })
+    },
+
     setQuestionWorkSpace: (questionIds, patch) => {
       const targeted = new Set(questionIds)
       change((current) => {
@@ -879,7 +1029,10 @@ export function createExamStore(options: {
             const question = bankQuestionById(current.questionBank, questionId)
             if (!question || !takesWorkSpace(question.type)) continue
           }
-          const prior = currentSpaces[questionId] ?? NO_WORK_SPACE
+          // What the position prints now: its own setting, or its Question
+          // Style's default when it has none.
+          const style = current.workingCopy.questionStyle
+          const prior = workSpaceIn(currentSpaces, style, questionId)
           const next: WorkSpace = {
             height: snapWorkSpaceHeight(patch.height ?? prior.height),
             style: patch.style ?? prior.style,
@@ -891,9 +1044,12 @@ export function createExamStore(options: {
             && next.fill === prior.fill
           ) continue
           // No room at all is the absence of a setting, not a stored zero, so
-          // taking work space away leaves the Working Copy as it was before.
-          if (hasWorkSpace(next)) nextSpaces[questionId] = next
-          else delete nextSpaces[questionId]
+          // taking work space away leaves the Working Copy as it was before —
+          // unless the Question Style would rule lines there: then "None" is
+          // the teacher's own setting, stored, and wins over the style.
+          if (hasWorkSpace(next) || hasWorkSpace(defaultWorkSpaceOf(style))) {
+            nextSpaces[questionId] = next
+          } else delete nextSpaces[questionId]
           changed = true
         }
         return changed
@@ -914,6 +1070,10 @@ export function createExamStore(options: {
         const copiedChoices = choicesOf(copy)
         const copiedChoiceOrder = orderedChoices(original, selected.arrangement).map((choice) =>
           copiedChoices[originalChoices.findIndex(({ id }) => id === choice.id)]!.id,
+        )
+        // It hides the answers its original hides, under their new ids.
+        const copiedHidden = hiddenAnswerIdsOf(original, selected.arrangement).map((id) =>
+          copiedChoices[originalChoices.findIndex((choice) => choice.id === id)]!.id,
         )
         const referenced = withReferenceAdded(current.workingCopy, copy.id, questionId)
         const workingCopy = withPartPresentationCopied(
@@ -944,8 +1104,19 @@ export function createExamStore(options: {
               ...(workingCopy.choiceOrder ?? {}),
               [copy.id]: copiedChoiceOrder,
             },
+            ...(copiedHidden.length > 0
+              ? { hiddenAnswers: { ...(workingCopy.hiddenAnswers ?? {}), [copy.id]: copiedHidden } }
+              : {}),
             // A duplicate looks like its original on the sheet, work space
-            // included.
+            // and Word Bank layout included.
+            ...(original.type === 'matching'
+              ? {
+                  wordBankLayout: {
+                    ...(workingCopy.wordBankLayout ?? {}),
+                    [copy.id]: wordBankLayoutOf(selected.exam, original),
+                  },
+                }
+              : {}),
             ...(workingCopy.workSpace?.[questionId]
               ? {
                   workSpace: {
@@ -959,10 +1130,10 @@ export function createExamStore(options: {
       }),
 
     addToWorkingCopy: (questionOrId, target = null) =>
-      change((current) => withQuestionsAdded(current, [questionOrId], target)),
+      change((current) => withQuestionsAdded(current, [questionOrId], target, bankAnswerWidth)),
 
     addManyToWorkingCopy: (questions, target = null) =>
-      change((current) => withQuestionsAdded(current, questions, target)),
+      change((current) => withQuestionsAdded(current, questions, target, bankAnswerWidth)),
 
     moveInWorkingCopy: (questionIds, target) =>
       change((current) => {
@@ -1003,6 +1174,47 @@ export function createExamStore(options: {
         return withExamWorkingCopy(current, removed)
       }),
 
+    splitSection: (questionId) =>
+      change((current) => {
+        const { exam, arrangement } = selectedExam(current.questionBank, current.workingCopy)
+        const layout = splitSection(exam, arrangement, questionId)
+        return layout
+          ? withExamWorkingCopy(current, withSectionLayout(current.workingCopy, layout))
+          : current
+      }),
+
+    moveToNewSection: (questionIds) =>
+      change((current) => {
+        const { exam, arrangement } = selectedExam(current.questionBank, current.workingCopy)
+        const layout = moveToNewSection(exam, arrangement, questionIds)
+        return layout
+          ? withExamWorkingCopy(current, withSectionLayout(current.workingCopy, layout))
+          : current
+      }),
+
+    insertSection: (sectionId, placement) => {
+      // The new Section's id is what the sheet focuses its heading by, so it
+      // is read back out of the one change that makes it.
+      let inserted: string | null = null
+      change((current) => {
+        const { exam, arrangement } = selectedExam(current.questionBank, current.workingCopy)
+        const made = insertSection(exam, arrangement, sectionId, placement)
+        if (!made) return current
+        inserted = made.sectionId
+        return withExamWorkingCopy(current, withSectionLayout(current.workingCopy, made.layout))
+      })
+      return inserted
+    },
+
+    mergeSection: (sectionId, direction) =>
+      change((current) => {
+        const { exam, arrangement } = selectedExam(current.questionBank, current.workingCopy)
+        const layout = mergeSection(exam, arrangement, sectionId, direction)
+        return layout
+          ? withExamWorkingCopy(current, withSectionLayout(current.workingCopy, layout))
+          : current
+      }),
+
     shuffleSelectedQuestions: (questionIds) =>
       change((current) => {
         const { exam, arrangement } = selectedExam(current.questionBank, current.workingCopy)
@@ -1017,11 +1229,25 @@ export function createExamStore(options: {
     shuffleSelectedAnswers: (questionIds) =>
       change((current) => {
         const { exam, arrangement } = selectedExam(current.questionBank, current.workingCopy)
-        const shuffled = shuffleSelectedAnswers(exam, arrangement, questionIds, Math.random)
+        const shuffled = varySelectedAnswers(exam, arrangement, questionIds, Math.random)
         if (shuffled === arrangement) return current
         return withExamWorkingCopy(
           current,
-          withChoiceOrder(current.workingCopy, shuffled.choiceOrder),
+          withHiddenAnswers(
+            withChoiceOrder(current.workingCopy, shuffled.choiceOrder),
+            shuffled.hiddenAnswers ?? {},
+          ),
+        )
+      }),
+
+    setShownIncorrect: (questionIds, count) =>
+      change((current) => {
+        const { exam, arrangement } = selectedExam(current.questionBank, current.workingCopy)
+        const next = withShownIncorrect(exam, arrangement, questionIds, count, Math.random)
+        if (next === arrangement) return current
+        return withExamWorkingCopy(
+          current,
+          withHiddenAnswers(current.workingCopy, next.hiddenAnswers ?? {}),
         )
       }),
 
@@ -1140,6 +1366,7 @@ export function createExamStore(options: {
 export async function loadExamStore(
   backend: Backend<AuthoringState>,
   savedBackend?: Backend<SavedState>,
+  bankAnswerWidth?: BankAnswerWidth,
 ): Promise<ExamStore> {
   let stored: AuthoringState | null = null
   let saved: SavedState | null = null
@@ -1175,5 +1402,6 @@ export async function loadExamStore(
     saved,
     initial,
     exportHistory,
+    bankAnswerWidth,
   })
 }

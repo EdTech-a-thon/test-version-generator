@@ -7,8 +7,9 @@
 // height of its rich text, its images and its choice grid once they are laid out
 // at the page's content width. So it renders the item — through
 // `PageItemMeasureView`, the very components `exam-page.tsx` draws on screen —
-// into one reused off-screen host sized to `PAGE_CONTENT_WIDTH`, and measures
-// the host.
+// into one reused off-screen host sized to the page's content width — today's
+// `PAGE_CONTENT_WIDTH`, or what an Exam's own margins leave — and measures the
+// host.
 //
 // Two things about that host matter and are easy to undo by accident:
 //
@@ -23,10 +24,17 @@
 
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { PAGE_CONTENT_WIDTH, type Measure, type PageItem } from './export-plan'
-import { BODY_PX } from './export-typography'
-import { PageItemMeasureView } from './page-item-view'
-import type { TextSize } from './section-headings'
+import {
+  PAGE_CONTENT_WIDTH,
+  type ItemLayout,
+  type Measure,
+  type PageItem,
+  type PlannedBankAnswer,
+  type PlannedChoice,
+} from './export-plan'
+import { BODY_PX, TITLE_LINE_HEIGHT, TITLE_PX } from './export-typography'
+import { BankAnswer, ChoiceGridView, PageItemMeasureView } from './page-item-view'
+import type { HeadingSize, TextSize } from './section-headings'
 import type { ProseMirrorJSON } from './question-doc'
 
 let host: HTMLElement | null | undefined
@@ -43,9 +51,6 @@ function measureHost(): HTMLElement | null {
       host = document.createElement('div')
       host.className = 'exam-page measure-host'
       host.setAttribute('aria-hidden', 'true')
-      // From the same constant packing uses, so the width an item is measured
-      // at is by construction the width it is packed against.
-      host.style.width = `${PAGE_CONTENT_WIDTH}px`
       document.body.appendChild(host)
     }
   }
@@ -73,16 +78,23 @@ const HEIGHT_CACHE_LIMIT = 600
 // there would be fighting React's own scheduling for no gain — nothing in a
 // measured item is interactive or stateful.
 //
-// The host carries the Exam's text size exactly as a page's content does, and
-// the size is part of what a height is remembered by.
-function itemHeight(item: PageItem, textSize?: TextSize): number {
+// The host carries the Exam's text size and Question Style exactly as a page's
+// content does, and is as wide as the page's margins leave — the width packing
+// hands over, so the width an item is measured at is by construction the width
+// it is packed against. All three are part of what a height is remembered by.
+function itemHeight(item: PageItem, layout: ItemLayout = {}): number {
   const element = measureHost()
   if (!element) return 0
+  const { textSize, questionStyle } = layout
+  const width = layout.contentWidth ?? PAGE_CONTENT_WIDTH
   const markup = renderToStaticMarkup(createElement(PageItemMeasureView, { item }))
-  const key = `${textSize ?? 'normal'}:${markup}`
+  const key = `${textSize ?? 'normal'}:${questionStyle ?? 'standard'}:${width}:${markup}`
   const remembered = heights.get(key)
   if (remembered !== undefined) return remembered
+  element.style.width = `${width}px`
   element.style.fontSize = textSize && textSize !== 'normal' ? `${BODY_PX[textSize]}px` : ''
+  if (questionStyle) element.dataset.questionStyle = questionStyle
+  else delete element.dataset.questionStyle
   element.innerHTML = markup
   // Fractional, unlike `scrollHeight`: the heights of a dozen items are summed
   // against a fixed box, and a rounded pixel each would be a rounded page.
@@ -96,6 +108,94 @@ function itemHeight(item: PageItem, textSize?: TextSize): number {
   if (heights.size >= HEIGHT_CACHE_LIMIT) heights.clear()
   heights.set(key, height)
   return height
+}
+
+let naturalHost: HTMLElement | null | undefined
+
+// A second host, as wide as what it holds rather than the page, for asking
+// how wide an answer is when nothing makes it wrap.
+function naturalMeasureHost(): HTMLElement | null {
+  if (naturalHost === undefined) {
+    if (typeof document === 'undefined') {
+      naturalHost = null
+    } else {
+      naturalHost = document.createElement('div')
+      naturalHost.className = 'exam-page measure-host measure-host--natural'
+      naturalHost.setAttribute('aria-hidden', 'true')
+      document.body.appendChild(naturalHost)
+    }
+  }
+  return naturalHost
+}
+
+const widths = new Map<string, number>()
+
+// An answer drawn alone in a one-cell choice grid, through the same component
+// a page draws it with, on one line: the width that cell then takes, letter
+// and padding included, is the least a column must give it. Remembered by its
+// markup and size like a height, and never while a picture is still loading.
+function choiceWidth(choice: PlannedChoice, textSize?: TextSize): number {
+  const element = naturalMeasureHost()
+  if (!element) return Infinity
+  const markup = renderToStaticMarkup(
+    createElement(ChoiceGridView, { grid: { columns: 1, rows: 1, cells: [[choice]] } }),
+  )
+  const key = `${textSize ?? 'normal'}:${markup}`
+  const remembered = widths.get(key)
+  if (remembered !== undefined) return remembered
+  element.style.fontSize = textSize && textSize !== 'normal' ? `${BODY_PX[textSize]}px` : ''
+  element.innerHTML = markup
+  const grid = element.querySelector('.choice-grid')
+  const width = grid ? grid.getBoundingClientRect().width : Infinity
+  if ([...element.querySelectorAll('img')].some((image) => !image.complete)) return width
+  if (widths.size >= HEIGHT_CACHE_LIMIT) widths.clear()
+  widths.set(key, width)
+  return width
+}
+
+// A Word Bank answer on one line, letter and all, through the component a page
+// draws it with: the least a column beside the Items must give it. Remembered
+// like an answer's width, and never while a picture is still loading.
+function bankAnswerWidth(answer: PlannedBankAnswer, textSize?: TextSize): number {
+  const element = naturalMeasureHost()
+  if (!element) return Infinity
+  const markup = renderToStaticMarkup(createElement(BankAnswer, { answer }))
+  const key = `bank:${textSize ?? 'normal'}:${markup}`
+  const remembered = widths.get(key)
+  if (remembered !== undefined) return remembered
+  element.style.fontSize = textSize && textSize !== 'normal' ? `${BODY_PX[textSize]}px` : ''
+  element.innerHTML = markup
+  const width = element.getBoundingClientRect().width
+  if ([...element.querySelectorAll('img')].some((image) => !image.complete)) return width
+  if (widths.size >= HEIGHT_CACHE_LIMIT) widths.clear()
+  widths.set(key, width)
+  return width
+}
+
+const titleLineCounts = new Map<string, number>()
+
+// The Exam title set as a first page sets it, at the page's content width: how
+// many of its lines it fills. The header the title sits in is laid out with
+// its height released, so the title wraps as far as its words take it.
+function titleLines(title: string, size: HeadingSize | undefined, width: number): number {
+  const element = measureHost()
+  if (!element || !title) return 1
+  const px = TITLE_PX[size ?? 'normal']
+  const key = `${px}:${width}:${title}`
+  const remembered = titleLineCounts.get(key)
+  if (remembered !== undefined) return remembered
+  element.style.width = `${width}px`
+  element.style.fontSize = ''
+  delete element.dataset.questionStyle
+  element.innerHTML =
+    '<header class="page-header page-header--first" style="height: auto"><h1 class="exam-title"></h1></header>'
+  const heading = element.querySelector('h1')!
+  heading.style.fontSize = `${px}px`
+  heading.textContent = title
+  const lines = Math.max(1, Math.round(heading.getBoundingClientRect().height / (px * TITLE_LINE_HEIGHT)))
+  if (titleLineCounts.size >= HEIGHT_CACHE_LIMIT) titleLineCounts.clear()
+  titleLineCounts.set(key, lines)
+  return lines
 }
 
 // Pictures already loaded or on their way, by source.
@@ -133,6 +233,8 @@ function loadImages(sources: Iterable<string>): Promise<void> {
 // call this first, or they will re-measure straight out of a stale cache.
 function invalidate(): void {
   heights.clear()
+  widths.clear()
+  titleLineCounts.clear()
 }
 
 /** Every picture source in question documents, stems and answers alike. */
@@ -154,6 +256,9 @@ export const domMeasure: Measure & {
   loadImages(sources: Iterable<string>): Promise<void>
 } = {
   itemHeight,
+  choiceWidth,
+  bankAnswerWidth,
+  titleLines,
   invalidate,
   loadImages,
 }

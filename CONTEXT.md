@@ -37,7 +37,7 @@ The versioned, format-owned machine-readable representation of one Question Bank
 _Avoid_: PDF metadata, extracted questions
 
 **Exam Record**:
-The versioned, format-owned machine-readable composition of one Exam: its name and, for each position, the Question it references in a Question Bank Record travelling in the same Test Parrot Package, with that position's answer columns, answer order, and Work Space. It never references a Question outside its package, and it carries no Section order, because Sections always follow Test Parrot's own order.
+The versioned, format-owned machine-readable composition of one Exam: its name and, for each position, the Question it references in a Question Bank Record travelling in the same Test Parrot Package, with that position's answer columns, answer order, Hidden Answers, Word Bank layout and Work Space, and the Question Section it is in, and the Exam's heading and text sizes, Question Style and Page Margins. It carries the Exam's Sections in print order, each with its Section Heading and Section Directions, so a test an assistant converts keeps its own parts in its own order. It never references a Question outside its package.
 _Avoid_: Exam layout, test JSON
 
 **Test Parrot Package**:
@@ -53,7 +53,7 @@ The teacher's original PDF or Word document (.docx), or a photo of their test, t
 _Avoid_: Original PDF, Question Bank File
 
 **Image Tag**:
-The numbered label, such as “IMG 3”, that Test Parrot prints on each picture in a labeled copy of a Source Document — inside the picture's corner in a PDF, just before it in a Word document — so an assistant can name a picture exactly. A tag names an embedded image, not necessarily a picture: a passage stored as an image is tagged too. In a PDF it can also name a figure drawn with lines, such as a graph a browser saved from an SVG; its picture is that region of the page, rendered.
+The numbered label, such as “IMG 3”, that Test Parrot prints on each picture in a labeled copy of a Source Document — inside the picture's corner in a PDF, just before it in a Word document — so an assistant can name a picture exactly. A tag names an embedded image, not necessarily a picture: a passage stored as an image is tagged too. In a PDF it can also name a figure drawn with lines, such as a graph a browser saved from an SVG, a chemical structure with its atom labels, a whole reaction row, or a ruled table; its picture is that region of the page, rendered. Drawn figures are tagged generously, so a tag may hold something the assistant transcribes instead.
 _Avoid_: Image number, image ID, label
 
 **Pending Image**:
@@ -116,7 +116,7 @@ A PDF or DOCX produced by an export and described by its Export Record.
 _Avoid_: Version, Exam
 
 **Version**:
-One shuffled arrangement of an Exam's Questions and answers, produced by an export and kept in its Export Record. Each Version has a two-word name, such as “Curly Fox”, that implies no order and is never reused within its Exam's Export History, and that name prints on its student test and answer key. Versions in one export differ from one another and from the Working Copy's own arrangement; an export that shuffles nothing prints the Working Copy's arrangement, unnamed, and produces no Version. Producing Versions never changes the Exam.
+One shuffled arrangement of an Exam's Questions and answers, produced by an export and kept in its Export Record. A Version of a question that has Hidden Answers hides as many as the Working Copy does, drawn for itself. Each Version has a two-word name, such as “Curly Fox”, that implies no order and is never reused within its Exam's Export History, and that name prints on its student test and answer key. Versions in one export differ from one another and from the Working Copy's own arrangement; an export that shuffles nothing prints the Working Copy's arrangement, unnamed, and produces no Version. Producing Versions never changes the Exam.
 _Avoid_: Form, Variant, Version History, saved Exam
 
 **Export History**:
@@ -130,11 +130,11 @@ To exclude Question Content from an Exam while leaving it in its Question Bank.
 To permanently remove Question Content from its Question Bank, every Exam that references it, and their Working Copies. Deletion requires showing the affected Exams and explicit confirmation; existing Export Records remain unchanged.
 
 **Question Type**:
-What a Question asks for, settled when it is created and never changed afterwards: Multiple Choice, True/False, Matching, Short Answer, or Multipart. It decides how the Question is answered and laid out, the wording a Question Section begins with when this Question is the first put in it, and what its Answer Key entry records.
+What a Question asks for, settled when it is created and never changed afterwards: Multiple Choice, True/False, Matching, Short Answer, or Multipart. It decides how the Question is answered and laid out, the wording a new Question Section of only Questions of this type begins with, and what its Answer Key entry records.
 _Avoid_: Question format, question kind
 
 **True/False**:
-A Question Type whose answer is one of exactly two fixed choices, True and False, which the teacher picks between rather than writes. The pair is not printed as lettered answers: a T and an F print beside its number for a student to circle, and the Answer Key records T or F rather than a choice letter. It does not Vary: True before False is a convention a student reads, not an authored order.
+A Question Type whose answer is one of exactly two fixed choices, True and False, which the teacher picks between rather than writes. The pair is not printed as lettered answers: a T and an F print beside its number for a student to circle — or, under a Question Style that asks for one, an answer blank to write on — and the Answer Key records T or F rather than a choice letter. It does not Vary: True before False is a convention a student reads, not an authored order.
 _Avoid_: Binary question, T/F question, two-choice multiple choice
 
 **Matching**:
@@ -146,8 +146,16 @@ One numbered thing to match in a Matching set, in authored order. It is matched 
 _Avoid_: Prompt (in teacher-facing text), stem (for an Item), left side
 
 **Word Bank**:
-The lettered answers a Matching set's Items are matched against, in authored order. A letter is a position — Vary may shuffle a Word Bank, as it shuffles Multiple Choice answers — and no answer is correct on its own: several Items may name the same answer, and an answer no Item names is a distractor. A Word Bank of up to five answers prints beside its Items; a longer one prints above them in columns.
+The lettered answers a Matching set's Items are matched against, in authored order. A letter is a position — Vary may shuffle a Word Bank, as it shuffles Multiple Choice answers — and no answer is correct on its own: several Items may name the same answer, and an answer no Item names is a distractor. Where a Word Bank prints is Exam presentation, like a Multiple Choice question's answer columns, and always one of two: beside its Items or above them in columns. A Matching question takes one when it arrives on an Exam — by its Question Style, which puts it above under Classic and otherwise beside its Items when its widest answer fits a column beside them — and keeps it until the teacher flips it or the Exam changes Question Style, which sets every Matching question's again.
 _Avoid_: Choices (for a Matching set), answer list, right side
+
+**Locked Answer**:
+A Multiple Choice answer that keeps its authored letter however answers are shuffled, by Vary or in a Version, while the others shuffle among the letters left: “All of the above” means nothing anywhere else. It is Question Content, since it is about what the answer means. An answer worded like “All of the above”, “None of these” or “Both A and B” is locked by its wording, until the teacher unlocks it; any other the teacher may lock. A teacher's own decision outlasts any rewording, and only theirs is kept: an undecided answer follows what it says now. True/False answers and a Word Bank are never locked. A lock governs shuffling, not authoring: the teacher still moves a Locked Answer by hand, and a new answer is added above the Locked Answers that end the list.
+_Avoid_: Pinned answer, fixed answer, anchored choice
+
+**Hidden Answer**:
+An incorrect Multiple Choice answer an Exam leaves off one of its positions, so the position shows from one up to all of its Question's incorrect answers. It is Exam presentation like answer order, never Question Content: the Question keeps every answer. The correct answer and every Locked Answer always show; nothing is hidden while no answer is marked correct, or beside a Locked Answer that names others by letter. The answers shown close up and are lettered as they print, on the test and in the Answer Key alike.
+_Avoid_: Removed answer, deleted distractor, answer subset
 
 **Short Answer**:
 A Question Type whose response is intentionally brief and does not present answer choices.
@@ -166,27 +174,35 @@ One lettered question within a Multipart question, in authored order: a Multiple
 _Avoid_: Sub-question, item (Item is Matching's), sub-part
 
 **Work Space**:
-Room an Exam leaves below a Short Answer question or Short Answer Part for a student's working: blank or ruled, as tall as the teacher drags it, or filling the rest of its page. It is Exam presentation set on the exam sheet like answer columns, never Question Content, so the same Question may take different room on another Exam; Duplicate copies it.
+Room an Exam leaves below a Short Answer question or Short Answer Part for a student's working: blank or ruled, as tall as the teacher drags it, or filling the rest of its page. It is Exam presentation set on the exam sheet like answer columns, never Question Content, so the same Question may take different room on another Exam; Duplicate copies it. Where the teacher has set none, the Exam's Question Style supplies it — ruled lines under Classic and Condensed, none under Standard — and a Work Space the teacher set, None included, always wins. It is kept as a number of rows; the Question Style decides how far apart they lie on the page, closer under Condensed, and the first row is a little shorter, so the first rule sits close under its question.
 _Avoid_: White space, answer box, response area
+
+**Question Style**:
+One preset for how every question on an Exam prints — Standard, Classic or Condensed — chosen from the Format menu and never set per question or per Question Type. It decides what prints before a question's number (T and F to circle, or an answer blank to write on), how answers and a Word Bank are lettered and laid out, how far apart questions stand and how closely Work Space is ruled, and what Work Space a Short Answer question or Part leaves when the teacher has set none. It is Exam presentation like the heading and text sizes; Standard is the sheet as it always printed, and the Answer Key is the same under every style.
+_Avoid_: Theme, template, question format, layout preset
 
 **Page Header**:
 The line an Exam prints at the top of each test page, beside the paper's ID. By default it is Name, Class and Date blanks on the first page and a Name blank on later ones; an Exam may reword the first page's line and the later pages' line, as plain text in which underscores are the blanks, or clear either. The ID is the one value the header fills in for each paper and is never part of the line. The Exam's title prints on its own line under the first page's header, and Answer Key pages carry the ID alone.
 _Avoid_: Letterhead, banner, identity line
 
+**Page Margins**:
+How far in from each edge of the sheet an Exam's pages print, in inches: three quarters of an inch on every side unless the Exam sets its own, one value for all four sides or each side apart. It is Exam presentation, set from the Format menu like the heading and text sizes; every page of the test and the Answer Key prints with it, and the Exam's questions are packed into the room it leaves.
+_Avoid_: Padding, page border, gutter
+
 **Question Section**:
-An ordered group of Questions within an Exam, of any Question Type, fixed in the Exam and its exported output. An Exam's Sections print in whatever order the teacher arranges them, and every Question in an Exam belongs to exactly one Section. A Section has its own Section Heading and Section Directions, and an emptied Section stays, and prints its heading and directions, until the teacher deletes it — so the sheet and the paper always put every Question on the same page; deleting a Section Removes its Questions. Every heading on an Exam, its title included, prints at one of three sizes, and its questions and answers at one of three text sizes chosen apart from the headings. The Answer Key groups its entries by Section and uses the test's headings.
+An ordered group of Questions within an Exam, of any Question Type, fixed in the Exam and its exported output. An Exam's Sections print in whatever order the teacher arranges them, and every Question in an Exam belongs to exactly one Section. A Section has its own Section Heading and Section Directions, and an emptied Section stays, and prints its heading and directions, until the teacher deletes it or merges it with a neighbour — so the sheet and the paper always put every Question on the same page; deleting a Section Removes its Questions, while merging moves them into the neighbour, under its wording. Every heading on an Exam, its title included, prints at one of three sizes, and its questions and answers at one of three text sizes chosen apart from the headings. The Answer Key groups its entries by Section and uses the test's headings.
 _Avoid_: Question category, type section
 
 **Section Heading**:
-The title a Question Section prints above its Questions. A new Section begins with the heading of the type of the first Question put in it; after that it is the teacher's own text for that Section alone, which they may reword, or clear so it prints nothing.
+The title a Question Section prints above its Questions. A new Section made from Questions begins with the heading of their type when they are all one Question Type, and untitled — with no heading or directions — when they mix types; one inserted empty begins as "New section". After that it is the teacher's own text for that Section alone, which they may reword, or clear so it prints nothing.
 _Avoid_: Section title, header
 
 **Section Directions**:
-The line of instructions a Question Section prints under its Section Heading, telling a student how to answer. Like the heading, it begins as that of the type of the first Question put in the Section and is then the teacher's to reword or clear.
+The line of instructions a Question Section prints under its Section Heading, telling a student how to answer. Like the heading, it begins as that of the type of the Questions the Section is made from when they share one, and empty otherwise or when the Section is inserted empty, and is then the teacher's to reword or clear.
 _Avoid_: Subheading, instructions, section subtitle
 
 **Vary**:
-A family of Exam actions that shuffle question order or answer order — a Multiple Choice question's or Part's answers, or a Matching set's Word Bank — in the Working Copy, before saving or exporting. Shuffling that happens during export produces Versions instead and leaves the Exam untouched; it is not Vary.
+A family of Exam actions that shuffle question order or answer order — a Multiple Choice question's or Part's answers, or a Matching set's Word Bank — in the Working Copy, before saving or exporting. Locked Answers keep their letters. Vary also chooses how many of a Multiple Choice question's incorrect answers show, and shuffling a question with Hidden Answers draws again which ones. Shuffling that happens during export produces Versions instead and leaves the Exam untouched; it is not Vary.
 _Avoid_: Randomization, version generation
 
 **Export Preview**:

@@ -42,7 +42,7 @@ A producer writes `0.7.0`. A consumer implements `0.1.0`, `0.2.0`, `0.3.0`, `0.4
 
 Importers accept only exact versions for which they implement a parser or migration. They must not infer compatibility from a SemVer range or accept every `0.x` version. During major version zero, a **patch** change is a compatible clarification or addition; a **minor** change may be incompatible and requires explicit parser or migration support. Major version one will establish the first stable compatibility commitment.
 
-Unknown optional fields may be ignored and need not survive re-export. Unknown Question Types, semantic nodes, marks, enum values that affect meaning, and required features must reject the entire record rather than be silently discarded.
+Unknown optional fields may be ignored and need not survive re-export. Unknown Question Types, semantic nodes, marks, enum values that affect meaning, and required features must reject the entire record rather than be silently discarded. Child nodes belong only in a node's `content`, and marks only in its `marks`: a node written under any other member, such as a table nested in a paragraph's `table` member, is misplaced Question Content, not an optional field, and rejects the record.
 
 ## Identity and ordering
 

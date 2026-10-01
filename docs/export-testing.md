@@ -106,7 +106,9 @@ tables — a one-cell bordered one and a borderless one-row one that cannot spli
 as a box and Panels rather than as tables.
 
 A Short Answer question's Work Space is a `space:` line: blank, or ruled with
-the plan's own count of lines. Its height is geometry and is not compared. The
+the plan's own count of lines. Its height is geometry and is not compared, nor
+are the rows it is ruled in — its `pitch`, closer under Condensed, and its
+shorter `firstRow` — which every adapter draws from the plan. The
 Layout Plan resolves a space that fills its page to its final height, so print,
 DOCX and PDF draw the same room; DOCX marks its work-space paragraphs with the
 `WorkSpace` and `WorkSpaceLines` paragraph styles so they read back as one.
@@ -135,6 +137,17 @@ The implementations are:
   shuffled Versions (distinctness, what moves, names), and partial reprints.
 - `src/export-plan.test.ts` — semantic derivation, numbering, grids, geometry,
   packing, splitting, furniture, streams, and breaks.
+- `src/question-style.test.ts` — each Question Style's rules through the
+  plan: what prints before a number, answer and Word Bank letters and layout,
+  the Work Space a style supplies and what overrides it, the question gap
+  handed to `Measure`, and an Answer Key that never changes with the style.
+- `src/word-bank-layout.test.ts` — where a matching set's Word Bank prints:
+  the layout a position takes when it arrives or the style changes (beside
+  its Items wherever its widest answer fits, at every text size, margin and
+  under Condensed, above them otherwise, above under Classic), and that the
+  plan then prints the stored layout without measuring where it goes.
+- `src/import-preview.test.ts` — the plan the import review previews, Work
+  Space and the lines a Question Style rules included.
 - `src/export-parity.test.ts` — each fixture through the plan, print-reference,
   and DOCX fingerprints, including deliberate degradation checks.
 - `src/docx-export.test.ts` — DOCX packaging, page sections, friendly names,
@@ -148,9 +161,11 @@ The implementations are:
   with school notation as their searchable text, a Blockquote's black border,
   and a Side-by-Side's pictures beside
   one another, centred in their Panels.
-- `src/export-typography.test.ts` — one type scale (`src/export-typography.ts`)
-  held against print's stylesheet, the DOCX document defaults and heading
-  styles, the DOCX identity line's tab stops, and the PDF's drawn sizes.
+- `src/export-typography.test.ts` — one type scale and one body spacing —
+  line height, paragraph gap, list-item gap (`src/export-typography.ts`) — and
+  the Multiple Choice answer indent, held against print's stylesheet, the DOCX
+  document defaults, heading styles and body paragraphs, the DOCX identity
+  line's tab stops, and the PDF's drawn sizes and line pitch.
   Parity ignores size by design, so this is where a DOCX that falls back to
   Word's own 10pt defaults fails.
 - `src/pdf-math.test.ts` — the PDF's typeset equations: stacked fractions,
@@ -200,7 +215,9 @@ rendering.
 | Playwright Chromium | —                      | Reference PDF capture         |
 
 `LANG`, `LC_ALL`, and `TZ` are pinned to `C`/`UTC`; the PDF uses US Letter with
-zero outer margin because the Layout Plan owns the page padding.
+zero outer margin because the Layout Plan owns the page padding. An Exam's own
+Page Margins (ADR-0039) are part of the plan's `pageSize`, and the parity
+fingerprints compare every side.
 
 ## Fixtures and failure artifacts
 

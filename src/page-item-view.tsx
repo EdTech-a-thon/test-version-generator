@@ -13,12 +13,13 @@
 
 import type { ReactNode } from 'react'
 import { TITLE_PX, sectionHeadingStyles } from './export-typography'
-import { Check, RotateCcw } from 'lucide-react'
+import { Check, Lock, RotateCcw } from 'lucide-react'
 import { DifficultyBadge, TopicBadge } from './badges'
 import { DocView } from './doc-view'
 import {
-  hasLegacyAnswerBlank,
-  hasMarks,
+  hasAnswerBlank,
+  headerHeightOf,
+  numberColumnOf,
   printsNumberLine,
   type AnswerKeyEntryItem,
   type AnswerKeySectionItem,
@@ -32,6 +33,7 @@ import {
   type PageItem,
   type QuestionItem,
   type SectionHeadingItem,
+  rowsOfPlanned,
 } from './export-plan'
 import type { ProseMirrorJSON } from './question-doc'
 
@@ -71,13 +73,28 @@ export function ChoiceGridView({
                           takes no width and paints into the gutter left of the
                           letter, so the choice grid measures and prints exactly
                           as it would without it. */}
-                      {showCorrectness && choice.correct && (
+                      {showCorrectness && choice.correct && !choice.locked && (
                         <span
                           className="choice-correctness-marker"
                           role="img"
                           aria-label="Correct answer"
                         >
                           <Check aria-hidden="true" />
+                        </span>
+                      )}
+                      {/* A Locked Answer keeps its letter when answers are
+                          shuffled. Its lock stands where the check would, in
+                          the same gutter and taking no width, so the grid
+                          measures as it prints; a correct one keeps the
+                          correct answer's colour and says both. */}
+                      {showCorrectness && choice.locked && (
+                        <span
+                          className="choice-correctness-marker choice-lock-marker"
+                          role="img"
+                          aria-label={choice.correct ? 'Correct answer, locked' : 'Locked answer'}
+                          title="Locked: keeps its letter when answers are shuffled"
+                        >
+                          <Lock aria-hidden="true" />
                         </span>
                       )}
                       {choice.letter}.
@@ -101,7 +118,7 @@ export function ChoiceGridView({
 // row of two cells, each column stacking on its own so a long item never
 // pushes the bank down beside it. A long bank sits above the prompts in a
 // borderless grid, column-major, the way a choice grid is drawn.
-function BankAnswer({ answer }: { answer: PlannedBankAnswer }) {
+export function BankAnswer({ answer }: { answer: PlannedBankAnswer }) {
   return (
     <div className="matching-answer">
       <span className="matching-letter">{answer.letter}.</span>
@@ -161,7 +178,10 @@ export function MatchingSetView({
         <tbody>
           <tr>
             <td className="matching-items">{prompts}</td>
-            <td className="matching-bank">
+            <td
+              className="matching-bank"
+              style={set.bankWidth ? { width: `${set.bankWidth}px` } : undefined}
+            >
               {set.bank.map((answer) => (
                 <BankAnswer answer={answer} key={answer.id} />
               ))}
@@ -179,6 +199,7 @@ export function MatchingSetView({
 // for a question that has no room, so a zero-height space measures as nothing.
 export function WorkSpaceView({ space }: { space: PlannedWorkSpace }) {
   if (space.height <= 0) return null
+  const rows = rowsOfPlanned(space)
   return (
     <div
       className="work-space"
@@ -188,7 +209,11 @@ export function WorkSpaceView({ space }: { space: PlannedWorkSpace }) {
       style={{ height: `${space.height}px` }}
     >
       {Array.from({ length: space.lines }, (_unused, index) => (
-        <div className="work-space-line" key={index} />
+        <div
+          className="work-space-line"
+          key={index}
+          style={{ height: `${index === 0 ? rows.first : rows.pitch}px` }}
+        />
       ))}
     </div>
   )
@@ -241,22 +266,23 @@ export function QuestionContent({
   renderPartWorkSpace?: (part: PlannedPart, space: PlannedWorkSpace) => ReactNode
 }) {
   const numbered = printsNumberLine(item)
+  const column = numberColumnOf(item.question)
   return (
     <>
-      {/* The column holds the number alone, and a True/False question's marks
-          before it — `questionIndentOf` in export-plan.ts is the same width
-          for the adapters. */}
+      {/* The column holds the number, and whatever the Question Style puts
+          before it — a True/False question's marks, or an answer blank —
+          `questionIndentOf` in export-plan.ts is the same width for the
+          adapters. */}
       <div
         className={
-          hasLegacyAnswerBlank(item.question)
-            ? 'question-number question-number--legacy-blank'
-            : hasMarks(item.question.type)
-              ? 'question-number question-number--marks'
-              : 'question-number'
+          column === 'plain' ? 'question-number' : `question-number question-number--${column}`
         }
       >
         {numbered && item.question.marks.length > 0 && (
-          <span className="question-marks" aria-label={hasLegacyAnswerBlank(item.question) ? undefined : 'Circle one'}>
+          <span
+            className="question-marks"
+            aria-label={hasAnswerBlank(item.question) ? 'Answer blank' : 'Circle one'}
+          >
             {item.question.marks.map((mark) => (
               <span key={mark} className="question-mark">{mark}</span>
             ))}
@@ -454,8 +480,13 @@ export function PageHeaderContent({
   onTitleChange?: (title: string) => void
   titleDisabled?: boolean
 }) {
+  // A title that wraps grows its header by the lines the plan measured, which
+  // the stylesheet's fixed band per variant cannot know.
+  const height = furniture.titleLines && furniture.titleLines > 1
+    ? { height: `${headerHeightOf(header, furniture)}px` }
+    : undefined
   return (
-    <header className={`page-header page-header--${header}`}>
+    <header className={`page-header page-header--${header}`} style={height}>
       <div className="page-identity">
         {identityEditor ? (
           <EditableIdentityText editor={identityEditor} />
@@ -471,17 +502,26 @@ export function PageHeaderContent({
         >
           {onTitleChange ? (
             // The underline belongs to the name, not to the width of the
-            // page: the mirrored value behind the input is what sizes it, so
-            // the field is exactly as wide as what has been typed.
+            // page: the mirrored value behind the field is what sizes it, so
+            // the field is exactly as wide as what has been typed, and wraps
+            // onto as many lines as the printed title does. The title is one
+            // line of text, so Enter finishes rather than breaking it.
             <span className="exam-title-field" data-value={furniture.title || 'Untitled Exam'}>
-              <input
+              <textarea
                 aria-label="Title printed on the exam"
                 className="exam-title-input"
-                size={1}
+                rows={1}
                 value={furniture.title}
                 disabled={titleDisabled}
                 placeholder="Untitled Exam"
-                onChange={(event) => onTitleChange(event.target.value)}
+                spellCheck
+                onChange={(event) => onTitleChange(event.target.value.replace(/\s*\n\s*/g, ' '))}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === 'Escape') {
+                    event.preventDefault()
+                    event.currentTarget.blur()
+                  }
+                }}
               />
             </span>
           ) : (

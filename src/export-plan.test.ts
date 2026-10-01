@@ -2,8 +2,10 @@ import { describe, expect, test } from 'bun:test'
 import { DEFAULT_HEADER } from './page-header'
 import {
   CHOICE_AREA_WIDTH,
+  CHOICE_INDENT,
   FOOTER_HEIGHT,
   HEADER_HEIGHT,
+  headerHeightOf,
   PAGE_CONTENT_WIDTH,
   PAGE_HEIGHT,
   PAGE_MARGIN,
@@ -11,6 +13,7 @@ import {
   SECTION_INSTRUCTIONS,
   SECTION_TITLE,
   pageContentHeight,
+  readStoredLayoutPlan,
   isAnswerKeyHeader,
   buildExportDocument,
   numberLabelOf,
@@ -22,12 +25,23 @@ import {
   type ColumnCount,
   type Measure,
   type ExportContentSelection,
+  type LayoutPlan,
   type PlannedPage,
   type PageItem,
   type QuestionItem,
   type PlannedQuestion,
 } from './export-plan'
-import { DEFAULT_COLUMNS, type Exam, type Question, type Arrangement } from './exam'
+import {
+  DEFAULT_COLUMNS,
+  laidWorkSpaceHeight,
+  rowsIn,
+  storedWorkSpaceHeight,
+  workSpaceRows,
+  type Exam,
+  type Question,
+  type Arrangement,
+} from './exam'
+import { TITLE_LINE_HEIGHT, TITLE_PX } from './export-typography'
 import type { ProseMirrorJSON } from './question-doc'
 import { exportDocumentFingerprint } from './export-fingerprint'
 
@@ -610,7 +624,9 @@ describe('page geometry', () => {
     expect([PAGE_WIDTH, PAGE_HEIGHT]).toEqual([816, 1056])
     expect(PAGE_MARGIN).toBe(72)
     expect(PAGE_CONTENT_WIDTH).toBe(672)
-    expect(CHOICE_AREA_WIDTH).toBe(632)
+    // A Multiple Choice question's answers are set in from its stem.
+    expect(CHOICE_INDENT).toBe(18)
+    expect(CHOICE_AREA_WIDTH).toBe(632 - CHOICE_INDENT)
   })
 
   test('subtracts the header and footer from the content box', () => {
@@ -651,6 +667,25 @@ describe('answer key', () => {
       difficulty: 'hard',
       topics: ['Cells', 'Division'],
     })
+  })
+
+  test('a question that hides incorrect answers prints only the rest, lettered as they print, and its key agrees', () => {
+    const exam = examOf([multipleChoice('m1', ['a', 'b', 'c', 'd', 'e'], 'd')])
+    const arrangement = {
+      ...arrangementOf(['m1'], { m1: ['e', 'a', 'b', 'c', 'd'] }),
+      hiddenAnswers: { m1: ['a', 'c'] },
+    }
+    const [question] = plannedQuestions(render(exam, arrangement))
+    expect(question!.choices.map((c) => [c.letter, c.id])).toEqual([
+      ['A', 'e'],
+      ['B', 'b'],
+      ['C', 'd'],
+    ])
+    expect(gridRows(question!).flat().filter((cell) => cell !== '-')).toHaveLength(3)
+    expect(question!.answerVisibility).toEqual({ incorrect: 4, shown: 2 })
+    expect(keyItems(exam, arrangement)).toContainEqual(
+      expect.objectContaining({ kind: 'answer-key-entry', number: 1, letter: 'C' }),
+    )
   })
 
   test('starts fresh after the test and restarts footer numbering at one', () => {
@@ -1200,9 +1235,52 @@ describe('the Layout Plan', () => {
     expect(planOf().pageSize).toEqual({
       width: PAGE_WIDTH,
       height: PAGE_HEIGHT,
-      margin: PAGE_MARGIN,
+      margins: { top: PAGE_MARGIN, right: PAGE_MARGIN, bottom: PAGE_MARGIN, left: PAGE_MARGIN },
       contentWidth: PAGE_CONTENT_WIDTH,
     })
+  })
+
+  test('takes the Exam’s own margins, and packs and measures against them', () => {
+    const margins = { top: 1.5, right: 1, bottom: 1.5, left: 1.25 }
+    const widths = new Set<number | undefined>()
+    const measure: Measure = {
+      itemHeight: (item, layout) => {
+        widths.add(layout?.contentWidth)
+        return item.kind === 'question' ? 180 : 0
+      },
+    }
+    const questions = ['a', 'b', 'c', 'd', 'e'].map((id) => open(id))
+    const narrow = planExport({
+      exam: { ...examOf(questions), margins },
+      arrangement: arrangementOf(questions.map(({ id }) => id)),
+      selection: STUDENT_TEST,
+      measure,
+    })
+    expect(narrow.pageSize).toEqual({
+      width: PAGE_WIDTH,
+      height: PAGE_HEIGHT,
+      margins: { top: 144, right: 96, bottom: 144, left: 120 },
+      contentWidth: PAGE_WIDTH - 96 - 120,
+    })
+    expect([...widths]).toEqual([PAGE_WIDTH - 96 - 120])
+    // 1056 - 288 = 768 tall; less the first page's header and the footer
+    // leaves 648, which holds three 180px questions where today's 744 holds four.
+    expect(pageContentHeight('first', narrow.pageSize)).toBe(768 - HEADER_HEIGHT.first - FOOTER_HEIGHT)
+    expect(narrow.pages.map((page) => page.items.filter((item) => item.kind === 'question').length))
+      .toEqual([3, 2])
+    const usual = planExport({
+      exam: examOf(questions),
+      arrangement: arrangementOf(questions.map(({ id }) => id)),
+      selection: STUDENT_TEST,
+      measure,
+    })
+    expect(usual.pages.map((page) => page.items.filter((item) => item.kind === 'question').length))
+      .toEqual([4, 1])
+  })
+
+  test('a plan an Export Record kept from before margins could be set reads as the same sheet', () => {
+    const stored = { ...planOf(), pageSize: { width: 816, height: 1056, margin: 72, contentWidth: 672 } }
+    expect(readStoredLayoutPlan(stored as unknown as LayoutPlan).pageSize).toEqual(planOf().pageSize)
   })
 
   test('marks an explicit break before every page but the first', () => {
@@ -1358,7 +1436,7 @@ describe('work space', () => {
     return Math.floor(height / 32) * 32
   }
 
-  test('a Short Answer question carries the room its Exam gives it, ruled at the line pitch', () => {
+  test('a Short Answer question carries the room its Exam gives it, its first row shorter than the pitch', () => {
     const exam: Exam = {
       ...examOf([open('q1'), open('q2')]),
       workSpace: {
@@ -1367,13 +1445,16 @@ describe('work space', () => {
       },
     }
     const [first, second] = questionItems(render(exam))
-    expect(first!.workSpace).toEqual({ height: 160, style: 'lines', lines: 5, fill: false })
-    expect(second!.workSpace).toEqual({ height: 96, style: 'blank', lines: 0, fill: false })
+    // Five rows: the first 24px, so its rule sits close under the stem, and
+    // four more a 32px pitch apart.
+    expect(first!.workSpace).toEqual({ height: 152, style: 'lines', lines: 5, fill: false, pitch: 32, firstRow: 24 })
+    // Blank room is laid out in the same rows, so switching never moves a thing.
+    expect(second!.workSpace).toEqual({ height: 88, style: 'blank', lines: 0, fill: false, pitch: 32, firstRow: 24 })
   })
 
   test('a Short Answer question with no room still carries a zero-height space to drag open', () => {
     const [item] = questionItems(render(examOf([open('q1')])))
-    expect(item!.workSpace).toEqual({ height: 0, style: 'blank', lines: 0, fill: false })
+    expect(item!.workSpace).toMatchObject({ height: 0, style: 'blank', lines: 0, fill: false })
   })
 
   test('no other Question Type carries a work space, even when the Exam names one', () => {
@@ -1411,7 +1492,7 @@ describe('work space', () => {
     const [filled] = questionItems(pages)
     const expected = 64 + Math.floor(FIRST_BOX - 50 - 100 - 64 - 1)
     expect(filled!.workSpace!.height).toBe(expected)
-    expect(filled!.workSpace!.lines).toBe(Math.floor(expected / 32))
+    expect(filled!.workSpace!.lines).toBe(1 + Math.floor((expected - 24) / 32))
     expect(50 + 100 + filled!.workSpace!.height).toBeLessThanOrEqual(FIRST_BOX)
   })
 
@@ -1446,7 +1527,7 @@ describe('work space', () => {
     const pieces = questionItems(testPages(planPages(exam, arrangementOf(), measured(100))))
     expect(pieces.length).toBeGreaterThan(1)
     expect(pieces.slice(0, -1).every((piece) => piece.workSpace === null)).toBe(true)
-    expect(pieces.at(-1)!.workSpace).toEqual({ height: 128, style: 'lines', lines: 4, fill: false })
+    expect(pieces.at(-1)!.workSpace).toMatchObject({ height: 120, style: 'lines', lines: 4, fill: false })
   })
 
   test('the answer key is unaffected by work space', () => {
@@ -1658,5 +1739,80 @@ describe('stored Question Sections', () => {
       ['C', 'Bonus'],
       ['B', 'Short Answer'],
     ])
+  })
+})
+
+describe('a title that wraps', () => {
+  // Every item 100px tall, and a title of `lines` lines.
+  const wrapping = (lines: number): Measure => ({ itemHeight: () => 100, titleLines: () => lines })
+  const exam = (count: number): Exam => ({
+    ...examOf(Array.from({ length: count }, (_unused, index) => open(`q${index}`))),
+    title: 'A title long enough that the sheet must set it on more than one line',
+  })
+
+  test('grows the header of every page that prints it by a title line for each line past the first', () => {
+    const pages = planPages(exam(1), arrangementOf(), wrapping(3))
+    const growth = Math.ceil(2 * TITLE_PX.normal * TITLE_LINE_HEIGHT)
+    for (const page of pages) {
+      const printsTitle = page.header === 'first' || page.header === 'answer-key'
+      expect(page.furniture.titleLines).toBe(printsTitle ? 3 : undefined)
+      expect(headerHeightOf(page.header, page.furniture)).toBe(HEADER_HEIGHT[page.header] + (printsTitle ? growth : 0))
+    }
+    // At a larger heading size, each line is taller.
+    const large = planExport({
+      exam: { ...exam(1), headingSize: 'large' },
+      arrangement: arrangementOf(),
+      selection: WHOLE_DOCUMENT,
+      measure: wrapping(2),
+    }).pages[0]!
+    expect(headerHeightOf(large.header, large.furniture)).toBe(HEADER_HEIGHT.first + Math.ceil(TITLE_PX.large * TITLE_LINE_HEIGHT))
+  })
+
+  test('leaves its first page, and the key’s, less room to pack, so what follows moves on', () => {
+    // Items exactly as tall as fill a first page's room eight times over.
+    const height = pageContentHeight('first') / 8
+    const measure = (lines: number): Measure => ({ itemHeight: () => height, titleLines: () => lines })
+    expect(testPages(planPages(exam(12), arrangementOf(), measure(1)))[0]!.items).toHaveLength(8)
+    expect(testPages(planPages(exam(12), arrangementOf(), measure(3)))[0]!.items).toHaveLength(7)
+    // Later pages, which do not print it, keep their room.
+    expect(pageContentHeight('later', undefined, 60)).toBe(pageContentHeight('later'))
+    expect(pageContentHeight('first', undefined, 60)).toBe(pageContentHeight('first') - 60)
+    expect(pageContentHeight('answer-key', undefined, 60)).toBe(pageContentHeight('answer-key') - 60)
+  })
+
+  test('changes nothing on one line, or when nothing measures it', () => {
+    for (const measure of [wrapping(1), { itemHeight: () => 100 }]) {
+      const [first] = planPages(exam(1), arrangementOf(), measure)
+      expect(first!.furniture).not.toHaveProperty('titleLines')
+      expect(headerHeightOf(first!.header, first!.furniture)).toBe(HEADER_HEIGHT.first)
+    }
+  })
+})
+
+describe('a Work Space’s rows', () => {
+  const rows = workSpaceRows()
+
+  test('lie a pitch apart, the first a quarter shorter, so its rule sits close under the question', () => {
+    expect(rows).toEqual({ pitch: 32, first: 24 })
+    expect(workSpaceRows(24)).toEqual({ pitch: 24, first: 18 })
+    expect(laidWorkSpaceHeight(0, rows)).toBe(0)
+    expect(laidWorkSpaceHeight(32, rows)).toBe(24)
+    expect(laidWorkSpaceHeight(96, rows)).toBe(24 + 32 + 32)
+    expect(laidWorkSpaceHeight(96, workSpaceRows(24))).toBe(18 + 24 + 24)
+  })
+
+  test('count back from a height on the page, which is how a dragged height is stored', () => {
+    for (const pitch of [32, 24]) {
+      const laid = workSpaceRows(pitch)
+      for (const stored of [0, 32, 64, 96, 320]) {
+        expect(storedWorkSpaceHeight(laidWorkSpaceHeight(stored, laid), laid)).toBe(stored)
+        expect(rowsIn(laidWorkSpaceHeight(stored, laid), laid)).toBe(stored / 32)
+      }
+    }
+    // A drag snaps to the nearest whole row, and no further than the page allows.
+    expect(storedWorkSpaceHeight(24 + 32 + 10, rows)).toBe(64)
+    expect(storedWorkSpaceHeight(24 + 32 + 20, rows)).toBe(96)
+    expect(storedWorkSpaceHeight(5, rows)).toBe(0)
+    expect(storedWorkSpaceHeight(10_000, rows, 24 + 32 * 9)).toBe(320)
   })
 })

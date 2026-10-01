@@ -583,7 +583,7 @@ function PopOverBank({
       if (inField()) return
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'a') {
         event.preventDefault()
-        orderedIds.forEach((id, index) => (index === 0 ? selection.select(id) : selection.toggle(id)))
+        selection.selectAll(orderedIds)
       } else if (event.key === 'Escape') {
         selection.clear()
       }

@@ -6,7 +6,7 @@ import type { ZipFiles } from './question-formats/types'
  * The zip a Test Parrot Package travels in (ADR-0036): `parrot.json` at its
  * root, an ordinary package, and each picture it needs as a file of its own
  * under `media/`, named by its hash. Nothing about the zip is in the package:
- * a Media Asset of Question Bank Record 0.8.0 names its `file`, and the zip is
+ * a Media Asset of Question Bank Record 0.8.0 or later names its `file`, and the zip is
  * only where that file is found.
  *
  * The same zip is attached to every Question Bank File and to every Exam PDF

@@ -12,11 +12,18 @@
 // into a `QuestionReadingContent`; the document fragments are already editor
 // nodes by the time they arrive.
 
-import { Check } from 'lucide-react'
+import { Check, Lock } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { DifficultyBadge, TopicBadge } from './badges'
 import { DocView } from './doc-view'
 import type { QuestionReadingContent } from './question-reading-content'
+
+/** A Locked Answer's mark: it keeps its letter when answers are shuffled. */
+function LockMark() {
+  return <Lock className="question-reading-locked" role="img" aria-label="Locked answer">
+    <title>Locked: keeps its letter when answers are shuffled</title>
+  </Lock>
+}
 
 /** A bank has no order, so its Questions carry no number. */
 export function QuestionReading({
@@ -43,6 +50,7 @@ export function QuestionReading({
             {choice.correct && (
               <Check className="question-reading-correct" role="img" aria-label="Correct answer" />
             )}
+            {choice.locked && <LockMark />}
           </li>
         ))}
       </ol>
@@ -92,6 +100,7 @@ export function QuestionReading({
                     {choice.correct && (
                       <Check className="question-reading-correct" role="img" aria-label="Correct answer" />
                     )}
+                    {choice.locked && <LockMark />}
                   </li>
                 ))}
               </ol>

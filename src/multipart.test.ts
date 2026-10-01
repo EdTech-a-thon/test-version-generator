@@ -211,7 +211,7 @@ describe('a Multipart question on the paper', () => {
     const doc = buildExportDocument(withSpace, arrangementOf(['o1', 's1', 'o2']), STUDENT_TEST)
     const question = doc.test.flatMap((item) => (item.kind === 'question' ? [item.question] : []))
       .find(({ id }) => id === 's1')!
-    expect(question.parts?.[1]!.workSpace).toMatchObject({ height: 96, style: 'lines', lines: 3 })
+    expect(question.parts?.[1]!.workSpace).toMatchObject({ height: 88, style: 'lines', lines: 3 })
   })
 })
 

@@ -292,6 +292,62 @@ const COMPOSITE_EXAM: Exam = {
   ],
 }
 
+// One question of every type, for the Question Style fixtures. The Short
+// Answer Part has a Work Space of its own, which wins over a style's lines;
+// the Short Answer question has none, so a style's lines show there.
+const QUESTION_STYLE_EXAM: Exam = {
+  title: 'Question Styles',
+  questions: [
+    multipleChoice(
+      'ys-mc',
+      1,
+      [paragraph(text('Which gas do plants take in?'))],
+      [
+        choice('ys-mc-a', false, paragraph(text('Oxygen'))),
+        choice('ys-mc-b', true, paragraph(text('Carbon dioxide'))),
+        choice('ys-mc-c', false, paragraph(text('Helium'))),
+        choice('ys-mc-d', false, paragraph(text('Neon'))),
+      ],
+    ),
+    trueFalse('ys-tf', [paragraph(text('Roots absorb water.'))], 'true'),
+    matching(
+      'ys-mx',
+      [paragraph(text('Match each part to its job.'))],
+      [
+        prompt('ys-mx-p1', 'ys-mx-a2', paragraph(text('Leaf'))),
+        prompt('ys-mx-p2', 'ys-mx-a1', paragraph(text('Root'))),
+      ],
+      [
+        bankAnswer('ys-mx-a1', paragraph(text('Takes up water'))),
+        bankAnswer('ys-mx-a2', paragraph(text('Makes food'))),
+        bankAnswer('ys-mx-a3', paragraph(text('Holds seeds'))),
+      ],
+    ),
+    open('ys-sa', paragraph(text('Name one thing a plant needs to grow.'))),
+    multipart(
+      'ys-mp',
+      [paragraph(text('A seed is planted in dry soil.'))],
+      [
+        part(
+          'ys-mp-a',
+          [paragraph(text('What does it need first?'))],
+          choicesOf(
+            choice('ys-mp-a1', true, paragraph(text('Water'))),
+            choice('ys-mp-a2', false, paragraph(text('Shade'))),
+          ),
+          1,
+        ),
+        part(
+          'ys-mp-b',
+          [paragraph(text('Explain why.'))],
+          suggestedAnswer(paragraph(text('It cannot sprout without it.'))),
+        ),
+      ],
+    ),
+  ],
+  workSpace: { 'ys-mp-b': { height: 64, style: 'blank', fill: false } },
+}
+
 export const FIXTURES: readonly Fixture[] = [
   // A Multipart question is the one shape that takes one number for several questions:
   // the material prints under the number, and each Part prints lettered
@@ -616,6 +672,30 @@ export const FIXTURES: readonly Fixture[] = [
       textSize: 'large',
     },
     arrangement(['m1']),
+    { answerKey: true },
+  ),
+
+  // An Exam's own Page Margins, a different one on each side: every adapter
+  // cuts the sheet the plan packed against.
+  fixture(
+    'an exam with its own page margins',
+    {
+      title: 'Own margins',
+      questions: [
+        multipleChoice(
+          'm1',
+          2,
+          [paragraph(text('Which particle is neutral?'))],
+          [
+            choice('m1-a', false, paragraph(text('Proton'))),
+            choice('m1-b', true, paragraph(text('Neutron'))),
+          ],
+        ),
+        open('o1', paragraph(text('Explain osmosis.'))),
+      ],
+      margins: { top: 1, right: 0.6, bottom: 1.25, left: 0.85 },
+    },
+    arrangement(['m1', 'o1']),
     { answerKey: true },
   ),
 
@@ -1358,5 +1438,24 @@ export const FIXTURES: readonly Fixture[] = [
       answerKey: true,
       measure: stubHeights({ m1: 300, m2: 300, o1: 300 }),
     },
+  ),
+
+  // Each Question Style over every Question Type, so every adapter prints its
+  // blanks, its letters, its Word Bank and its default Work Space the way the
+  // plan resolved them. Two questions to a page, so the PDF has room to draw
+  // them; Condensed's measure fits every answer four across.
+  ...(['classic', 'condensed'] as const).map((questionStyle) =>
+    fixture(
+      `every question type in the ${questionStyle} question style`,
+      { ...QUESTION_STYLE_EXAM, title: `${questionStyle} style`, questionStyle },
+      arrangement(['ys-mc', 'ys-tf', 'ys-mx', 'ys-sa', 'ys-mp']),
+      {
+        answerKey: true,
+        measure: {
+          itemHeight: (item: PageItem) => (item.kind === 'question' ? 330 : 40),
+          ...(questionStyle === 'condensed' ? { choiceWidth: () => 80 } : {}),
+        },
+      },
+    ),
   ),
 ]

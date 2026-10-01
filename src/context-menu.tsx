@@ -50,6 +50,11 @@ export type MenuItem =
       checked: boolean
       onSelect: () => void
       icon?: ReactNode
+      /** A line under the label saying what choosing it does. */
+      description?: string
+      /** A small decorative picture of what choosing it looks like, drawn in
+       *  place of the icon, wider than one; the label still says it. */
+      preview?: ReactNode
     }
   // An option that is on or off on its own, beside rather than among a set of
   // radios. Its leading slot is its icon; the tick sits where a radio's dot does.
@@ -66,6 +71,12 @@ export type MenuItem =
       label: string
       items: readonly SubmenuItem[]
       icon?: ReactNode
+      /** What is chosen in it now, shown beside the label. */
+      value?: string
+      /** Shown but not openable, with `description` saying why. */
+      disabled?: boolean
+      /** A line under the label, such as why it is disabled. */
+      description?: string
     }
   | { kind: 'label'; label: string }
   | { kind: 'separator' }
@@ -85,6 +96,17 @@ function lastFocusableIndex(items: readonly MenuItem[]): number {
     if (isFocusable(items[index]!)) return index
   }
   return -1
+}
+
+/** A row's label, and the line under it that says what choosing it does. */
+function ItemLabel({ label, description }: { label: string; description?: string }) {
+  if (!description) return <span className="context-menu-item-label">{label}</span>
+  return (
+    <span className="context-menu-item-label">
+      {label}
+      <span className="context-menu-item-description">{description}</span>
+    </span>
+  )
 }
 
 // How close to the viewport edge the menu may sit before it is pushed back in.
@@ -149,8 +171,11 @@ export function ContextMenu({
   // Roving tabindex: exactly one row is tabbable and it is the one that holds
   // focus, so arrow keys move a real focus ring rather than a painted-on one.
   useEffect(() => {
-    if (active >= 0) itemElements.current[active]?.focus()
-    else menu.current?.focus()
+    if (active < 0) {
+      menu.current?.focus()
+      return
+    }
+    itemElements.current[active]?.focus()
   }, [active])
 
   useEffect(() => {
@@ -221,11 +246,13 @@ export function ContextMenu({
         event.stopPropagation()
         onClose()
         break
-      case 'ArrowRight':
-        if (items[active]?.kind !== 'submenu') break
+      case 'ArrowRight': {
+        const item = items[active]
+        if (item?.kind !== 'submenu') break
         event.preventDefault()
         setOpenSubmenu(active)
         break
+      }
       case 'Tab':
         event.preventDefault()
         onClose()
@@ -306,6 +333,7 @@ export function ContextMenu({
               key={index}
               className="context-menu-submenu"
               onMouseEnter={() => {
+                if (item.disabled) return
                 cancelSubmenuClose()
                 setActive(index)
                 setOpenSubmenu(index)
@@ -327,13 +355,18 @@ export function ContextMenu({
                 aria-expanded={open}
                 className="context-menu-item"
                 tabIndex={index === active ? 0 : -1}
+                disabled={item.disabled}
                 onFocus={() => setActive(index)}
-                onClick={() => setOpenSubmenu(open ? null : index)}
+                // Opens, never toggles: a pointer has already opened it by
+                // hovering on its way to the click, which would otherwise
+                // close it again under the hand that asked for it.
+                onClick={() => setOpenSubmenu(index)}
               >
                 <span className="context-menu-icon" aria-hidden="true">
                   {item.icon}
                 </span>
-                <span className="context-menu-item-label">{item.label}</span>
+                <ItemLabel label={item.label} description={item.description} />
+                {item.value && <span className="context-menu-item-value">{item.value}</span>}
                 <span className="context-menu-submenu-arrow" aria-hidden="true">›</span>
               </button>
               {open && (
@@ -360,10 +393,19 @@ export function ContextMenu({
                         onClose()
                       }}
                     >
-                      <span className="context-menu-icon" aria-hidden="true">
-                        {child.icon}
-                      </span>
-                      <span className="context-menu-item-label">{child.label}</span>
+                      {child.kind === 'radio' && child.preview ? (
+                        <span className="context-menu-preview" aria-hidden="true">
+                          {child.preview}
+                        </span>
+                      ) : (
+                        <span className="context-menu-icon" aria-hidden="true">
+                          {child.icon}
+                        </span>
+                      )}
+                      <ItemLabel
+                        label={child.label}
+                        description={child.kind === 'radio' ? child.description : undefined}
+                      />
                       {child.kind === 'radio' && (
                         <span className="context-menu-radio-indicator" aria-hidden="true">
                           {child.checked && <span className="context-menu-dot" />}
@@ -414,13 +456,20 @@ export function ContextMenu({
               onClose()
             }}
           >
-            <span
-              className={item.kind === 'radio' ? 'context-menu-format-icon' : 'context-menu-icon'}
-              aria-hidden="true"
-            >
-              {item.icon}
-            </span>
-            <span className="context-menu-item-label">{item.label}</span>
+            {item.kind === 'radio' && item.preview ? (
+              <span className="context-menu-preview" aria-hidden="true">{item.preview}</span>
+            ) : (
+              <span
+                className={item.kind === 'radio' ? 'context-menu-format-icon' : 'context-menu-icon'}
+                aria-hidden="true"
+              >
+                {item.icon}
+              </span>
+            )}
+            <ItemLabel
+              label={item.label}
+              description={item.kind === 'radio' ? item.description : undefined}
+            />
             {item.kind === 'radio' && (
               <span className="context-menu-radio-indicator" aria-hidden="true">
                 {item.checked && <span className="context-menu-dot" />}

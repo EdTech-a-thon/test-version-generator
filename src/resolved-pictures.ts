@@ -263,3 +263,23 @@ export async function storedPicture(asset: MediaAssetDeclaration): Promise<strin
   const { saveImage } = await import('./local-images')
   return saveImage(new Blob([asset.bytes.slice()], { type: asset.mimeType }))
 }
+
+/**
+ * The pictures a teacher had in place before dropping an assistant's
+ * corrected file, kept for the Pending Images the corrected file still has
+ * at the same place, naming the same tag or page. One that moved, or names
+ * something else now, is found again from the Source Document like any other.
+ */
+export function carriedResolutions(
+  resolutions: Resolutions,
+  before: readonly Pick<PendingImageOccurrence, 'key' | 'pending'>[],
+  after: readonly Pick<PendingImageOccurrence, 'key' | 'pending'>[],
+): Resolutions {
+  const named = new Map(before.map(({ key, pending }) => [key, JSON.stringify(pending)]))
+  const carried = new Map<string, ResolvedPicture>()
+  for (const { key, pending } of after) {
+    const picture = resolutions.get(key)
+    if (picture && named.get(key) === JSON.stringify(pending)) carried.set(key, picture)
+  }
+  return carried
+}

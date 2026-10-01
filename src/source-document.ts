@@ -1,7 +1,7 @@
 import fontkit from '@pdf-lib/fontkit'
 import { PDFDocument, rgb } from 'pdf-lib'
 import type { PdfFontLoader } from './pdf-export'
-import { drawnFigures, type DrawnPath } from './drawn-figures'
+import { drawnFigures, type DrawnPath, type Words } from './drawn-figures'
 import { isPicture, type PageBox } from './picture-rules'
 
 /**
@@ -130,16 +130,46 @@ const multiply = (a: Matrix, b: readonly number[]): Matrix => [
 
 type Placement = { box: PageBox; object: string | { width: number; height: number; kind?: number; data?: Uint8ClampedArray } }
 
-/** pdf.js's path segments: each code is followed by its points. */
+/** pdf.js's path segments, its DrawOPS: moveTo, lineTo, curveTo,
+ *  quadraticCurveTo and closePath, each followed by its points. A PDF's
+ *  `v` and `y` curves arrive as curveTo. */
 const SEGMENT_LENGTH = [3, 3, 7, 5, 1] as const
+const MOVE_TO = 0
+const LINE_TO = 1
+const CLOSE_PATH = 4
 const CURVES = new Set([2, 3])
+/** A line within about 6° of level or plumb is axis-aligned: a rule, a
+ *  table's border or a box's side, not a bond. */
+const SLANT = 0.1
 
-function curvesIn(path: ArrayLike<number> | undefined): number {
+/** How many curves a path has, and how many of its straight lines — closing
+ *  lines included — slant or run level or plumb, measured in the page's own
+ *  directions through the transform `matrix`. */
+function segmentsOf(path: ArrayLike<number> | undefined, matrix: readonly number[]) {
   let curves = 0
-  for (let at = 0; path && at < path.length; at += SEGMENT_LENGTH[path[at] as 0] ?? 1) {
-    if (CURVES.has(path[at]!)) curves += 1
+  let diagonals = 0
+  let straights = 0
+  let at = [0, 0]
+  let start = [0, 0]
+  const line = (to: number[]) => {
+    const dx = to[0]! - at[0]!
+    const dy = to[1]! - at[1]!
+    const across = Math.abs(matrix[0]! * dx + matrix[2]! * dy)
+    const down = Math.abs(matrix[1]! * dx + matrix[3]! * dy)
+    if (Math.min(across, down) > SLANT * Math.max(across, down)) diagonals += 1
+    else if (across || down) straights += 1
   }
-  return curves
+  for (let index = 0; path && index < path.length; ) {
+    const code = path[index]!
+    const length = SEGMENT_LENGTH[code as 0] ?? 1
+    const end = length > 1 ? [path[index + length - 2]!, path[index + length - 1]!] : start
+    if (CURVES.has(code)) curves += 1
+    else if (code === LINE_TO || code === CLOSE_PATH) line(end)
+    if (code === MOVE_TO) start = end
+    at = end
+    index += length
+  }
+  return { curves, diagonals, straights }
 }
 
 /** Where a box in a coordinate space lands on the page, as a PageBox. */
@@ -155,18 +185,32 @@ function landing(viewport: ReturnType<PdfPage['getViewport']>, matrix: readonly 
   return { left: Math.min(...xs), top: Math.min(...ys), right: Math.max(...xs), bottom: Math.max(...ys) }
 }
 
-/** Every image painted on a page, in paint order, where it lands, and every
- *  path painted on it. */
-async function placementsOf(page: PdfPage, pdfjs: Pdfjs): Promise<{ placements: Placement[]; paths: DrawnPath[] }> {
+/** Every image painted on a page, in paint order, where it lands; every path
+ *  painted on it; and every stencil mask, which paints only ink — a drawing
+ *  program can paint its atom labels as these rather than as text. */
+async function placementsOf(
+  page: PdfPage,
+  pdfjs: Pdfjs,
+): Promise<{ placements: Placement[]; paths: DrawnPath[]; marks: Words[] }> {
   const viewport = page.getViewport({ scale: 1 })
   const operators = await page.getOperatorList()
   const OPS = pdfjs.OPS
   const placements: Placement[] = []
   const paths: DrawnPath[] = []
+  const marks: Words[] = []
+  const stencils: { matrix: Matrix; mask: Stencil }[] = []
   let ctm: Matrix = [1, 0, 0, 1, 0, 0]
   const stack: Matrix[] = []
+  const strokes = new Set([
+    OPS.stroke,
+    OPS.closeStroke,
+    OPS.fillStroke,
+    OPS.eoFillStroke,
+    OPS.closeFillStroke,
+    OPS.closeEOFillStroke,
+  ])
   const place = (matrix: Matrix, object: Placement['object']) => {
-    placements.push({ box: landing(viewport, matrix, [[0, 0], [1, 0], [0, 1], [1, 1]]), object })
+    placements.push({ box: landing(viewport, matrix, UNIT), object })
   }
   for (let index = 0; index < operators.fnArray.length; index += 1) {
     const operator = operators.fnArray[index]
@@ -186,7 +230,8 @@ async function placementsOf(page: PdfPage, pdfjs: Pdfjs): Promise<{ placements: 
       const [x0, y0, x1, y1] = Array.from(extent) as [number, number, number, number]
       paths.push({
         box: landing(viewport, ctm, [[x0, y0], [x1, y0], [x0, y1], [x1, y1]]),
-        curves: paint === OPS.endPath ? 0 : curvesIn(data),
+        ...(paint === OPS.endPath ? { curves: 0, diagonals: 0, straights: 0 } : segmentsOf(data, ctm)),
+        stroked: strokes.has(paint),
       })
     } else if (operator === OPS.paintImageXObject) place(ctm, args[0] as string)
     else if (operator === OPS.paintInlineImageXObject) place(ctm, args[0] as Placement['object'] & object)
@@ -195,9 +240,70 @@ async function placementsOf(page: PdfPage, pdfjs: Pdfjs): Promise<{ placements: 
       for (let at = 0; at < positions.length; at += 2) {
         place(multiply(ctm, [scaleX, 0, 0, scaleY, positions[at]!, positions[at + 1]!]), object)
       }
+    } else if (operator === OPS.paintSolidColorImageMask) marks.push(landing(viewport, ctm, UNIT))
+    else if (operator === OPS.paintImageMaskXObject) stencils.push({ matrix: ctm, mask: args[0] as Stencil })
+    else if (operator === OPS.paintImageMaskXObjectGroup) {
+      for (const mask of args[0] as (Stencil & { transform: number[] })[])
+        stencils.push({ matrix: multiply(ctm, mask.transform), mask })
+    } else if (operator === OPS.paintImageMaskXObjectRepeat) {
+      const [mask, scaleX, skewX, skewY, scaleY, positions] = args as [Stencil, number, number, number, number, number[]]
+      for (let at = 0; at < positions.length; at += 2) {
+        stencils.push({ matrix: multiply(ctm, [scaleX, skewX, skewY, scaleY, positions[at]!, positions[at + 1]!]), mask })
+      }
     }
   }
-  return { placements, paths }
+  for (const { matrix, mask } of stencils) {
+    const ink = inkOf(typeof mask.data === 'string' ? await resolveObject(page, mask.data) : mask)
+    if (ink) marks.push({ ...landing(viewport, matrix, ink.corners), ...(ink.plus && { text: '+' }) })
+  }
+  return { placements, paths, marks }
+}
+
+type Stencil = { data?: string | ArrayLike<number>; width: number; height: number }
+
+const UNIT: [number, number][] = [[0, 0], [1, 0], [0, 1], [1, 1]]
+
+/** A plus sign's two bars each lie within this share of its middle. */
+const PLUS_BAR = 0.2
+
+/**
+ * The corners, in the unit square a stencil mask is painted into, of the part
+ * it inks — its bitmap is padded with blank rows and columns, and a clear bit
+ * paints — and whether that ink is a plus sign, the one character a reaction
+ * row needs read: a square of ink that is all middle row and middle column.
+ * Nothing when it inks nothing.
+ */
+function inkOf({ data, width, height }: Stencil): { corners: [number, number][]; plus: boolean } | undefined {
+  if (!data || typeof data === 'string' || !width || !height) return undefined
+  const rowBytes = (width + 7) >> 3
+  const inked = (x: number, y: number) => !((data[y * rowBytes + (x >> 3)]! >> (7 - (x & 7))) & 1)
+  let left = width
+  let right = -1
+  let top = height
+  let bottom = -1
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      if (!inked(x, y)) continue
+      left = Math.min(left, x)
+      right = Math.max(right, x)
+      top = Math.min(top, y)
+      bottom = Math.max(bottom, y)
+    }
+  }
+  if (right < 0) return undefined
+  const across = right - left + 1
+  const down = bottom - top + 1
+  let plus = across >= 5 && down >= 5 && across < down * 1.5 && down < across * 1.5
+  for (let y = top; plus && y <= bottom; y += 1) {
+    for (let x = left; plus && x <= right; x += 1) {
+      const middleColumn = Math.abs(x - (left + right) / 2) <= across * PLUS_BAR
+      const middleRow = Math.abs(y - (top + bottom) / 2) <= down * PLUS_BAR
+      if (inked(x, y) && !middleColumn && !middleRow) plus = false
+    }
+  }
+  // The bitmap's first row is the top of the square, where v is 1.
+  const [u0, u1, v0, v1] = [left / width, (right + 1) / width, 1 - (bottom + 1) / height, 1 - top / height]
+  return { corners: [[u0, v0], [u1, v0], [u0, v1], [u1, v1]], plus }
 }
 
 type TextItems = Awaited<ReturnType<PdfPage['getTextContent']>>['items']
@@ -217,10 +323,10 @@ async function textItemsOf(page: PdfPage): Promise<TextItems> {
   }
 }
 
-/** Where each run of a page's text lands. */
-async function textBoxesOf(page: PdfPage): Promise<PageBox[]> {
+/** Where each run of a page's text lands, and what it says. */
+async function textBoxesOf(page: PdfPage): Promise<Words[]> {
   const viewport = page.getViewport({ scale: 1 })
-  const boxes: PageBox[] = []
+  const boxes: Words[] = []
   for (const item of await textItemsOf(page)) {
     if (!('str' in item) || !item.str.trim()) continue
     // The run's baseline and height, along its own direction, so a label set
@@ -230,14 +336,15 @@ async function textBoxesOf(page: PdfPage): Promise<PageBox[]> {
     const up = Math.hypot(c!, d!) || 1
     const run: [number, number] = [(a! / along) * item.width, (b! / along) * item.width]
     const rise: [number, number] = [(c! / up) * item.height, (d! / up) * item.height]
-    boxes.push(
-      landing(viewport, [1, 0, 0, 1, 0, 0], [
+    boxes.push({
+      ...landing(viewport, [1, 0, 0, 1, 0, 0], [
         [e!, f!],
         [e! + run[0], f! + run[1]],
         [e! + rise[0], f! + rise[1]],
         [e! + run[0] + rise[0], f! + run[1] + rise[1]],
       ]),
-    )
+      text: item.str.trim(),
+    })
   }
   return boxes
 }
@@ -273,10 +380,10 @@ const round = (value: number) => Math.round(value * 100) / 100
 type PagePicture = Placement | { box: PageBox; drawn: true }
 
 async function pagePictures(page: PdfPage, pdfjs: Pdfjs): Promise<PagePicture[]> {
-  const { placements, paths } = await placementsOf(page, pdfjs)
+  const { placements, paths, marks } = await placementsOf(page, pdfjs)
   const drawn = drawnFigures(
     paths,
-    await textBoxesOf(page),
+    [...(await textBoxesOf(page)), ...marks],
     placements.map((placement) => placement.box),
   ).map((box) => ({ box, drawn: true as const }))
   return readingOrder([...placements.filter((placement) => isPicture(placement.box)), ...drawn])

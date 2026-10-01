@@ -13,6 +13,7 @@
 import {
   choiceIdOf,
   choiceIsCorrect,
+  choiceIsLocked,
   choiceNodesOf,
   emptyDoc,
   matchingBankNodesOf,
@@ -34,6 +35,8 @@ import {
   type TextSize,
 } from './section-headings'
 import type { ExamHeader } from './page-header'
+import type { PageMargins } from './page-margins'
+import { questionStyleRules, type QuestionStyle } from './question-style'
 import { newMatchingNode } from './matching'
 import { newMultipartPartsNode } from './multipart'
 
@@ -125,6 +128,10 @@ export type Exam = {
    *  Question may want a quarter page on one test and none on another. Absent
    *  means no work space anywhere. */
   workSpace?: Record<string, WorkSpace>
+  /** Where each Matching question's Word Bank prints, keyed by question id.
+   *  Exam presentation like answer columns, stored for every Matching
+   *  position. See `wordBankLayoutOf` in export-plan.ts. */
+  wordBankLayout?: Record<string, WordBankLayout>
   /** This Exam's Question Sections, in the order they print. Absent on an Exam
    *  written before Sections were stored: its Sections are then derived, one
    *  per Question Type (see `sectionsOf`). */
@@ -141,9 +148,17 @@ export type Exam = {
   headingSize?: HeadingSize
   /** How large its questions and answers print. Absent means `'normal'`. */
   textSize?: TextSize
+  /** How every question on it prints: what goes before a number, how answers
+   *  are lettered and laid out, what room a Short Answer position leaves when
+   *  the teacher has set none. See `question-style.ts`. Absent means
+   *  `'standard'`. */
+  questionStyle?: QuestionStyle
   /** This Exam's own test-page header lines, where they depart from the
    *  default blanks. See `page-header.ts`. */
   header?: ExamHeader
+  /** How far in from each edge its pages print, in inches, where it departs
+   *  from the default. See `page-margins.ts`. */
+  margins?: PageMargins
 }
 
 /** What a work space prints as: an empty area, or ruled writing lines. */
@@ -151,9 +166,12 @@ export type WorkSpaceStyle = 'blank' | 'lines'
 
 /** The room a Short Answer question leaves below itself for a student's work.
  *
- *  `height` is in CSS pixels at 96dpi, the unit the Layout Plan packs in, and
- *  is always a whole number of `WORK_SPACE_LINE_PITCH`s so that switching
- *  between blank and lined never moves anything on the page. `fill` stretches
+ *  `height` is in CSS pixels at 96dpi, and is always a whole number of
+ *  `WORK_SPACE_LINE_PITCH`s: it stores how many rows of room the teacher
+ *  asked for, so switching between blank and lined never moves anything on
+ *  the page. The page lays those rows out by the Exam's Question Style
+ *  (`workSpaceRowsOf`, `laidWorkSpaceHeight`), so a style that sets them
+ *  closer together never rewrites what is stored. `fill` stretches
  *  the space to the foot of whatever page the question lands on — `height` is
  *  then the least room it takes, which is what decides whether the question
  *  still fits on the page it is on. */
@@ -164,8 +182,57 @@ export type WorkSpace = {
 }
 
 /** The distance between two ruled lines: a third of an inch, the wide-ruled
- *  spacing a student's handwriting is comfortable in. Heights snap to it. */
+ *  spacing a student's handwriting is comfortable in. Stored heights snap to
+ *  it, one row each, whatever pitch the page lays them out at. */
 export const WORK_SPACE_LINE_PITCH = 32
+
+/** How a Work Space's rows lie on the page: `pitch` apart, the first of them
+ *  `first` tall, so its first rule sits `first` below the question. */
+export type WorkSpaceRows = { pitch: number; first: number }
+
+/** How much shorter than the others a Work Space's first row is, as a share
+ *  of the pitch: a quarter, 8px at the sheet's 32px. The question's last line
+ *  of text already ends below its letters, so a full first row left more room
+ *  between the stem and its first rule than between any two rules, and the
+ *  stem read as belonging to the lines above it as much as to its own. A
+ *  quarter of a row is about the x-height of the 15px body type — the part of
+ *  a written line a student never needs above the first rule. */
+export const FIRST_ROW_INSET = 0.25
+
+/** A Work Space's rows at `pitch` apart, its first row shortened. */
+export function workSpaceRows(pitch: number = WORK_SPACE_LINE_PITCH): WorkSpaceRows {
+  return { pitch, first: pitch * (1 - FIRST_ROW_INSET) }
+}
+
+/** The rows a Work Space lies in under an Exam's Question Style. */
+export function workSpaceRowsOf(style: QuestionStyle | undefined): WorkSpaceRows {
+  return workSpaceRows(questionStyleRules(style).workSpacePitch)
+}
+
+/** The height a stored Work Space takes on the page: as many rows as it
+ *  stores, `rows.pitch` apart, the first one shorter. No room is no height. */
+export function laidWorkSpaceHeight(stored: number, rows: WorkSpaceRows): number {
+  const count = Math.round(Math.max(0, stored) / WORK_SPACE_LINE_PITCH)
+  return count > 0 ? rows.first + (count - 1) * rows.pitch : 0
+}
+
+/** How many whole rows — and so, when it is ruled, how many rules — fit in a
+ *  height laid out in `rows`. */
+export function rowsIn(height: number, rows: WorkSpaceRows): number {
+  return height >= rows.first ? 1 + Math.floor((height - rows.first) / rows.pitch) : 0
+}
+
+/** The stored height of the whole rows nearest a height on the page, such as
+ *  one a teacher drags to, kept to the rows that fit in `max`. The inverse of
+ *  `laidWorkSpaceHeight`. */
+export function storedWorkSpaceHeight(
+  height: number,
+  rows: WorkSpaceRows,
+  max = Infinity,
+): number {
+  const nearest = Math.max(0, Math.round((height - rows.first) / rows.pitch) + 1)
+  return Math.min(nearest, rowsIn(max, rows)) * WORK_SPACE_LINE_PITCH
+}
 
 /** A question with no room for work: nothing prints below it. */
 export const NO_WORK_SPACE: WorkSpace = { height: 0, style: 'blank', fill: false }
@@ -200,10 +267,41 @@ export function isWorkSpace(value: unknown): value is WorkSpace {
 
 /** A question's work space on this Exam. The one reader, so an Exam written
  *  before work space existed, and a question no one has given any, both read
- *  as none. */
+ *  as its Question Style's default — none, unless the style rules answer
+ *  lines. A work space the teacher set, "None" stored as a zero height
+ *  included, always wins over the style (ADR-0041). */
 export function workSpaceOf(exam: Exam, questionId: string): WorkSpace {
-  const space = exam.workSpace?.[questionId]
-  return space && isWorkSpace(space) ? space : NO_WORK_SPACE
+  return workSpaceIn(exam.workSpace, exam.questionStyle, questionId)
+}
+
+/** `workSpaceOf`, for callers holding an Exam's settings rather than an Exam:
+ *  the stored work space, or the style's default where none is stored. */
+export function workSpaceIn(
+  spaces: Readonly<Record<string, WorkSpace>> | undefined,
+  style: QuestionStyle | undefined,
+  questionId: string,
+): WorkSpace {
+  const space = spaces?.[questionId]
+  return space && isWorkSpace(space) ? space : defaultWorkSpaceOf(style)
+}
+
+/** The room a Short Answer position leaves under this Question Style when the
+ *  teacher has set none. */
+export function defaultWorkSpaceOf(style: QuestionStyle | undefined): WorkSpace {
+  return questionStyleRules(style).defaultWorkSpace ?? NO_WORK_SPACE
+}
+
+/** Where a Matching question's Word Bank prints on one Exam: beside its
+ *  Items, or above them in columns. Exam presentation, set on the sheet like a
+ *  Multiple Choice question's answer columns, and always a concrete choice:
+ *  a position takes one when it arrives on the Exam, from its Question Style
+ *  and whether its Word Bank fits beside (`wordBankLayoutFor` in
+ *  export-plan.ts), and a change of style sets every one again. */
+export type WordBankLayout = 'beside' | 'above'
+
+/** Whether a stored value is a Word Bank layout this build can print. */
+export function isWordBankLayout(value: unknown): value is WordBankLayout {
+  return value === 'beside' || value === 'above'
 }
 
 /** Whether a work space prints anything at all. */
@@ -216,15 +314,22 @@ export type Arrangement = {
   letter: string
   questionOrder: string[]
   choiceOrder: Record<string, string[]>
+  /** The incorrect answers each Multiple Choice question leaves off, by
+   *  question id: Exam presentation like `choiceOrder`, tolerated rather than
+   *  validated (see `hidden-answers.ts`, ADR-0038). Absent shows them all. */
+  hiddenAnswers?: Record<string, string[]>
 }
 
 // A choice as the page sees it: its stable id, whether it is the correct
-// answer, and the document node to render. A matching set's Word Bank answers
-// are choices in this sense too — they are what an arrangement orders — but
-// none of them is correct on its own, so `correct` is always false for one.
+// answer, whether it is a Locked Answer that keeps its authored letter however
+// answers are shuffled, and the document node to render. A matching set's
+// Word Bank answers are choices in this sense too — they are what an
+// arrangement orders — but none of them is correct on its own, so `correct`
+// is always false for one, and none is locked (ADR-0038).
 export type Choice = {
   id: string
   correct: boolean
+  locked: boolean
   node: ProseMirrorJSON
 }
 
@@ -423,6 +528,27 @@ export function newSectionWording(
   }
 }
 
+/** The wording of an untitled Section: neither part, so it prints nothing. */
+export const UNTITLED_SECTION_WORDING: Pick<ExamSection, 'title' | 'instructions'> = {
+  title: '',
+  instructions: '',
+}
+
+/** The heading and directions a new Section made of these Questions begins
+ *  with: their type's, when every one of them is the same Question Type, and
+ *  none when they mix types — no one type's directions would tell a student
+ *  how to answer the rest, so the Section starts untitled for the teacher to
+ *  word (ADR-0040). */
+export function newSectionWordingOf(
+  types: readonly QuestionType[],
+  legacy?: SectionHeadings,
+): Pick<ExamSection, 'title' | 'instructions'> {
+  const [first] = types
+  return first !== undefined && types.every((type) => type === first)
+    ? newSectionWording(first, legacy)
+    : UNTITLED_SECTION_WORDING
+}
+
 /** A stored Section as this build reads it, or `null` when it cannot be read.
  *  A Section stored while Sections were typed carries a `type` and only the
  *  wording it departed from that type's default with; it reads with that
@@ -581,7 +707,8 @@ export type SectionTarget =
  * Puts questions — already on the Exam, or just added to it — at a target,
  * keeping their on-page order. A Section holds Questions of any type, so every
  * one of them goes. A new Section begins with the heading and directions of
- * the type of the first Question put in it. A Section a move empties stays.
+ * their type when they are all one type, and untitled when they mix types
+ * (`newSectionWordingOf`). A Section a move empties stays.
  * `null` means nothing would change.
  */
 export function placeQuestions(
@@ -611,7 +738,10 @@ export function placeQuestions(
         : members.findIndex(({ section }) => section.id === target.afterSectionId) + 1
     if (at === 0) return null
     next.splice(at, 0, {
-      section: { id: newSectionId(), ...newSectionWording(typeById.get(moving[0]!)!, exam.sectionHeadings) },
+      section: {
+        id: newSectionId(),
+        ...newSectionWordingOf(moving.map((id) => typeById.get(id)!), exam.sectionHeadings),
+      },
       ids: moving,
     })
     return layoutOf(next)
@@ -660,6 +790,136 @@ export function deleteSection(
   if (index < 0) return null
   const [removed] = members.splice(index, 1)
   return { layout: layoutOf(members), removedQuestionIds: removed!.ids }
+}
+
+/** The wording a Section inserted on its own begins with, before any Question
+ *  is put in it: a heading that says what it is, waiting to be typed over, and
+ *  no directions. It has no first Question to take its wording from, and a
+ *  Section with neither part would be drawn at no height — nowhere to drop
+ *  into, and nothing to type on (ADR-0040). */
+export const NEW_SECTION_WORDING: Pick<ExamSection, 'title' | 'instructions'> = {
+  title: 'New section',
+  instructions: '',
+}
+
+/** Where a Section is inserted beside another. */
+export type SectionPlacement = 'above' | 'below'
+
+/** The Exam with a new Section starting at one question: that question and
+ *  the ones after it in its Section move into a Section of their own directly
+ *  below, worded as any new Section is (`newSectionWordingOf`). Nothing moves
+ *  on the page. `null`
+ *  for a question that already begins its Section, or one not on the Exam. */
+export function splitSection(
+  exam: Exam,
+  arrangement: Arrangement,
+  questionId: string,
+  newSectionId: () => string = () => crypto.randomUUID(),
+): SectionLayout | null {
+  const members = membersOf(exam, arrangement)
+  const entry = members.find(({ ids }) => ids.includes(questionId))
+  if (!entry) return null
+  const at = entry.ids.indexOf(questionId)
+  if (at === 0) return null
+  return placeQuestions(
+    exam,
+    arrangement,
+    entry.ids.slice(at),
+    { kind: 'new-section', afterSectionId: entry.section.id },
+    newSectionId,
+  )
+}
+
+/**
+ * The Exam with some questions made one new Section, in on-page order, placed
+ * where the first of them was. The Section that question was in is split
+ * around it: what came before stays, and what comes after the selection's
+ * place begins a Section of its own. Both are worded as any new Section is
+ * (`newSectionWordingOf`). A selection that begins its Section goes directly
+ * above it instead, so no split is needed. Any other Section the move empties
+ * stays, as one a drag empties does. `null` when nothing would change: no
+ * questions, or exactly the questions of one whole Section.
+ */
+export function moveToNewSection(
+  exam: Exam,
+  arrangement: Arrangement,
+  questionIds: readonly string[],
+  newSectionId: () => string = () => crypto.randomUUID(),
+): SectionLayout | null {
+  const members = membersOf(exam, arrangement)
+  const requested = new Set(questionIds)
+  const moving = members.flatMap(({ ids }) => ids).filter((id) => requested.has(id))
+  if (moving.length === 0) return null
+  const index = members.findIndex(({ ids }) => ids.includes(moving[0]!))
+  const home = members[index]!
+  const whole =
+    home.ids.length === moving.length && home.ids.every((id) => requested.has(id))
+  if (whole) return null
+  const typeById = new Map(exam.questions.map((question) => [question.id, question.type]))
+  const wordingFor = (ids: readonly string[]) =>
+    newSectionWordingOf(ids.map((id) => typeById.get(id)!), exam.sectionHeadings)
+  const at = home.ids.indexOf(moving[0]!)
+  const next: Members = members.map(({ section, ids }) => ({
+    section,
+    ids: ids.filter((id) => !requested.has(id)),
+  }))
+  const made = { section: { id: newSectionId(), ...wordingFor(moving) }, ids: moving }
+  if (at === 0) {
+    next.splice(index, 0, made)
+    return layoutOf(next)
+  }
+  // Everything before the selection's place is still the home Section's;
+  // everything after it that stays behind is the rest of the split.
+  const kept = next[index]!
+  const rest = kept.ids.slice(at)
+  kept.ids = kept.ids.slice(0, at)
+  next.splice(
+    index + 1,
+    0,
+    made,
+    ...(rest.length > 0
+      ? [{ section: { id: newSectionId(), ...wordingFor(rest) }, ids: rest }]
+      : []),
+  )
+  return layoutOf(next)
+}
+
+/** The Exam with an empty Section inserted directly above or below one, and
+ *  the new Section's id. `null` for a Section the Exam does not have. */
+export function insertSection(
+  exam: Exam,
+  arrangement: Arrangement,
+  sectionId: string,
+  placement: SectionPlacement,
+  newSectionId: () => string = () => crypto.randomUUID(),
+): { layout: SectionLayout; sectionId: string } | null {
+  const members = membersOf(exam, arrangement)
+  const index = members.findIndex(({ section }) => section.id === sectionId)
+  if (index < 0) return null
+  const section: ExamSection = { id: newSectionId(), ...NEW_SECTION_WORDING }
+  members.splice(placement === 'above' ? index : index + 1, 0, { section, ids: [] })
+  return { layout: layoutOf(members), sectionId: section.id }
+}
+
+/** The Exam with one Section merged with its neighbour above (`-1`) or below
+ *  (`1`): the neighbour's questions join this Section, in the order they
+ *  already print, under this Section's wording, and the emptied neighbour is
+ *  deleted. Nothing moves on the page but a heading. `null` at either end, or
+ *  for a Section the Exam does not have. */
+export function mergeSection(
+  exam: Exam,
+  arrangement: Arrangement,
+  sectionId: string,
+  direction: -1 | 1,
+): SectionLayout | null {
+  const members = membersOf(exam, arrangement)
+  const index = members.findIndex(({ section }) => section.id === sectionId)
+  const other = index + direction
+  if (index < 0 || other < 0 || other >= members.length) return null
+  const into = members[index]!
+  const [taken] = members.splice(other, 1)
+  into.ids = direction < 0 ? [...taken!.ids, ...into.ids] : [...into.ids, ...taken!.ids]
+  return layoutOf(members)
 }
 
 /** The Exam with one Section reworded. An absent key leaves that part as it
@@ -729,12 +989,16 @@ export function choicesOf(question: Question): Choice[] {
     return matchingBankNodesOf(question.doc).map((node) => ({
       id: choiceIdOf(node),
       correct: false,
+      locked: false,
       node,
     }))
   }
+  // A True/False pair never moves, so neither of its answers needs a lock.
+  const lockable = question.type === 'multiple-choice'
   return choiceNodesOf(question.doc).map((node) => ({
     id: choiceIdOf(node),
     correct: choiceIsCorrect(node),
+    locked: lockable && choiceIsLocked(node),
     node,
   }))
 }
@@ -766,6 +1030,7 @@ export function partsOf(question: Question): Part[] {
           ? choiceNodesOf({ content: answer ? [answer] : [] }).map((choice) => ({
               id: choiceIdOf(choice),
               correct: choiceIsCorrect(choice),
+              locked: choiceIsLocked(choice),
               node: choice,
             }))
           : [],
@@ -803,14 +1068,44 @@ export function presentationIdsOf(question: Question): string[] {
   return [question.id, ...partsOf(question).map((part) => part.id)]
 }
 
+/** Answers in an arrangement's order with every Locked Answer back at its
+ *  authored position: the unlocked ones fill the other positions in the order
+ *  the arrangement gives them. This is what keeps an order stored before an
+ *  answer was locked, or one an Exam Record carries, from moving it. */
+function withLockedInPlace(authored: readonly Choice[], ordered: readonly Choice[]): Choice[] {
+  if (!authored.some((choice) => choice.locked)) return [...ordered]
+  const moving = ordered.filter((choice) => !choice.locked)
+  let next = 0
+  return authored.map((choice) => (choice.locked ? choice : moving[next++]!))
+}
+
+/** Answers in `authored` order, arranged by `order` around their Locked
+ *  Answers. */
+function arrangedChoices(authored: readonly Choice[], order: readonly string[]): Choice[] {
+  const byId = new Map(authored.map((choice) => [choice.id, choice]))
+  return withLockedInPlace(
+    authored,
+    reconcileOrder(order, authored.map((choice) => choice.id)).map((id) => byId.get(id)!),
+  )
+}
+
+/** The ids of the answers a shuffle may move, in their current order: every
+ *  one but the Locked Answers. */
+export function movableAnswerIds(current: readonly Choice[]): string[] {
+  return current.filter((choice) => !choice.locked).map((choice) => choice.id)
+}
+
+/** The answer order `current` takes when its movable answers are put in
+ *  `moving`'s order and every Locked Answer stays where it is. */
+export function withAnswersMoved(current: readonly Choice[], moving: readonly string[]): string[] {
+  let next = 0
+  return current.map((choice) => (choice.locked ? choice.id : moving[next++]!))
+}
+
 /** A Multiple Choice Part's answers in the order this arrangement puts them
  *  in, keyed in `choiceOrder` by the Part's id as a question's are by its own. */
 export function orderedPartChoices(part: Part, arrangement: Arrangement): Choice[] {
-  const byId = new Map(part.choices.map((choice) => [choice.id, choice]))
-  return reconcileOrder(
-    arrangement.choiceOrder[part.id] ?? [],
-    part.choices.map((choice) => choice.id),
-  ).map((id) => byId.get(id)!)
+  return arrangedChoices(part.choices, arrangement.choiceOrder[part.id] ?? [])
 }
 
 // A matching set's prompts in authoring order — the order they are numbered
@@ -826,14 +1121,10 @@ export function promptsOf(question: Question): Prompt[] {
 
 // The question's answers in the order this arrangement puts them in. A choice's
 // letter on the printed page is its position here, so correctness follows its
-// choice with no bookkeeping.
+// choice with no bookkeeping. A Locked Answer is always at its authored
+// position, whatever the arrangement says.
 export function orderedChoices(question: Question, arrangement: Arrangement): Choice[] {
-  const choices = choicesOf(question)
-  const byId = new Map(choices.map((choice) => [choice.id, choice]))
-  return reconcileOrder(
-    arrangement.choiceOrder[question.id] ?? [],
-    choices.map((choice) => choice.id),
-  ).map((id) => byId.get(id)!)
+  return arrangedChoices(choicesOf(question), arrangement.choiceOrder[question.id] ?? [])
 }
 
 export function withQuestionAppended(
@@ -918,11 +1209,12 @@ export function shuffleSelectedQuestions(
  * and every prompt still names the same answer under its new letter.
  *
  * A selected Short Answer question, an unknown question, and a question with
- * fewer than two answers cannot vary and are left alone. So does a True/False
- * question: True before False is a convention a student reads rather than an
- * authored order, and reversing it varies nothing. As with question shuffling,
- * an identity Fisher–Yates draw is rotated so every eligible selected question
- * visibly changes order.
+ * fewer than two answers that may move cannot vary and are left alone. So does
+ * a True/False question: True before False is a convention a student reads
+ * rather than an authored order, and reversing it varies nothing. A Locked
+ * Answer keeps its position, and the others shuffle among the positions left
+ * (ADR-0038). As with question shuffling, an identity Fisher–Yates draw is
+ * rotated so every eligible selected question visibly changes order.
  */
 export function shuffleSelectedAnswers(
   exam: Exam,
@@ -952,9 +1244,10 @@ export function shuffleSelectedAnswers(
   }
 
   for (const { id, current } of targets) {
-    if (current.length < 2) continue
+    const movable = movableAnswerIds(current)
+    if (movable.length < 2) continue
 
-    const shuffled = current.map((choice) => choice.id)
+    const shuffled = [...movable]
     for (let index = shuffled.length - 1; index > 0; index -= 1) {
       const swapIndex = Math.floor(random() * (index + 1))
       ;[shuffled[index], shuffled[swapIndex]] = [
@@ -962,12 +1255,12 @@ export function shuffleSelectedAnswers(
         shuffled[index]!,
       ]
     }
-    if (shuffled.every((id, index) => id === current[index]!.id)) {
+    if (shuffled.every((id, index) => id === movable[index])) {
       shuffled.push(shuffled.shift()!)
     }
 
     if (!changed) choiceOrder = { ...choiceOrder }
-    choiceOrder[id] = shuffled
+    choiceOrder[id] = withAnswersMoved(current, shuffled)
     changed = true
   }
 

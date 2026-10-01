@@ -232,7 +232,7 @@ export function SourceDocumentSteps({
         <StepButton
           number={++number}
           title="Drop the file it gives back"
-          text={`A .parrot.json file. You check every question${pictures || photo ? ' and picture' : ''} before anything is imported.`}
+          text={`A .parrot.json file. You check every question${pictures || photo ? ' and picture' : ''} before anything is imported, and can ask your AI to change anything first.`}
           icon={<UploadCloud />}
           disabled={busy}
           onClick={() => returned.current?.click()}

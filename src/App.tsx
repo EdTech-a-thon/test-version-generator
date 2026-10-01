@@ -125,6 +125,7 @@ import {
   History,
   Library,
   ListChecks,
+  ListOrdered,
   ToggleLeft,
   Link2,
   Pencil,
@@ -142,6 +143,7 @@ import {
   X,
 } from 'lucide-react'
 import { ContextMenu, type MenuPoint } from './context-menu'
+import { MarginsPanel } from './margins-panel'
 import { usePopOver } from './pop-over-context'
 import {
   DEFAULT_HEADING_SIZE,
@@ -150,6 +152,11 @@ import {
   HEADING_SIZE_LABELS,
   TEXT_SIZES,
 } from './section-headings'
+import {
+  DEFAULT_QUESTION_STYLE,
+  QUESTION_STYLES,
+  QUESTION_STYLE_LABELS,
+} from './question-style'
 import { BEFORE_NAVIGATE_EVENT, navigate, replaceRoute, useLocationSearch, useRoute } from './use-route'
 import { Footer } from './site-chrome'
 import { HomePage } from './home-page'
@@ -179,6 +186,7 @@ import { ImportsPage, WaitingImportPage } from './imports-page'
 import { questionBankCollection, type QuestionBankCollectionItem } from './resource-collections'
 import { QuestionBankExportDialog } from './question-bank-export-dialog'
 import { QuestionBankImportDialog } from './question-bank-import-dialog'
+import { MarginsIcon, QuestionStylePreview } from './format-icons'
 import {
   keepMultipartParts,
   multipartMode,
@@ -1184,6 +1192,7 @@ function QuestionBankWorkspace({
       selectedQuestionIds={selection.selectedIds}
       onSelect={selection.selectOne}
       onClearSelection={selection.clear}
+      onSelectAll={selection.selectAll}
       drag={drag}
       onCreate={setChoosingType}
       onExport={() => setExporting(true)}
@@ -1914,6 +1923,9 @@ function ExamEditor({
     kind: DocumentMenuKind
     point: MenuPoint
   } | null>(null)
+  // Where the Margins panel opened from the Format menu stands, while it is open.
+  const [marginsPanel, setMarginsPanel] = useState<MenuPoint | null>(null)
+  const closeMarginsPanel = useCallback(() => setMarginsPanel(null), [])
   const closeExportHistory = useCallback(() => {
     setHistoryOpen(false)
     requestAnimationFrame(() => historyButton.current?.focus())
@@ -2432,6 +2444,33 @@ function ExamEditor({
               },
             })),
           },
+          // One style for every question on the Exam, never per question or
+          // per type (ADR-0041). The sheet reflows as soon as it changes.
+          {
+            kind: 'submenu',
+            label: 'Questions',
+            icon: <ListOrdered />,
+            value: QUESTION_STYLE_LABELS[state.workingCopy.questionStyle ?? DEFAULT_QUESTION_STYLE].label,
+            items: QUESTION_STYLES.map((style) => ({
+              kind: 'radio' as const,
+              label: QUESTION_STYLE_LABELS[style].label,
+              description: QUESTION_STYLE_LABELS[style].description,
+              preview: <QuestionStylePreview style={style} />,
+              checked: (state.workingCopy.questionStyle ?? DEFAULT_QUESTION_STYLE) === style,
+              onSelect: () => {
+                if (!isHistoricalBrowsing) store.setQuestionStyle(style)
+              },
+            })),
+          },
+          {
+            // Opens beside the menu it came from, and stays while the sheet
+            // reflows behind it.
+            kind: 'action',
+            label: 'Margins…',
+            icon: <MarginsIcon />,
+            disabled: isHistoricalBrowsing,
+            onSelect: () => setMarginsPanel(documentMenu.point),
+          },
         ] : documentMenu.kind === 'file' ? [
           {
             kind: 'action',
@@ -2492,6 +2531,14 @@ function ExamEditor({
           },
         ]}
         onClose={() => setDocumentMenu(null)}
+      />}
+
+      {marginsPanel && <MarginsPanel
+        point={marginsPanel}
+        margins={state.workingCopy.margins}
+        disabled={isHistoricalBrowsing}
+        onChange={(sides, inches, continuing) => store.setMargins(sides, inches, { continuing })}
+        onClose={closeMarginsPanel}
       />}
 
       {choosingExam && <ResourcePicker
@@ -2645,6 +2692,10 @@ function ExamEditor({
             onSectionHeadingChange={(sectionId, change) => store.setSectionHeading(sectionId, change)}
             onMoveSection={(sectionId, direction) => store.moveSection(sectionId, direction)}
             onDeleteSection={(sectionId) => store.deleteSection(sectionId)}
+            onSplitSection={(questionId) => store.splitSection(questionId)}
+            onMoveToNewSection={(questionIds) => store.moveToNewSection(questionIds)}
+            onInsertSection={(sectionId, placement) => store.insertSection(sectionId, placement)}
+            onMergeSection={(sectionId, direction) => store.mergeSection(sectionId, direction)}
             onHeaderLineChange={(line, text) => store.setHeaderLine(line, text)}
             titleDisabled={isHistoricalBrowsing}
             onEdit={(questionId) => {
@@ -2679,12 +2730,21 @@ function ExamEditor({
             }}
             onShuffleSelected={shuffleSelectedQuestions}
             onShuffleSelectedAnswers={shuffleSelectedAnswers}
+            onSetShownIncorrect={(questionIds, count) => {
+              store.setShownIncorrect(questionIds, count)
+              setVarySummary(count === Infinity
+                ? 'Showing every incorrect answer.'
+                : `Showing ${count} incorrect ${count === 1 ? 'answer' : 'answers'}.`)
+            }}
             onRemove={(questionIds) => {
               store.removeFromWorkingCopy(questionIds)
               selection.clear()
             }}
             onSetColumns={(questionIds, columns) =>
               store.setQuestionColumns(questionIds, columns)
+            }
+            onSetWordBankLayout={(questionIds, layout) =>
+              store.setWordBankLayout(questionIds, layout)
             }
             onSetWorkSpace={(questionIds, patch) =>
               store.setQuestionWorkSpace(questionIds, patch)
@@ -2843,6 +2903,13 @@ export default function App({
     navigate('/imports', { replace: true })
     openImport()
   }, [route, openImport])
+  /** A file dropped while the Import dialog is open belongs to it — an
+   *  assistant's corrected file replaces the one under review — rather than
+   *  starting the dialog over. */
+  const [dialogDrop, setDialogDrop] = useState<{ file: File; id: number } | null>(null)
+  const dropping = (elsewhere: (file: File, targetBankId?: string) => void) =>
+    (file: File, targetBankId?: string) =>
+      inspectingBankFile ? setDialogDrop({ file, id: Date.now() }) : elsewhere(file, targetBankId)
   const closeImport = useCallback(() => {
     setInspectingBankFile(false)
     setDroppedBankFile(null)
@@ -2862,7 +2929,10 @@ export default function App({
       history: { fileName: string; kind: import('./import-history').ImportFileKind; waitingImportId?: string }
     },
   ) => {
-    const result = await bankWorkspaces.commitImport(proposal, selection, options)
+    const result = await bankWorkspaces.commitImport(proposal, selection, {
+      ...options,
+      bankAnswerWidth: domMeasure.bankAnswerWidth,
+    })
     // One Exam is what a converted test is: it opens in the editor with the
     // banks it was built from as its tabs, from onboarding as from anywhere.
     const [onlyExam, ...otherExams] = result.createdExamIds
@@ -2956,6 +3026,7 @@ export default function App({
       saved,
       initial: target,
       initialHistory: session.history,
+      bankAnswerWidth: domMeasure.bankAnswerWidth,
     }))
     setEditorId(targetId)
   }, [editorStore, workspaces])
@@ -3022,6 +3093,7 @@ export default function App({
     initialFile={droppedBankFile ?? undefined}
     targetBankId={importTargetBankId ?? undefined}
     waitingImportId={importWaitingId ?? undefined}
+    dropped={dialogDrop ?? undefined}
     loadBanks={loadImportBanks}
     onClose={closeImport}
     onImport={importBank}
@@ -3035,7 +3107,7 @@ export default function App({
   // Importing by drop is offered on every page, the editor included, so the
   // overlay and the dialog live outside the route switch below.
   const globalChrome = <>
-    <BankFileDropTarget onFile={openImport} />
+    <BankFileDropTarget onFile={dropping(openImport)} />
     {importDialog}
   </>
   if (route === '/imports' || route === '/imports/new') return <>{globalChrome}<ImportsPage
@@ -3048,7 +3120,7 @@ export default function App({
     const waitingId = new URLSearchParams(window.location.search).get('id') ?? ''
     // A file dropped on a waiting import's page is the AI's answer to it.
     return <>
-      <BankFileDropTarget onFile={(file) => setConvertDrop({ file, id: Date.now() })} />
+      <BankFileDropTarget onFile={dropping((file) => setConvertDrop({ file, id: Date.now() }))} />
       {importDialog}
       <WaitingImportPage
         id={waitingId}
@@ -3093,7 +3165,7 @@ export default function App({
   // Converting starts from the test itself, so on the convert page a drop is
   // the page's to read: only a Test Parrot file goes straight to the import.
   if (route === '/get-started/convert') return <>
-    <BankFileDropTarget tests onFile={(file) => setConvertDrop({ file, id: Date.now() })} />
+    <BankFileDropTarget tests onFile={dropping((file) => setConvertDrop({ file, id: Date.now() }))} />
     {importDialog}
     <ConvertPage dropped={convertDrop} onOpenImport={(file, waitingImportId) => openImport(file, null, waitingImportId)} />
   </>
@@ -3134,7 +3206,7 @@ export default function App({
       void (async () => {
         await bankWorkspaces.carryWorkspace({ examId: editorId }, { examId: id })
         if (!await workspaces.open(id)) return
-        setEditorStore(await loadExamStore(workspaces.backendFor(id)))
+        setEditorStore(await loadExamStore(workspaces.backendFor(id), undefined, domMeasure.bankAnswerWidth))
         setEditorId(id)
       })()
     }}

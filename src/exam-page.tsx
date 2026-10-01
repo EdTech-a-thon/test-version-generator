@@ -16,7 +16,7 @@
 // `pages` is state rather than a value computed during render: see
 // `usePaginatedExam`.
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type RefObject } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject } from 'react'
 import {
   AnswerKeyEntry,
   AnswerKeyHeading,
@@ -30,15 +30,13 @@ import {
 } from './page-item-view'
 import { headerLineOf, type HeaderLine } from './page-header'
 import { pageContentStyle } from './export-typography'
+import { pageGeometry } from './page-geometry'
 import {
-  FOOTER_HEIGHT,
-  MAX_WORK_SPACE_HEIGHT,
-  HEADER_HEIGHT,
-  PAGE_HEIGHT,
-  PAGE_MARGIN,
-  PAGE_WIDTH,
+  US_LETTER,
+  maxWorkSpaceHeight,
   numberLabelOf,
   planExport,
+  rowsOfPlanned,
   unmeasured,
   type ExportContentSelection,
   type LayoutPlan,
@@ -50,23 +48,33 @@ import {
   type PlannedPart,
   type PlannedQuestion,
   type PlannedWorkSpace,
+  wordBankLayoutOf,
 } from './export-plan'
 import {
   DEFAULT_COLUMNS,
   columnsOf,
   hasWorkSpace,
-  snapWorkSpaceHeight,
+  laidWorkSpaceHeight,
+  rowsIn,
+  storedWorkSpaceHeight,
   takesWorkSpace,
   WORK_SPACE_LINE_PITCH,
+  moveToNewSection,
   questionsInSection,
   sectionsOf,
+  splitSection,
   workSpaceOf,
   type ColumnSetting,
+  type WordBankLayout,
+  type SectionPlacement,
   type Exam,
   type Arrangement,
   type WorkSpace,
 } from './exam'
 import type { Selection } from './use-selection'
+import { selectAllPaneProps, useSelectAll } from './use-select-all'
+import { answerVisibilityNote } from './hidden-answers'
+import { shownIncorrectChoices, shownIncorrectMenuOf, type ShownIncorrectMenu } from './question-menu'
 import type { SectionHeadingChange } from './section-headings'
 import { sectionHeadingStyles } from './export-typography'
 import type { WorkspaceDrag } from './use-workspace-drag'
@@ -77,18 +85,34 @@ import {
   ArrowDownToLine,
   ArrowUp,
   Ban,
+  BetweenHorizontalStart,
   CircleMinus,
+  Columns2,
   Copy,
+  Ellipsis,
+  EyeOff,
   EllipsisVertical,
+  FoldVertical,
   ListRestart,
   Pencil,
   PencilLine,
   Heading,
+  Rows2,
+  SeparatorHorizontal,
   Shuffle,
   SquareDashed,
   X,
 } from 'lucide-react'
 import { ColumnLayoutIcon } from './column-layout-icon'
+import { InsertSectionAboveIcon } from './format-icons'
+import {
+  NEW_SECTION_BAND,
+  SECTION_RULE_OFFSET,
+  bandEdges,
+  sameBand,
+  sheetBands,
+  type SectionBand,
+} from './section-bands'
 import {
   ContextMenu,
   type MenuItem,
@@ -150,6 +174,64 @@ function columnsMenu(
   }
 }
 
+// Where a Matching question's Word Bank prints on this Exam, offered as Multiple
+// Choice answer columns are: always one of the two, which the question took
+// from the Question Style when it arrived and which a change of style sets
+// again (ADR-0041).
+const WORD_BANK_MENU_OPTIONS: readonly { label: string; value: WordBankLayout; icon: ReactNode }[] = [
+  { label: 'Beside items', value: 'beside', icon: <Columns2 /> },
+  { label: 'Above items', value: 'above', icon: <Rows2 /> },
+]
+
+function wordBankMenu(layout: WordBankLayout, onSelect: (layout: WordBankLayout) => void): MenuItem {
+  const current = WORD_BANK_MENU_OPTIONS.find((option) => option.value === layout)!
+  return {
+    kind: 'submenu',
+    label: 'Word Bank',
+    icon: current.icon,
+    items: WORD_BANK_MENU_OPTIONS.map((option) => ({
+      kind: 'radio',
+      label: option.label,
+      checked: option.value === layout,
+      icon: option.icon,
+      onSelect: () => onSelect(option.value),
+    })),
+  }
+}
+
+/** The Incorrect answers shown submenu, for a Multiple Choice question:
+ *  every count it may show, or disabled with the reason none can hide any. */
+function shownIncorrectMenu(
+  state: ShownIncorrectMenu,
+  onSelect: (count: number) => void,
+): MenuItem {
+  if (state.disabled) {
+    return {
+      kind: 'submenu',
+      label: 'Incorrect answers shown',
+      icon: <EyeOff />,
+      disabled: true,
+      description: state.hint,
+      items: [],
+    }
+  }
+  const { range, shown } = state
+  return {
+    kind: 'submenu',
+    label: 'Incorrect answers shown',
+    icon: <EyeOff />,
+    value: shown === range.max ? 'All' : `${shown} of ${range.max}`,
+    items: shownIncorrectChoices(range).map(({ count, label }) => ({
+      kind: 'radio',
+      label,
+      checked: count === shown,
+      // All of them is all of each question's, however many it has; a
+      // smaller count is clamped to what each one allows.
+      onSelect: () => onSelect(count === range.max ? Infinity : count),
+    })),
+  }
+}
+
 /** The Work space submenu and its Fill toggle, for a Short Answer question or
  *  Part: `ids` are what the setting applies to. */
 function workSpaceMenu(
@@ -205,6 +287,15 @@ function workSpaceMenu(
   ]
 }
 
+/** What a question's menu can do to the Exam's Sections, and whether each
+ *  would change anything for the questions it acts on. */
+type QuestionSectionActions = {
+  canSplit: (questionId: string) => boolean
+  onSplit: (questionId: string) => void
+  canMoveToNewSection: (questionIds: readonly string[]) => boolean
+  onMoveToNewSection: (questionIds: readonly string[]) => void
+}
+
 // One list, however it was opened. The grip beside a question and a right-click
 // on the question itself raise exactly the same actions, which is what makes
 // the grip discoverable rather than a second, lesser control.
@@ -215,14 +306,26 @@ function questionMenuItems({
   onDuplicate,
   onShuffleSelected,
   onShuffleSelectedAnswers,
+  shownIncorrect,
+  onSetShownIncorrect,
   onRemove,
   onSetColumns,
+  wordBankLayout,
+  onSetWordBankLayout,
   workSpace,
   workSpaceOfPart,
   onSetWorkSpace,
   selectedQuestionIds,
+  sectionActions,
 }: {
   question: PlannedQuestion
+  /** Present in the editor: what this menu can do to the Exam's Sections. */
+  sectionActions?: QuestionSectionActions
+  /** The Incorrect answers shown entry: how many incorrect answers this
+   *  question, or another it acts on, may show and shows, or why none can
+   *  hide any; null when it is not Multiple Choice. */
+  shownIncorrect: ShownIncorrectMenu | null
+  onSetShownIncorrect?: (questionIds: readonly string[], count: number) => void
   columns: ColumnSetting
   workSpace: WorkSpace
   /** A Part's work space on this Exam, as its menu reports it. */
@@ -234,6 +337,9 @@ function questionMenuItems({
   onShuffleSelectedAnswers: (questionIds: readonly string[]) => void
   onRemove: (questionIds: readonly string[]) => void
   onSetColumns: (questionIds: readonly string[], columns: ColumnSetting) => void
+  /** Where this question's Word Bank prints, when it is a Matching question. */
+  wordBankLayout: WordBankLayout
+  onSetWordBankLayout?: (questionIds: readonly string[], layout: WordBankLayout) => void
   selectedQuestionIds: readonly string[]
 }): MenuItem[] {
   // Every action that can sensibly apply to more than one question applies to
@@ -256,39 +362,75 @@ function questionMenuItems({
       onSelect: () => onDuplicate(question.id),
     },
   ]
-  // Columns are a multiple-choice question's business. An open question has no
-  // answers to lay out, so the group is absent rather than present and inert.
-  if (question.type === 'multiple-choice') {
+  // One question starts a new Section where it is, taking the rest of its
+  // Section with it; a selection of several becomes a Section of its own. The
+  // row is there but disabled when it would change nothing — a question that
+  // already begins its Section, a selection that already is one.
+  if (sectionActions) {
     items.push(
       { kind: 'separator' },
-      columnsMenu('Answer columns', columns, (next) => onSetColumns(actedOnIds, next)),
+      actedOnIds.length > 1
+        ? {
+            kind: 'action',
+            label: 'Move to new section',
+            icon: <BetweenHorizontalStart />,
+            disabled: !sectionActions.canMoveToNewSection(actedOnIds),
+            onSelect: () => sectionActions.onMoveToNewSection(actedOnIds),
+          }
+        : {
+            kind: 'action',
+            label: 'Start new section here',
+            icon: <SeparatorHorizontal />,
+            disabled: !sectionActions.canSplit(question.id),
+            onSelect: () => sectionActions.onSplit(question.id),
+          },
     )
   }
-  // A Multipart question lays out each Part the way a question of its kind is laid out,
-  // so each Part gets the controls a question of its kind would — for that
-  // Part alone, since Parts of different Multipart questions have nothing to
-  // line up with one another.
+  // How a question's answers print, grouped: answer columns and how many
+  // incorrect answers show for Multiple Choice, where the Word Bank stands for
+  // Matching, and each Multiple Choice Part's columns — for that Part alone,
+  // since Parts of different Multipart questions have nothing to line up with
+  // one another. A question with no answers to lay out has no group, rather
+  // than one present and inert. Like every other row, these follow the type
+  // of the question raising the menu; the store leaves any other type in the
+  // selection alone.
+  const answerFormat: MenuItem[] = []
+  if (question.type === 'multiple-choice') {
+    answerFormat.push(columnsMenu('Answer columns', columns, (next) => onSetColumns(actedOnIds, next)))
+  }
+  if (shownIncorrect && onSetShownIncorrect) {
+    answerFormat.push(shownIncorrectMenu(shownIncorrect, (count) => onSetShownIncorrect(actedOnIds, count)))
+  }
+  if (question.type === 'matching' && onSetWordBankLayout) {
+    answerFormat.push(wordBankMenu(wordBankLayout, (next) => onSetWordBankLayout(actedOnIds, next)))
+  }
   for (const part of question.parts ?? []) {
-    items.push({ kind: 'separator' })
-    if (part.type === 'multiple-choice') {
-      items.push(
-        columnsMenu(
-          `Part ${part.letter} · Answer columns`,
-          part.grid?.columns ?? DEFAULT_COLUMNS,
-          (next) => onSetColumns([part.id], next),
-        ),
-      )
-    } else {
-      items.push(
-        ...workSpaceMenu(
-          `Part ${part.letter} · Work space`,
-          `Part ${part.letter} · Fill rest of page`,
-          workSpaceOfPart(part.id),
-          [part.id],
-          onSetWorkSpace,
-        ),
-      )
-    }
+    if (part.type !== 'multiple-choice') continue
+    answerFormat.push(
+      columnsMenu(
+        `Part ${part.letter} · Answer columns`,
+        part.grid?.columns ?? DEFAULT_COLUMNS,
+        (next) => onSetColumns([part.id], next),
+      ),
+    )
+  }
+  if (answerFormat.length > 0) {
+    items.push({ kind: 'separator' }, { kind: 'label', label: 'Answer format' }, ...answerFormat)
+  }
+  // A Short Answer Part leaves room under its own id, as a Short Answer
+  // question does under its.
+  for (const part of question.parts ?? []) {
+    if (part.type === 'multiple-choice') continue
+    items.push(
+      { kind: 'separator' },
+      ...workSpaceMenu(
+        `Part ${part.letter} · Work space`,
+        `Part ${part.letter} · Fill rest of page`,
+        workSpaceOfPart(part.id),
+        [part.id],
+        onSetWorkSpace,
+      ),
+    )
   }
   // Room for working is a Short Answer question's business, set here on the
   // sheet rather than in the question editor: how much a student needs depends
@@ -306,6 +448,8 @@ function questionMenuItems({
     // Both shuffles sit side by side under one heading, each with its own
     // icon: crossed arrows for reordering questions across the sheet, a list
     // with a return arrow for reordering the answers inside each question.
+    // Shuffling answers keeps how many incorrect answers each question shows
+    // and draws again which ones (ADR-0038).
     {
       kind: 'action',
       label: 'Shuffle question order',
@@ -354,6 +498,14 @@ function QuestionHandles({
   question: PlannedQuestion
   onOpenMenu: (questionId: string, point: MenuPoint, side?: MenuSide) => void
 }) {
+  // Beside the grip and to its left, not under the pointer: a menu opened from
+  // a handle should read as belonging to that handle, and opening leftwards
+  // keeps it off the question it acts on. The point is the menu's right edge —
+  // `side` is what makes it one.
+  const openBeside = (handle: HTMLElement) => {
+    const bounds = handle.getBoundingClientRect()
+    onOpenMenu(question.id, { x: bounds.left - 6, y: bounds.top }, 'left')
+  }
   return (
     <aside
       className="question-handles"
@@ -366,13 +518,13 @@ function QuestionHandles({
         className="question-handle menu-handle"
         aria-haspopup="menu"
         aria-label={`Actions for question ${numberLabelOf(question)}`}
-        onClick={(event) => {
-          // Beside the grip and to its left, not under the pointer: a menu
-          // opened from a handle should read as belonging to that handle, and
-          // opening leftwards keeps it off the question it acts on. The point
-          // is the menu's right edge — `side` is what makes it one.
-          const bounds = event.currentTarget.getBoundingClientRect()
-          onOpenMenu(question.id, { x: bounds.left - 6, y: bounds.top }, 'left')
+        onClick={(event) => openBeside(event.currentTarget)}
+        // The keyboard's own ways to ask for a context menu open the same one,
+        // on every platform — Shift+F10 raises no context menu on a Mac.
+        onKeyDown={(event) => {
+          if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return
+          event.preventDefault()
+          openBeside(event.currentTarget)
         }}
       >
         <EllipsisVertical />
@@ -388,7 +540,9 @@ function QuestionHandles({
 //
 // A drag previews locally and commits once, on release — one undo step per
 // gesture, and one repagination rather than one per pixel. Heights snap to
-// whole ruled lines, so blank and lined space always agree about size. Dragging
+// whole rows, laid out at the Question Style's pitch — closer under Condensed —
+// so blank and lined space always agree about size, and what is committed is
+// the stored height of those rows (`storedWorkSpaceHeight`). Dragging
 // a space that fills its page takes over from the fill: the teacher is now
 // saying how much room they want, so what they drag to is what they get.
 //
@@ -396,21 +550,31 @@ function QuestionHandles({
 // line, Home shuts it, End opens it as far as a drag could.
 function WorkSpaceHandle({
   label,
-  height,
+  space,
+  max,
   onPreview,
   onCommit,
 }: {
   label: string
-  height: number
+  /** The space as this page lays it out: its height, and the rows it is in. */
+  space: PlannedWorkSpace
+  /** The most room a drag may open on the page: less on an Exam whose
+   *  margins leave a shorter page (`maxWorkSpaceHeight`). */
+  max: number
+  /** The height on the page a drag is showing, or `null` once it ends. */
   onPreview: (height: number | null) => void
+  /** The stored height the teacher settled on. */
   onCommit: (height: number) => void
 }) {
+  const { height } = space
+  const rows = rowsOfPlanned(space)
   const gesture = useRef<{ id: number; startY: number; next: number } | null>(null)
-  const settle = (next: number) => {
-    const snapped = snapWorkSpaceHeight(next, MAX_WORK_SPACE_HEIGHT)
-    if (snapped !== height) onCommit(snapped)
+  const lines = rowsIn(height, rows)
+  // Commits a whole count of rows, unless it is the count already showing.
+  const settle = (stored: number) => {
+    const snapped = storedWorkSpaceHeight(laidWorkSpaceHeight(stored, rows), rows, max)
+    if (snapped / WORK_SPACE_LINE_PITCH !== lines || space.fill) onCommit(snapped)
   }
-  const lines = Math.floor(height / WORK_SPACE_LINE_PITCH)
   return (
     <div
       className="work-space-handle"
@@ -418,7 +582,7 @@ function WorkSpaceHandle({
       aria-orientation="horizontal"
       aria-label={label}
       aria-valuemin={0}
-      aria-valuemax={MAX_WORK_SPACE_HEIGHT / WORK_SPACE_LINE_PITCH}
+      aria-valuemax={rowsIn(max, rows)}
       aria-valuenow={lines}
       aria-valuetext={`${lines} ${lines === 1 ? 'line' : 'lines'} of work space`}
       title="Drag to change the work space"
@@ -431,20 +595,21 @@ function WorkSpaceHandle({
         if (event.button !== 0) return
         event.stopPropagation()
         event.preventDefault()
-        gesture.current = { id: event.pointerId, startY: event.clientY, next: height }
+        gesture.current = {
+          id: event.pointerId,
+          startY: event.clientY,
+          next: lines * WORK_SPACE_LINE_PITCH,
+        }
         event.currentTarget.setPointerCapture(event.pointerId)
       }}
       onPointerMove={(event) => {
         const drag = gesture.current
         if (!drag || drag.id !== event.pointerId) return
         event.stopPropagation()
-        const next = snapWorkSpaceHeight(
-          height + event.clientY - drag.startY,
-          MAX_WORK_SPACE_HEIGHT,
-        )
+        const next = storedWorkSpaceHeight(height + event.clientY - drag.startY, rows, max)
         if (next === drag.next) return
         drag.next = next
-        onPreview(next)
+        onPreview(laidWorkSpaceHeight(next, rows))
       }}
       onPointerUp={(event) => {
         const drag = gesture.current
@@ -463,17 +628,16 @@ function WorkSpaceHandle({
         onPreview(null)
       }}
       onKeyDown={(event) => {
-        const step = WORK_SPACE_LINE_PITCH
         const next =
-          event.key === 'ArrowDown' ? height + step
-            : event.key === 'ArrowUp' ? height - step
+          event.key === 'ArrowDown' ? lines + 1
+            : event.key === 'ArrowUp' ? Math.max(0, lines - 1)
               : event.key === 'Home' ? 0
-                : event.key === 'End' ? MAX_WORK_SPACE_HEIGHT
+                : event.key === 'End' ? rowsIn(max, rows)
                   : null
         if (next === null) return
         event.preventDefault()
         event.stopPropagation()
-        settle(next)
+        settle(next * WORK_SPACE_LINE_PITCH)
       }}
     >
       <span className="work-space-grip" aria-hidden="true" />
@@ -495,6 +659,7 @@ function QuestionView({
   onEdit,
   onOpenMenu,
   onSetWorkSpace,
+  maxWorkSpace,
   dragging,
   dropped,
   dropState,
@@ -507,6 +672,7 @@ function QuestionView({
   /** The Question Section this question is in, which a gesture reads. */
   sectionId: string
   onSetWorkSpace: SetWorkSpace
+  maxWorkSpace: number
   selected: boolean
   orderedIds: readonly string[]
   selection: Selection
@@ -539,7 +705,8 @@ function QuestionView({
   const previewed = (space: PlannedWorkSpace, height: number): PlannedWorkSpace => ({
     ...space,
     height,
-    lines: space.style === 'lines' ? Math.floor(height / WORK_SPACE_LINE_PITCH) : 0,
+    lines: space.style === 'lines' ? rowsIn(height, rowsOfPlanned(space)) : 0,
+    fill: false,
   })
   const withQuestionPreview: QuestionItem =
     previewHeight === null || !item.workSpace
@@ -563,7 +730,8 @@ function QuestionView({
       <WorkSpaceView space={space} />
       <WorkSpaceHandle
         label={`Work space for question ${numberLabelOf(question)} part ${part.letter}`}
-        height={item.parts?.find(({ id }) => id === part.id)?.workSpace?.height ?? space.height}
+        space={item.parts?.find(({ id }) => id === part.id)?.workSpace ?? space}
+        max={maxWorkSpace}
         onPreview={(height) =>
           setPartPreview(height === null ? null : { partId: part.id, height })}
         onCommit={(height) => onSetWorkSpace([part.id], { height, fill: false })}
@@ -677,8 +845,22 @@ function QuestionView({
       // A right-click anywhere on the question raises the same menu the grip
       // does, under the pointer. A continued piece answers too — it is the
       // same question, even though its handles belong to the numbered piece.
+      //
+      // Raised from the keyboard — the ContextMenu key, or Shift+F10, on a
+      // focused handle — there is no pointer to open under, and the event
+      // reports none, so the menu opens at the element that has focus.
       onContextMenu={(event) => {
         event.preventDefault()
+        const fromKeyboard =
+          (event.nativeEvent as PointerEvent).pointerType === ''
+          || (event.clientX === 0 && event.clientY === 0)
+        if (fromKeyboard) {
+          // The handle has already opened the menu beside itself on keydown.
+          if ((event.target as HTMLElement).closest('.question-handles')) return
+          const bounds = (event.target as HTMLElement).getBoundingClientRect()
+          onOpenMenu(question.id, { x: bounds.left, y: bounds.bottom })
+          return
+        }
         onOpenMenu(question.id, { x: event.clientX, y: event.clientY })
       }}
     >
@@ -690,10 +872,18 @@ function QuestionView({
         showCorrectness
         renderPartWorkSpace={renderPartWorkSpace}
       />
+      {/* Editing chrome, like the work space bar: placed in the gap below
+          the answers, so it takes none of the height the page measured. */}
+      {item.grid && question.answerVisibility && (
+        <p className="answer-visibility-note" role="note">
+          {answerVisibilityNote(question.answerVisibility)}
+        </p>
+      )}
       {item.workSpace && (
         <WorkSpaceHandle
           label={`Work space for question ${numberLabelOf(question)}`}
-          height={item.workSpace.height}
+          space={item.workSpace}
+          max={maxWorkSpace}
           onPreview={setPreviewHeight}
           onCommit={(height) => onSetWorkSpace([question.id], { height, fill: false })}
         />
@@ -702,48 +892,9 @@ function QuestionView({
   )
 }
 
-/** The band an open new-Section target takes, which bounds the Section above
- *  it but is never drawn as a Section of its own. */
-const NEW_SECTION_BAND = '\u0000new-section'
-
 /** How long after a Section is moved from its controls the sheet keeps its
  *  controls where they were, through each pass of repagination. */
 const MOVE_ANCHOR_MS = 1200
-
-/** How far above its heading a Section's band — its dashed rule, and its
- *  highlight — begins. A band runs from there to where the next Section's
- *  begins, so the rules of neighbouring Sections fall on the same line. */
-const SECTION_RULE_OFFSET = 9
-
-/** How far a Section's highlight reaches below the last piece on a sheet when
- *  no Section follows it there. */
-const SECTION_BAND_BLEED = 12
-
-/** One sheet's stretch of a Section, as drawn: from its sheet's top edge, for
- *  the highlight, and from the workspace's, for the controls in the gutter. */
-type SectionBand = {
-  sectionId: string
-  pageIndex: number
-  /** Whether a new-Section target open beneath it is where it ends — whose
-   *  own rule then marks its foot, so it draws none of its own there. */
-  endsAtNewSection: boolean
-  topInPage: number
-  height: number
-  top: number
-  bottom: number
-  pageLeft: number
-}
-
-function sameBand(left: SectionBand, right: SectionBand): boolean {
-  return (
-    left.sectionId === right.sectionId
-    && left.pageIndex === right.pageIndex
-    && left.endsAtNewSection === right.endsAtNewSection
-    && left.top === right.top
-    && left.bottom === right.bottom
-    && left.pageLeft === right.pageLeft
-  )
-}
 
 /** A new-Section target a gesture has opened: the Section it opened beneath,
  *  and whether the pointer is over it, which is when a release makes one. */
@@ -770,12 +921,40 @@ function NewSectionTarget({ afterSectionId, armed }: NewSectionTargetState) {
 export type SetSectionHeading = (sectionId: string, change: SectionHeadingChange) => void
 
 /** What a Question Section's own controls do: move it past a neighbour, or
- *  delete it and Remove its questions. */
+ *  delete it and Remove its questions — and, behind its more button, insert
+ *  an empty Section beside it or merge it with a neighbour. A Section with no
+ *  neighbour on a side can neither move nor merge that way. */
 export type SectionControls = {
   canMoveUp: boolean
   canMoveDown: boolean
   onMove: (direction: -1 | 1) => void
   onDelete: () => void
+  onInsert: (placement: SectionPlacement) => void
+  onMerge: (direction: -1 | 1) => void
+}
+
+// The Section's less frequent structural actions, behind its more button: two
+// rows, each with its two directions side by side, rather than four rows that
+// say "section" four times. Merging keeps this Section's wording, so a merge
+// is named from this Section — "Merge with" the one above or below.
+function sectionMenuItems(controls: SectionControls): MenuItem[] {
+  // Two plain actions, each on the Section above: inserting or merging below
+  // is the same action taken from the next Section, and the arrows move one.
+  return [
+    {
+      kind: 'action',
+      label: 'Insert section above',
+      icon: <InsertSectionAboveIcon />,
+      onSelect: () => controls.onInsert('above'),
+    },
+    {
+      kind: 'action',
+      label: 'Merge with section above',
+      icon: <FoldVertical />,
+      disabled: !controls.canMoveUp,
+      onSelect: () => controls.onMerge(-1),
+    },
+  ]
 }
 
 // One part of a section heading, typed where it prints. The underline and the
@@ -801,9 +980,17 @@ function SectionHeadingField({
   onChange: (value: string) => void
   onFocusChange: (focused: boolean) => void
 }) {
+  // Focused as it appears, its text is selected too: a heading asked for from
+  // the Section's controls — a new Section's placeholder heading, say — is
+  // there to be typed over.
+  const field = useRef<HTMLTextAreaElement | null>(null)
+  useEffect(() => {
+    if (autoFocus) field.current?.select()
+  }, [autoFocus])
   return (
     <span className="section-heading-field" data-value={value || placeholder}>
       <textarea
+        ref={field}
         aria-label={label}
         className="section-heading-input"
         rows={1}
@@ -870,9 +1057,15 @@ function EditableSectionHeading({
   )
   const opened = newSectionTarget && <NewSectionTarget {...newSectionTarget} />
   if (!showTitle && !showInstructions) {
+    // An untitled Section prints nothing above its questions, so the sheet
+    // names it faintly in the gap above them, taking no room — otherwise
+    // where one Section ends and the next begins is invisible until pointed
+    // at, and a heading the teacher never had looks like one that went missing.
     return (
       <>
-        <div className="exam-section-hidden" {...emptyMarks} data-section-id={item.sectionId} />
+        <div className="exam-section-hidden" {...emptyMarks} data-section-id={item.sectionId}>
+          <span className="exam-section-untitled" aria-hidden="true">Untitled section</span>
+        </div>
         {hint}
         {opened}
       </>
@@ -927,17 +1120,27 @@ function SectionRail({
   hidden,
   disabled,
   style,
+  menuOpen,
   onRevealTitle,
   onHover,
+  onOpenMenu,
 }: {
   controls: SectionControls
   /** Whether the Section's heading is cleared, which offers one again. */
   hidden: boolean
   disabled: boolean
   style: CSSProperties
+  /** Whether this Section's more menu is open. */
+  menuOpen: boolean
   onRevealTitle: () => void
   onHover: (on: boolean) => void
+  /** Opens the Section's more menu, hanging from `point`. */
+  onOpenMenu: (point: MenuPoint) => void
 }) {
+  const openMenu = (button: HTMLElement) => {
+    const bounds = button.getBoundingClientRect()
+    onOpenMenu({ x: bounds.right + 6, y: bounds.top })
+  }
   return (
     <div
       className="section-rail"
@@ -987,6 +1190,24 @@ function SectionRail({
       >
         <X aria-hidden="true" />
       </button>
+      <button
+        type="button"
+        className="question-handle"
+        aria-label="More section actions"
+        title="More section actions"
+        aria-haspopup="menu"
+        aria-expanded={menuOpen}
+        disabled={disabled}
+        onClick={(event) => openMenu(event.currentTarget)}
+        onKeyDown={(event) => {
+          if (event.key !== 'ArrowDown' && event.key !== 'ContextMenu'
+            && !(event.shiftKey && event.key === 'F10')) return
+          event.preventDefault()
+          openMenu(event.currentTarget)
+        }}
+      >
+        <Ellipsis aria-hidden="true" />
+      </button>
     </div>
   )
 }
@@ -998,6 +1219,7 @@ function PageItemView({
   onEdit,
   onOpenMenu,
   onSetWorkSpace,
+  maxWorkSpace,
   draggedQuestionIds,
   droppedQuestionIds,
   dropState,
@@ -1031,6 +1253,8 @@ function PageItemView({
   onEdit: (questionId: string) => void
   onOpenMenu: (questionId: string, point: MenuPoint, side?: MenuSide) => void
   onSetWorkSpace: SetWorkSpace
+  /** The most room a work space may be dragged to on this sheet. */
+  maxWorkSpace: number
   draggedQuestionIds: ReadonlySet<string>
   droppedQuestionIds: ReadonlySet<string>
   dropState: (item: QuestionItem) => QuestionDropState
@@ -1071,6 +1295,7 @@ function PageItemView({
           onEdit={onEdit}
           onOpenMenu={onOpenMenu}
           onSetWorkSpace={onSetWorkSpace}
+          maxWorkSpace={maxWorkSpace}
           dragging={draggedQuestionIds.has(item.question.id)}
           dropped={droppedQuestionIds.has(item.question.id) && item.numbered}
           dropState={dropState(item)}
@@ -1126,19 +1351,8 @@ function clearOnBackgroundClick(selection: Selection) {
   }
 }
 
-// The geometry `export-plan.ts` packed against, handed to CSS. Screen and paper
-// agree only if the sheet is laid out at the size it was packed for, and the
-// only way to be sure of that is for both to read the same numbers.
-export const PAGE_GEOMETRY = {
-  '--page-width': `${PAGE_WIDTH}px`,
-  '--page-height': `${PAGE_HEIGHT}px`,
-  '--page-margin': `${PAGE_MARGIN}px`,
-  '--page-header-first': `${HEADER_HEIGHT.first}px`,
-  '--page-header-later': `${HEADER_HEIGHT.later}px`,
-  '--page-header-answer-key': `${HEADER_HEIGHT['answer-key']}px`,
-  '--page-header-answer-key-later': `${HEADER_HEIGHT['answer-key-later']}px`,
-  '--page-footer': `${FOOTER_HEIGHT}px`,
-} as CSSProperties
+/** Today's sheet, for a page drawn with no plan of its own behind it. */
+export const PAGE_GEOMETRY = pageGeometry(US_LETTER)
 
 // How long *editing* settles before the page is measured and packed again.
 // Measurement is the expensive, DOM-touching half of the render, and the exam
@@ -1295,11 +1509,15 @@ function usePaginatedExam(
 // Each document is its own workspace, and print CSS breaks a page between them.
 export function ExportPreview({ plan }: { plan: LayoutPlan }) {
   return (
-    <main className="exam-workspace" style={PAGE_GEOMETRY}>
+    <main className="exam-workspace" style={pageGeometry(plan.pageSize)}>
       {plan.pages.map((page) => (
         <article className="exam-page" key={`${page.stream}-${page.header}-${page.number}`}>
           <PageHeaderContent header={page.header} furniture={page.furniture} />
-          <div className="page-content" style={pageContentStyle(plan.textSize)}>
+          <div
+            className="page-content"
+            style={pageContentStyle(plan.textSize)}
+            data-question-style={plan.questionStyle}
+          >
             {page.items.map((item) => (
               <PageItemMeasureView key={keyOf(item)} item={item} />
             ))}
@@ -1322,13 +1540,19 @@ export function ExamPage({
   onDuplicate,
   onShuffleSelected,
   onShuffleSelectedAnswers,
+  onSetShownIncorrect,
   onRemove,
   onSetColumns,
+  onSetWordBankLayout,
   onSetWorkSpace,
   onTitleChange,
   onSectionHeadingChange,
   onMoveSection,
   onDeleteSection,
+  onSplitSection,
+  onMoveToNewSection,
+  onInsertSection,
+  onMergeSection,
   onHeaderLineChange,
   titleDisabled = false,
   unsavedDraft = false,
@@ -1348,8 +1572,14 @@ export function ExamPage({
   onDuplicate: (questionId: string) => void
   onShuffleSelected: (questionIds: readonly string[]) => void
   onShuffleSelectedAnswers: (questionIds: readonly string[]) => void
+  /** Has Multiple Choice questions show this many incorrect answers;
+   *  `Infinity` shows them all. */
+  onSetShownIncorrect?: (questionIds: readonly string[], count: number) => void
   onRemove: (questionIds: readonly string[]) => void
   onSetColumns: (questionIds: readonly string[], columns: ColumnSetting) => void
+  /** Sets where Matching questions' Word Banks print. Absent offers no
+   *  Word Bank menu. */
+  onSetWordBankLayout?: (questionIds: readonly string[], layout: WordBankLayout) => void
   /** Changes the room left for work below Short Answer questions. */
   onSetWorkSpace: SetWorkSpace
   /** Renames the Exam from its own title line. See `PageHeaderContent`. */
@@ -1360,6 +1590,14 @@ export function ExamPage({
   onMoveSection?: (sectionId: string, direction: -1 | 1) => void
   /** Deletes a Question Section and Removes its questions. */
   onDeleteSection?: (sectionId: string) => void
+  /** Starts a new Section at a question, taking the rest of its Section. */
+  onSplitSection?: (questionId: string) => void
+  /** Makes questions one new Section where the first of them is. */
+  onMoveToNewSection?: (questionIds: readonly string[]) => void
+  /** Inserts an empty Section beside one, returning the new Section's id. */
+  onInsertSection?: (sectionId: string, placement: SectionPlacement) => string | null
+  /** Merges a Section with its neighbour above (`-1`) or below (`1`). */
+  onMergeSection?: (sectionId: string, direction: -1 | 1) => void
   /** Rewords a test page's header line; `null` restores its default. */
   onHeaderLineChange?: (line: HeaderLine, text: string | null) => void
   titleDisabled?: boolean
@@ -1373,6 +1611,8 @@ export function ExamPage({
   const orderedIds = orderedQuestionIds(pages)
   const columnSettings = columnSettingsOf(exam)
   const clearOnBackground = clearOnBackgroundClick(selection)
+  // Every Question on the draft, a Multipart or Matching Question being one.
+  useSelectAll('exam-draft', workspace, orderedIds, selection.selectAll)
   // Dragging is coordinated above this pane, because one gesture spans both of
   // them: a Question Bank question composed onto the Working Copy starts in the
   // other pane entirely. What stays here is what only this pane knows — which
@@ -1498,39 +1738,15 @@ export function ExamPage({
     const origin = root.getBoundingClientRect()
     const bands: SectionBand[] = []
     root.querySelectorAll<HTMLElement>('.exam-page').forEach((page, pageIndex) => {
-      const sheet = page.getBoundingClientRect()
-      const spans = new Map<string, { top: number; bottom: number }>()
-      for (const piece of page.querySelectorAll<HTMLElement>(
+      // An open new-Section target is a Section in the making: the Section
+      // above it ends where it begins.
+      const pieces = [...page.querySelectorAll<HTMLElement>(
         '.page-content [data-section-id], .page-content [data-new-section-after]',
-      )) {
-        // An open new-Section target is a Section in the making: the Section
-        // above it ends where it begins.
-        const id = piece.dataset.sectionId ?? NEW_SECTION_BAND
+      )].map((piece) => {
         const box = piece.getBoundingClientRect()
-        const span = spans.get(id)
-        if (span) {
-          span.top = Math.min(span.top, box.top)
-          span.bottom = Math.max(span.bottom, box.bottom)
-        } else {
-          spans.set(id, { top: box.top, bottom: box.bottom })
-        }
-      }
-      const onSheet = [...spans].sort(([, a], [, b]) => a.top - b.top)
-      onSheet.forEach(([sectionId, span], index) => {
-        const top = span.top - SECTION_RULE_OFFSET
-        const next = onSheet[index + 1]
-        const bottom = next ? next[1].top - SECTION_RULE_OFFSET : span.bottom + SECTION_BAND_BLEED
-        bands.push({
-          sectionId,
-          pageIndex,
-          endsAtNewSection: next?.[0] === NEW_SECTION_BAND,
-          topInPage: top - sheet.top,
-          height: bottom - top,
-          top: top - origin.top,
-          bottom: bottom - origin.top,
-          pageLeft: sheet.left - origin.left,
-        })
+        return { sectionId: piece.dataset.sectionId ?? NEW_SECTION_BAND, top: box.top, bottom: box.bottom }
       })
+      bands.push(...sheetBands(pieces, pageIndex, page.getBoundingClientRect(), origin))
     })
     setSectionBands((current) =>
       current.length === bands.length
@@ -1551,6 +1767,23 @@ export function ExamPage({
       root?.removeEventListener('animationend', measureSectionBands)
     }
   }, [measureSectionBands])
+  // The sheet also moves under the bands without a new plan: a picture that
+  // decodes after the page was drawn, a cleared heading that opens while it
+  // has focus, a field that wraps as it is typed in. Bands read before such a
+  // shift drew their rules where the heading used to be — through its
+  // directions — so every piece a band is read from, and each sheet's header
+  // above them, is watched, and the bands are read again when any resizes.
+  useLayoutEffect(() => {
+    const root = workspace.current
+    if (!root || typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(() => measureSectionBands())
+    for (const element of root.querySelectorAll<HTMLElement>(
+      '.exam-page .page-header, .page-content [data-section-id], .page-content [data-new-section-after]',
+    )) {
+      observer.observe(element)
+    }
+    return () => observer.disconnect()
+  }, [measureSectionBands, plan, drag.intent])
   // The Section band the pointer is in, anywhere across its rows — never while
   // a gesture is in flight, which has its own feedback to give.
   const [pointedBand, setPointedBand] = useState<SectionBand | null>(null)
@@ -1604,7 +1837,12 @@ export function ExamPage({
   // highlighted so the teacher sees what they would move or delete. Editing
   // its heading highlights nothing.
   const [hoveredSectionId, setHoveredSectionId] = useState<string | null>(null)
-  const highlightedSectionId = drag.source ? null : hoveredSectionId
+  // The Section whose more menu is open, and where it hangs. The Section stays
+  // highlighted while it is open, as it is while its controls are pointed at:
+  // the menu, portalled away from the rail, is still acting on it.
+  const [sectionMenu, setSectionMenu] = useState<{ sectionId: string; point: MenuPoint } | null>(null)
+  const closeSectionMenu = useCallback(() => setSectionMenu(null), [])
+  const highlightedSectionId = drag.source ? null : hoveredSectionId ?? sectionMenu?.sectionId ?? null
   // The Section ruled off above and below: the one the pointer is in, or,
   // mid-gesture, the one it would land in. An armed new-Section target rules
   // itself off instead.
@@ -1619,7 +1857,7 @@ export function ExamPage({
   // A cleared heading its controls asked to open, until its field has focus.
   const [revealTitleOf, setRevealTitleOf] = useState<string | null>(null)
   const sectionControls =
-    onMoveSection && onDeleteSection
+    onMoveSection && onDeleteSection && onInsertSection && onMergeSection
       ? (sectionId: string): SectionControls => {
           const index = sections.findIndex(({ id }) => id === sectionId)
           return {
@@ -1641,7 +1879,26 @@ export function ExamPage({
               onMoveSection(sectionId, direction)
             },
             onDelete: () => onDeleteSection(sectionId),
+            // A Section inserted empty has a heading waiting to be typed over,
+            // so its heading takes focus once it is on the sheet.
+            onInsert: (placement) => {
+              const inserted = onInsertSection(sectionId, placement)
+              if (inserted) setRevealTitleOf(inserted)
+            },
+            onMerge: (direction) => onMergeSection(sectionId, direction),
           }
+        }
+      : undefined
+  // What a question's menu offers for Sections, asking the Exam's own rules
+  // whether each would change anything rather than restating them here.
+  const questionSectionActions: QuestionSectionActions | undefined =
+    onSplitSection && onMoveToNewSection
+      ? {
+          canSplit: (questionId) => splitSection(exam, arrangement, questionId, () => '') !== null,
+          onSplit: onSplitSection,
+          canMoveToNewSection: (questionIds) =>
+            moveToNewSection(exam, arrangement, questionIds, () => '') !== null,
+          onMoveToNewSection,
         }
       : undefined
   // Where a gesture has opened a new-Section target: beneath the last piece of
@@ -1713,7 +1970,8 @@ export function ExamPage({
     <main
       className={workspaceClasses.join(' ')}
       ref={workspace}
-      style={PAGE_GEOMETRY}
+      {...selectAllPaneProps('exam-draft')}
+      style={pageGeometry(plan.pageSize)}
       data-drop-zone=""
       data-active={startsFirstSection ? 'true' : undefined}
       onClick={clearOnBackground}
@@ -1740,28 +1998,36 @@ export function ExamPage({
               />
             ))}
           {/* The Section the pointer is in — or, mid-gesture, the Section the
-              gesture would land in — is marked off by a dashed rule above and
-              below its stretch of each sheet. */}
+              gesture would land in — is marked off by a dashed rule at its
+              real top and its real foot. A Section that runs over a page
+              break draws no rule at the break, on either sheet. */}
           {ruledSectionId && sectionBands
             .filter((band) => band.pageIndex === index && band.sectionId === ruledSectionId)
-            .flatMap((band) => [
-              <div
-                key={`${band.sectionId}-top`}
-                className="section-rule"
-                style={{ top: band.topInPage }}
-                aria-hidden="true"
-              />,
-              ...(band.endsAtNewSection
-                ? []
-                : [
-                    <div
-                      key={`${band.sectionId}-bottom`}
-                      className="section-rule"
-                      style={{ top: band.topInPage + band.height }}
-                      aria-hidden="true"
-                    />,
-                  ]),
-            ])}
+            .flatMap((band) => {
+              const edges = bandEdges(sectionBands, band)
+              return [
+                ...(edges.top
+                  ? [
+                      <div
+                        key={`${band.sectionId}-top`}
+                        className="section-rule"
+                        style={{ top: band.topInPage }}
+                        aria-hidden="true"
+                      />,
+                    ]
+                  : []),
+                ...(edges.bottom
+                  ? [
+                      <div
+                        key={`${band.sectionId}-bottom`}
+                        className="section-rule"
+                        style={{ top: band.topInPage + band.height }}
+                        aria-hidden="true"
+                      />,
+                    ]
+                  : []),
+              ]
+            })}
           <PageHeaderContent
             header={page.header}
             furniture={page.furniture}
@@ -1772,6 +2038,7 @@ export function ExamPage({
           <div
             className="page-content"
             style={pageContentStyle(plan.textSize)}
+            data-question-style={plan.questionStyle}
             onClick={clearOnBackground}
           >
             {/* An exam with nothing in it yet offers the first question where
@@ -1804,6 +2071,7 @@ export function ExamPage({
                 onEdit={onEdit}
                 onOpenMenu={openMenu}
                 onSetWorkSpace={onSetWorkSpace}
+                maxWorkSpace={maxWorkSpaceHeight(plan.pageSize)}
                 draggedQuestionIds={draggedQuestionIds}
                 droppedQuestionIds={droppedQuestionIds}
                 dropState={questionDropState}
@@ -1827,8 +2095,22 @@ export function ExamPage({
           })()}
           disabled={titleDisabled}
           style={{ top: pointedBand.top + SECTION_RULE_OFFSET, left: pointedBand.pageLeft }}
+          menuOpen={sectionMenu?.sectionId === pointedBand.sectionId}
           onRevealTitle={() => setRevealTitleOf(pointedBand.sectionId)}
           onHover={(on) => setHoveredSectionId(on ? pointedBand.sectionId : null)}
+          onOpenMenu={(point) => setSectionMenu({ sectionId: pointedBand.sectionId, point })}
+        />
+      )}
+
+      {/* Held apart from the rail, which comes and goes with the pointer: the
+          menu outlives the pointer leaving for it. A Section gone from under
+          its open menu — merged away, undone — leaves nothing to act on. */}
+      {sectionMenu && sectionControls && sections.some(({ id }) => id === sectionMenu.sectionId) && (
+        <ContextMenu
+          point={sectionMenu.point}
+          ariaLabel="Section actions"
+          items={sectionMenuItems(sectionControls(sectionMenu.sectionId))}
+          onClose={closeSectionMenu}
         />
       )}
 
@@ -1844,12 +2126,27 @@ export function ExamPage({
             onDuplicate,
             onShuffleSelected,
             onShuffleSelectedAnswers,
+            shownIncorrect: (() => {
+              const question = exam.questions.find(({ id }) => id === menuQuestion.id)
+              if (!question) return null
+              const actedOn = selection.selectedIds.has(question.id)
+                ? exam.questions.filter(({ id }) => selection.selectedIds.has(id))
+                : [question]
+              return shownIncorrectMenuOf(question, actedOn, arrangement)
+            })(),
+            onSetShownIncorrect,
             onRemove,
             onSetColumns,
+            wordBankLayout: (() => {
+              const question = exam.questions.find(({ id }) => id === menuQuestion.id)
+              return question?.type === 'matching' ? wordBankLayoutOf(exam, question) : 'beside'
+            })(),
+            onSetWordBankLayout,
             workSpace: workSpaceOf(exam, menuQuestion.id),
             workSpaceOfPart: (partId) => workSpaceOf(exam, partId),
             onSetWorkSpace,
             selectedQuestionIds: [...selection.selectedIds],
+            sectionActions: questionSectionActions,
           })}
           onClose={closeMenu}
         />

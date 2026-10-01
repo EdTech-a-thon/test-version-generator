@@ -319,7 +319,7 @@ for (const fixture of fixtures) {
       arrangement: arrangementRange(plans.map((one) => one.arrangement.letter)),
       width: pageSize.width,
       height: pageSize.height,
-      margin: pageSize.margin,
+      margins: pageSize.margins,
     })
     record(directory, 'print-document.json', JSON.stringify(printed, null, 2))
     const structural = docx

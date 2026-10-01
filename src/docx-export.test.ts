@@ -23,8 +23,9 @@ import {
 import { docxFingerprint } from './docx-fingerprint'
 import { descendants, parseXml, path } from './xml'
 import { FIXTURES, PIXEL_PNG, paragraph, text } from './export-fixtures'
-import { planExport, unmeasured, STUDENT_TEST } from './export-plan'
+import { CHOICE_INDENT, pageSizeOf, planExport, questionIndentOf, unmeasured, STUDENT_TEST } from './export-plan'
 import type { Arrangement, Exam } from './exam'
+import { ANSWER_BLANK } from './question-style'
 
 const exam: Exam = {
   title: 'Chemistry: Unit 3 / Review',
@@ -120,7 +121,7 @@ describe('the planned sheet', () => {
     for (const page of fingerprint.pages) {
       expect(page.width).toBe(plan.pageSize.width)
       expect(page.height).toBe(plan.pageSize.height)
-      expect(page.margin).toBe(plan.pageSize.margin)
+      expect(page.margins).toEqual(plan.pageSize.margins)
     }
   })
 
@@ -441,5 +442,27 @@ describe('what Word is asked to draw stays on the sheet', () => {
       }
     }
     expect(wrong).toEqual([])
+  })
+})
+
+describe('a choice grid hangs where print draws it', () => {
+  // Print sets a Multiple Choice question's answers in from its stem by
+  // `CHOICE_INDENT`, and the stem starts past the number column the Question
+  // Style decides; the grid then runs to the right margin the Exam set.
+  test('past a Classic answer blank and the answers’ indent, to the Exam’s own right margin', async () => {
+    const classic = FIXTURES.find((fixture) => fixture.name.includes('classic'))!
+    const margins = { top: 1, right: 0.6, bottom: 1, left: 1.25 }
+    const xml = parseXml(await part(
+      await packagedFixture({ ...classic, exam: { ...classic.exam, margins } }),
+      'word/document.xml',
+    ))
+    // The first question is Multiple Choice, and its grid the first table.
+    const table = descendants(xml, 'w:tbl')[0]!
+    const indent = Number(path(table, 'w:tblPr', 'w:tblInd')?.attrs['w:w'])
+    const width = Number(path(table, 'w:tblPr', 'w:tblW')?.attrs['w:w'])
+    const questionIndent = questionIndentOf({ type: 'multiple-choice', marks: [ANSWER_BLANK] })
+    expect(questionIndent).toBeGreaterThan(questionIndentOf({ type: 'multiple-choice' }))
+    expect(indent).toBe(Math.round((questionIndent + CHOICE_INDENT) * 15))
+    expect(Math.abs(indent + width - pageSizeOf(margins).contentWidth * 15)).toBeLessThanOrEqual(1)
   })
 })

@@ -2,7 +2,7 @@ import 'fake-indexeddb/auto'
 import { IDBFactory } from 'fake-indexeddb'
 import { beforeEach, describe, expect, test } from 'bun:test'
 import { join } from 'node:path'
-import { choicesOf, questionsInSection, sectionsOf, type Question } from './exam'
+import { choicesOf, questionsInSection, sectionsOf, workSpaceOf, type Question } from './exam'
 import { selectedExam } from './selected-exam'
 import { createExamWorkspaceService } from './exam-workspaces'
 import { initialSelection, setBankAllowed, setBankTarget, setExamAllowed } from './import-selection'
@@ -224,6 +224,43 @@ describe('committing an import', () => {
     const { exam, arrangement } = selectedExam(working!.questionBank, copy)
     expect(sectionsOf(exam).map((section) => questionsInSection(exam, arrangement, section.id).map(({ id }) => id)))
       .toEqual([[q1!.id, q3!.id], [q5!.id], [q2!.id], []])
+  })
+
+  test('an Exam Record 0.4.0’s Question Style is stored, with a Work Space of none set against it', async () => {
+    const { banks, exams } = services()
+    const proposal = await withExamRecord({
+      format: 'test-parrot/exam',
+      formatVersion: '0.4.0',
+      name: 'Styled',
+      sections: [{ title: 'Short Answer', instructions: '' }],
+      questionStyle: 'classic',
+      positions: [
+        { question: { bank: 'cells', question: 'q5' }, section: 0, workSpace: { height: 0, style: 'blank', fill: false } },
+      ],
+    })
+    const result = await banks.commitImport(proposal, initialSelection(proposal))
+    const { working } = await examState(exams, result.createdExamIds[0]!)
+    const copy = working!.workingCopy
+    expect(copy.questionStyle).toBe('classic')
+    const { exam } = selectedExam(working!.questionBank, copy)
+    // The teacher's "None" wins over the three lines Classic would rule.
+    expect(workSpaceOf(exam, copy.questionIds[0]!)).toEqual({ height: 0, style: 'blank', fill: false })
+  })
+
+  test('an older Exam Record imports in the Standard style', async () => {
+    const { banks, exams } = services()
+    const proposal = await withExamRecord({
+      format: 'test-parrot/exam',
+      formatVersion: '0.3.0',
+      name: 'Plain',
+      sections: [{ title: 'Short Answer', instructions: '' }],
+      questionStyle: 'classic',
+      positions: [{ question: { bank: 'cells', question: 'q5' }, section: 0 }],
+    })
+    const result = await banks.commitImport(proposal, initialSelection(proposal))
+    const { working } = await examState(exams, result.createdExamIds[0]!)
+    // An unknown member in 0.3.0, and ignored.
+    expect(working!.workingCopy).not.toHaveProperty('questionStyle')
   })
 
   test('an Exam Record 0.2.0 still imports with per-type wording, its Sections derived', async () => {

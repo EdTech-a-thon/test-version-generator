@@ -6,22 +6,26 @@
 // Copy's own, and it is the plans made from them that the record keeps.
 
 import {
+  movableAnswerIds,
   orderedChoices,
   orderedPartChoices,
   partsOf,
   questionsInSection,
   sectionsOf,
   variesAnswers,
+  withAnswersMoved,
   type Arrangement,
+  type Choice,
   type Exam,
   type RandomSource,
 } from './exam'
 import type { LayoutPlan } from './export-plan'
+import { hiddenAnswerIdsOf, hideableAnswerIdsOf } from './hidden-answers'
 
 /** What an export may shuffle. Question order moves only within each Question
  *  Section; answer order covers Multiple Choice answers, a Multipart
  *  question's Multiple Choice Parts, and Matching Word Banks. True/False,
- *  Matching Items and Short Answer never move. */
+ *  Matching Items, Short Answer and a Locked Answer never move. */
 export type ShuffleOptions = { questions: boolean; answers: boolean }
 
 export const NO_SHUFFLE: ShuffleOptions = { questions: false, answers: false }
@@ -53,12 +57,49 @@ export function shufflesAnything(shuffle: ShuffleOptions | undefined): boolean {
 }
 
 // One list an export may reorder, in the Working Copy's order: a Section's
-// questions, or one question's or Part's answers.
+// questions, or one question's or Part's answers that may move — every one
+// but its Locked Answers, which keep their positions (ADR-0038). A Multiple
+// Choice question that hides some of its incorrect answers also draws which
+// ones each Version hides, as many as the Working Copy hides.
 type ShuffleGroup = {
   kind: 'section' | 'answers'
   /** The Section's type, or the question or Part id the answers are keyed by. */
   key: string
   order: string[]
+  /** A question's or Part's answers as the Working Copy orders them, locked
+   *  ones included, which `order` is the movable part of. */
+  answers?: Choice[]
+  /** The answers a Version may hide, and how many it hides. */
+  hideable?: string[]
+  hidden?: number
+}
+
+// One group's draw: its order, and for answers that hide, which are hidden.
+type GroupDraw = { order: string[]; hidden?: string[] }
+
+function answerGroup(key: string, answers: Choice[], hideable: string[] = [], hidden = 0): ShuffleGroup[] {
+  const order = movableAnswerIds(answers)
+  // Hidden answers can still be drawn differently when only one answer moves.
+  const arrangements = factorial(order.length - hidden) * combinations(hideable.length, hidden)
+  if (arrangements < 2) return []
+  return [{ kind: 'answers', key, order, answers, ...(hidden > 0 ? { hideable, hidden } : {}) }]
+}
+
+/** How many ways to choose `k` of `n`, saturating as `factorial` does. */
+function combinations(n: number, k: number): number {
+  let result = 1
+  for (let index = 1; index <= k; index += 1) {
+    result = Math.min((result * (n - k + index)) / index, Number.MAX_SAFE_INTEGER)
+  }
+  return Math.round(result)
+}
+
+/** What a student sees of one group's draw: its order, less what it hides. */
+function shownOf(group: ShuffleGroup, draw: GroupDraw): string[] {
+  const order = group.answers ? withAnswersMoved(group.answers, draw.order) : draw.order
+  if (!draw.hidden) return order
+  const hidden = new Set(draw.hidden)
+  return order.filter((id) => !hidden.has(id))
 }
 
 function shuffleGroups(
@@ -77,12 +118,15 @@ function shuffleGroups(
       if (question.type === 'multipart') {
         for (const part of partsOf(question)) {
           if (part.type !== 'multiple-choice') continue
-          const order = orderedPartChoices(part, arrangement).map(({ id }) => id)
-          if (order.length > 1) groups.push({ kind: 'answers', key: part.id, order })
+          groups.push(...answerGroup(part.id, orderedPartChoices(part, arrangement)))
         }
       } else if (variesAnswers(question.type)) {
-        const order = orderedChoices(question, arrangement).map(({ id }) => id)
-        if (order.length > 1) groups.push({ kind: 'answers', key: question.id, order })
+        groups.push(...answerGroup(
+          question.id,
+          orderedChoices(question, arrangement),
+          hideableAnswerIdsOf(question),
+          hiddenAnswerIdsOf(question, arrangement).length,
+        ))
       }
     }
   }
@@ -117,7 +161,9 @@ export function maxVersionCount(
 ): number {
   let arrangements = 1
   for (const group of shuffleGroups(exam, arrangement, shuffle)) {
-    arrangements = Math.min(arrangements * factorial(group.order.length), Number.MAX_SAFE_INTEGER)
+    const hidden = group.hidden ?? 0
+    const ways = factorial(group.order.length - hidden) * combinations(group.hideable?.length ?? 0, hidden)
+    arrangements = Math.min(arrangements * ways, Number.MAX_SAFE_INTEGER)
   }
   return Math.min(arrangements - 1, MAX_VERSIONS)
 }
@@ -154,7 +200,14 @@ export function shuffledArrangements({
   createId: () => string
 }): Arrangement[] {
   const groups = shuffleGroups(exam, arrangement, shuffle)
-  const seen = new Set([JSON.stringify(groups.map((group) => group.order))])
+  // Versions differ in what a student sees, so a hidden answer's place is no
+  // part of what makes one Version another.
+  const seen = new Set([
+    JSON.stringify(groups.map((group) => shownOf(group, {
+      order: group.order,
+      ...(group.hidden ? { hidden: hiddenAnswerIdsOf(exam.questions.find(({ id }) => id === group.key)!, arrangement) } : {}),
+    }))),
+  ])
   const result: Arrangement[] = []
   // Far more draws than a distinct set could ever need, so a broken random
   // source fails loudly rather than spinning.
@@ -162,16 +215,22 @@ export function shuffledArrangements({
     if (attempt > 1000 + count * 1000) {
       throw new Error('The Versions could not be shuffled. Please try again.')
     }
-    const orders = groups.map((group) => shuffled(group.order, random))
-    const key = JSON.stringify(orders)
+    const draws: GroupDraw[] = groups.map((group) => ({
+      order: shuffled(group.order, random),
+      ...(group.hidden ? { hidden: shuffled(group.hideable!, random).slice(0, group.hidden) } : {}),
+    }))
+    const key = JSON.stringify(groups.map((group, index) => shownOf(group, draws[index]!)))
     if (seen.has(key)) continue
     seen.add(key)
 
     const sections = new Map<string, string[]>()
     const choiceOrder = { ...arrangement.choiceOrder }
+    const hiddenAnswers = { ...(arrangement.hiddenAnswers ?? {}) }
     groups.forEach((group, index) => {
-      if (group.kind === 'section') sections.set(group.key, orders[index]!)
-      else choiceOrder[group.key] = orders[index]!
+      const draw = draws[index]!
+      if (group.kind === 'section') sections.set(group.key, draw.order)
+      else choiceOrder[group.key] = withAnswersMoved(group.answers!, draw.order)
+      if (draw.hidden) hiddenAnswers[group.key] = draw.hidden
     })
     result.push({
       id: createId(),
@@ -181,6 +240,7 @@ export function shuffledArrangements({
           ?? questionsInSection(exam, arrangement, section.id).map(({ id }) => id),
       ),
       choiceOrder,
+      ...(Object.keys(hiddenAnswers).length > 0 ? { hiddenAnswers } : {}),
     })
   }
   return result

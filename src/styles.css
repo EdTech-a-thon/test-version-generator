@@ -325,11 +325,11 @@ button { cursor: pointer; }
    printer will produce; nothing in it is typeable.
 
    A page is a real sheet at the geometry `export-plan.ts` packed against —
-   US Letter, 816x1056px at 96dpi with 1in margins. Every number below comes
-   from the `--page-*` custom properties `exam-page.tsx` sets from that
-   module's own constants, so the box content was packed into and the box it
-   is laid out in cannot drift apart. The `@page` rule at the foot of this
-   file is the same sheet in inches. */
+   US Letter, 816x1056px at 96dpi, with the Exam's Page Margins (¾in unless it
+   set its own). Every number below comes from the `--page-*` custom properties
+   `exam-page.tsx` sets from the plan's own page size, so the box content was
+   packed into and the box it is laid out in cannot drift apart. The `@page`
+   rule at the foot of this file is the same sheet in inches. */
 
 /* ---------------------------------------------------------------------------
    The split authoring workspace.
@@ -750,13 +750,14 @@ button { cursor: pointer; }
 .exam-page {
   position: relative; display: flex; flex-direction: column;
   width: var(--page-width); height: var(--page-height);
-  margin: 0 auto 26px; padding: var(--page-margin);
+  margin: 0 auto 26px;
+  padding: var(--page-margin-top) var(--page-margin-right) var(--page-margin-bottom) var(--page-margin-left);
   background: #fffdf8; box-shadow: 0 2px 8px rgb(91 68 47 / 18%);
   /* The sheet is exactly as big as it is: content that overruns is clipped
      here rather than pushing the page out of shape and hiding the fact that
      a measurement was wrong. */
   overflow: hidden;
-  font-family: Georgia, 'Times New Roman', serif; font-size: 15px; line-height: 1.45;
+  font-family: Georgia, 'Times New Roman', serif; font-size: 15px; line-height: 1.2;
 }
 
 /* Page furniture. Fixed heights, because the packer subtracted exactly these
@@ -804,11 +805,13 @@ button { cursor: pointer; }
 .page-header:hover .identity-handles,
 .identity-handles:focus-within { opacity: 1; }
 /* Takes whatever the identity line leaves of the first page's header, and sits
-   on the bottom of it. */
+   on the bottom of it. A long title wraps, at `TITLE_LINE_HEIGHT`, and the
+   plan grows its header by a line for each line past the first
+   (`headerHeightOf`), so it never runs over the questions below. */
 .page-header--first .exam-title,
 .page-header--answer-key .exam-title {
   flex: 1 1 auto; display: flex; align-items: flex-end;
-  margin: 0; font: 700 26px/1.2 Georgia, serif;
+  margin: 0; font: 700 26px/1.1 Georgia, serif; overflow-wrap: anywhere;
 }
 .page-header--answer-key .page-identity,
 .page-header--answer-key-later .page-identity { justify-content: flex-end; }
@@ -831,9 +834,15 @@ button { cursor: pointer; }
   visibility: hidden; pointer-events: none;
   overflow: visible; background: none; box-shadow: none;
 }
+/* The host an answer is measured in on one line (`choiceWidth` in
+   dom-measure.ts): as wide as its content, the grid sized by it rather than
+   by the page, and nothing allowed to wrap. */
+.measure-host--natural { width: max-content; }
+.measure-host--natural .choice-grid { width: auto; table-layout: auto; }
+.measure-host--natural .doc-content { white-space: pre; }
 
 .exam-section { margin: 16px 0 18px; }
-.section-title { margin: 0; font: 700 17px/1.3 Georgia, serif; }
+.section-title { margin: 0; font: 700 17px/1.2 Georgia, serif; }
 /* Directions print at the heading size's type, set here for normal so the
    Exam's text size, which a page's content carries, does not reach them. */
 .section-instructions { margin: 4px 0 0; font-size: 15px; font-style: italic; }
@@ -861,13 +870,19 @@ button { cursor: pointer; }
 .section-heading-input:focus { box-shadow: 0 1px 0 var(--paper-accent); }
 .section-heading-input:disabled { color: inherit; -webkit-text-fill-color: currentcolor; opacity: 1; }
 .exam-section-hidden { position: relative; height: 0; }
-.answer-key-heading { margin: 0 0 18px; font: 700 20px/1.3 Georgia, serif; }
-.answer-key-section { margin: 0 0 10px; font: 700 17px/1.3 Georgia, serif; }
+/* Sheet-only, and drawn over the gap above the Section rather than in the
+   flow, so the untitled Section lays out exactly as it prints. */
+.exam-section-untitled {
+  position: absolute; right: 0; bottom: 3px; pointer-events: none; white-space: nowrap;
+  color: #b3a498; font: italic 11px/1 Arial, Helvetica, sans-serif; letter-spacing: 0.02em;
+}
+.answer-key-heading { margin: 0 0 18px; font: 700 20px/1.2 Georgia, serif; white-space: nowrap; }
+.answer-key-section { margin: 0 0 10px; font: 700 17px/1.2 Georgia, serif; }
 .answer-key-entry {
   display: grid; grid-template-columns: 42px 56px minmax(0, 1fr);
   align-items: center; gap: 8px; margin: 0 0 8px;
 }
-.answer-key-answer { min-height: 1.45em; border-bottom: 1px solid #332a24; text-align: center; }
+.answer-key-answer { min-height: 1.3em; border-bottom: 1px solid #332a24; text-align: center; }
 /* A Suggested Answer takes the lines under its entry, starting under the
    blank. The PDF and DOCX adapters indent it by the same 50px. */
 .answer-key-suggested { grid-column: 2 / -1; }
@@ -889,14 +904,25 @@ button { cursor: pointer; }
   margin-bottom: 26px; border-radius: 4px; cursor: grab;
   transition: background-color 90ms ease, box-shadow 90ms ease;
 }
-/* No question prints an answer blank, so the number column is only as wide as
-   a three-digit number; a True/False question's T and F, which a student
-   circles, sit before its number in a wider one. `questionIndentOf` in
-   export-plan.ts holds the same widths for the adapters. */
+/* On a Standard Exam no question prints an answer blank, so the number column
+   is only as wide as a three-digit number; a True/False question's T and F,
+   which a student circles, sit before its number in a wider one. A Question
+   Style that prints an answer blank before the number widens it again — the
+   column an Export Record made before Sections were stored reprints its blank
+   in too. `questionIndentOf` in export-plan.ts holds the same widths for the
+   adapters. */
 .exam-question:has(> .question-number--marks) { grid-template-columns: 64px 1fr; }
-/* An Export Record made before Sections were stored reprints the answer blank
-   its questions had, in the column it had (`questionIndentOf`). */
-.exam-question:has(> .question-number--legacy-blank) { grid-template-columns: 92px 1fr; }
+.exam-question:has(> .question-number--blank) { grid-template-columns: 92px 1fr; }
+/* The number always prints whole: a two-digit number, or a larger text size,
+   shortens the blank before it rather than pushing into the question. */
+.question-number--blank .question-marks { min-width: 0; overflow: hidden; white-space: nowrap; }
+.question-number--blank .question-count { flex: none; }
+/* A Condensed Exam stands its questions closer together: the Question Style's
+   `questionGap` in question-style.ts. The drop line keeps to the middle of
+   the narrower gap. */
+[data-question-style='condensed'] .exam-question { margin-bottom: 12px; }
+[data-question-style='condensed'] .exam-question[data-drop="before"]::after { top: -7px; }
+[data-question-style='condensed'] .exam-question[data-drop="after"]::after { bottom: -7px; }
 .exam-question, .exam-question * { -webkit-user-drag: none; }
 .exam-question:active { cursor: grabbing; }
 
@@ -1033,7 +1059,7 @@ button { cursor: pointer; }
 .new-section-target::before,
 .new-section-target::after {
   content: ''; position: absolute;
-  left: calc(-1 * var(--page-margin)); right: calc(-1 * var(--page-margin));
+  left: calc(-1 * var(--page-margin-left)); right: calc(-1 * var(--page-margin-right));
   border-top: 1px dashed #ddd0c2; pointer-events: none;
 }
 .new-section-target::before { top: -9px; }
@@ -1111,8 +1137,23 @@ button { cursor: pointer; }
 .question-stem > :first-child { margin-top: 0; }
 .question-stem > :last-child { margin-bottom: 0; }
 
-/* The choice grid: a table for the column-major layout, borderless everywhere. */
-.choice-grid { width: 100%; margin: 8px 0 0; border: 0; border-collapse: collapse; table-layout: fixed; }
+/* Question text, spaced from `export-typography.ts`: a paragraph or a list
+   opens a gap of `PARAGRAPH_GAP_EM` from what is above it, and a list's items
+   sit `LIST_ITEM_GAP_EM` apart — close, like the lines within them, rather
+   than each opening a paragraph gap of its own. `:where` keeps these below
+   every rule that trims a first or last child, or tightens a choice. */
+:where(.exam-page .doc-content) :is(p, ul, ol) { margin: 1em 0; }
+:where(.exam-page .doc-content) li > p { margin: 0; }
+:where(.exam-page .doc-content) li > :is(ul, ol) { margin: 0.2em 0 0; }
+:where(.exam-page .doc-content) li + li { margin-top: 0.2em; }
+
+/* The choice grid: a table for the column-major layout, borderless everywhere,
+   set in from the stem by `CHOICE_INDENT` in export-plan.ts so the answers read
+   as one group under their question. */
+.choice-grid {
+  width: calc(100% - 18px); margin: 8px 0 0 18px;
+  border: 0; border-collapse: collapse; table-layout: fixed;
+}
 .choice-cell { padding: 1px 12px 1px 0; border: 0; vertical-align: top; }
 .choice-cell[data-correct-answer] { position: relative; }
 /* Correctness is authoring-only feedback, and it belongs on the choice: a mark
@@ -1131,6 +1172,11 @@ button { cursor: pointer; }
 .choice-correctness-marker svg {
   width: 12px; height: 12px; margin-left: -15px; vertical-align: -1px; stroke-width: 3.5;
 }
+/* A Locked Answer's lock, in the check's place (ADR-0038): the accent colour,
+   or the correct answer's colour on a correct one. */
+.choice-lock-marker { color: #9f5037; }
+.choice-lock-marker svg { stroke-width: 2.6; }
+.choice-cell[data-correct-answer] .choice-lock-marker { color: var(--easy-ink); }
 .choice-letter { float: left; margin-right: 6px; font-weight: 400; }
 .choice-body > :first-child { margin-top: 0; }
 .choice-body > :last-child { margin-bottom: 0; }
@@ -1174,9 +1220,11 @@ button { cursor: pointer; }
 
 /* A Short Answer question's work space: exactly as tall as the plan says, and
    either empty or ruled. No margin of its own, so the height packing was told
-   is the height it takes; the first rule sits one pitch below the question,
-   which is the gap a student starts writing in. Each line is one pitch tall
-   with its rule along its foot — the pitch `WORK_SPACE_LINE_PITCH` names. */
+   is the height it takes. Each line is one row tall with its rule along its
+   foot: the first row a quarter shorter than the rest, so the first rule sits
+   close under the question it belongs to, and every other row the Question
+   Style's pitch. `WorkSpaceView` sets each row's height from the plan; 32px,
+   `WORK_SPACE_LINE_PITCH`, is only the fallback. */
 .work-space { display: flow-root; }
 .work-space-line {
   box-sizing: border-box; height: 32px; border-bottom: 1px solid #8f847a;
@@ -1197,6 +1245,22 @@ button { cursor: pointer; }
 .part-work-space { position: relative; }
 .part-work-space > .work-space-handle { left: 0; bottom: -16px; }
 
+/* How many incorrect answers a question shows, when it hides some (ADR-0038):
+   a quiet line in the gap below its answers, over the body column, taking none
+   of the question's measured height. The sheet alone shows it, and only while
+   its question is hovered or selected, fading in as the work space handle
+   does, so a sheet at rest reads as the page will print. */
+.answer-visibility-note {
+  position: absolute; left: 40px; right: 0; bottom: -18px; z-index: 1;
+  margin: 0; overflow: hidden; color: #8a7767;
+  font: italic 11px/16px Arial, Helvetica, sans-serif;
+  white-space: nowrap; text-overflow: ellipsis; pointer-events: none;
+  opacity: 0; transition: opacity 90ms ease-in;
+}
+.exam-question:hover .answer-visibility-note,
+.exam-question--selected .answer-visibility-note,
+.exam-question:focus-within .answer-visibility-note { opacity: 1; }
+
 /* The bar that drags a work space open: in the gap below the question, over
    the body column, taking none of the question's measured height. */
 .work-space-handle {
@@ -1216,6 +1280,12 @@ button { cursor: pointer; }
 .exam-question--sizing .work-space-grip { background: #9f5037; }
 .work-space-handle:focus-visible { outline: 2px solid #9f5037; outline-offset: 1px; }
 .exam-question--sizing, .exam-question--sizing * { cursor: ns-resize !important; }
+/* The note and the bar start where the body does: past the number column and
+   its 6px gap, however wide the Question Style makes that column. Condensed's
+   narrower gap between questions takes a smaller note. */
+.exam-question:has(> .question-number--marks) > :is(.answer-visibility-note, .work-space-handle) { left: 70px; }
+.exam-question:has(> .question-number--blank) > :is(.answer-visibility-note, .work-space-handle) { left: 98px; }
+[data-question-style='condensed'] .answer-visibility-note { bottom: -12px; font-size: 10px; line-height: 12px; }
 
 /* The handles: a plus and a grip in the margin beside a question, hidden until
    it is hovered or one of them has focus, so the page still reads as paper.
@@ -1223,9 +1293,11 @@ button { cursor: pointer; }
    They sit out in the sheet's own padding, which is inside the page box, so
    `overflow: hidden` on the sheet does not cut them off. The menu the grip
    opens could not live there — it portals to the body instead. 52px of controls
-   inside a 72px margin leaves them clear of the paper's edge. */
+   inside today's 72px margin leaves them clear of the paper's edge; a narrower
+   left margin draws them in so they are never cut off, over the number column
+   if it must. */
 .question-handles {
-  position: absolute; top: -1px; left: -56px; z-index: 2;
+  position: absolute; top: -1px; left: calc(-1 * min(56px, var(--page-margin-left))); z-index: 2;
   display: flex; align-items: center; gap: 2px;
   opacity: 0; transition: opacity 90ms ease-in;
 }
@@ -1284,7 +1356,28 @@ button { cursor: pointer; }
   width: 18px; height: 16px; color: #8b7868;
 }
 .context-menu-format-icon svg { width: 18px; height: 14px; stroke-width: 1.4; }
+/* A radio's picture of what choosing it looks like — a Question Style's
+   sketch — in place of its icon: wider than an icon, at its own 1:1 size so
+   its one-pixel lines stay crisp, and set against the label's first line. */
+/* A Question Style's sketch, drawn half as large again as its 32 by 24
+   viewBox: its label and two lines of description already make the row that
+   tall, so the sketch can use the room. Strokes stay a pixel wide. */
+.context-menu-preview {
+  flex: none; align-self: flex-start; display: flex;
+  width: 48px; height: 36px; margin-top: 2px; color: #8b7868;
+}
+.context-menu-preview svg { width: 48px; height: 36px; }
+.context-menu-preview svg path,
+.context-menu-preview svg circle { vector-effect: non-scaling-stroke; }
+.context-menu-item[aria-checked='true'] .context-menu-preview { color: #9f5037; }
 .context-menu-item-label { flex: 1; }
+/* A radio's line of description, under its label: what choosing it does. */
+.context-menu-item-description {
+  display: block; margin-top: 1px;
+  color: #8b7868; font-size: 12px; line-height: 1.35; white-space: normal;
+}
+/* What a submenu has chosen now, beside its label. */
+.context-menu-item-value { color: #8b7868; }
 .context-menu-radio-indicator {
   flex: none; display: flex; align-items: center; justify-content: center;
   width: 12px; height: 16px;
@@ -1305,6 +1398,9 @@ button { cursor: pointer; }
   padding: 4px; border: 1px solid #e0d3c2; border-radius: 8px; background: #fffdf8;
   box-shadow: 0 10px 30px rgb(55 42 33 / 18%), 0 2px 6px rgb(55 42 33 / 10%);
 }
+/* A submenu whose choices each say what they do is wide enough to say it in
+   a line or two. */
+.context-submenu:has(.context-menu-item-description) { min-width: 320px; }
 .context-menu[data-side='left'] .context-submenu {
   right: calc(100% + 5px); left: auto;
 }
@@ -1315,6 +1411,59 @@ button { cursor: pointer; }
   content: ''; position: absolute; top: -1px; bottom: -1px; right: 100%; width: 10px;
 }
 .context-menu[data-side='left'] .context-submenu::before { right: auto; left: 100%; }
+
+/* The Margins panel the Format menu opens: the menu's own card, staying open
+   while the sheet behind it reflows. One row per field — its label, then the
+   field with its icon and inches — and the combined row's toggle beside it,
+   which the rows for each side leave room for so their fields line up under
+   it. A label, an icon and an unfocused field scrub: they show a resize arrow,
+   and keep it on the whole page while a drag lasts. */
+.margins-panel {
+  position: fixed; z-index: 200; width: 248px;
+  padding: 8px 10px 10px; border: 1px solid #e0d3c2; border-radius: 8px; background: #fffdf8;
+  box-shadow: 0 10px 30px rgb(55 42 33 / 18%), 0 2px 6px rgb(55 42 33 / 10%);
+  color: #4e3b2f; font-family: Arial, Helvetica, sans-serif; font-size: 13px;
+}
+.margins-panel:focus { outline: none; }
+.margins-panel-header { display: flex; align-items: center; justify-content: space-between; margin: 0 0 6px; }
+.margins-panel-title {
+  display: flex; align-items: center; gap: 6px;
+  color: #8b7868; font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+}
+.margins-panel-icon { width: 14px; height: 14px; stroke-width: 1.9; }
+.margins-panel-close, .margins-expand {
+  display: flex; align-items: center; justify-content: center; flex: none;
+  width: 26px; height: 26px; padding: 0; border: 1px solid transparent; border-radius: 6px;
+  color: #8b7868; background: transparent;
+}
+.margins-panel-close svg, .margins-expand svg { width: 15px; height: 15px; stroke-width: 1.9; }
+.margins-panel-close:hover, .margins-expand:hover { background: #f2e6d8; }
+.margins-expand[aria-pressed='true'] { border-color: #e0d3c2; color: var(--paper-accent); background: var(--paper-accent-wash); }
+.margins-combined { display: flex; align-items: center; gap: 6px; }
+.margins-combined .margins-row { flex: 1; }
+.margins-sides { display: grid; gap: 4px; margin: 6px 0 0; padding: 6px 32px 0 0; border-top: 1px solid #eadfd0; }
+.margins-row { display: grid; grid-template-columns: minmax(0, 1fr) 104px; align-items: center; gap: 8px; }
+.margins-row-label {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  cursor: ew-resize; user-select: none; touch-action: none;
+}
+.margins-row-icon { display: flex; flex: none; color: #8b7868; cursor: ew-resize; touch-action: none; }
+.margins-row-icon svg { width: 15px; height: 15px; stroke-width: 1.7; }
+.margins-row[data-disabled] :is(.margins-row-label, .margins-row-icon) { cursor: default; }
+.margins-field {
+  display: flex; align-items: center; gap: 5px; height: 26px; padding: 0 6px;
+  border: 1px solid #e0d3c2; border-radius: 5px; background: #fff;
+}
+.margins-field:focus-within { border-color: var(--paper-accent); }
+.margins-input {
+  width: 100%; min-width: 0; padding: 0; border: 0; outline: none;
+  color: inherit; background: transparent; font: inherit; text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.margins-input:not(:focus):not(:disabled) { cursor: ew-resize; touch-action: none; }
+.margins-input::placeholder { color: #8b7868; }
+.margins-unit { color: #8b7868; }
+body.margins-scrubbing, body.margins-scrubbing * { cursor: ew-resize !important; user-select: none; }
 
 .vary-summary {
   position: fixed; z-index: 40; left: 50%; bottom: 22px; transform: translateX(-50%);
@@ -1561,6 +1710,44 @@ button { cursor: pointer; }
   position: absolute; inset: 0 auto auto 0;
   color: #a8988c; pointer-events: none;
 }
+
+/* The lock at the right of an answer row (ADR-0038), drawn like a Part's own
+   controls: faint until the row is hovered or holds the cursor, and always
+   shown, in the accent colour, while the answer is locked. It sits in the
+   row's first line, beside the radio's height. */
+.mc-choice-lock {
+  flex: none; display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 1.5em; margin: 0 -4px 0 0; padding: 0;
+  border: 0; border-radius: 5px; color: #786457; background: transparent; cursor: pointer;
+  opacity: 0; transition: opacity 120ms;
+}
+.mc-choice-lock svg { width: 15px; height: 15px; stroke-width: 2.2; }
+.mc-choice-lock:hover { color: #9f5037; background: #f2e6d8; }
+.mc-choice-lock:focus-visible { opacity: 1; outline: 2px solid #9f5037; outline-offset: 1px; }
+.mc-choice:hover > .mc-choice-lock,
+.mc-choice:focus-within > .mc-choice-lock,
+.mc-choice-lock[aria-pressed="true"] { opacity: 1; }
+.mc-choice-lock[aria-pressed="true"] { color: #9f5037; }
+.mc-choice-lock[hidden] { display: none; }
+
+/* The arrows before the lock that move an answer up or down, drawn and shown
+   as the lock is, and set close to it and each other; the one with nowhere to
+   go is greyed out. */
+.mc-choice-move {
+  flex: none; display: inline-flex; align-items: center; justify-content: center;
+  width: 24px; height: 1.5em; padding: 0;
+  border: 0; border-radius: 5px; color: #786457; background: transparent; cursor: pointer;
+  opacity: 0; transition: opacity 120ms;
+}
+.mc-choice-move + .mc-choice-move,
+.mc-choice-move + .mc-choice-lock { margin-left: -8px; }
+.mc-choice-move svg { width: 15px; height: 15px; stroke-width: 2.2; }
+.mc-choice-move:hover:not(:disabled) { color: #9f5037; background: #f2e6d8; }
+.mc-choice-move:focus-visible { opacity: 1; outline: 2px solid #9f5037; outline-offset: 1px; }
+.mc-choice-move:disabled { color: #d6c9bd; cursor: default; }
+.mc-choice:hover > .mc-choice-move,
+.mc-choice:focus-within > .mc-choice-move { opacity: 1; }
+.mc-choice-move[hidden] { display: none; }
 
 /* A True/False question's pair is drawn, not typed into: no placeholder, a
    cursor that never lands there, and a solid label beside the radio the teacher
@@ -2172,29 +2359,28 @@ button { cursor: pointer; }
   border-radius: 8px; background: transparent;
 }
 .editor-home-mark:hover, .editor-home-mark:focus-visible { border-color: #ddcdb9; background: #f2e6d8; }
-/* Inside the fixed-height title slot the page furniture already reserves, so
-   typing a longer name can never change what fits on the sheet.
-
-   The field is as wide as the name and no wider: a mirror of the value sits in
-   the same grid cell behind the input and sets the column, and `size={1}`
-   keeps the input's own 20-character default from putting a floor under it.
-   Without that the hover underline would run the width of the sheet. */
+/* The title typed where it prints. It wraps exactly as the printed title
+   does: a hidden copy of the value sits in the same grid cell behind the
+   field, wrapping at the same width with no padding of its own, and sets the
+   cell's size, so the field is as wide as the name and as many lines tall as
+   the plan measured it. The underline is a shadow, which takes no height. */
 .exam-title-field {
   display: inline-grid; max-width: 100%; min-width: 0;
 }
 .exam-title-field::after {
-  grid-area: 1 / 1; padding: 0 1px;
-  content: attr(data-value); visibility: hidden; white-space: pre; overflow: hidden;
+  grid-area: 1 / 1;
+  content: attr(data-value) ' '; visibility: hidden; white-space: pre-wrap; overflow-wrap: anywhere;
   font: inherit; letter-spacing: inherit;
 }
 .exam-title-input {
-  grid-area: 1 / 1; width: 100%; min-width: 2ch; padding: 0 1px;
-  border: 0; border-bottom: 1px solid transparent;
+  grid-area: 1 / 1; width: 0; min-width: 100%; padding: 0; margin: 0;
+  border: 0; border-radius: 0; resize: none; overflow: hidden;
   color: inherit; background: transparent; font: inherit; line-height: inherit; outline: none;
+  box-shadow: 0 1px 0 transparent;
 }
 .exam-title-input::placeholder { color: #b8a493; }
-.exam-title-input:hover:not(:disabled) { border-bottom-color: #d8cbbb; }
-.exam-title-input:focus { border-bottom-color: var(--paper-accent); }
+.exam-title-input:hover:not(:disabled) { box-shadow: 0 1px 0 #d8cbbb; }
+.exam-title-input:focus { box-shadow: 0 1px 0 var(--paper-accent); }
 .exam-title-input:disabled { color: inherit; -webkit-text-fill-color: currentcolor; opacity: 1; }
 
 /* Drop a Question Bank File anywhere. */
@@ -2580,6 +2766,10 @@ button { cursor: pointer; }
    so the eye finds it on the text it is about. */
 .question-reading-correct {
   width: 15px; height: 15px; margin-left: 6px; color: #27643a; vertical-align: -3px;
+}
+/* A Locked Answer's lock, after its check if it has one (ADR-0038). */
+.question-reading-locked {
+  width: 13px; height: 13px; margin-left: 6px; color: #9f5037; vertical-align: -2px;
 }
 
 .question-reading-answer {
@@ -3087,6 +3277,18 @@ button { cursor: pointer; }
 .bank-import-mismatch p { margin: 0; }
 .bank-import-mismatch strong { color: var(--paper-danger); }
 .bank-import-mismatch .secondary-button { flex: none; }
+
+/* The way back to the assistant: a corrected file replaces the one shown. */
+.bank-import-revise {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  margin: 0 18px 12px; padding: 10px 14px; border: 1px solid var(--paper-outline); border-radius: 8px;
+  color: var(--paper-ink-soft); background: var(--paper-surface); font-size: 13px; line-height: 1.45;
+}
+.bank-import-revise p { margin: 0; }
+.bank-import-revise strong { color: #2f2419; }
+.bank-import-revise-file { position: relative; flex: none; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.bank-import-revise-file input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+.bank-import-revise-file svg { width: 16px; height: 16px; }
 
 /* Resolve Images: every Pending Image in the import, one row each. */
 .bank-import-resolve { flex: 1; min-height: 0; overflow: auto; border-top: 1px solid var(--paper-outline); }

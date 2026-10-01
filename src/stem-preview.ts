@@ -10,7 +10,7 @@
 // exactly what the row showed them.
 
 import { stemNodesOf, type ProseMirrorJSON } from './question-doc'
-import { partsOf, type Question } from './exam'
+import { partsOf, promptsOf, type Question } from './exam'
 
 /** Content a one-line row can only point at. */
 export type StemPreviewBadge = 'image' | 'math'
@@ -58,6 +58,14 @@ const BADGE_NODES: Record<string, StemPreviewBadge> = {
  */
 export function stemPreview(question: Question): StemPreview {
   const preview = previewOf(stemNodesOf(question.doc))
+  // A Matching set whose directions are its Section's has a blank stem; its
+  // Items say what it is about, and they give nothing away.
+  if (question.type === 'matching' && !preview.text) {
+    const items = promptsOf(question)
+      .map(({ node }) => previewOf(Array.isArray(node.content) ? node.content as ProseMirrorJSON[] : []).text)
+      .filter(Boolean)
+    return { ...preview, text: items.join(' · ') }
+  }
   return question.type === 'multipart'
     ? { ...preview, parts: partsOf(question).length }
     : preview

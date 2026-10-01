@@ -46,6 +46,7 @@ import type { WorkspaceDrag } from './use-workspace-drag'
 import { DIFFICULTY_OPTIONS, SORT_OPTIONS, TYPE_OPTIONS, type FilterOption } from './question-bank-filter-options'
 import { CopyQuestionButton } from './question-copy-feedback'
 import { useQuestionCopy } from './use-question-copy'
+import { selectAllPaneProps, useSelectAll } from './use-select-all'
 import {
   NO_FILTER,
   browseQuestionBank,
@@ -221,6 +222,7 @@ export function QuestionBankPane({
   selectedQuestionIds,
   onSelect,
   onClearSelection,
+  onSelectAll,
   onCreate,
   onExport,
   exportBlocked = false,
@@ -256,6 +258,8 @@ export function QuestionBankPane({
     modifiers: { shiftKey: boolean; metaKey: boolean; ctrlKey: boolean },
   ) => void
   onClearSelection: () => void
+  /** Cmd/Ctrl-A: every Question the search and filters currently show. */
+  onSelectAll: (orderedIds: readonly string[]) => void
   onCreate?: (point: MenuPoint) => void
   /** Exports this complete active bank, never the filtered row projection. */
   onExport?: () => void
@@ -277,6 +281,8 @@ export function QuestionBankPane({
   const copying = useQuestionCopy()
   const questions = browseQuestionBank(bank, filter)
   const orderedIds = questions.map(({ id }) => id)
+  const root = useRef<HTMLElement>(null)
+  useSelectAll('question-bank', root, orderedIds, onSelectAll)
   const addableQuestions = questions.filter(({ id }) => !workingCopyIds.has(id))
   const filtered = isFilterActive(filter)
   // A gesture that has not yet moved far enough to be a drag. One pointer
@@ -684,8 +690,10 @@ export function QuestionBankPane({
 
   return (
     <section
+      ref={root}
       className="question-bank"
       aria-label="Question Bank"
+      {...selectAllPaneProps('question-bank')}
       // The rule under the toolbar is drawn only while there is something
       // above it to have scrolled past.
       data-scrolled={scrolled ? 'true' : undefined}

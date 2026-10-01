@@ -4,9 +4,11 @@ import {
   type ColumnSetting,
   type ExamSection,
   type Question,
+  type WordBankLayout,
   type WorkSpace,
 } from './exam'
 import type { SavedState } from './exam-store'
+import { wordBankLayoutFor, type BankAnswerWidth } from './export-plan'
 import type { ImportSelection } from './import-selection'
 import { positionColumns, type ExamRecordPosition, type ImportProposal } from './package-import'
 import { withResolvedImages, type PendingImageResolution } from './pending-images'
@@ -68,6 +70,7 @@ export function planImport(
   selection: ImportSelection,
   createId: () => string = () => crypto.randomUUID(),
   resolution: PendingImageResolution = new Map(),
+  bankAnswerWidth?: BankAnswerWidth,
 ): ImportPlan {
   const identities = new Map<string, Map<string, ImportedQuestionIdentity>>()
   const localBankIds = new Map<string, string>()
@@ -108,7 +111,9 @@ export function planImport(
     const questions: Question[] = []
     const columns: Record<string, ColumnSetting> = {}
     const choiceOrder: Record<string, string[]> = {}
+    const hiddenAnswers: Record<string, string[]> = {}
     const workSpace: Record<string, WorkSpace> = {}
+    const wordBankLayout: Record<string, WordBankLayout> = {}
     const identityOf = (position: ExamRecordPosition) =>
       identities.get(position.question.bank)!.get(position.question.question)!
     const layout = positionColumns(
@@ -122,6 +127,17 @@ export function planImport(
       if (laidOut) columns[question.id] = laidOut
       if (position.answerOrder) {
         choiceOrder[question.id] = position.answerOrder.map((id) => answers.get(id)!)
+      }
+      if (position.hiddenAnswers) {
+        hiddenAnswers[question.id] = position.hiddenAnswers.map((id) => answers.get(id)!)
+      }
+      // Every Matching position stores where its Word Bank prints. A record
+      // that does not say — written before it could, or by another tool —
+      // takes the layout its Question Style and the fit rule give it here,
+      // once, as a question added to an Exam does (ADR-0041).
+      if (question.type === 'matching') {
+        wordBankLayout[question.id] = position.wordBankLayout
+          ?? wordBankLayoutFor(question, exam, bankAnswerWidth)
       }
       if (position.workSpace) {
         workSpace[question.id] = {
@@ -150,13 +166,17 @@ export function planImport(
       ...createWorkingCopy(exam.name.trim() || DEFAULT_EXAM_TITLE),
       questionIds: questions.map(({ id }) => id),
       choiceOrder,
+      ...(Object.keys(hiddenAnswers).length > 0 ? { hiddenAnswers } : {}),
       ...(Object.keys(columns).length > 0 ? { columns } : {}),
       ...(Object.keys(workSpace).length > 0 ? { workSpace } : {}),
+      ...(Object.keys(wordBankLayout).length > 0 ? { wordBankLayout } : {}),
       ...(sections ? { sections, sectionOf } : {}),
       ...(exam.sectionHeadings ? { sectionHeadings: exam.sectionHeadings } : {}),
       ...(exam.headingSize ? { headingSize: exam.headingSize } : {}),
       ...(exam.textSize ? { textSize: exam.textSize } : {}),
+      ...(exam.questionStyle ? { questionStyle: exam.questionStyle } : {}),
       ...(exam.header ? { header: exam.header } : {}),
+      ...(exam.margins ? { margins: exam.margins } : {}),
     }
     return [{
       source: exam.key,

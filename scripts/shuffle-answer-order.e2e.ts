@@ -54,8 +54,8 @@ test('keyboard Shuffle answer order varies selected Multiple Choice questions an
   const beforeSecond = await answerContent(1)
   await page.getByRole('button', { name: 'Actions for question 1' }).focus()
   await page.keyboard.press('Enter')
-  await page.getByRole('menuitem', { name: 'Vary' }).press('ArrowRight')
-  await page.getByRole('menuitem', { name: 'Shuffle answer order' }).press('Enter')
+  await page.getByRole('menuitem', { name: 'Vary answers' }).press('ArrowRight')
+  await page.getByRole('menuitem', { name: 'Shuffle answers' }).press('Enter')
 
   expect(await answerContent(0)).not.toEqual(beforeFirst)
   expect(await answerContent(1)).not.toEqual(beforeSecond)

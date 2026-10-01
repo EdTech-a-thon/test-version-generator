@@ -3,12 +3,14 @@ import {
   partsOf,
   promptsOf,
   topicsOf,
+  type Choice,
   type Difficulty,
   type Question,
   type QuestionType,
 } from './exam'
 import { bankLetter } from './matching'
 import {
+  choiceLockOf,
   pendingImageOf,
   stemNodesOf,
   type PendingImageReference,
@@ -27,7 +29,7 @@ import {
 } from './picture-geometry'
 
 export const QUESTION_BANK_FORMAT = 'test-parrot/question-bank'
-export const QUESTION_BANK_FORMAT_VERSION = '0.8.0'
+export const QUESTION_BANK_FORMAT_VERSION = '0.9.0'
 export const QUESTION_BANK_ATTACHMENT_NAME = 'pdfcx.json'
 export const QUESTION_BANK_ATTACHMENT_DESCRIPTION = 'pdf-canonical-extraction'
 
@@ -175,8 +177,20 @@ export type QuestionBankRecordPart = {
   id: string
   type: QuestionBankRecordPartType
   stem: SemanticDocument
-  choices?: { id: string; content: SemanticDocument; correct: boolean }[]
+  choices?: QuestionBankRecordChoice[]
   suggestedAnswer?: SemanticDocument
+}
+
+/** One answer of a Multiple Choice or True/False Question or a Multiple
+ *  Choice Part. `locked` is a Locked Answer's: `true` keeps it at its
+ *  authored letter however answers are shuffled; `false` says the author
+ *  unlocked it, so a consumer that locks answers by their wording must not;
+ *  absent, it moves unless its wording locks it (ADR-0038). Added in 0.9.0. */
+export type QuestionBankRecordChoice = {
+  id: string
+  content: SemanticDocument
+  correct: boolean
+  locked?: boolean
 }
 
 /** How each Part type is written wherever a teacher reads one. */
@@ -196,7 +210,7 @@ export type QuestionBankRecordQuestion = {
   stem: SemanticDocument
   difficulty?: Difficulty
   topics?: string[]
-  choices?: { id: string; content: SemanticDocument; correct: boolean }[]
+  choices?: QuestionBankRecordChoice[]
   prompts?: QuestionBankRecordPrompt[]
   wordBank?: { id: string; content: SemanticDocument }[]
   /** A Multipart question's Parts, in lettered order; `stem` is the shared material. */
@@ -591,6 +605,7 @@ function portableQuestion(
             id: `${id}-c${choiceIndex + 1}`,
             content: semanticDocument(childNodes(choice.node), mediaIds),
             correct: choice.correct,
+            ...recordLockOf(choice),
           })),
         }
       }),
@@ -616,8 +631,19 @@ function portableQuestion(
       id: `q${index + 1}-c${choiceIndex + 1}`,
       content: semanticDocument(childNodes(choice.node), mediaIds),
       correct: choice.correct,
+      ...(question.type === 'multiple-choice' ? recordLockOf(choice) : {}),
     })),
   }
+}
+
+/** A choice's `locked` as a record writes it: `true` for every Locked Answer,
+ *  whether the teacher or its wording locked it, so no consumer needs Test
+ *  Parrot's reading of the wording; `false` for one the teacher unlocked, so
+ *  an importer that locks by wording leaves it alone; nothing otherwise. A
+ *  True/False answer is never locked, so it never carries one. */
+function recordLockOf(choice: Choice): { locked?: boolean } {
+  if (choice.locked) return { locked: true }
+  return choiceLockOf(choice.node) === false ? { locked: false } : {}
 }
 
 function hex(bytes: ArrayBuffer): string {

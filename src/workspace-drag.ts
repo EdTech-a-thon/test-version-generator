@@ -12,8 +12,9 @@
 // lands at the legal insertion line nearest the pointer. The one exception is
 // a new Section, which is only ever made on purpose: when the nearest line is
 // the foot of a Section — below its last question — a "new Section" target
-// opens beneath it, and only a release over that open target
-// makes one. The target opens rather than appearing at once, so the sheet does
+// opens beneath it, and only a release over that open target — or, when it is
+// open at the foot of the whole Exam, anywhere below it — makes one. The
+// target opens rather than appearing at once, so the sheet does
 // not jump under the pointer, and it says what it will do before it does it.
 // The only release that changes nothing is one outside the Working Copy,
 // which is how a gesture is abandoned.
@@ -158,6 +159,25 @@ export function dropIntent(
   // several cannot be placed relative to any of its own members.
   const carried = new Set(source.questionIds)
   const others = candidates.filter((candidate) => !carried.has(candidate.questionId))
+
+  // Below a target open at the foot of the whole Exam — nothing left beneath
+  // it to land on but the questions being carried — a release makes the
+  // Section too, however far down. Going lower there can mean nothing else,
+  // whereas between Sections going lower means the next Section, and the
+  // nearest line below decides as usual.
+  if (
+    openNewSection
+    && point.y > openNewSection.box.bottom
+    && others.every(({ before }) => before.y < openNewSection.box.bottom)
+    && emptySections.every(({ box }) => box.top < openNewSection.box.bottom)
+  ) {
+    return {
+      kind: 'new-section',
+      afterSectionId: openNewSection.afterSectionId,
+      armed: true,
+      opensBelow: openNewSection.afterSectionId,
+    }
+  }
 
   // The foot of each Section: the line below its last question that is not
   // being carried. A new Section can be opened there, whatever its type.

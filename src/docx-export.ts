@@ -56,8 +56,14 @@ import {
 } from 'docx'
 import { arrangementRange } from './export-preparation'
 import {
+  BODY_LINE_HEIGHT,
   bodyHalfPoints,
+  bodyPoints,
   EXAM_FONT,
+  HEADING_LINE_HEIGHT,
+  LIST_ITEM_GAP_EM,
+  PARAGRAPH_GAP_EM,
+  TITLE_LINE_HEIGHT,
   halfPointsOf,
   sectionHeadingHalfPoints,
   titleHalfPoints,
@@ -72,12 +78,12 @@ import {
   type MediaLoader,
 } from './export-media'
 import {
-  CHOICE_AREA_WIDTH,
-  MATCHING_AREA_WIDTH,
+  CHOICE_INDENT,
+  choiceAreaWidth,
+  matchingAreaWidth,
   MATCHING_INDENT,
   questionIndentOf,
   MATCHING_BANK_WIDTH,
-  PAGE_CONTENT_WIDTH,
   printsNumberLine,
   PART_INDENT,
   type AnswerKeyEntryItem,
@@ -94,8 +100,9 @@ import {
   type PlannedPart,
   type PlannedWorkSpace,
   type QuestionItem,
+  rowsOfPlanned,
 } from './export-plan'
-import { DIFFICULTY_LABELS, WORK_SPACE_LINE_PITCH } from './exam'
+import { DIFFICULTY_LABELS } from './exam'
 import type { ProseMirrorJSON } from './question-doc'
 import { pictureKey, printedPictureWidth } from './picture-geometry'
 
@@ -123,11 +130,6 @@ function gridOf(columns: readonly number[]): number[] {
   return columns.map(twips)
 }
 
-// The number column of `.exam-question` in styles.css: the width print gives a
-// Multiple Choice question's number, plus the grid gap beside it. Its choice
-// grid hangs off it. A True/False question's column is wider, for its marks —
-// see `questionIndentOf`.
-const QUESTION_INDENT_PX = questionIndentOf({ type: 'multiple-choice' })
 /** Where the key's answer column starts: past `.answer-key-entry`'s 42px
  *  number column and its 8px gap. */
 const ANSWER_KEY_ANSWER_INDENT = twips(42 + 8)
@@ -292,6 +294,9 @@ type BuildContext = {
   images: ReadonlyMap<string, ExportImage>
   /** The width the surrounding block gives content, in px. */
   contentWidth: number
+  /** The width the page's margins leave, in px, however deep a block sits:
+   *  what a choice grid or a matching set is laid out across. */
+  pageWidth: number
 }
 
 function inlineChildren(
@@ -347,9 +352,39 @@ type BlockContext = {
   keepNext?: boolean
   /** Inside a Panel: pictures and tables are centred across it. */
   centred?: boolean
+  /** Extra room above the first paragraph produced, in twips: the gap a new
+   *  paragraph or list opens below the block before it. Used up like `prefix`. */
+  before?: number
+  /** Blocks that sit close, as a choice's or a list item's do in print: no
+   *  paragraph gap opens between them. */
+  tight?: boolean
 }
 
-const BODY_SPACING = { after: 80, line: 276 }
+// Body text's spacing, from the one table in `export-typography.ts`, at the
+// Exam's text size. Lines are at least `BODY_LINE_HEIGHT` apart, so a line
+// holding a picture or an equation still grows to fit it; a list's items are
+// `LIST_ITEM_GAP_EM` apart, and a paragraph or list opens `PARAGRAPH_GAP_EM`
+// below what is before it. Set for each document in `createExamDocxDocument`,
+// whose build is synchronous, so no other export can see it.
+type BodySpacing = { line: number; paragraphGap: number; listItemGap: number }
+
+function bodySpacingOf(textSize: LayoutPlan['textSize']): BodySpacing {
+  const pointsToTwips = (points: number) => Math.round(points * 20)
+  const size = bodyPoints(textSize)
+  return {
+    line: pointsToTwips(size * BODY_LINE_HEIGHT),
+    paragraphGap: pointsToTwips(size * PARAGRAPH_GAP_EM),
+    listItemGap: pointsToTwips(size * LIST_ITEM_GAP_EM),
+  }
+}
+
+let BODY_SPACING: BodySpacing = bodySpacingOf(undefined)
+/** What any other block leaves below itself: a little room between a choice
+ *  and the next, a stem and its grid, one question and the next. */
+const BLOCK_AFTER = 80
+/** The blocks that open a paragraph gap below the block before them, as
+ *  `:is(p, ul, ol)` does in print. */
+const GAP_BLOCKS = new Set(['paragraph', 'bullet_list', 'ordered_list'])
 
 function paragraphOptions(
   context: BlockContext,
@@ -364,7 +399,12 @@ function paragraphOptions(
   return {
     keepLines: true,
     keepNext: context.keepNext,
-    spacing: BODY_SPACING,
+    spacing: {
+      line: BODY_SPACING.line,
+      lineRule: LineRuleType.AT_LEAST,
+      after: context.list ? BODY_SPACING.listItemGap : BLOCK_AFTER,
+      ...(context.before ? { before: context.before } : {}),
+    },
     indent: indent?.left || indent?.hanging ? indent : undefined,
     numbering: context.list
       ? { reference: context.list.reference, level: context.list.level }
@@ -407,12 +447,24 @@ function blocks(
   const result: (Paragraph | Table)[] = []
   let prefix = context.prefix
   let hanging = context.hanging
+  let before = context.before
+  let previous: string | undefined
   for (const node of nodes) {
-    const produced = blockOf(node, { ...context, prefix, hanging }, build)
+    // A paragraph or list below another block opens the paragraph gap, less
+    // what that block already left below itself.
+    if (previous !== undefined && !context.tight && GAP_BLOCKS.has(node.type as string)) {
+      const left = previous === 'bullet_list' || previous === 'ordered_list'
+        ? BODY_SPACING.listItemGap
+        : BLOCK_AFTER
+      before = Math.max(0, BODY_SPACING.paragraphGap - left)
+    }
+    const produced = blockOf(node, { ...context, prefix, hanging, before }, build)
     result.push(...produced)
     if (produced.length > 0) {
       prefix = undefined
       hanging = undefined
+      before = undefined
+      previous = node.type as string
     }
   }
   return result
@@ -460,22 +512,25 @@ function blockOf(
       // item in the list.
       let prefix = context.prefix
       let hanging = context.hanging
+      let before = context.before
       return childrenOf(node).flatMap((child) => {
         const produced = blockOf(
           child,
-          { ...context, prefix, hanging, list: { reference, level } },
+          { ...context, prefix, hanging, before, list: { reference, level } },
           build,
         )
         if (produced.length > 0) {
           prefix = undefined
           hanging = undefined
+          before = undefined
         }
         return produced
       })
     }
 
+    // An item's own paragraphs sit together, as `li > p` does in print.
     case 'list_item':
-      return blocks(childrenOf(node), context, build)
+      return blocks(childrenOf(node), { ...context, tight: true }, build)
 
     case 'code_block': {
       const source = childrenOf(node)
@@ -778,8 +833,8 @@ const NO_BORDERS = {
 function choiceGridTable(
   grid: ChoiceGrid,
   build: BuildContext,
-  areaWidth = CHOICE_AREA_WIDTH,
-  indentPx = QUESTION_INDENT_PX,
+  areaWidth: number,
+  indentPx: number,
 ): Table {
   const cellWidth = areaWidth / grid.columns
   return new Table({
@@ -798,6 +853,7 @@ function choiceGridTable(
                     indent: 288,
                     prefix: [new TextRun({ text: `${choice.letter}.\t` })],
                     hanging: 288,
+                    tight: true,
                   },
                   { ...build, contentWidth: cellWidth },
                 )
@@ -838,6 +894,7 @@ function matchingContent(
           indent: twips(MATCHING_INDENT),
           hanging: twips(MATCHING_INDENT),
           prefix: [new TextRun({ text: `_______  ${prompt.number}.\t` })],
+          tight: true,
         },
         { ...build, contentWidth },
       ),
@@ -845,14 +902,15 @@ function matchingContent(
   const answer = (item: PlannedBankAnswer, contentWidth: number) =>
     blocks(
       childrenOf(item.node),
-      { indent: 288, prefix: [new TextRun({ text: `${item.letter}.\t` })], hanging: 288 },
+      { indent: 288, prefix: [new TextRun({ text: `${item.letter}.\t` })], hanging: 288, tight: true },
       { ...build, contentWidth },
     )
 
   if (set.bankGrid) {
-    const cellWidth = MATCHING_AREA_WIDTH / set.bankGrid.columns
+    const areaWidth = matchingAreaWidth(build.pageWidth)
+    const cellWidth = areaWidth / set.bankGrid.columns
     const grid = new Table({
-      width: { size: twips(MATCHING_AREA_WIDTH), type: WidthType.DXA },
+      width: { size: twips(areaWidth), type: WidthType.DXA },
       columnWidths: gridOf(Array.from({ length: set.bankGrid.columns }, () => cellWidth)),
       indent: { size: twips(MATCHING_INDENT), type: WidthType.DXA },
       borders: NO_BORDERS,
@@ -865,28 +923,36 @@ function matchingContent(
           }),
       ),
     })
-    return [grid, ...prompts(PAGE_CONTENT_WIDTH - MATCHING_INDENT)]
+    return [grid, ...prompts(build.pageWidth - MATCHING_INDENT)]
   }
 
-  const itemsWidth = PAGE_CONTENT_WIDTH - MATCHING_BANK_WIDTH
+  const bankWidth = set.bankWidth ?? MATCHING_BANK_WIDTH
+  const itemsWidth = build.pageWidth - bankWidth
   return [
     new Table({
-      width: { size: twips(PAGE_CONTENT_WIDTH), type: WidthType.DXA },
-      columnWidths: gridOf([itemsWidth, MATCHING_BANK_WIDTH]),
+      width: { size: twips(build.pageWidth), type: WidthType.DXA },
+      columnWidths: gridOf([itemsWidth, bankWidth]),
       borders: NO_BORDERS,
       rows: [
         new TableRow({
           children: [
             cell(itemsWidth, prompts(itemsWidth - MATCHING_INDENT)),
             cell(
-              MATCHING_BANK_WIDTH,
-              set.bank.flatMap((item) => answer(item, MATCHING_BANK_WIDTH)),
+              bankWidth,
+              set.bank.flatMap((item) => answer(item, bankWidth)),
             ),
           ],
         }),
       ],
     }),
   ]
+}
+
+/** A heading's lines at least `multiple` times its size apart, given in
+ *  half-points as Word sizes type: print's heading line heights, so a heading
+ *  that wraps takes the room the plan measured it at. */
+function headingLine(halfPoints: number, multiple: number): { line: number; lineRule: typeof LineRuleType.AT_LEAST } {
+  return { line: Math.round(halfPoints * 10 * multiple), lineRule: LineRuleType.AT_LEAST }
 }
 
 // A Short Answer question's work space, at the plan's own height. Word has no
@@ -916,17 +982,18 @@ function workSpaceParagraphs(space: PlannedWorkSpace, indentTwips: number): Para
   })
   const indent = { left: indentTwips }
   const ruled = space.style === 'lines' ? space.lines : 0
-  const paragraphs = Array.from({ length: ruled }, () =>
+  const rows = rowsOfPlanned(space)
+  const paragraphs = Array.from({ length: ruled }, (_unused, index) =>
     new Paragraph({
       style,
       indent,
-      spacing: exactly(twips(WORK_SPACE_LINE_PITCH) - WORK_SPACE_RULE_TWIPS),
+      spacing: exactly(twips(index === 0 ? rows.first : rows.pitch) - WORK_SPACE_RULE_TWIPS),
       border: {
         bottom: { style: BorderStyle.SINGLE, size: 4, color: '8F847A', space: 0 },
       },
     }),
   )
-  const remainder = space.height - ruled * WORK_SPACE_LINE_PITCH
+  const remainder = space.height - (ruled > 0 ? rows.first + (ruled - 1) * rows.pitch : 0)
   if (remainder >= 1) {
     paragraphs.push(new Paragraph({ style, indent, spacing: exactly(twips(remainder)) }))
   }
@@ -941,7 +1008,8 @@ function questionContent(
   build: BuildContext,
 ): (Paragraph | Table)[] {
   const numbered = printsNumberLine(item)
-  const indent = twips(questionIndentOf(item.question))
+  const indentPx = questionIndentOf(item.question)
+  const indent = twips(indentPx)
   const prefix: ParagraphChild[] = numbered
     ? [
         new TextRun({
@@ -964,11 +1032,21 @@ function questionContent(
 
   return [
     ...stem,
-    ...(item.grid ? [choiceGridTable(item.grid, build)] : []),
+    // The grid hangs off the question's own number column, which an answer
+    // blank before the number widens, and is set in from the stem by the
+    // answers' indent, as `.choice-grid` is in print.
+    ...(item.grid
+      ? [choiceGridTable(
+          item.grid,
+          build,
+          choiceAreaWidth(build.pageWidth, item.question),
+          indentPx + CHOICE_INDENT,
+        )]
+      : []),
     ...(item.matching ? matchingContent(item.matching, build) : []),
     ...(item.workSpace ? workSpaceParagraphs(item.workSpace, indent) : []),
     ...(item.parts ?? []).flatMap((part) =>
-      partContent(part, questionIndentOf(item.question), build),
+      partContent(part, indentPx, build),
     ),
   ]
 }
@@ -992,11 +1070,12 @@ function partContent(
     hanging: twips(PART_INDENT),
     prefix,
   }
-  const stem = blocks(part.stem, context, { ...build, contentWidth: PAGE_CONTENT_WIDTH - indentPx })
+  const stem = blocks(part.stem, context, { ...build, contentWidth: build.pageWidth - indentPx })
   return [
     ...(stem.length > 0 ? stem : [new Paragraph(paragraphOptions(context, { children: prefix }))]),
+    // Set in from the Part's stem as a question's answers are from its own.
     ...(part.grid
-      ? [choiceGridTable(part.grid, build, PAGE_CONTENT_WIDTH - indentPx, indentPx)]
+      ? [choiceGridTable(part.grid, build, build.pageWidth - indentPx - CHOICE_INDENT, indentPx + CHOICE_INDENT)]
       : []),
     ...(part.workSpace ? workSpaceParagraphs(part.workSpace, indent) : []),
   ]
@@ -1015,7 +1094,7 @@ function answerKeySection(item: AnswerKeySectionItem): Paragraph {
   return new Paragraph({
     text: item.title,
     heading: HeadingLevel.HEADING_2,
-    spacing: { before: 100, after: 40 },
+    spacing: { before: 100, after: 40, ...headingLine(halfPointsOf('sectionTitle'), HEADING_LINE_HEIGHT) },
   })
 }
 
@@ -1078,7 +1157,11 @@ function itemContent(
               heading: HeadingLevel.HEADING_1,
               // The plan's own keep decision, not a second guess at one.
               keepNext: item.keepWithNext,
-              spacing: { before: 120, after: 60 },
+              spacing: {
+                before: 120,
+                after: 60,
+                ...headingLine(sized ? sized.title : halfPointsOf('sectionTitle'), HEADING_LINE_HEIGHT),
+              },
             })]
           : []),
         ...(item.instructions
@@ -1089,7 +1172,10 @@ function itemContent(
                 size: sized ? sized.instructions : halfPointsOf('body'),
               })],
               keepNext: item.keepWithNext,
-              spacing: { after: 160 },
+              spacing: {
+                after: 160,
+                ...headingLine(sized ? sized.instructions : halfPointsOf('body'), BODY_LINE_HEIGHT),
+              },
             })]
           : []),
       ]
@@ -1102,7 +1188,7 @@ function itemContent(
           // Larger than a section title in print, so larger than Heading 1.
           children: [new TextRun({ text: ANSWER_KEY_TITLE, size: halfPointsOf('answerKeyHeading') })],
           heading: HeadingLevel.HEADING_1,
-          spacing: { before: 120, after: 60 },
+          spacing: { before: 120, after: 60, ...headingLine(halfPointsOf('answerKeyHeading'), HEADING_LINE_HEIGHT) },
         }),
       ]
     case 'answer-key-section':
@@ -1134,7 +1220,7 @@ const OUTPUT_ID_STYLE = 'OutputId'
 /** Room kept for the bold output ID and the gap before it. */
 const IDENTITY_ID_RESERVE = 64
 
-function identityLine(furniture: PageFurniture): Paragraph {
+function identityLine(furniture: PageFurniture, contentWidth: number): Paragraph {
   // Bold by style, as `.page-id` is bold by class: page furniture, not an
   // authored strong mark.
   const id = new TextRun({
@@ -1150,7 +1236,7 @@ function identityLine(furniture: PageFurniture): Paragraph {
         new TextRun({ children: [new Tab()] }),
         id,
       ],
-      tabStops: [{ type: TabStopType.RIGHT, position: twips(PAGE_CONTENT_WIDTH) }],
+      tabStops: [{ type: TabStopType.RIGHT, position: twips(contentWidth) }],
       spacing: { after: 60 },
     })
   }
@@ -1159,7 +1245,7 @@ function identityLine(furniture: PageFurniture): Paragraph {
     return new Paragraph({ children: [id], alignment: AlignmentType.RIGHT, spacing: { after: 60 } })
   }
   const share =
-    (PAGE_CONTENT_WIDTH - IDENTITY_ID_RESERVE - IDENTITY_GAP * (fields.length - 1)) / fields.length
+    (contentWidth - IDENTITY_ID_RESERVE - IDENTITY_GAP * (fields.length - 1)) / fields.length
   const tabStops: TabStopDefinition[] = []
   const children: ParagraphChild[] = []
   fields.forEach((field: IdentityField, index) => {
@@ -1171,7 +1257,7 @@ function identityLine(furniture: PageFurniture): Paragraph {
     tabStops.push({ type: TabStopType.LEFT, position: twips(start + share), leader: LeaderType.UNDERSCORE })
     children.push(new TextRun({ children: [`${field}: `, new Tab()] }))
   })
-  tabStops.push({ type: TabStopType.RIGHT, position: twips(PAGE_CONTENT_WIDTH) })
+  tabStops.push({ type: TabStopType.RIGHT, position: twips(contentWidth) })
   return new Paragraph({
     children: [...children, new TextRun({ children: [new Tab()] }), id],
     tabStops,
@@ -1179,9 +1265,9 @@ function identityLine(furniture: PageFurniture): Paragraph {
   })
 }
 
-function headerParagraphs(furniture: PageFurniture): Paragraph[] {
+function headerParagraphs(furniture: PageFurniture, contentWidth: number): Paragraph[] {
   return [
-    identityLine(furniture),
+    identityLine(furniture, contentWidth),
     ...(furniture.title === null
       ? []
       : [
@@ -1195,7 +1281,10 @@ function headerParagraphs(furniture: PageFurniture): Paragraph[] {
                 }
               : { text: furniture.title }),
             heading: HeadingLevel.TITLE,
-            spacing: { after: 120 },
+            // A long title wraps in the header, its lines at print's title
+            // line height, and Word grows the header to hold it as the plan
+            // grew its own.
+            spacing: { after: 120, ...headingLine(titleHalfPoints(furniture.titleSize), TITLE_LINE_HEIGHT) },
           }),
         ]),
   ]
@@ -1230,14 +1319,14 @@ function sectionOf(
           height: twips(plan.pageSize.height),
         },
         margin: {
-          top: twips(plan.pageSize.margin),
-          right: twips(plan.pageSize.margin),
-          bottom: twips(plan.pageSize.margin),
-          left: twips(plan.pageSize.margin),
+          top: twips(plan.pageSize.margins.top),
+          right: twips(plan.pageSize.margins.right),
+          bottom: twips(plan.pageSize.margins.bottom),
+          left: twips(plan.pageSize.margins.left),
         },
       },
     },
-    headers: { default: new Header({ children: headerParagraphs(page.furniture) }) },
+    headers: { default: new Header({ children: headerParagraphs(page.furniture, plan.pageSize.contentWidth) }) },
     footers: { default: new Footer({ children: [footerParagraph(page.furniture)] }) },
     children: page.items.flatMap((item) => itemContent(item, build)),
   }
@@ -1256,16 +1345,19 @@ export function createExamDocxDocument(
 ): Document {
   const numbering = new Numbering()
   const first = plans[0]
-  const build: BuildContext = {
-    numbering,
-    images,
-    contentWidth: first?.pageSize.contentWidth ?? US_LETTER.contentWidth,
-  }
+  const contentWidth = first?.pageSize.contentWidth ?? US_LETTER.contentWidth
+  const build: BuildContext = { numbering, images, contentWidth, pageWidth: contentWidth }
   // Sections first: the list configurations only exist once the content that
   // uses them has been built.
-  const sections = plans.flatMap((plan) =>
-    plan.pages.map((page) => sectionOf(page, plan, build)),
-  )
+  BODY_SPACING = bodySpacingOf(first?.textSize)
+  let sections: ISectionOptions[]
+  try {
+    sections = plans.flatMap((plan) =>
+      plan.pages.map((page) => sectionOf(page, plan, build)),
+    )
+  } finally {
+    BODY_SPACING = bodySpacingOf(undefined)
+  }
   // Which papers the file holds, from the plans themselves rather than from a
   // second count of the output IDs someone asked for.
   const labels = [...new Set(plans.map((plan) => plan.arrangement.letter))]

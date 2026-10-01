@@ -16,8 +16,10 @@ import publicSchema060 from '../public/formats/question-bank/0.6.0/schema.json'
 import applicationSchema060 from './question-bank-record-0.6.0.schema.json'
 import publicSchema070 from '../public/formats/question-bank/0.7.0/schema.json'
 import applicationSchema070 from './question-bank-record-0.7.0.schema.json'
-import publicSchema from '../public/formats/question-bank/0.8.0/schema.json'
-import applicationSchema from './question-bank-record-0.8.0.schema.json'
+import publicSchema080 from '../public/formats/question-bank/0.8.0/schema.json'
+import applicationSchema080 from './question-bank-record-0.8.0.schema.json'
+import publicSchema from '../public/formats/question-bank/0.9.0/schema.json'
+import applicationSchema from './question-bank-record-0.9.0.schema.json'
 import {
   QUESTION_BANK_FORMAT_VERSION,
   SUPPORTED_SEMANTIC_MARK_TYPES,
@@ -37,7 +39,7 @@ import {
   type QuestionBankImportProposal,
 } from './question-bank-import'
 import { mediaFilePath } from './package-zip'
-import { partsOf } from './exam'
+import { choicesOf, partsOf } from './exam'
 import type { QuestionBankResource } from './question-bank-workspaces'
 
 function fixtureRootFor(version: string): string {
@@ -48,7 +50,8 @@ const fixtureRoot = fixtureRootFor(QUESTION_BANK_FORMAT_VERSION)
 const exampleRoot = join(fixtureRoot, 'examples')
 const invalidRoot = join(fixtureRoot, 'invalid')
 // The last version whose Media Assets carry base64: an older version's record
-// is made from its examples, since a 0.8.0 example's pictures are files.
+// is made from its examples, since a 0.8.0 or later example's pictures are
+// files.
 const example070Root = join(fixtureRootFor('0.7.0'), 'examples')
 const decoder = new TextDecoder()
 
@@ -72,7 +75,7 @@ async function mediaBeside(directory: string): Promise<Map<string, Uint8Array>> 
   return files
 }
 
-/** A 0.8.0 fixture inspected as it would be read out of its zip. */
+/** A 0.8.0 or later fixture inspected as it would be read out of its zip. */
 async function inspectFixture(directory: string, name: string): Promise<QuestionBankImportProposal> {
   return inspectQuestionBankRecordValue(
     await fixture(directory, name),
@@ -88,10 +91,10 @@ function schemaEnum(definition: 'node' | 'mark', property: string): string[] {
   return schema.$defs[definition]!.properties[property]!.enum
 }
 
-describe('public Question Bank Record 0.8.0 contract', () => {
+describe('public Question Bank Record 0.9.0 contract', () => {
   test('canonical examples validate independently against the published schema', async () => {
     expect(publicSchema.$id).toBe(
-      'https://testparrot.com/formats/question-bank/0.8.0/schema.json',
+      'https://testparrot.com/formats/question-bank/0.9.0/schema.json',
     )
     expect(publicSchema.properties.formatVersion.const).toBe(QUESTION_BANK_FORMAT_VERSION)
     expect(
@@ -100,7 +103,7 @@ describe('public Question Bank Record 0.8.0 contract', () => {
           import.meta.dir,
           '..',
           'public',
-          'question-bank-record-0.8.0.schema.json',
+          'question-bank-record-0.9.0.schema.json',
         ),
       ).json(),
     ).toEqual(publicSchema)
@@ -113,6 +116,7 @@ describe('public Question Bank Record 0.8.0 contract', () => {
     expect(names).toEqual([
       'complete-rich-text.json',
       'cropped-picture.json',
+      'locked-answers.json',
       'matching.json',
       'media-rich.json',
       'minimal-multiple-choice.json',
@@ -160,7 +164,7 @@ describe('public Question Bank Record 0.8.0 contract', () => {
     const proposal = await inspectQuestionBankRecord(
       await Bun.file(join(exampleRoot, 'pending-images.json')).bytes(),
     )
-    expect(proposal.summary.formatVersion).toBe('0.8.0')
+    expect(proposal.summary.formatVersion).toBe('0.9.0')
   })
 
   test('a True/False Question states its fixed pair and nothing else', async () => {
@@ -351,6 +355,35 @@ describe('public Question Bank Record 0.8.0 contract', () => {
     })
   })
 
+  test('a Locked Answer says so, an unlocked one says it was unlocked, and both reach the editor', async () => {
+    const proposal = await inspectFixture(exampleRoot, 'locked-answers.json')
+    const [planets, photosynthesis, falling] = proposal.record.bank.questions
+
+    expect(planets!.choices!.map((choice) => choice.locked)).toEqual([undefined, undefined, undefined, true])
+    expect(photosynthesis!.choices!.map((choice) => choice.locked)).toEqual([undefined, undefined, true, false])
+    expect(falling!.parts![0]!.choices!.map((choice) => choice.locked)).toEqual([undefined, undefined, true])
+
+    const imported = importedQuestionsFromRecord(proposal.record)
+    expect(choicesOf(imported[0]!).map((choice) => choice.locked)).toEqual([false, false, false, true])
+    // “None of the above” reads as locked, but its author unlocked it.
+    expect(choicesOf(imported[1]!).map((choice) => choice.locked)).toEqual([false, false, true, false])
+    expect(partsOf(imported[2]!)[0]!.choices.map((choice) => choice.locked)).toEqual([false, false, true])
+  })
+
+  test('a record older than 0.9.0 has no Locked Answers of its own, so its wording locks its answers', async () => {
+    const record = (await fixture(exampleRoot, 'locked-answers.json')) as { formatVersion: string }
+    record.formatVersion = '0.8.0'
+    const proposal = await inspectQuestionBankRecordValue(record)
+
+    // An older record's `locked` is an unknown optional field, and is ignored.
+    expect(proposal.record.bank.questions[1]!.choices!.map((choice) => choice.locked)).toEqual([
+      undefined, undefined, undefined, undefined,
+    ])
+    const imported = importedQuestionsFromRecord(proposal.record)
+    expect(choicesOf(imported[0]!).map((choice) => choice.locked)).toEqual([false, false, false, true])
+    expect(choicesOf(imported[1]!).map((choice) => choice.locked)).toEqual([false, false, false, true])
+  })
+
   test('a Pending Image in a record older than 0.5.0 is refused', async () => {
     const record = (await fixture(example070Root, 'pending-images.json')) as { formatVersion: string }
     record.formatVersion = '0.4.0'
@@ -375,6 +408,8 @@ describe('public Question Bank Record 0.8.0 contract', () => {
       'crop-on-pending.json',
       'crop-out-of-range.json',
       'invalid-media.json',
+      'locked-not-boolean.json',
+      'locked-true-false.json',
       'malformed-matching.json',
       'malformed-multipart.json',
       'malformed-question.json',
@@ -398,7 +433,7 @@ describe('public Question Bank Record 0.8.0 contract', () => {
     const validate = new Ajv2020({ allErrors: true, strict: true }).compile(publicSchema)
     for (const [name, code] of Object.entries(manifest)) {
       // An inverted crop is well-formed: only the importer can compare its sides.
-      if (/^(?:pending-|side-by-side-|crop-(?!inverted)|base64-)/.test(name))
+      if (/^(?:pending-|side-by-side-|crop-(?!inverted)|base64-|locked-)/.test(name))
         expect(validate(await fixture(invalidRoot, name)), name).toBe(false)
       // Only the importer can compare a crop's sides, or look for a file.
       if (['crop-inverted.json', 'missing-media-file.json', 'invalid-media.json'].includes(name))
@@ -513,7 +548,7 @@ describe('public Question Bank Record 0.8.0 contract', () => {
                       { type: 'multipartPartStem', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Which?' }] }] },
                       {
                         type: 'multipleChoice',
-                        content: ['This', 'That'].map((answer, index) => ({
+                        content: ['This', 'That', 'Both A and B'].map((answer, index) => ({
                           type: 'multipleChoiceChoice',
                           attrs: { id: `local-choice-${index}`, correct: index === 0 },
                           content: [{ type: 'paragraph', content: [{ type: 'text', text: answer }] }],
@@ -537,15 +572,57 @@ describe('public Question Bank Record 0.8.0 contract', () => {
       ],
     }
     const prepared = await prepareQuestionBankExport(bank)
+    const generated = JSON.parse(decoder.decode(prepared.recordBytes)) as QuestionBankRecord
 
-    expect(
-      validate(JSON.parse(decoder.decode(prepared.recordBytes))),
-      JSON.stringify(validate.errors),
-    ).toBe(true)
+    expect(validate(generated), JSON.stringify(validate.errors)).toBe(true)
+    expect(generated.bank.questions[1]!.parts![0]!.choices!.map((choice) => choice.locked)).toEqual([
+      undefined, undefined, true,
+    ])
   })
 })
 
-// 0.1.0 through 0.7.0 are retired as producer versions and retained as
+describe('retained Question Bank Record 0.8.0 contract', () => {
+  const root080 = fixtureRootFor('0.8.0')
+
+  test('the published 0.8.0 schema is unchanged and still checked in twice', async () => {
+    expect(publicSchema080.$id).toBe(
+      'https://testparrot.com/formats/question-bank/0.8.0/schema.json',
+    )
+    expect(publicSchema080.properties.formatVersion.const).toBe('0.8.0')
+    expect(applicationSchema080).toEqual(publicSchema080)
+    expect(
+      await Bun.file(join(import.meta.dir, '..', 'public', 'question-bank-record-0.8.0.schema.json')).json(),
+    ).toEqual(publicSchema080)
+  })
+
+  test('every 0.8.0 canonical example still imports from beside its files, migrated to the current version', async () => {
+    const names = await filesIn(join(root080, 'examples'))
+
+    expect(names).toContain('media-rich.json')
+    for (const name of names) {
+      const proposal = await inspectFixture(join(root080, 'examples'), name)
+      expect(proposal.record.formatVersion, name).toBe(QUESTION_BANK_FORMAT_VERSION)
+      expect(proposal.summary.formatVersion, name).toBe('0.8.0')
+    }
+  })
+
+  test('0.8.0 counterexamples are still rejected with their documented errors', async () => {
+    const root = join(root080, 'invalid')
+    const manifest = (await fixture(root, 'manifest.json')) as Record<string, string>
+
+    for (const [name, code] of Object.entries(manifest)) {
+      try {
+        await inspectFixture(root, name)
+        throw new Error(`${name} unexpectedly conformed`)
+      } catch (error) {
+        expect(error, name).toBeInstanceOf(QuestionBankImportError)
+        expect((error as QuestionBankImportError).code, name).toBe(code)
+      }
+    }
+  })
+})
+
+// 0.1.0 through 0.8.0 are retired as producer versions and retained as
 // consumer ones: every Question Bank File a teacher has already shared must
 // still open. Their published contracts are therefore frozen — these are the
 // assertions that keep them that way.

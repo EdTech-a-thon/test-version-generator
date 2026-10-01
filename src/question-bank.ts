@@ -30,10 +30,18 @@ export type ExamWorkingCopy = {
    *  Question Bank record id. Exam presentation like `columns`, so it is set
    *  on the exam sheet and never in the question editor. Absent means none. */
   workSpace?: Record<string, import('./exam').WorkSpace>
+  /** Where each Matching question's Word Bank prints on this Exam, keyed by
+   *  Question Bank record id: Beside or Above, stored for every Matching
+   *  position as it arrives. Exam presentation like `columns`. */
+  wordBankLayout?: Record<string, import('./exam').WordBankLayout>
   /** The Working Copy's answer arrangement, keyed by Question Bank record id.
    *  Absent means authored order, preserving compatibility with drafts stored
    *  before answer shuffling existed. */
   choiceOrder?: Record<string, string[]>
+  /** The incorrect answers each Multiple Choice question leaves off on this
+   *  Exam, keyed by Question Bank record id: Exam presentation like
+   *  `choiceOrder` (ADR-0038). Absent shows every answer. */
+  hiddenAnswers?: Record<string, string[]>
   /** This Exam's Question Sections, in print order, and which one each
    *  referenced question belongs to. Absent on a Working Copy written before
    *  Sections were stored, which then reads as one Section per type
@@ -46,8 +54,12 @@ export type ExamWorkingCopy = {
   sectionHeadings?: import('./section-headings').SectionHeadings
   headingSize?: import('./section-headings').HeadingSize
   textSize?: import('./section-headings').TextSize
+  /** How every question on this Exam prints; absent means Standard. */
+  questionStyle?: import('./question-style').QuestionStyle
   /** This Exam's own test-page header lines; absent means the default. */
   header?: import('./page-header').ExamHeader
+  /** This Exam's Page Margins, in inches; absent means the default. */
+  margins?: import('./page-margins').PageMargins
 }
 
 export function createQuestionBank(): QuestionBank {
@@ -133,27 +145,37 @@ export function withReferencesRemoved(
   const choiceOrder = draft.choiceOrder
     ? { ...draft.choiceOrder }
     : undefined
+  const hiddenAnswers = draft.hiddenAnswers
+    ? { ...draft.hiddenAnswers }
+    : undefined
   const columns = draft.columns
     ? { ...draft.columns }
     : undefined
   const workSpace = draft.workSpace
     ? { ...draft.workSpace }
     : undefined
+  const wordBankLayout = draft.wordBankLayout
+    ? { ...draft.wordBankLayout }
+    : undefined
   const sectionOf = draft.sectionOf
     ? { ...draft.sectionOf }
     : undefined
   for (const id of [...removing, ...partIds]) {
     delete choiceOrder?.[id]
+    delete hiddenAnswers?.[id]
     delete columns?.[id]
     delete workSpace?.[id]
+    delete wordBankLayout?.[id]
     delete sectionOf?.[id]
   }
   return {
     ...draft,
     questionIds: remaining,
     ...(choiceOrder ? { choiceOrder } : {}),
+    ...(hiddenAnswers ? { hiddenAnswers } : {}),
     ...(columns ? { columns } : {}),
     ...(workSpace ? { workSpace } : {}),
+    ...(wordBankLayout ? { wordBankLayout } : {}),
     ...(sectionOf ? { sectionOf } : {}),
   }
 }
@@ -192,6 +214,29 @@ export function withReferenceOrder(
   }
   if (ordered.every((id, index) => id === draft.questionIds[index])) return draft
   return { ...draft, questionIds: ordered }
+}
+
+/** Records which incorrect answers each question hides, without changing
+ *  canonical Question Content. A question with none hidden has no entry, and
+ *  an Exam that hides nothing has no `hiddenAnswers` at all. */
+export function withHiddenAnswers(
+  draft: ExamWorkingCopy,
+  hiddenAnswers: Record<string, string[]>,
+): ExamWorkingCopy {
+  const next = Object.fromEntries(
+    Object.entries(hiddenAnswers).filter(([, ids]) => ids.length > 0),
+  )
+  const current = draft.hiddenAnswers ?? {}
+  if (
+    Object.keys(current).length === Object.keys(next).length
+    && Object.entries(next).every(([questionId, ids]) =>
+      current[questionId]?.length === ids.length
+      && current[questionId].every((id, index) => id === ids[index]),
+    )
+  ) return draft
+  const { hiddenAnswers: _previous, ...rest } = draft
+  void _previous
+  return Object.keys(next).length > 0 ? { ...rest, hiddenAnswers: next } : rest
 }
 
 /** Records a new answer arrangement without changing canonical Question

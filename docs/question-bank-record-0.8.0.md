@@ -1,5 +1,7 @@
 # Question Bank Record 0.8.0
 
+> **Superseded by [Question Bank Record 0.9.0](question-bank-record-0.9.0.md).** Test Parrot no longer produces `0.8.0` records; it still reads them, and this contract is frozen so that every Question Bank File already shared keeps opening. A `0.8.0` record says nothing about Locked Answers, so its answers are locked or not by their wording once imported. The one fixture that changes after publication is `invalid/unsupported-version.json`, which names a version no Test Parrot parser implements — each time a newer version ships, it has to name the one after that to keep meaning it.
+
 The **Question Bank Record** is the authoritative, portable representation of one complete Question Bank. It travels inside a [Test Parrot Package](test-parrot-package-0.1.0.md), which travels in a zip beside the picture files the record names. That zip is embedded in a **Question Bank File**, whose PDF pages are only a teacher-readable preview. The record, not the pages, controls import.
 
 ## Published contract
@@ -39,7 +41,7 @@ A producer writes `0.8.0`. A consumer implements `0.1.0`, `0.2.0`, `0.3.0`, `0.4
 
 Importers accept only exact versions for which they implement a parser or migration. They must not infer compatibility from a SemVer range or accept every `0.x` version. During major version zero, a **patch** change is a compatible clarification or addition; a **minor** change may be incompatible and requires explicit parser or migration support. Major version one will establish the first stable compatibility commitment.
 
-Unknown optional fields may be ignored and need not survive re-export. Unknown Question Types, semantic nodes, marks, enum values that affect meaning, and required features must reject the entire record rather than be silently discarded.
+Unknown optional fields may be ignored and need not survive re-export. Unknown Question Types, semantic nodes, marks, enum values that affect meaning, and required features must reject the entire record rather than be silently discarded. Child nodes belong only in a node's `content`, and marks only in its `marks`: a node written under any other member, such as a table nested in a paragraph's `table` member, is misplaced Question Content, not an optional field, and rejects the record.
 
 ## Identity and ordering
 

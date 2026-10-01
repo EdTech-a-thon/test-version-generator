@@ -13,8 +13,19 @@ import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs'
 import { createExamDocx } from './docx-export'
 import { EMPTY_EXPORT_HISTORY, plansOf, prepareExport } from './export-preparation'
 import { FIXTURES } from './export-fixtures'
-import { PAGE_CONTENT_WIDTH } from './export-plan'
-import { EXAM_FONT, EXAM_TYPE_PX, halfPointsOf, pointsOf } from './export-typography'
+import { CHOICE_INDENT, PAGE_CONTENT_WIDTH, questionIndentOf } from './export-plan'
+import { ANSWER_BLANK, QUESTION_STYLE_RULES } from './question-style'
+import {
+  BODY_LINE_HEIGHT,
+  EXAM_FONT,
+  EXAM_TYPE_PX,
+  HEADING_LINE_HEIGHT,
+  LIST_ITEM_GAP_EM,
+  PARAGRAPH_GAP_EM,
+  TITLE_LINE_HEIGHT,
+  halfPointsOf,
+  pointsOf,
+} from './export-typography'
 import { createPublicationPdf, type PdfFontLoader } from './pdf-export'
 
 const fontFile = {
@@ -77,6 +88,62 @@ describe('print’s stylesheet is the table', () => {
   test('the sheet is set in the exam font', async () => {
     expect(await rule('.exam-page')).toContain(`font-family: ${EXAM_FONT}`)
   })
+
+  test('the lines of a paragraph sit at the body line height', async () => {
+    expect(await rule('.exam-page')).toContain(`line-height: ${BODY_LINE_HEIGHT};`)
+  })
+
+  test('headings sit at the heading line height, and the title a step tighter', async () => {
+    for (const selector of ['.section-title', '.answer-key-heading', '.answer-key-section']) {
+      expect(await rule(selector)).toContain(`px/${HEADING_LINE_HEIGHT} `)
+    }
+    expect(await rule('.page-header--first .exam-title,\n.page-header--answer-key .exam-title'))
+      .toContain(`px/${TITLE_LINE_HEIGHT} `)
+    // Tighter than they were, and a heading never looser than its body.
+    expect(BODY_LINE_HEIGHT).toBeLessThan(1.3)
+    expect(TITLE_LINE_HEIGHT).toBeLessThanOrEqual(HEADING_LINE_HEIGHT)
+  })
+
+  test('“Answer Section” is never broken across lines', async () => {
+    expect(await rule('.answer-key-heading')).toContain('white-space: nowrap;')
+  })
+
+  test('a paragraph or list opens the paragraph gap, and a list’s items sit the list gap apart', async () => {
+    expect(await rule(':where(.exam-page .doc-content) :is(p, ul, ol)')).toContain(`margin: ${PARAGRAPH_GAP_EM}em 0;`)
+    expect(await rule(':where(.exam-page .doc-content) li > p')).toContain('margin: 0;')
+    expect(await rule(':where(.exam-page .doc-content) li + li')).toContain(`margin-top: ${LIST_ITEM_GAP_EM}em;`)
+    expect(await rule(':where(.exam-page .doc-content) li > :is(ul, ol)')).toContain(`margin: ${LIST_ITEM_GAP_EM}em 0 0;`)
+    // Far enough apart that a paragraph break never reads as one more line.
+    expect(PARAGRAPH_GAP_EM).toBeGreaterThanOrEqual(3 * (BODY_LINE_HEIGHT - 1))
+    expect(LIST_ITEM_GAP_EM).toBeLessThan(PARAGRAPH_GAP_EM / 4)
+  })
+
+  test('a Multiple Choice question’s answers are set in from its stem', async () => {
+    const grid = await rule('.choice-grid')
+    expect(grid).toContain(`width: calc(100% - ${CHOICE_INDENT}px);`)
+    expect(grid).toContain(`margin: 8px 0 0 ${CHOICE_INDENT}px;`)
+  })
+
+  // Not type, but the same promise: packing measured these, so print must
+  // draw them at the plan's own numbers.
+  const pxIn = (block: string, property: string) =>
+    Number(new RegExp(`${property}:\\s*(\\d+)px`).exec(block)?.[1])
+
+  test('each Question Style stands its questions as far apart as its rules say', async () => {
+    expect(pxIn(await rule('.exam-question'), 'margin-bottom')).toBe(QUESTION_STYLE_RULES.standard.questionGap)
+    expect(pxIn(await rule("[data-question-style='condensed'] .exam-question"), 'margin-bottom'))
+      .toBe(QUESTION_STYLE_RULES.condensed.questionGap)
+    expect(QUESTION_STYLE_RULES.classic.questionGap).toBe(QUESTION_STYLE_RULES.standard.questionGap)
+  })
+
+  test.each([
+    ['marks', ['T', 'F']],
+    ['blank', [ANSWER_BLANK]],
+  ] as const)('the %s number column is the width the adapters indent by', async (column, marks) => {
+    const block = await rule(`.exam-question:has(> .question-number--${column})`)
+    const width = Number(/grid-template-columns:\s*(\d+)px/.exec(block)?.[1])
+    expect(width + 6).toBe(questionIndentOf({ type: 'multiple-choice', marks }))
+  })
 })
 
 describe('DOCX sets print’s type rather than Word’s defaults', () => {
@@ -110,6 +177,45 @@ describe('DOCX sets print’s type rather than Word’s defaults', () => {
     }
   })
 
+  test('headings and the title are spaced by the same table', async () => {
+    const zip = await packaged()
+    const document = await zip.file('word/document.xml')!.async('string')
+    const header = await zip.file('word/header1.xml')!.async('string')
+    const lineOf = (xml: string, style: string) =>
+      new RegExp(`<w:pStyle w:val="${style}"/>.*?<w:spacing [^>]*w:line="(\\d+)" w:lineRule="atLeast"`, 's').exec(xml)?.[1]
+    expect(Number(lineOf(header, 'Title'))).toBe(Math.round(halfPointsOf('title') * 10 * TITLE_LINE_HEIGHT))
+    expect(Number(lineOf(document, 'Heading1'))).toBe(Math.round(halfPointsOf('sectionTitle') * 10 * HEADING_LINE_HEIGHT))
+  })
+
+  test('body paragraphs are spaced by the same table', async () => {
+    const zip = await JSZip.loadAsync(
+      await (await createExamDocx(plansOfFixture('a multipart with a multiple-choice part and a short-answer part'), async () => null)).arrayBuffer(),
+    )
+    const document = await zip.file('word/document.xml')!.async('string')
+    const paragraph = (text: string) =>
+      [...document.matchAll(/<w:p>.*?<\/w:p>|<w:p [^>]*>.*?<\/w:p>/gs)].map(([xml]) => xml).find((xml) => xml.includes(text))!
+    const spacing = (xml: string) => {
+      const attrs = /<w:spacing ([^>]*)\/>/.exec(xml)?.[1] ?? ''
+      return Object.fromEntries([...attrs.matchAll(/w:(\w+)="(\w+)"/g)].map(([, key, value]) => [key, value]))
+    }
+    const twipsOf = (em: number) => String(Math.round(pointsOf('body') * em * 20))
+    const first = spacing(paragraph('Competition from newer ports'))
+    // Lines at least the body line height apart, so a picture still fits.
+    expect(first.line).toBe(twipsOf(BODY_LINE_HEIGHT))
+    expect(first.lineRule).toBe('atLeast')
+    // A list's items sit the list gap apart.
+    expect(first.after).toBe(twipsOf(LIST_ITEM_GAP_EM))
+    expect(spacing(paragraph('Development of other trade routes')).before).toBeUndefined()
+    // A paragraph after a paragraph opens the paragraph gap, counting what the
+    // one above left below itself.
+    const second = spacing(paragraph('Several other factors'))
+    const above = spacing(paragraph('The power of the Kingdom'))
+    expect(Number(second.before) + Number(above.after)).toBe(Number(twipsOf(PARAGRAPH_GAP_EM)))
+    // And after a list, the gap counts the list gap the last item left.
+    const afterList = spacing(paragraph('Source: '))
+    expect(Number(afterList.before) + Number(twipsOf(LIST_ITEM_GAP_EM))).toBe(Number(twipsOf(PARAGRAPH_GAP_EM)))
+  })
+
   test('the identity line spans the content width, its output ID against the right margin', async () => {
     const zip = await packaged()
     const header = await zip.file('word/header1.xml')!.async('string')
@@ -132,5 +238,19 @@ describe('the PDF draws print’s type', () => {
     const sizeOfText = (text: string) => items.find((item) => item.str.includes(text))?.transform[0]
     expect(sizeOfText('Which particle is neutral?')).toBeCloseTo(pointsOf('body'), 2)
     expect(sizeOfText('Mixed sections')).toBeCloseTo(pointsOf('title'), 2)
+  })
+
+  test('lines, list items and paragraphs at print’s spacing', async () => {
+    const bytes = await createPublicationPdf(
+      plansOfFixture('a multipart with a multiple-choice part and a short-answer part'),
+      async () => null,
+      fonts,
+    )
+    const page = await (await getDocument({ data: bytes }).promise).getPage(1)
+    const items = (await page.getTextContent()).items as { str: string; transform: number[] }[]
+    const baseline = (text: string) => items.find((item) => item.str.includes(text))!.transform[5]!
+    const line = pointsOf('body') * BODY_LINE_HEIGHT
+    expect(baseline('Competition') - baseline('Development')).toBeCloseTo(line + pointsOf('body') * LIST_ITEM_GAP_EM, 1)
+    expect(baseline('Several other factors') - baseline('Competition')).toBeCloseTo(line + pointsOf('body') * PARAGRAPH_GAP_EM, 1)
   })
 })
