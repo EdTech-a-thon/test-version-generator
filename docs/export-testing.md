@@ -148,9 +148,11 @@ The implementations are:
   with school notation as their searchable text, a Blockquote's black border,
   and a Side-by-Side's pictures beside
   one another, centred in their Panels.
-- `src/export-typography.test.ts` — one type scale (`src/export-typography.ts`)
-  held against print's stylesheet, the DOCX document defaults and heading
-  styles, the DOCX identity line's tab stops, and the PDF's drawn sizes.
+- `src/export-typography.test.ts` — one type scale and one body spacing —
+  line height, paragraph gap, list-item gap (`src/export-typography.ts`) — and
+  the Multiple Choice answer indent, held against print's stylesheet, the DOCX
+  document defaults, heading styles and body paragraphs, the DOCX identity
+  line's tab stops, and the PDF's drawn sizes and line pitch.
   Parity ignores size by design, so this is where a DOCX that falls back to
   Word's own 10pt defaults fails.
 - `src/pdf-math.test.ts` — the PDF's typeset equations: stacked fractions,
@@ -200,7 +202,9 @@ rendering.
 | Playwright Chromium | —                      | Reference PDF capture         |
 
 `LANG`, `LC_ALL`, and `TZ` are pinned to `C`/`UTC`; the PDF uses US Letter with
-zero outer margin because the Layout Plan owns the page padding.
+zero outer margin because the Layout Plan owns the page padding. An Exam's own
+Page Margins (ADR-0039) are part of the plan's `pageSize`, and the parity
+fingerprints compare every side.
 
 ## Fixtures and failure artifacts
 

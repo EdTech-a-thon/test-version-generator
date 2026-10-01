@@ -173,6 +173,10 @@ _Avoid_: White space, answer box, response area
 The line an Exam prints at the top of each test page, beside the paper's ID. By default it is Name, Class and Date blanks on the first page and a Name blank on later ones; an Exam may reword the first page's line and the later pages' line, as plain text in which underscores are the blanks, or clear either. The ID is the one value the header fills in for each paper and is never part of the line. The Exam's title prints on its own line under the first page's header, and Answer Key pages carry the ID alone.
 _Avoid_: Letterhead, banner, identity line
 
+**Page Margins**:
+How far in from each edge of the sheet an Exam's pages print, in inches: three quarters of an inch on every side unless the Exam sets its own, one value for all four sides or each side apart. It is Exam presentation, set from the Format menu like the heading and text sizes; every page of the test and the Answer Key prints with it, and the Exam's questions are packed into the room it leaves.
+_Avoid_: Padding, page border, gutter
+
 **Question Section**:
 An ordered group of Questions within an Exam, of any Question Type, fixed in the Exam and its exported output. An Exam's Sections print in whatever order the teacher arranges them, and every Question in an Exam belongs to exactly one Section. A Section has its own Section Heading and Section Directions, and an emptied Section stays, and prints its heading and directions, until the teacher deletes it or merges it with a neighbour — so the sheet and the paper always put every Question on the same page; deleting a Section Removes its Questions, while merging moves them into the neighbour, under its wording. Every heading on an Exam, its title included, prints at one of three sizes, and its questions and answers at one of three text sizes chosen apart from the headings. The Answer Key groups its entries by Section and uses the test's headings.
 _Avoid_: Question category, type section

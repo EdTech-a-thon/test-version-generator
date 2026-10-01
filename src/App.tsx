@@ -134,6 +134,7 @@ import {
   RefreshCw,
   Save,
   SaveAll,
+  Scan,
   Tags,
   Trash2,
   TriangleAlert,
@@ -142,6 +143,7 @@ import {
   X,
 } from 'lucide-react'
 import { ContextMenu, type MenuPoint } from './context-menu'
+import { MarginsPanel } from './margins-panel'
 import { usePopOver } from './pop-over-context'
 import {
   DEFAULT_HEADING_SIZE,
@@ -1915,6 +1917,9 @@ function ExamEditor({
     kind: DocumentMenuKind
     point: MenuPoint
   } | null>(null)
+  // Where the Margins panel opened from the Format menu stands, while it is open.
+  const [marginsPanel, setMarginsPanel] = useState<MenuPoint | null>(null)
+  const closeMarginsPanel = useCallback(() => setMarginsPanel(null), [])
   const closeExportHistory = useCallback(() => {
     setHistoryOpen(false)
     requestAnimationFrame(() => historyButton.current?.focus())
@@ -2433,6 +2438,15 @@ function ExamEditor({
               },
             })),
           },
+          {
+            // Opens beside the menu it came from, and stays while the sheet
+            // reflows behind it.
+            kind: 'action',
+            label: 'Margins…',
+            icon: <Scan />,
+            disabled: isHistoricalBrowsing,
+            onSelect: () => setMarginsPanel(documentMenu.point),
+          },
         ] : documentMenu.kind === 'file' ? [
           {
             kind: 'action',
@@ -2493,6 +2507,14 @@ function ExamEditor({
           },
         ]}
         onClose={() => setDocumentMenu(null)}
+      />}
+
+      {marginsPanel && <MarginsPanel
+        point={marginsPanel}
+        margins={state.workingCopy.margins}
+        disabled={isHistoricalBrowsing}
+        onChange={(sides, inches, continuing) => store.setMargins(sides, inches, { continuing })}
+        onClose={closeMarginsPanel}
       />}
 
       {choosingExam && <ResourcePicker

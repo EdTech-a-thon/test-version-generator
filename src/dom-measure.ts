@@ -7,8 +7,9 @@
 // height of its rich text, its images and its choice grid once they are laid out
 // at the page's content width. So it renders the item — through
 // `PageItemMeasureView`, the very components `exam-page.tsx` draws on screen —
-// into one reused off-screen host sized to `PAGE_CONTENT_WIDTH`, and measures
-// the host.
+// into one reused off-screen host sized to the page's content width — today's
+// `PAGE_CONTENT_WIDTH`, or what an Exam's own margins leave — and measures the
+// host.
 //
 // Two things about that host matter and are easy to undo by accident:
 //
@@ -23,10 +24,9 @@
 
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { PAGE_CONTENT_WIDTH, type Measure, type PageItem } from './export-plan'
+import { PAGE_CONTENT_WIDTH, type ItemLayout, type Measure, type PageItem } from './export-plan'
 import { BODY_PX } from './export-typography'
 import { PageItemMeasureView } from './page-item-view'
-import type { TextSize } from './section-headings'
 import type { ProseMirrorJSON } from './question-doc'
 
 let host: HTMLElement | null | undefined
@@ -43,9 +43,6 @@ function measureHost(): HTMLElement | null {
       host = document.createElement('div')
       host.className = 'exam-page measure-host'
       host.setAttribute('aria-hidden', 'true')
-      // From the same constant packing uses, so the width an item is measured
-      // at is by construction the width it is packed against.
-      host.style.width = `${PAGE_CONTENT_WIDTH}px`
       document.body.appendChild(host)
     }
   }
@@ -74,14 +71,19 @@ const HEIGHT_CACHE_LIMIT = 600
 // measured item is interactive or stateful.
 //
 // The host carries the Exam's text size exactly as a page's content does, and
-// the size is part of what a height is remembered by.
-function itemHeight(item: PageItem, textSize?: TextSize): number {
+// is as wide as the page's margins leave — the width packing hands over, so the
+// width an item is measured at is by construction the width it is packed
+// against. Both are part of what a height is remembered by.
+function itemHeight(item: PageItem, layout: ItemLayout = {}): number {
   const element = measureHost()
   if (!element) return 0
+  const { textSize } = layout
+  const width = layout.contentWidth ?? PAGE_CONTENT_WIDTH
   const markup = renderToStaticMarkup(createElement(PageItemMeasureView, { item }))
-  const key = `${textSize ?? 'normal'}:${markup}`
+  const key = `${textSize ?? 'normal'}:${width}:${markup}`
   const remembered = heights.get(key)
   if (remembered !== undefined) return remembered
+  element.style.width = `${width}px`
   element.style.fontSize = textSize && textSize !== 'normal' ? `${BODY_PX[textSize]}px` : ''
   element.innerHTML = markup
   // Fractional, unlike `scrollHeight`: the heights of a dozen items are summed

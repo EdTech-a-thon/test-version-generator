@@ -130,6 +130,7 @@ export async function examPackage({
     ...(exam.headingSize && exam.headingSize !== 'normal' ? { headingSize: exam.headingSize } : {}),
     ...(exam.textSize && exam.textSize !== 'normal' ? { textSize: exam.textSize } : {}),
     ...(exam.header ? { header: { ...exam.header } } : {}),
+    ...(exam.margins ? { margins: { ...exam.margins } } : {}),
     positions,
   }
   return {

@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { DEFAULT_HEADER } from './page-header'
 import {
   CHOICE_AREA_WIDTH,
+  CHOICE_INDENT,
   FOOTER_HEIGHT,
   HEADER_HEIGHT,
   PAGE_CONTENT_WIDTH,
@@ -11,6 +12,7 @@ import {
   SECTION_INSTRUCTIONS,
   SECTION_TITLE,
   pageContentHeight,
+  readStoredLayoutPlan,
   isAnswerKeyHeader,
   buildExportDocument,
   numberLabelOf,
@@ -22,6 +24,7 @@ import {
   type ColumnCount,
   type Measure,
   type ExportContentSelection,
+  type LayoutPlan,
   type PlannedPage,
   type PageItem,
   type QuestionItem,
@@ -610,7 +613,9 @@ describe('page geometry', () => {
     expect([PAGE_WIDTH, PAGE_HEIGHT]).toEqual([816, 1056])
     expect(PAGE_MARGIN).toBe(72)
     expect(PAGE_CONTENT_WIDTH).toBe(672)
-    expect(CHOICE_AREA_WIDTH).toBe(632)
+    // A Multiple Choice question's answers are set in from its stem.
+    expect(CHOICE_INDENT).toBe(18)
+    expect(CHOICE_AREA_WIDTH).toBe(632 - CHOICE_INDENT)
   })
 
   test('subtracts the header and footer from the content box', () => {
@@ -1200,9 +1205,52 @@ describe('the Layout Plan', () => {
     expect(planOf().pageSize).toEqual({
       width: PAGE_WIDTH,
       height: PAGE_HEIGHT,
-      margin: PAGE_MARGIN,
+      margins: { top: PAGE_MARGIN, right: PAGE_MARGIN, bottom: PAGE_MARGIN, left: PAGE_MARGIN },
       contentWidth: PAGE_CONTENT_WIDTH,
     })
+  })
+
+  test('takes the Exam’s own margins, and packs and measures against them', () => {
+    const margins = { top: 1.5, right: 1, bottom: 1.5, left: 1.25 }
+    const widths = new Set<number | undefined>()
+    const measure: Measure = {
+      itemHeight: (item, layout) => {
+        widths.add(layout?.contentWidth)
+        return item.kind === 'question' ? 180 : 0
+      },
+    }
+    const questions = ['a', 'b', 'c', 'd', 'e'].map((id) => open(id))
+    const narrow = planExport({
+      exam: { ...examOf(questions), margins },
+      arrangement: arrangementOf(questions.map(({ id }) => id)),
+      selection: STUDENT_TEST,
+      measure,
+    })
+    expect(narrow.pageSize).toEqual({
+      width: PAGE_WIDTH,
+      height: PAGE_HEIGHT,
+      margins: { top: 144, right: 96, bottom: 144, left: 120 },
+      contentWidth: PAGE_WIDTH - 96 - 120,
+    })
+    expect([...widths]).toEqual([PAGE_WIDTH - 96 - 120])
+    // 1056 - 288 = 768 tall; less the first page's header and the footer
+    // leaves 648, which holds three 180px questions where today's 744 holds four.
+    expect(pageContentHeight('first', narrow.pageSize)).toBe(768 - HEADER_HEIGHT.first - FOOTER_HEIGHT)
+    expect(narrow.pages.map((page) => page.items.filter((item) => item.kind === 'question').length))
+      .toEqual([3, 2])
+    const usual = planExport({
+      exam: examOf(questions),
+      arrangement: arrangementOf(questions.map(({ id }) => id)),
+      selection: STUDENT_TEST,
+      measure,
+    })
+    expect(usual.pages.map((page) => page.items.filter((item) => item.kind === 'question').length))
+      .toEqual([4, 1])
+  })
+
+  test('a plan an Export Record kept from before margins could be set reads as the same sheet', () => {
+    const stored = { ...planOf(), pageSize: { width: 816, height: 1056, margin: 72, contentWidth: 672 } }
+    expect(readStoredLayoutPlan(stored as unknown as LayoutPlan).pageSize).toEqual(planOf().pageSize)
   })
 
   test('marks an explicit break before every page but the first', () => {

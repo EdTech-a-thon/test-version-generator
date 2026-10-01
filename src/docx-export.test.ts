@@ -120,7 +120,7 @@ describe('the planned sheet', () => {
     for (const page of fingerprint.pages) {
       expect(page.width).toBe(plan.pageSize.width)
       expect(page.height).toBe(plan.pageSize.height)
-      expect(page.margin).toBe(plan.pageSize.margin)
+      expect(page.margins).toEqual(plan.pageSize.margins)
     }
   })
 

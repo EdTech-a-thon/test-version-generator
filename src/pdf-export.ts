@@ -29,6 +29,7 @@ import {
   type MediaLoader,
 } from './export-media'
 import {
+  CHOICE_INDENT,
   MATCHING_BANK_WIDTH,
   PART_INDENT,
   printsNumberLine,
@@ -46,7 +47,15 @@ import {
   type QuestionItem,
 } from './export-plan'
 import { DIFFICULTY_LABELS, WORK_SPACE_LINE_PITCH } from './exam'
-import { bodyScale, pointsOf, sectionHeadingPoints, titlePoints } from './export-typography'
+import {
+  BODY_LINE_HEIGHT,
+  LIST_ITEM_GAP_EM,
+  PARAGRAPH_GAP_EM,
+  bodyScale,
+  pointsOf,
+  sectionHeadingPoints,
+  titlePoints,
+} from './export-typography'
 import type { ProseMirrorJSON } from './question-doc'
 import { MATH_SIZE, drawTypesetMath, mathTypesetter } from './pdf-math-draw'
 import {
@@ -64,7 +73,9 @@ const POINTS_PER_PX = 0.75
 // The sheet's own body type, which the header line and the section headings'
 // ratios keep whatever the Exam's text size.
 const SHEET_BODY_SIZE = pointsOf('body')
-const SHEET_BODY_LINE = 16.3
+/** A line of the sheet's body type, `BODY_LINE_HEIGHT` times its size, as
+ *  print's `.exam-page` sets it. */
+const SHEET_BODY_LINE = SHEET_BODY_SIZE * BODY_LINE_HEIGHT
 // The body type the plan being drawn prints its content at: the sheet's own,
 // scaled by the Exam's text size. Set for each plan in `createPdf`, whose
 // drawing is synchronous, so no other export can see a plan's size.
@@ -500,20 +511,32 @@ function drawImage(
   context.y -= height + 4
 }
 
+// The room a paragraph leaves below itself, and the gaps print's question text
+// opens (`export-typography.ts`): a paragraph or list below another block opens
+// the paragraph gap, less what that block already left; a list's items sit the
+// list gap apart. Both in ems of the body type being drawn.
+const BLOCK_AFTER = 2
+const GAP_BLOCKS = new Set(['paragraph', 'bullet_list', 'ordered_list'])
+
 function drawBlocks(
   context: DrawContext,
   nodes: readonly ProseMirrorJSON[],
-  options: { x?: number; width?: number; listLevel?: number; centred?: boolean } = {},
+  options: { x?: number; width?: number; listLevel?: number; centred?: boolean; tight?: boolean } = {},
 ): void {
   const x = options.x ?? context.x
   const width = options.width ?? context.width
   let orderedIndex = 1
+  let previous: string | undefined
   for (const node of nodes) {
     const attrs = attrsOf(node)
+    if (previous !== undefined && !options.tight && GAP_BLOCKS.has(node.type as string)) {
+      context.y -= Math.max(0, BODY_SIZE * PARAGRAPH_GAP_EM - BLOCK_AFTER)
+    }
+    previous = node.type as string
     switch (node.type) {
       case 'paragraph':
         drawInline(context, textPieces(node), { x, width })
-        context.y -= 2
+        context.y -= BLOCK_AFTER
         break
       case 'heading': {
         const level = Math.min(Math.max(Number(attrs.level) || 1, 1), 6)
@@ -535,11 +558,13 @@ function drawBlocks(
       case 'bullet_list':
       case 'ordered_list': {
         orderedIndex = Number(attrs.order) || 1
-        for (const child of childrenOf(node)) {
+        for (const [index, child] of childrenOf(node).entries()) {
+          if (index > 0) context.y -= Math.max(0, BODY_SIZE * LIST_ITEM_GAP_EM - BLOCK_AFTER)
           const marker = node.type === 'ordered_list' ? `${orderedIndex++}.` : '•'
           drawTextLine(context, marker, { x, width: 18 })
           context.y += BODY_LINE
-          drawBlocks(context, childrenOf(child), { x: x + 18, width: width - 18 })
+          // An item's own paragraphs sit together, as `li > p` does in print.
+          drawBlocks(context, childrenOf(child), { x: x + 18, width: width - 18, tight: true })
         }
         break
       }
@@ -724,7 +749,7 @@ function drawChoiceGrid(context: DrawContext, grid: ChoiceGrid, x: number, width
       const copy = { ...context, x: x + column * cellWidth, y: top, width: cellWidth - 8 }
       drawTextLine(copy, `${choice.letter}.`, { width: 16 })
       copy.y = top
-      drawBlocks(copy, childrenOf(choice.node), { x: copy.x + 18, width: copy.width - 18 })
+      drawBlocks(copy, childrenOf(choice.node), { x: copy.x + 18, width: copy.width - 18, tight: true })
       rowBottom = Math.min(rowBottom, copy.y)
     }
     context.y = rowBottom - 2
@@ -771,7 +796,7 @@ function drawMatchingAnswer(context: DrawContext, answer: PlannedBankAnswer): vo
   const top = context.y
   drawTextLine(context, `${answer.letter}.`, { width: 16 })
   context.y = top
-  drawBlocks(context, childrenOf(answer.node), { x: context.x + 18, width: context.width - 18 })
+  drawBlocks(context, childrenOf(answer.node), { x: context.x + 18, width: context.width - 18, tight: true })
 }
 
 function drawMatchingPrompts(context: DrawContext, set: MatchingSet): void {
@@ -783,6 +808,7 @@ function drawMatchingPrompts(context: DrawContext, set: MatchingSet): void {
     drawBlocks(context, childrenOf(prompt.node), {
       x: context.x + column,
       width: context.width - column,
+      tight: true,
     })
     context.y -= pt(MATCHING_GAP)
   }
@@ -843,7 +869,7 @@ function drawPart(context: DrawContext, part: PlannedPart, x: number, width: num
   context.y += BODY_LINE
   if (part.stem.length > 0) drawBlocks(context, part.stem, { x: bodyX, width: bodyWidth })
   else context.y -= BODY_LINE
-  if (part.grid) drawChoiceGrid(context, part.grid, bodyX, bodyWidth)
+  if (part.grid) drawChoiceGrid(context, part.grid, bodyX + pt(CHOICE_INDENT), bodyWidth - pt(CHOICE_INDENT))
   if (part.workSpace) drawWorkSpace(context, part.workSpace, bodyX, bodyWidth)
 }
 
@@ -857,7 +883,8 @@ function drawQuestion(context: DrawContext, item: QuestionItem): void {
     context.y += BODY_LINE
   }
   drawBlocks(context, item.stem, { x: bodyX, width: bodyWidth })
-  if (item.grid) drawChoiceGrid(context, item.grid, bodyX, bodyWidth)
+  // Set in from the stem, as print's `.choice-grid` is.
+  if (item.grid) drawChoiceGrid(context, item.grid, bodyX + pt(CHOICE_INDENT), bodyWidth - pt(CHOICE_INDENT))
   if (item.matching) drawMatching(context, item.matching)
   if (item.workSpace) {
     drawWorkSpace(context, item.workSpace, bodyX, bodyWidth)
@@ -1135,9 +1162,9 @@ async function createPdf(
       for (const planned of plan.pages) {
         const width = pt(plan.pageSize.width)
         const height = pt(plan.pageSize.height)
-        const margin = pt(plan.pageSize.margin)
+        const margins = plan.pageSize.margins
         const page = document.addPage([width, height])
-        const top = height - margin
+        const top = height - pt(margins.top)
         const headerHeight = planned.header === 'first' || planned.header === 'answer-key'
           ? pt(84)
           : pt(42)
@@ -1147,10 +1174,10 @@ async function createPdf(
           page,
           fonts,
           images,
-          x: margin,
+          x: pt(margins.left),
           y: top,
           width: pt(plan.pageSize.contentWidth),
-          bottom: margin + footerHeight,
+          bottom: pt(margins.bottom) + footerHeight,
           pageNumber: planned.number,
           typeset,
         }
@@ -1160,9 +1187,10 @@ async function createPdf(
         const footer = String(planned.furniture.pageNumber)
         assertSupported(footer, fonts.regular)
         const footerWidth = fonts.regular.widthOfTextAtSize(footer, SMALL_SIZE)
+        // Centred on the content box, as print centres it between the margins.
         page.drawText(footer, {
-          x: (width - footerWidth) / 2,
-          y: margin,
+          x: pt(margins.left) + (pt(plan.pageSize.contentWidth) - footerWidth) / 2,
+          y: pt(margins.bottom),
           size: SMALL_SIZE,
           font: fonts.regular,
           color: INK,

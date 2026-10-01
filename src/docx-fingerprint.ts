@@ -31,6 +31,10 @@ function px(twips: string | undefined): number {
   return Math.round(Number(twips ?? 0) / TWIPS_PER_PX)
 }
 
+function exactPx(twips: string | undefined): number {
+  return Math.round((Number(twips ?? 0) / TWIPS_PER_PX) * 100) / 100
+}
+
 type Package = {
   document: XmlNode
   core: XmlNode | undefined
@@ -404,7 +408,14 @@ function pageOf(section: Section, index: number, reader: Reader): PageFingerprin
     number: index + 1,
     width: px(size?.attrs['w:w']),
     height: px(size?.attrs['w:h']),
-    margin: px(margin?.attrs['w:top']),
+    // Exact rather than whole pixels: a margin set in twentieths of an inch
+    // is a fraction of a pixel, and is compared with the plan's own.
+    margins: {
+      top: exactPx(margin?.attrs['w:top']),
+      right: exactPx(margin?.attrs['w:right']),
+      bottom: exactPx(margin?.attrs['w:bottom']),
+      left: exactPx(margin?.attrs['w:left']),
+    },
     header: header ? blockLines(header, reader) : [],
     footer: footer ? blockLines(footer, reader) : [],
     content: blockLines(body, reader),

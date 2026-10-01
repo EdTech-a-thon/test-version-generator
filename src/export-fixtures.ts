@@ -619,6 +619,30 @@ export const FIXTURES: readonly Fixture[] = [
     { answerKey: true },
   ),
 
+  // An Exam's own Page Margins, a different one on each side: every adapter
+  // cuts the sheet the plan packed against.
+  fixture(
+    'an exam with its own page margins',
+    {
+      title: 'Own margins',
+      questions: [
+        multipleChoice(
+          'm1',
+          2,
+          [paragraph(text('Which particle is neutral?'))],
+          [
+            choice('m1-a', false, paragraph(text('Proton'))),
+            choice('m1-b', true, paragraph(text('Neutron'))),
+          ],
+        ),
+        open('o1', paragraph(text('Explain osmosis.'))),
+      ],
+      margins: { top: 1, right: 0.6, bottom: 1.25, left: 0.85 },
+    },
+    arrangement(['m1', 'o1']),
+    { answerKey: true },
+  ),
+
   fixture(
     'a plain short-answer question',
     {

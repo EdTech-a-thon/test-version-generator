@@ -48,6 +48,7 @@ import {
 } from './exam'
 import { stemNodesOf, type ProseMirrorJSON } from './question-doc'
 import { headerLineOf, type ExamHeader, type HeaderLine } from './page-header'
+import { DEFAULT_MARGIN, marginPx, marginsOf, sameMargins, type MarginSide, type PageMargins } from './page-margins'
 
 // The default section wording lives with the rest of what an Exam may say
 // about its sections; re-exported for the adapters and tests that print it.
@@ -64,12 +65,20 @@ import {
 // renderers read.
 export type ColumnCount = 1 | 2 | 4
 
+/** What an item is laid out under besides its own content: the Exam's text
+ *  size, and the width its page's margins leave. Absent members are the
+ *  defaults — normal text on today's sheet. */
+export type ItemLayout = {
+  textSize?: TextSize
+  contentWidth?: number
+}
+
 // Everything the render needs to know about how big things come out. The app
 // supplies a DOM-backed implementation; tests supply stubs.
 export type Measure = {
   /** Height in px of one page item, laid out at the content box's width and
    *  at the Exam's text size. */
-  itemHeight(item: PageItem, textSize?: TextSize): number
+  itemHeight(item: PageItem, layout?: ItemLayout): number
 }
 
 // A stub that reports nothing: every item is zero-height, so an exam packs onto
@@ -459,24 +468,30 @@ function furnitureOf(
 // ---------------------------------------------------------------------------
 // Page geometry
 //
-// US Letter at 96dpi: an 816×1056px sheet with 1" (96px) margins on every side,
-// leaving a 624×864px box. The header and footer come out of that box's height,
-// so how much packing may fill depends on which header the page carries — the
-// first page's Name/Class/Date line plus the title is taller than a later
-// page's Name line alone.
+// US Letter at 96dpi: an 816×1056px sheet, by default with ¾" (72px) margins
+// on every side, leaving a 672×912px box. An Exam may set its own Page Margins
+// (ADR-0039), and its plan's `pageSize` then carries them and the box they
+// leave. The header and footer come out of that box's height, so how much
+// packing may fill depends on which header the page carries — the first page's
+// Name/Class/Date line plus the title is taller than a later page's Name line
+// alone.
 //
-// These are the numbers the screen uses as well: `exam-page.tsx` publishes them
-// as CSS custom properties so the rendered page is laid out at exactly the size
-// packed against, and the print `@page` is the same sheet. A mismatch here is
-// what makes content creep onto an extra sheet on paper.
+// These are the numbers the screen uses as well: `exam-page.tsx` publishes a
+// plan's page size as CSS custom properties so the rendered page is laid out at
+// exactly the size packed against, and the print `@page` is the same sheet. A
+// mismatch here is what makes content creep onto an extra sheet on paper.
 export const PAGE_WIDTH = 816
 export const PAGE_HEIGHT = 1056
-export const PAGE_MARGIN = 72
+/** The margin of an Exam that never set its own, on every side. */
+export const PAGE_MARGIN = marginPx(DEFAULT_MARGIN)
 
-/** The width a page item is laid out at — what `Measure` measures against. */
+/** The width a page item is laid out at on today's sheet. An Exam with its own
+ *  margins is laid out at its plan's `pageSize.contentWidth` instead. */
 export const PAGE_CONTENT_WIDTH = PAGE_WIDTH - 2 * PAGE_MARGIN
 
-const PAGE_BOX_HEIGHT = PAGE_HEIGHT - 2 * PAGE_MARGIN
+/** Today's sheet: the page of every Exam that never set its margins. Declared
+ *  here, ahead of what reads it, though `pageSizeOf` is with the Layout Plan. */
+export const US_LETTER: PageSize = pageSizeOf(undefined)
 
 // Exhaustive over `PageHeader` on purpose: a new variant cannot be added
 // without deciding how tall its furniture is. The answer key's header carries
@@ -491,16 +506,23 @@ export const HEADER_HEIGHT: Record<PageHeader, number> = {
 
 export const FOOTER_HEIGHT = 36
 
-/** How much vertical space packing may fill on a page carrying `header`. */
-export function pageContentHeight(header: PageHeader): number {
-  return PAGE_BOX_HEIGHT - HEADER_HEIGHT[header] - FOOTER_HEIGHT
+/** How much vertical space packing may fill on a page carrying `header`, on a
+ *  sheet with `pageSize`'s margins. */
+export function pageContentHeight(header: PageHeader, pageSize: PageSize = US_LETTER): number {
+  const box = pageSize.height - pageSize.margins.top - pageSize.margins.bottom
+  return box - HEADER_HEIGHT[header] - FOOTER_HEIGHT
 }
 
 /** The most room a teacher can drag a work space to: a whole later page less
  *  an inch for the question itself, so a question and its space still fit on
- *  one sheet. Filling the rest of a page is the way to ask for more. */
-export const MAX_WORK_SPACE_HEIGHT =
-  Math.floor((pageContentHeight('later') - 96) / WORK_SPACE_LINE_PITCH) * WORK_SPACE_LINE_PITCH
+ *  one sheet. Filling the rest of a page is the way to ask for more. Deeper
+ *  margins leave a shorter page, and so a shorter most. */
+export function maxWorkSpaceHeight(pageSize: PageSize = US_LETTER): number {
+  return Math.floor((pageContentHeight('later', pageSize) - 96) / WORK_SPACE_LINE_PITCH)
+    * WORK_SPACE_LINE_PITCH
+}
+
+export const MAX_WORK_SPACE_HEIGHT = maxWorkSpaceHeight()
 
 // A question's body does not span the page's full content width: it renders
 // inside `.question-body`, the second column of `.exam-question`'s grid in
@@ -561,8 +583,10 @@ const MATCHING_NUMBER_COLUMN_WIDTH = 92
 /** Where a matching prompt's body starts, and how far a long Word Bank is set in. */
 export const MATCHING_INDENT = MATCHING_NUMBER_COLUMN_WIDTH + QUESTION_NUMBER_COLUMN_GAP
 
-/** The width a long Word Bank's grid is laid out in. */
-export const MATCHING_AREA_WIDTH = PAGE_CONTENT_WIDTH - MATCHING_INDENT
+/** The width a long Word Bank's grid is laid out in, on a page `contentWidth` wide. */
+export function matchingAreaWidth(contentWidth: number): number {
+  return contentWidth - MATCHING_INDENT
+}
 
 /** Where a Part's body starts within its Multipart question's body: past its own letter
  *  column, which holds the letter alone. A Part prints no answer blank, of
@@ -570,14 +594,28 @@ export const MATCHING_AREA_WIDTH = PAGE_CONTENT_WIDTH - MATCHING_INDENT
  *  margin — so every Part is set in by the same short step. */
 export const PART_INDENT = QUESTION_NUMBER_COLUMN_WIDTH + QUESTION_NUMBER_COLUMN_GAP
 
-/** The width a Multiple Choice Part's choice grid is laid out in: the page
- *  less its Multipart question's number column and its own letter column. */
-export const PART_CHOICE_AREA_WIDTH = PAGE_CONTENT_WIDTH - 2 * PART_INDENT
+/** How far a Multiple Choice question's answers — and a Multiple Choice
+ *  Part's — are set in from the stem above them, so the answers read as one
+ *  group under the question rather than as more of its text. `.choice-grid`'s
+ *  left margin in styles.css is this number. */
+export const CHOICE_INDENT = 18
 
-/** The width a Multiple Choice question's choice grid is laid out in — derived from
- *  `PAGE_CONTENT_WIDTH` so the two numbers cannot drift apart on their own. */
-export const CHOICE_AREA_WIDTH =
-  PAGE_CONTENT_WIDTH - QUESTION_NUMBER_COLUMN_WIDTH - QUESTION_NUMBER_COLUMN_GAP
+/** The width a Multiple Choice question's choice grid is laid out in, on a
+ *  page `contentWidth` wide: past the number column, set in from the stem. */
+export function choiceAreaWidth(contentWidth: number): number {
+  return contentWidth - QUESTION_NUMBER_COLUMN_WIDTH - QUESTION_NUMBER_COLUMN_GAP - CHOICE_INDENT
+}
+
+/** The width a Multiple Choice Part's choice grid is laid out in: the page
+ *  less its Multipart question's number column, its own letter column, and
+ *  the answers' indent. */
+export function partChoiceAreaWidth(contentWidth: number): number {
+  return contentWidth - 2 * PART_INDENT - CHOICE_INDENT
+}
+
+/** Both, on today's sheet. */
+export const PART_CHOICE_AREA_WIDTH = partChoiceAreaWidth(PAGE_CONTENT_WIDTH)
+export const CHOICE_AREA_WIDTH = choiceAreaWidth(PAGE_CONTENT_WIDTH)
 
 // A matching set spans the whole content width — its prompts carry their own
 // number column — and gives its Word Bank this much of it, on the right. The
@@ -989,13 +1027,15 @@ type PackedPage = Pick<PlannedPage, 'number' | 'header' | 'stream' | 'items'>
 function paginate(
   items: PageItem[],
   measure: Measure,
+  pageSize: PageSize,
   stream: PageStream,
   initialHeader: PageHeader,
   continuedHeader: PageHeader,
 ): PackedPage[] {
   const pages: PackedPage[] = []
+  const contentHeight = (header: PageHeader) => pageContentHeight(header, pageSize)
   let header: PageHeader = initialHeader
-  let box = pageContentHeight(header)
+  let box = contentHeight(header)
   let current: PageItem[] = []
   let used = 0
   // Set once a work space has taken the rest of this page: nothing else may
@@ -1008,7 +1048,7 @@ function paginate(
     used = 0
     full = false
     header = continuedHeader
-    box = pageContentHeight(header)
+    box = contentHeight(header)
   }
 
   // A work space that fills its page is measured at its least height, which is
@@ -1039,7 +1079,7 @@ function paginate(
   // A heading alone on its page has nothing to move away from: the piece goes
   // on ahead of it only when a fresh page would actually hold it, and an
   // oversized piece overflows under the heading instead.
-  const fullPage = pageContentHeight(continuedHeader)
+  const fullPage = contentHeight(continuedHeader)
   // A Part that fills its page ends the piece it is in: nothing may follow it
   // on that page.
   const endsPiece = (segment: Segment) =>
@@ -1062,7 +1102,7 @@ function paginate(
           current.pop()
           flush()
           place(last, measure.itemHeight(last))
-        } else if (height <= pageContentHeight(continuedHeader)) {
+        } else if (height <= fullPage) {
           flush()
           continue
         }
@@ -1122,7 +1162,7 @@ function paginate(
     if (
       current.length > 0
       && !followsSectionHeading
-      && height <= pageContentHeight(continuedHeader)
+      && height <= fullPage
     ) {
       flush()
       place(item, height)
@@ -1245,6 +1285,8 @@ export type ExportDocument = {
   headingSize?: HeadingSize
   /** The Exam's text size, where not normal. */
   textSize?: TextSize
+  /** The Exam's Page Margins in inches, where not the default. */
+  margins?: PageMargins
 }
 
 /** Semantic derivation, on its own. Exposed so tests and fingerprints can read
@@ -1271,6 +1313,7 @@ export function buildExportDocument(
       ? { headingSize: exam.headingSize }
       : {}),
     ...(exam.textSize && exam.textSize !== DEFAULT_TEXT_SIZE ? { textSize: exam.textSize } : {}),
+    ...(exam.margins && !sameMargins(exam.margins, undefined) ? { margins: { ...exam.margins } } : {}),
   }
 }
 
@@ -1284,15 +1327,28 @@ export type PageSize = {
   /** CSS pixels at 96dpi — US Letter, the geometry both outputs are cut to. */
   width: number
   height: number
-  margin: number
+  /** How far in from each edge the page prints: the Exam's Page Margins. */
+  margins: Record<MarginSide, number>
+  /** The width left between the left and right margins — what every item on
+   *  the page is laid out at. */
   contentWidth: number
 }
 
-export const US_LETTER: PageSize = {
-  width: PAGE_WIDTH,
-  height: PAGE_HEIGHT,
-  margin: PAGE_MARGIN,
-  contentWidth: PAGE_CONTENT_WIDTH,
+/** US Letter with an Exam's Page Margins, in the pixels the plan packs in. */
+export function pageSizeOf(margins: PageMargins | undefined): PageSize {
+  const inches = marginsOf(margins)
+  const px = {
+    top: marginPx(inches.top),
+    right: marginPx(inches.right),
+    bottom: marginPx(inches.bottom),
+    left: marginPx(inches.left),
+  }
+  return {
+    width: PAGE_WIDTH,
+    height: PAGE_HEIGHT,
+    margins: px,
+    contentWidth: Math.round((PAGE_WIDTH - px.left - px.right) * 100) / 100,
+  }
 }
 
 /**
@@ -1303,6 +1359,18 @@ export const US_LETTER: PageSize = {
  * printed as, and the type the Section's id, so it reprints as it did.
  */
 export function readStoredLayoutPlan(plan: LayoutPlan): LayoutPlan {
+  // A plan recorded before an Exam could set its margins (ADR-0039) states one
+  // margin for every side.
+  const legacySize = plan.pageSize as PageSize & { margin?: number }
+  const legacyMargin = legacySize.margin ?? PAGE_MARGIN
+  const pageSize: PageSize = legacySize.margins
+    ? plan.pageSize
+    : {
+        width: legacySize.width,
+        height: legacySize.height,
+        margins: { top: legacyMargin, right: legacyMargin, bottom: legacyMargin, left: legacyMargin },
+        contentWidth: legacySize.contentWidth,
+      }
   const upgraded = (item: PageItem): PageItem => {
     const legacy = item as PageItem & { section?: string }
     if ((item.kind === 'section-heading' || item.kind === 'answer-key-section')
@@ -1315,7 +1383,11 @@ export function readStoredLayoutPlan(plan: LayoutPlan): LayoutPlan {
     }
     return item
   }
-  return { ...plan, pages: plan.pages.map((page) => ({ ...page, items: page.items.map(upgraded) })) }
+  return {
+    ...plan,
+    pageSize,
+    pages: plan.pages.map((page) => ({ ...page, items: page.items.map(upgraded) })),
+  }
 }
 
 export type LayoutPlan = {
@@ -1346,18 +1418,26 @@ function resolveLayout(
   measure: Measure,
 ): LayoutPlan {
   const { textSize } = document
-  const sized: Measure = textSize
-    ? { itemHeight: (item) => measure.itemHeight(item, textSize) }
+  const pageSize = pageSizeOf(document.margins)
+  // Every item is measured at the Exam's text size and at the width its
+  // margins leave; an Exam with neither asks exactly as it always did.
+  const layout: ItemLayout = {
+    ...(textSize ? { textSize } : {}),
+    ...(pageSize.contentWidth !== PAGE_CONTENT_WIDTH ? { contentWidth: pageSize.contentWidth } : {}),
+  }
+  const sized: Measure = Object.keys(layout).length > 0
+    ? { itemHeight: (item) => measure.itemHeight(item, layout) }
     : measure
   const pages: PackedPage[] = []
   if (document.selection.test) {
-    pages.push(...paginate(document.test, sized, 'test', 'first', 'later'))
+    pages.push(...paginate(document.test, sized, pageSize, 'test', 'first', 'later'))
   }
   if (document.selection.answerKey) {
     pages.push(
       ...paginate(
         document.answerKey,
         sized,
+        pageSize,
         'answer-key',
         'answer-key',
         'answer-key-later',
@@ -1368,7 +1448,7 @@ function resolveLayout(
     title: document.title,
     arrangement: document.arrangement,
     selection: document.selection,
-    pageSize: US_LETTER,
+    pageSize,
     ...(textSize ? { textSize } : {}),
     // Every page but the first of the serialized document is preceded by an
     // explicit break. A linear format must reproduce the plan's pagination
