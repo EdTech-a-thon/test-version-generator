@@ -67,6 +67,7 @@ import {
   type WorkSpace,
 } from './exam'
 import type { Selection } from './use-selection'
+import { selectAllPaneProps, useSelectAll } from './use-select-all'
 import type { SectionHeadingChange } from './section-headings'
 import { sectionHeadingStyles } from './export-typography'
 import type { WorkspaceDrag } from './use-workspace-drag'
@@ -1373,6 +1374,8 @@ export function ExamPage({
   const orderedIds = orderedQuestionIds(pages)
   const columnSettings = columnSettingsOf(exam)
   const clearOnBackground = clearOnBackgroundClick(selection)
+  // Every Question on the draft, a Multipart or Matching Question being one.
+  useSelectAll('exam-draft', workspace, orderedIds, selection.selectAll)
   // Dragging is coordinated above this pane, because one gesture spans both of
   // them: a Question Bank question composed onto the Working Copy starts in the
   // other pane entirely. What stays here is what only this pane knows — which
@@ -1713,6 +1716,7 @@ export function ExamPage({
     <main
       className={workspaceClasses.join(' ')}
       ref={workspace}
+      {...selectAllPaneProps('exam-draft')}
       style={PAGE_GEOMETRY}
       data-drop-zone=""
       data-active={startsFirstSection ? 'true' : undefined}

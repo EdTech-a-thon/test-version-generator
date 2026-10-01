@@ -1,5 +1,6 @@
 // Question selection: click to select, Cmd/Ctrl-click to toggle, Shift-click
-// to extend a range, clear on background click or Escape.
+// to extend a range, Cmd/Ctrl-A for everything shown, clear on background
+// click or Escape.
 //
 // This is its own hook — not folded into `ExamPage` — because selection drives
 // both page chrome and selection-wide actions. `App` owns one instance and
@@ -31,6 +32,9 @@ export type Selection = {
    *  when it has put a question somewhere. Not a click, so it takes no
    *  modifiers and needs no on-page order to interpret them against. */
   select: (questionId: string) => void
+  /** Exactly these questions, given in on-page order — Cmd/Ctrl-A. The first
+   *  becomes the anchor, so a Shift-click afterwards extends from the top. */
+  selectAll: (orderedIds: readonly string[]) => void
   clear: () => void
 }
 
@@ -81,6 +85,11 @@ export function useSelection(): Selection {
     anchor.current = questionId
   }, [])
 
+  const selectAll = useCallback((orderedIds: readonly string[]) => {
+    setSelectedIds(new Set(orderedIds))
+    anchor.current = orderedIds[0] ?? null
+  }, [])
+
   const clear = useCallback(() => {
     setSelectedIds(new Set())
     anchor.current = null
@@ -91,5 +100,5 @@ export function useSelection(): Selection {
     [selectedIds],
   )
 
-  return { selectedIds, isSelected, selectOne, toggle, select, clear }
+  return { selectedIds, isSelected, selectOne, toggle, select, selectAll, clear }
 }
