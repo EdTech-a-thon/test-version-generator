@@ -2645,6 +2645,10 @@ function ExamEditor({
             onSectionHeadingChange={(sectionId, change) => store.setSectionHeading(sectionId, change)}
             onMoveSection={(sectionId, direction) => store.moveSection(sectionId, direction)}
             onDeleteSection={(sectionId) => store.deleteSection(sectionId)}
+            onSplitSection={(questionId) => store.splitSection(questionId)}
+            onMoveToNewSection={(questionIds) => store.moveToNewSection(questionIds)}
+            onInsertSection={(sectionId, placement) => store.insertSection(sectionId, placement)}
+            onMergeSection={(sectionId, direction) => store.mergeSection(sectionId, direction)}
             onHeaderLineChange={(line, text) => store.setHeaderLine(line, text)}
             titleDisabled={isHistoricalBrowsing}
             onEdit={(questionId) => {

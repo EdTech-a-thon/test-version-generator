@@ -143,6 +143,57 @@ describe('a Question Bank question released over the Working Copy', () => {
     expect(landsOnRelease(intent)).toBe(true)
   })
 
+  test('below a target open at the foot of the Exam, a release still makes a Section, however far down', () => {
+    const open = field(page.candidates, {
+      openNewSection: {
+        afterSectionId: 'mc-2',
+        box: { top: 1006, bottom: 1058, left: 100, right: 700 },
+      },
+    })
+    for (const point of [{ x: 400, y: 1070 }, { x: 400, y: 1600 }, { x: 40, y: 1200 }]) {
+      const intent = dropIntent(fromQuestionBank, open, point)
+      expect(intent).toEqual({
+        kind: 'new-section',
+        afterSectionId: 'mc-2',
+        armed: true,
+        opensBelow: 'mc-2',
+      })
+      expect(landsOnRelease(intent)).toBe(true)
+    }
+  })
+
+  test('below a target open between Sections, going lower lands in the next Section', () => {
+    const open = field(page.candidates, {
+      openNewSection: {
+        afterSectionId: 'sa',
+        box: { top: 832, bottom: 884, left: 100, right: 700 },
+      },
+    })
+    expect(dropIntent(fromQuestionBank, open, { x: 400, y: 895 })).toEqual({
+      kind: 'insert',
+      targetQuestionId: 'q3',
+      placement: 'before',
+      opensBelow: null,
+    })
+  })
+
+  test('below a target open above an empty Section at the foot of the Exam, the empty Section takes the drop', () => {
+    const open = field(page.candidates, {
+      emptySections: [
+        { sectionId: 'empty', box: { top: 1100, bottom: 1156, left: 100, right: 700 } },
+      ],
+      openNewSection: {
+        afterSectionId: 'mc-2',
+        box: { top: 1006, bottom: 1058, left: 100, right: 700 },
+      },
+    })
+    expect(dropIntent(fromQuestionBank, open, { x: 400, y: 1120 })).toEqual({
+      kind: 'section-end',
+      sectionId: 'empty',
+      opensBelow: null,
+    })
+  })
+
   test('drops into any empty Section, whatever the question’s type', () => {
     const withEmpty = field(page.candidates, {
       emptySections: [
@@ -214,6 +265,23 @@ describe('a Working Copy question moved within it', () => {
       targetQuestionId: 'q1',
       placement: 'after',
       opensBelow: 'mc',
+    })
+  })
+
+  test('carrying the last question, below the target open at the foot of the Exam makes a Section of it', () => {
+    // s2 and q3 are carried: the foot of the Exam is now the line below s1,
+    // and the carried pieces below it are not somewhere to land.
+    const carrying: DragSource = { pane: 'exam-draft', questionIds: ['s2', 'q3'], type: 'open' }
+    const open = field(page.candidates, {
+      openNewSection: {
+        afterSectionId: 'sa',
+        box: { top: 706, bottom: 758, left: 100, right: 700 },
+      },
+    })
+    expect(dropIntent(carrying, open, { x: 400, y: 950 })).toMatchObject({
+      kind: 'new-section',
+      afterSectionId: 'sa',
+      armed: true,
     })
   })
 

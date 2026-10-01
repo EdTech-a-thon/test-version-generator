@@ -67,15 +67,52 @@ export type MenuItem =
       items: readonly SubmenuItem[]
       icon?: ReactNode
     }
+  // One row of a few short, related actions side by side — "Insert section:
+  // Above / Below" — where a submenu would hide two words behind a hover. Up
+  // and down move between rows as ever; left and right move along this one.
+  | {
+      kind: 'choices'
+      label: string
+      choices: readonly MenuChoice[]
+      icon?: ReactNode
+    }
   | { kind: 'label'; label: string }
   | { kind: 'separator' }
 
+/** One action in a `choices` row: its short visible label, and the whole
+ *  action spelled out for a screen reader, which hears it out of its row. */
+export type MenuChoice = {
+  label: string
+  ariaLabel: string
+  onSelect: () => void
+  disabled?: boolean
+}
+
 type SubmenuItem = Extract<MenuItem, { kind: 'action' | 'radio' }>
 
-/** The rows a keyboard can land on. Labels and separators are skipped over. */
+/** The rows a keyboard can land on. Labels and separators are skipped over,
+ *  and so is a row of choices none of which applies. */
 function isFocusable(item: MenuItem): boolean {
+  if (item.kind === 'choices') return item.choices.some(({ disabled }) => !disabled)
   return (item.kind === 'action' || item.kind === 'radio' || item.kind === 'checkbox' || item.kind === 'submenu')
     && !('disabled' in item && item.disabled)
+}
+
+/** The choice in a row that the keyboard is on: the one it was on last, by
+ *  position, or the nearest one that applies. */
+function choiceIndexIn(choices: readonly MenuChoice[], wanted: number): number {
+  if (choices[wanted] && !choices[wanted].disabled) return wanted
+  return choices.findIndex(({ disabled }) => !disabled)
+}
+
+/** The next choice along a row that applies, wrapping round its ends. */
+function stepChoice(choices: readonly MenuChoice[], from: number, delta: number): number {
+  const total = choices.length
+  for (let moved = 1; moved <= total; moved += 1) {
+    const index = (((from + delta * moved) % total) + total) % total
+    if (!choices[index]!.disabled) return index
+  }
+  return from
 }
 
 /** The last row End should land on. Written out rather than `findLastIndex`,
@@ -112,6 +149,10 @@ export function ContextMenu({
   const submenuElements = useRef<(HTMLButtonElement | null)[]>([])
   const [position, setPosition] = useState<MenuPoint>(point)
   const [active, setActive] = useState(() => items.findIndex(isFocusable))
+  // Within a row of choices, which one: kept by position as the keyboard moves
+  // between rows, so Above stays Above from one row to the next.
+  const [choiceActive, setChoiceActive] = useState(0)
+  const choiceElements = useRef<(HTMLButtonElement | null)[][]>([])
   const [openSubmenu, setOpenSubmenu] = useState<number | null>(null)
   const [submenuActive, setSubmenuActive] = useState(0)
   const closeTimer = useRef<number | undefined>(undefined)
@@ -149,9 +190,19 @@ export function ContextMenu({
   // Roving tabindex: exactly one row is tabbable and it is the one that holds
   // focus, so arrow keys move a real focus ring rather than a painted-on one.
   useEffect(() => {
-    if (active >= 0) itemElements.current[active]?.focus()
-    else menu.current?.focus()
-  }, [active])
+    if (active < 0) {
+      menu.current?.focus()
+      return
+    }
+    const choices = choiceElements.current[active]
+    if (!choices?.length) {
+      itemElements.current[active]?.focus()
+      return
+    }
+    const wanted = choices[choiceActive]
+    ;(wanted && !wanted.disabled ? wanted : choices.find((choice) => choice && !choice.disabled))
+      ?.focus()
+  }, [active, choiceActive])
 
   useEffect(() => {
     if (openSubmenu === null) return
@@ -221,11 +272,20 @@ export function ContextMenu({
         event.stopPropagation()
         onClose()
         break
-      case 'ArrowRight':
-        if (items[active]?.kind !== 'submenu') break
+      case 'ArrowLeft':
+      case 'ArrowRight': {
+        const item = items[active]
+        if (item?.kind === 'choices') {
+          event.preventDefault()
+          const delta = event.key === 'ArrowRight' ? 1 : -1
+          setChoiceActive((current) => stepChoice(item.choices, choiceIndexIn(item.choices, current), delta))
+          break
+        }
+        if (event.key !== 'ArrowRight' || item?.kind !== 'submenu') break
         event.preventDefault()
         setOpenSubmenu(active)
         break
+      }
       case 'Tab':
         event.preventDefault()
         onClose()
@@ -296,6 +356,44 @@ export function ContextMenu({
           return (
             <div key={index} className="context-menu-label">
               {item.label}
+            </div>
+          )
+        }
+        if (item.kind === 'choices') {
+          const current = index === active ? choiceIndexIn(item.choices, choiceActive) : -1
+          return (
+            <div key={index} className="context-menu-choices" role="group" aria-label={item.label}>
+              <span className="context-menu-icon" aria-hidden="true">
+                {item.icon}
+              </span>
+              <span className="context-menu-item-label" aria-hidden="true">{item.label}</span>
+              {item.choices.map((choice, choiceIndex) => (
+                <button
+                  key={choiceIndex}
+                  ref={(element) => {
+                    ;(choiceElements.current[index] ??= [])[choiceIndex] = element
+                  }}
+                  type="button"
+                  role="menuitem"
+                  aria-label={choice.ariaLabel}
+                  title={choice.ariaLabel}
+                  className="context-menu-choice"
+                  tabIndex={choiceIndex === current ? 0 : -1}
+                  disabled={choice.disabled}
+                  onMouseEnter={() => {
+                    if (choice.disabled) return
+                    setActive(index)
+                    setChoiceActive(choiceIndex)
+                    closeSubmenuSoon()
+                  }}
+                  onClick={() => {
+                    choice.onSelect()
+                    onClose()
+                  }}
+                >
+                  {choice.label}
+                </button>
+              ))}
             </div>
           )
         }

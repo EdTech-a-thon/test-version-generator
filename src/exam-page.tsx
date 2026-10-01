@@ -58,10 +58,13 @@ import {
   snapWorkSpaceHeight,
   takesWorkSpace,
   WORK_SPACE_LINE_PITCH,
+  moveToNewSection,
   questionsInSection,
   sectionsOf,
+  splitSection,
   workSpaceOf,
   type ColumnSetting,
+  type SectionPlacement,
   type Exam,
   type Arrangement,
   type WorkSpace,
@@ -77,13 +80,17 @@ import {
   ArrowDownToLine,
   ArrowUp,
   Ban,
+  BetweenHorizontalStart,
   CircleMinus,
   Copy,
+  Ellipsis,
   EllipsisVertical,
+  FoldVertical,
   ListRestart,
   Pencil,
   PencilLine,
   Heading,
+  SeparatorHorizontal,
   Shuffle,
   SquareDashed,
   X,
@@ -205,6 +212,15 @@ function workSpaceMenu(
   ]
 }
 
+/** What a question's menu can do to the Exam's Sections, and whether each
+ *  would change anything for the questions it acts on. */
+type QuestionSectionActions = {
+  canSplit: (questionId: string) => boolean
+  onSplit: (questionId: string) => void
+  canMoveToNewSection: (questionIds: readonly string[]) => boolean
+  onMoveToNewSection: (questionIds: readonly string[]) => void
+}
+
 // One list, however it was opened. The grip beside a question and a right-click
 // on the question itself raise exactly the same actions, which is what makes
 // the grip discoverable rather than a second, lesser control.
@@ -221,8 +237,11 @@ function questionMenuItems({
   workSpaceOfPart,
   onSetWorkSpace,
   selectedQuestionIds,
+  sectionActions,
 }: {
   question: PlannedQuestion
+  /** Present in the editor: what this menu can do to the Exam's Sections. */
+  sectionActions?: QuestionSectionActions
   columns: ColumnSetting
   workSpace: WorkSpace
   /** A Part's work space on this Exam, as its menu reports it. */
@@ -256,6 +275,30 @@ function questionMenuItems({
       onSelect: () => onDuplicate(question.id),
     },
   ]
+  // One question starts a new Section where it is, taking the rest of its
+  // Section with it; a selection of several becomes a Section of its own. The
+  // row is there but disabled when it would change nothing — a question that
+  // already begins its Section, a selection that already is one.
+  if (sectionActions) {
+    items.push(
+      { kind: 'separator' },
+      actedOnIds.length > 1
+        ? {
+            kind: 'action',
+            label: 'Move to new section',
+            icon: <BetweenHorizontalStart />,
+            disabled: !sectionActions.canMoveToNewSection(actedOnIds),
+            onSelect: () => sectionActions.onMoveToNewSection(actedOnIds),
+          }
+        : {
+            kind: 'action',
+            label: 'Start new section here',
+            icon: <SeparatorHorizontal />,
+            disabled: !sectionActions.canSplit(question.id),
+            onSelect: () => sectionActions.onSplit(question.id),
+          },
+    )
+  }
   // Columns are a multiple-choice question's business. An open question has no
   // answers to lay out, so the group is absent rather than present and inert.
   if (question.type === 'multiple-choice') {
@@ -354,6 +397,14 @@ function QuestionHandles({
   question: PlannedQuestion
   onOpenMenu: (questionId: string, point: MenuPoint, side?: MenuSide) => void
 }) {
+  // Beside the grip and to its left, not under the pointer: a menu opened from
+  // a handle should read as belonging to that handle, and opening leftwards
+  // keeps it off the question it acts on. The point is the menu's right edge —
+  // `side` is what makes it one.
+  const openBeside = (handle: HTMLElement) => {
+    const bounds = handle.getBoundingClientRect()
+    onOpenMenu(question.id, { x: bounds.left - 6, y: bounds.top }, 'left')
+  }
   return (
     <aside
       className="question-handles"
@@ -366,13 +417,13 @@ function QuestionHandles({
         className="question-handle menu-handle"
         aria-haspopup="menu"
         aria-label={`Actions for question ${numberLabelOf(question)}`}
-        onClick={(event) => {
-          // Beside the grip and to its left, not under the pointer: a menu
-          // opened from a handle should read as belonging to that handle, and
-          // opening leftwards keeps it off the question it acts on. The point
-          // is the menu's right edge — `side` is what makes it one.
-          const bounds = event.currentTarget.getBoundingClientRect()
-          onOpenMenu(question.id, { x: bounds.left - 6, y: bounds.top }, 'left')
+        onClick={(event) => openBeside(event.currentTarget)}
+        // The keyboard's own ways to ask for a context menu open the same one,
+        // on every platform — Shift+F10 raises no context menu on a Mac.
+        onKeyDown={(event) => {
+          if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return
+          event.preventDefault()
+          openBeside(event.currentTarget)
         }}
       >
         <EllipsisVertical />
@@ -677,8 +728,22 @@ function QuestionView({
       // A right-click anywhere on the question raises the same menu the grip
       // does, under the pointer. A continued piece answers too — it is the
       // same question, even though its handles belong to the numbered piece.
+      //
+      // Raised from the keyboard — the ContextMenu key, or Shift+F10, on a
+      // focused handle — there is no pointer to open under, and the event
+      // reports none, so the menu opens at the element that has focus.
       onContextMenu={(event) => {
         event.preventDefault()
+        const fromKeyboard =
+          (event.nativeEvent as PointerEvent).pointerType === ''
+          || (event.clientX === 0 && event.clientY === 0)
+        if (fromKeyboard) {
+          // The handle has already opened the menu beside itself on keydown.
+          if ((event.target as HTMLElement).closest('.question-handles')) return
+          const bounds = (event.target as HTMLElement).getBoundingClientRect()
+          onOpenMenu(question.id, { x: bounds.left, y: bounds.bottom })
+          return
+        }
         onOpenMenu(question.id, { x: event.clientX, y: event.clientY })
       }}
     >
@@ -770,12 +835,53 @@ function NewSectionTarget({ afterSectionId, armed }: NewSectionTargetState) {
 export type SetSectionHeading = (sectionId: string, change: SectionHeadingChange) => void
 
 /** What a Question Section's own controls do: move it past a neighbour, or
- *  delete it and Remove its questions. */
+ *  delete it and Remove its questions — and, behind its more button, insert
+ *  an empty Section beside it or merge it with a neighbour. A Section with no
+ *  neighbour on a side can neither move nor merge that way. */
 export type SectionControls = {
   canMoveUp: boolean
   canMoveDown: boolean
   onMove: (direction: -1 | 1) => void
   onDelete: () => void
+  onInsert: (placement: SectionPlacement) => void
+  onMerge: (direction: -1 | 1) => void
+}
+
+// The Section's less frequent structural actions, behind its more button: two
+// rows, each with its two directions side by side, rather than four rows that
+// say "section" four times. Merging keeps this Section's wording, so a merge
+// is named from this Section — "Merge with" the one above or below.
+function sectionMenuItems(controls: SectionControls): MenuItem[] {
+  return [
+    {
+      kind: 'choices',
+      label: 'Insert section',
+      icon: <BetweenHorizontalStart />,
+      choices: [
+        { label: 'Above', ariaLabel: 'Insert section above', onSelect: () => controls.onInsert('above') },
+        { label: 'Below', ariaLabel: 'Insert section below', onSelect: () => controls.onInsert('below') },
+      ],
+    },
+    {
+      kind: 'choices',
+      label: 'Merge with',
+      icon: <FoldVertical />,
+      choices: [
+        {
+          label: 'Above',
+          ariaLabel: 'Merge with section above',
+          disabled: !controls.canMoveUp,
+          onSelect: () => controls.onMerge(-1),
+        },
+        {
+          label: 'Below',
+          ariaLabel: 'Merge with section below',
+          disabled: !controls.canMoveDown,
+          onSelect: () => controls.onMerge(1),
+        },
+      ],
+    },
+  ]
 }
 
 // One part of a section heading, typed where it prints. The underline and the
@@ -801,9 +907,17 @@ function SectionHeadingField({
   onChange: (value: string) => void
   onFocusChange: (focused: boolean) => void
 }) {
+  // Focused as it appears, its text is selected too: a heading asked for from
+  // the Section's controls — a new Section's placeholder heading, say — is
+  // there to be typed over.
+  const field = useRef<HTMLTextAreaElement | null>(null)
+  useEffect(() => {
+    if (autoFocus) field.current?.select()
+  }, [autoFocus])
   return (
     <span className="section-heading-field" data-value={value || placeholder}>
       <textarea
+        ref={field}
         aria-label={label}
         className="section-heading-input"
         rows={1}
@@ -870,9 +984,15 @@ function EditableSectionHeading({
   )
   const opened = newSectionTarget && <NewSectionTarget {...newSectionTarget} />
   if (!showTitle && !showInstructions) {
+    // An untitled Section prints nothing above its questions, so the sheet
+    // names it faintly in the gap above them, taking no room — otherwise
+    // where one Section ends and the next begins is invisible until pointed
+    // at, and a heading the teacher never had looks like one that went missing.
     return (
       <>
-        <div className="exam-section-hidden" {...emptyMarks} data-section-id={item.sectionId} />
+        <div className="exam-section-hidden" {...emptyMarks} data-section-id={item.sectionId}>
+          <span className="exam-section-untitled" aria-hidden="true">Untitled section</span>
+        </div>
         {hint}
         {opened}
       </>
@@ -927,17 +1047,27 @@ function SectionRail({
   hidden,
   disabled,
   style,
+  menuOpen,
   onRevealTitle,
   onHover,
+  onOpenMenu,
 }: {
   controls: SectionControls
   /** Whether the Section's heading is cleared, which offers one again. */
   hidden: boolean
   disabled: boolean
   style: CSSProperties
+  /** Whether this Section's more menu is open. */
+  menuOpen: boolean
   onRevealTitle: () => void
   onHover: (on: boolean) => void
+  /** Opens the Section's more menu, hanging from `point`. */
+  onOpenMenu: (point: MenuPoint) => void
 }) {
+  const openMenu = (button: HTMLElement) => {
+    const bounds = button.getBoundingClientRect()
+    onOpenMenu({ x: bounds.right + 6, y: bounds.top })
+  }
   return (
     <div
       className="section-rail"
@@ -986,6 +1116,24 @@ function SectionRail({
         onClick={controls.onDelete}
       >
         <X aria-hidden="true" />
+      </button>
+      <button
+        type="button"
+        className="question-handle"
+        aria-label="More section actions"
+        title="More section actions"
+        aria-haspopup="menu"
+        aria-expanded={menuOpen}
+        disabled={disabled}
+        onClick={(event) => openMenu(event.currentTarget)}
+        onKeyDown={(event) => {
+          if (event.key !== 'ArrowDown' && event.key !== 'ContextMenu'
+            && !(event.shiftKey && event.key === 'F10')) return
+          event.preventDefault()
+          openMenu(event.currentTarget)
+        }}
+      >
+        <Ellipsis aria-hidden="true" />
       </button>
     </div>
   )
@@ -1329,6 +1477,10 @@ export function ExamPage({
   onSectionHeadingChange,
   onMoveSection,
   onDeleteSection,
+  onSplitSection,
+  onMoveToNewSection,
+  onInsertSection,
+  onMergeSection,
   onHeaderLineChange,
   titleDisabled = false,
   unsavedDraft = false,
@@ -1360,6 +1512,14 @@ export function ExamPage({
   onMoveSection?: (sectionId: string, direction: -1 | 1) => void
   /** Deletes a Question Section and Removes its questions. */
   onDeleteSection?: (sectionId: string) => void
+  /** Starts a new Section at a question, taking the rest of its Section. */
+  onSplitSection?: (questionId: string) => void
+  /** Makes questions one new Section where the first of them is. */
+  onMoveToNewSection?: (questionIds: readonly string[]) => void
+  /** Inserts an empty Section beside one, returning the new Section's id. */
+  onInsertSection?: (sectionId: string, placement: SectionPlacement) => string | null
+  /** Merges a Section with its neighbour above (`-1`) or below (`1`). */
+  onMergeSection?: (sectionId: string, direction: -1 | 1) => void
   /** Rewords a test page's header line; `null` restores its default. */
   onHeaderLineChange?: (line: HeaderLine, text: string | null) => void
   titleDisabled?: boolean
@@ -1604,7 +1764,12 @@ export function ExamPage({
   // highlighted so the teacher sees what they would move or delete. Editing
   // its heading highlights nothing.
   const [hoveredSectionId, setHoveredSectionId] = useState<string | null>(null)
-  const highlightedSectionId = drag.source ? null : hoveredSectionId
+  // The Section whose more menu is open, and where it hangs. The Section stays
+  // highlighted while it is open, as it is while its controls are pointed at:
+  // the menu, portalled away from the rail, is still acting on it.
+  const [sectionMenu, setSectionMenu] = useState<{ sectionId: string; point: MenuPoint } | null>(null)
+  const closeSectionMenu = useCallback(() => setSectionMenu(null), [])
+  const highlightedSectionId = drag.source ? null : hoveredSectionId ?? sectionMenu?.sectionId ?? null
   // The Section ruled off above and below: the one the pointer is in, or,
   // mid-gesture, the one it would land in. An armed new-Section target rules
   // itself off instead.
@@ -1619,7 +1784,7 @@ export function ExamPage({
   // A cleared heading its controls asked to open, until its field has focus.
   const [revealTitleOf, setRevealTitleOf] = useState<string | null>(null)
   const sectionControls =
-    onMoveSection && onDeleteSection
+    onMoveSection && onDeleteSection && onInsertSection && onMergeSection
       ? (sectionId: string): SectionControls => {
           const index = sections.findIndex(({ id }) => id === sectionId)
           return {
@@ -1641,7 +1806,26 @@ export function ExamPage({
               onMoveSection(sectionId, direction)
             },
             onDelete: () => onDeleteSection(sectionId),
+            // A Section inserted empty has a heading waiting to be typed over,
+            // so its heading takes focus once it is on the sheet.
+            onInsert: (placement) => {
+              const inserted = onInsertSection(sectionId, placement)
+              if (inserted) setRevealTitleOf(inserted)
+            },
+            onMerge: (direction) => onMergeSection(sectionId, direction),
           }
+        }
+      : undefined
+  // What a question's menu offers for Sections, asking the Exam's own rules
+  // whether each would change anything rather than restating them here.
+  const questionSectionActions: QuestionSectionActions | undefined =
+    onSplitSection && onMoveToNewSection
+      ? {
+          canSplit: (questionId) => splitSection(exam, arrangement, questionId, () => '') !== null,
+          onSplit: onSplitSection,
+          canMoveToNewSection: (questionIds) =>
+            moveToNewSection(exam, arrangement, questionIds, () => '') !== null,
+          onMoveToNewSection,
         }
       : undefined
   // Where a gesture has opened a new-Section target: beneath the last piece of
@@ -1827,8 +2011,22 @@ export function ExamPage({
           })()}
           disabled={titleDisabled}
           style={{ top: pointedBand.top + SECTION_RULE_OFFSET, left: pointedBand.pageLeft }}
+          menuOpen={sectionMenu?.sectionId === pointedBand.sectionId}
           onRevealTitle={() => setRevealTitleOf(pointedBand.sectionId)}
           onHover={(on) => setHoveredSectionId(on ? pointedBand.sectionId : null)}
+          onOpenMenu={(point) => setSectionMenu({ sectionId: pointedBand.sectionId, point })}
+        />
+      )}
+
+      {/* Held apart from the rail, which comes and goes with the pointer: the
+          menu outlives the pointer leaving for it. A Section gone from under
+          its open menu — merged away, undone — leaves nothing to act on. */}
+      {sectionMenu && sectionControls && sections.some(({ id }) => id === sectionMenu.sectionId) && (
+        <ContextMenu
+          point={sectionMenu.point}
+          ariaLabel="Section actions"
+          items={sectionMenuItems(sectionControls(sectionMenu.sectionId))}
+          onClose={closeSectionMenu}
         />
       )}
 
@@ -1850,6 +2048,7 @@ export function ExamPage({
             workSpaceOfPart: (partId) => workSpaceOf(exam, partId),
             onSetWorkSpace,
             selectedQuestionIds: [...selection.selectedIds],
+            sectionActions: questionSectionActions,
           })}
           onClose={closeMenu}
         />
