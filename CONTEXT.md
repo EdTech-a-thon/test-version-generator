@@ -150,7 +150,7 @@ The lettered answers a Matching set's Items are matched against, in authored ord
 _Avoid_: Choices (for a Matching set), answer list, right side
 
 **Locked Answer**:
-A Multiple Choice answer that keeps its authored letter however answers are shuffled, by Vary or in a Version, while the others shuffle among the letters left: “All of the above” means nothing anywhere else. It is Question Content, since it is about what the answer means. An answer worded like “All of the above”, “None of these” or “Both A and B” is locked by its wording, until the teacher unlocks it; any other the teacher may lock. A teacher's own decision outlasts any rewording, and only theirs is kept: an undecided answer follows what it says now. True/False answers and a Word Bank are never locked.
+A Multiple Choice answer that keeps its authored letter however answers are shuffled, by Vary or in a Version, while the others shuffle among the letters left: “All of the above” means nothing anywhere else. It is Question Content, since it is about what the answer means. An answer worded like “All of the above”, “None of these” or “Both A and B” is locked by its wording, until the teacher unlocks it; any other the teacher may lock. A teacher's own decision outlasts any rewording, and only theirs is kept: an undecided answer follows what it says now. True/False answers and a Word Bank are never locked. A lock governs shuffling, not authoring: the teacher still moves a Locked Answer by hand, and a new answer is added above the Locked Answers that end the list.
 _Avoid_: Pinned answer, fixed answer, anchored choice
 
 **Hidden Answer**:
