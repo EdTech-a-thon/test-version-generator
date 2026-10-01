@@ -122,9 +122,9 @@ A section is a heading the test divides its questions under, such as “Part A�
 - `instructions` is the directions printed under that heading, exactly as printed, such as “Circle the letter of the best answer.” or “Answer in complete sentences.”. Leave out a sentence that only names source question numbers, for the same reason. Write `""` when the heading has no directions.
 - A section holds whatever the test prints under it, in printed order, whatever its Question Types. Never split a section by Question Type, and never merge two sections because their questions are of the same type.
 - `title` is only ever text the test prints as a heading. Never make one up, and never add words to a heading to tell two sections apart.
-- A test often prints several lines of directions under one heading, each followed by its own questions: “Answer the following questions.”, then a few questions, then “Write each isotope below in symbolic notation.”, then more. Each new line of directions starts a new section. The first takes the heading; each later one has `"title": ""` and its directions as `instructions`, so it prints its directions and no heading, as the test does.
-- A heading repeated at the top of a later page, such as “How Atoms Differ continued”, continues the section it repeats. It starts no section.
-- Everything printed between a heading and its first question is that section's `instructions`, in printed order: a line such as “In your textbook, read about isotopes.” as well as the directions after it.
+- A test often prints several lines of directions under one heading, each followed by its own questions: “Answer the following questions.”, then a few questions, then “Write the capital of each country below.”, then more. Each new line of directions starts a new section. The first takes the heading; each later one has `"title": ""` and its directions as `instructions`, so it prints its directions and no heading, as the test does.
+- A heading repeated at the top of a later page, such as “Weather and Climate (continued)”, continues the section it repeats. It starts no section.
+- Everything printed between a heading and its first question is that section's `instructions`, in printed order: a line such as “Read pages 40–45 before you begin.” as well as the directions after it.
 - Questions printed before the test's first heading go in a section of their own, first, with `"title": ""`.
 - When the test prints no section headings at all, write exactly one section, with `"title": ""` and, as its `instructions`, the directions printed above the questions, or `""`. A section whose `title` and `instructions` are both `""` prints no heading.
 - The test's own title is the Exam's `name`, not a section. A name or date line, a school or teacher name, and page headers and footers are not sections; leave them out.
@@ -151,7 +151,7 @@ Completeness means accounting for every source question, not pretending every qu
 ### During conversion
 
 1. Classify a question as `multiple-choice`, `true-false`, `matching`, `short-answer` or `multipart` only when the source supports that classification. Version `0.7.0` supports only those five types. If its type is uncertain or it cannot be represented without material loss, leave it out and report it explicitly; never coerce it into the closest supported type.
-2. Preserve the exact wording, punctuation, capitalization, symbols, units, and meaningful whitespace. A Question's stem is what the source prints at its number, and nothing more: never add the directions printed above a group of questions to each one. Under “Write each isotope below in symbolic notation.”, the item `18. neon-22` has the stem “neon-22”.
+2. Preserve the exact wording, punctuation, capitalization, symbols, units, and meaningful whitespace. A Question's stem is what the source prints at its number, and nothing more: never add the directions printed above a group of questions to each one. Under “Write the capital of each country below.”, the item `18. Peru` has the stem “Peru”.
 3. Preserve authored question and choice order.
 4. Preserve paragraphs, headings, blockquotes, lists, code, rules, tables, equations, hard breaks, links, images, captions, content printed side by side, and text formatting when present (see [Page layout: boxes and side-by-side content](#page-layout-boxes-and-side-by-side-content)).
 5. Do not rewrite, summarize, correct, simplify, or “improve” source content unless the user explicitly requests editing.
@@ -170,7 +170,7 @@ Perform a second pass against the original source and verify all of the followin
 - every converted stem and choice is complete, and no stem repeats directions printed above it;
 - every supplied answer and correctness indicator was copied accurately;
 - every matching item names the word bank answer the source's key gives it, or none when the key gives none;
-- every block of questions that shares one passage, quote, image, table or piece of notation — including the questions after “Use the figures …” or “Use the diagram …” — is one Multipart Question with its Parts in printed order, or is listed as unconverted, and the shared material is in its stem rather than in its first Part;
+- every block of questions that shares one passage, quote, image, table or piece of notation — including the questions after “Use the chart …” or “Refer to the map …” — is one Multipart Question with its Parts in printed order, or is listed as unconverted, and the shared material is in its stem rather than in its first Part;
 - correctness was never inferred from general knowledge: with no answer key in the source, no choice is `correct` and no Matching item has an `answer`;
 - all supplied Difficulty and Topics values were preserved;
 - meaningful formatting, especially subscript and superscript, was preserved semantically;
@@ -542,13 +542,13 @@ knowledge of social studies.
 
 Convert **the material and every question asked about it as one `multipart` Question**, even though the source numbers each question separately. Each of those questions becomes one **Part** of the Multipart question, in printed order. Do not split the block into one Question per source number, do not repeat the material in several Questions, and never convert a Part as a standalone Question without its material: a student cannot answer it. Test Parrot prints the Multipart question under one number and letters its Parts beneath it (`a.`, `b.`, …).
 
-Recognise a Multipart question by an instruction such as “Base your answers to questions 12 and 13 on …”, “Use the map below to answer questions 4 through 6”, “Read the passage and answer the questions that follow”, “Use the figures to answer the following questions” or “Use the diagram to answer the questions”, or by any shared material that the following questions refer to. A single question introduced this way (“Base your answer to question 5 on the graph below”) is a Multipart question with one Part.
+Recognise a Multipart question by an instruction such as “Base your answers to questions 12 and 13 on …”, “Use the map below to answer questions 4 through 6”, “Read the passage and answer the questions that follow”, “Use the chart to answer the questions below” or “Refer to the map above”, or by any shared material that the following questions refer to. A single question introduced this way (“Base your answer to question 5 on the graph below”) is a Multipart question with one Part.
 
-Two or more numbered blanks that label one picture, diagram or piece of notation — `22.` and `23.` beside the mass number and atomic number of one isotope symbol — are one Multipart question too: the picture or notation is its stem, and each numbered blank is a Short Answer Part, in printed order.
+Two or more numbered blanks that label one picture, diagram or piece of notation — `8.` and `9.` pointing at two parts of one labelled drawing of a flower — are one Multipart question too: the picture or notation is its stem, and each numbered blank is a Short Answer Part, in printed order.
 
-The test is shared material, not shared directions. Questions that all need the same picture, table, passage or notation are one Multipart question. Questions that only share a line of directions, such as “Answer the following questions.” or “Write each isotope below in symbolic notation.”, are separate Questions in a section with those directions (see [Sections](#sections)). When the directions name shared material (“Use the figures …”), the material goes in the Multipart question's stem and the directions are its section's `instructions`.
+The test is shared material, not shared directions. Questions that all need the same picture, table, passage or notation are one Multipart question. Questions that only share a line of directions, such as “Answer the following questions.” or “Write the capital of each country below.”, are separate Questions in a section with those directions (see [Sections](#sections)). When the directions name shared material (“Use the chart …”), the material goes in the Multipart question's stem and the directions are its section's `instructions`.
 
-A question that names other questions by their source numbers, such as “Which of the isotopes in problems 13–16 …”, keeps its wording. Test Parrot renumbers the test, so list it in the report as a question whose numbers the teacher must check.
+A question that names other questions by their source numbers, such as “Which of the cities in questions 5–8 …”, keeps its wording. Test Parrot renumbers the test, so list it in the report as a question whose numbers the teacher must check.
 
 A Multipart Question:
 
@@ -740,14 +740,14 @@ A table is a block of its own, written in a `content` list beside the paragraphs
           "type": "table-row",
           "header": true,
           "content": [
-            { "type": "table-cell", "header": true, "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Isotope" }] }] },
-            { "type": "table-cell", "header": true, "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Mass (amu)" }] }] }
+            { "type": "table-cell", "header": true, "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Planet" }] }] },
+            { "type": "table-cell", "header": true, "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Moons" }] }] }
           ]
         },
         {
           "type": "table-row",
           "content": [
-            { "type": "table-cell", "content": [{ "type": "paragraph", "content": [{ "type": "inline-math", "source": "^{12}\\text{C}" }] }] },
+            { "type": "table-cell", "content": [{ "type": "paragraph", "content": [{ "type": "inline-math", "source": "x^{2}" }] }] },
             { "type": "table-cell", "content": [{ "type": "paragraph" }] }
           ]
         }
@@ -757,7 +757,7 @@ A table is a block of its own, written in a `content` list beside the paragraphs
 }
 ```
 
-Write every row and every cell the source prints, empty ones included, so the table keeps its shape. Write notation inside a cell, such as an isotope's mass number, as math, exactly as you would outside a table.
+Write every row and every cell the source prints, empty ones included, so the table keeps its shape. Write notation inside a cell, such as an exponent, as math, exactly as you would outside a table.
 
 A table the student completes, with source question numbers printed in some of its cells, is one Short Answer Question whose stem is the table. Leave the numbers out of the cells, since Test Parrot numbers the Question itself, and say in the report that those source numbers became one Question.
 
@@ -963,6 +963,6 @@ End by telling the user they can ask you to change anything they see in Test Par
 
 ### Corrections
 
-The user may come back after looking at the import in Test Parrot, with a correction such as “questions 27 to 31 all use the figure, so make them one Multipart question”, a picture placed on the wrong question, or an error message Test Parrot showed. Make the change against the source and these instructions, then deliver the **whole corrected file** again, in the same way as the first — never only the changed part, since Test Parrot replaces the file it is previewing. Keep every other Question, ID and position as it was, and say in a line or two what you changed. Test Parrot numbers Questions continuously across the test, so a number the user quotes from its preview may not be the source's number: find the question by its words.
+The user may come back after looking at the import in Test Parrot, with a correction such as “questions 4 to 7 all use the map, so make them one Multipart question”, a picture placed on the wrong question, or an error message Test Parrot showed. Make the change against the source and these instructions, then deliver the **whole corrected file** again, in the same way as the first — never only the changed part, since Test Parrot replaces the file it is previewing. Keep every other Question, ID and position as it was, and say in a line or two what you changed. Test Parrot numbers Questions continuously across the test, so a number the user quotes from its preview may not be the source's number: find the question by its words.
 
 Do not describe the result as complete if the Unconverted Questions section is not “None.” It is acceptable and safer to deliver a valid partial JSON file with an explicit warning than to corrupt meaning by forcing an uncertain question into the wrong type.

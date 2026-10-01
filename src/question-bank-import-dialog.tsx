@@ -1113,7 +1113,7 @@ export function QuestionBankImportDialog({
               {revisedFrom
                 ? <><strong>Updated from {revisedFrom}.</strong>{' '}Still something to change? </>
                 : <><strong>See something wrong, or want something changed?</strong>{' '}</>}
-              Tell your AI in the same chat — “questions 27 to 31 all use the figure, so make them one Multipart
+              Tell your AI in the same chat — “questions 4 to 7 all use the map, so make them one Multipart
               question”, or “that picture belongs with the next question” — then drop the file it gives back here.
               The preview updates and keeps the pictures you’ve chosen.
             </p>
