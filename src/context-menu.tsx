@@ -441,7 +441,10 @@ export function ContextMenu({
                 className="context-menu-item"
                 tabIndex={index === active ? 0 : -1}
                 onFocus={() => setActive(index)}
-                onClick={() => setOpenSubmenu(open ? null : index)}
+                // Opens, never toggles: a pointer has already opened it by
+                // hovering on its way to the click, which would otherwise
+                // close it again under the hand that asked for it.
+                onClick={() => setOpenSubmenu(index)}
               >
                 <span className="context-menu-icon" aria-hidden="true">
                   {item.icon}
