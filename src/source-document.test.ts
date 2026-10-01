@@ -164,6 +164,22 @@ describe('analyzing a Source Document', () => {
     expect(analysis.pageText[4]).toBe('Answer every question.')
   })
 
+  test('reads a PDF where streams cannot be iterated with for await, as in Safari', async () => {
+    // WebKit has no ReadableStream async iterator, which pdf.js's own
+    // getTextContent relies on: every PDF failed there with “undefined is not
+    // a function”. Bun's streams have one, so it is taken away here.
+    class WebKitReadableStream<R> extends ReadableStream<R> {}
+    Object.defineProperty(WebKitReadableStream.prototype, Symbol.asyncIterator, { value: undefined })
+    Object.defineProperty(WebKitReadableStream.prototype, 'values', { value: undefined })
+    const original = globalThis.ReadableStream
+    globalThis.ReadableStream = WebKitReadableStream as typeof ReadableStream
+    try {
+      expect(await analyzeSourceDocument(source)).toEqual(analysis)
+    } finally {
+      globalThis.ReadableStream = original
+    }
+  })
+
   test('refuses a file that is not a PDF', async () => {
     await expect(analyzeSourceDocument(new TextEncoder().encode('{"not":"a pdf"}'))).rejects.toThrow(
       'not a PDF',

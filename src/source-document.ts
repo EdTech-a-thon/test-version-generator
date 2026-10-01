@@ -200,11 +200,28 @@ async function placementsOf(page: PdfPage, pdfjs: Pdfjs): Promise<{ placements: 
   return { placements, paths }
 }
 
+type TextItems = Awaited<ReturnType<PdfPage['getTextContent']>>['items']
+
+/**
+ * A page's runs of text, read from pdf.js's stream with a reader. pdf.js's
+ * own `getTextContent` reads that stream with `for await`, which Safari's
+ * streams do not support, so there it failed on every PDF.
+ */
+async function textItemsOf(page: PdfPage): Promise<TextItems> {
+  const reader = page.streamTextContent().getReader()
+  const items: TextItems = []
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) return items
+    items.push(...(value as { items: TextItems }).items)
+  }
+}
+
 /** Where each run of a page's text lands. */
 async function textBoxesOf(page: PdfPage): Promise<PageBox[]> {
   const viewport = page.getViewport({ scale: 1 })
   const boxes: PageBox[] = []
-  for (const item of (await page.getTextContent()).items) {
+  for (const item of await textItemsOf(page)) {
     if (!('str' in item) || !item.str.trim()) continue
     // The run's baseline and height, along its own direction, so a label set
     // sideways beside an axis is boxed where it stands.
@@ -300,9 +317,8 @@ export async function analyzeSourceDocument(bytes: Uint8Array): Promise<SourceDo
           ...(await intrinsicSize(page, picture.object)),
         })
       }
-      const text = await page.getTextContent()
       pageText.push(
-        text.items
+        (await textItemsOf(page))
           .map((item) => ('str' in item ? item.str : ''))
           .join(' ')
           .replace(/\s+/g, ' ')
