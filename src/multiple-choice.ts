@@ -79,6 +79,79 @@ export function setChoiceLock(
   return true
 }
 
+/** Where answer `index` of `count` lands when it moves one place up (`-1`)
+ *  or down (`1`), or null when it is already at that end of the list. */
+export function answerMoveTarget(count: number, index: number, direction: 1 | -1): number | null {
+  const target = index + direction
+  return index >= 0 && index < count && target >= 0 && target < count ? target : null
+}
+
+/** Where a new answer goes among answers locked as `locked` says: just before
+ *  the trailing run of Locked Answers — every locked answer after the last
+ *  unlocked one — so an answer like “None of the above” stays last however
+ *  many answers are added above it. A locked answer with an unlocked one after
+ *  it is not trailing and changes nothing. When every answer is locked, as a
+ *  teacher may lock a list kept in ascending order, there is no answer for the
+ *  new one to join, and it goes at the end. */
+export function newAnswerIndex(locked: readonly boolean[]): number {
+  let index = locked.length
+  while (index > 0 && locked[index - 1]) index -= 1
+  return index === 0 ? locked.length : index
+}
+
+/** The position inside the answer list `list`, which starts at `listPosition`
+ *  (directly before it), where a new answer is inserted (see newAnswerIndex). */
+export function newChoicePosition(list: ProseNode, listPosition: number): number {
+  const locked: boolean[] = []
+  list.forEach((child) => locked.push(choiceNodeIsLocked(child)))
+  const index = newAnswerIndex(locked)
+  let pos = listPosition + 1
+  for (let i = 0; i < index; i += 1) pos += list.child(i).nodeSize
+  return pos
+}
+
+/** Move the answer at `choicePosition` (directly before a choice) one place up
+ *  (`-1`) or down (`1`) in its list, as one transaction, so one undo puts it
+ *  back. The choice keeps its id, correctness and lock — the lock governs
+ *  shuffling, not authoring, so a Locked Answer moves like any other and its
+ *  new place is the authored one it keeps. A cursor in either of the two
+ *  answers that trade places travels with its answer. */
+export function moveChoice(
+  view: Pick<EditorView, 'state' | 'dispatch'>,
+  choicePosition: number,
+  direction: 1 | -1,
+) {
+  const { state } = view
+  const $choice = state.doc.resolve(choicePosition)
+  const list = $choice.parent
+  if (list.type.name !== 'multipleChoice') return false
+  const index = $choice.index()
+  const target = answerMoveTarget(list.childCount, index, direction)
+  if (target === null) return false
+  const firstIndex = Math.min(index, target)
+  const first = list.child(firstIndex)
+  const second = list.child(firstIndex + 1)
+  const from = direction === -1 ? choicePosition - first.nodeSize : choicePosition
+  const middle = from + first.nodeSize
+  const to = middle + second.nodeSize
+  const tr = state.tr.replaceWith(from, to, [second, first])
+  // Each position inside the pair follows the answer it was in.
+  const follow = (pos: number) =>
+    pos > from && pos < middle ? pos + second.nodeSize
+      : pos > middle && pos < to ? pos - first.nodeSize
+        : null
+  const { selection } = state
+  if (selection instanceof TextSelection) {
+    const anchor = follow(selection.anchor)
+    const head = follow(selection.head)
+    if (anchor !== null && head !== null) {
+      tr.setSelection(TextSelection.create(tr.doc, anchor, head))
+    }
+  }
+  view.dispatch(tr.scrollIntoView())
+  return true
+}
+
 // A single answer. Behaves like a list item: it holds a paragraph (and any
 // following blocks) and its correctness is a plain boolean. Its `locked` is
 // the teacher's decision about whether it keeps its letter when answers are
@@ -179,9 +252,10 @@ function moveBetweenChoices(direction: 1 | -1, createAtEnd: boolean): Command {
         const paragraph = state.schema.nodes.paragraph
         if (!paragraph) return false
         const choice = list.child(0).type.create({ correct: false, id: '' }, paragraph.create())
-        const listEnd = $from.end(listDepth)
-        const tr = state.tr.insert(listEnd, choice)
-        tr.setSelection(TextSelection.near(tr.doc.resolve(listEnd + 2)))
+        // Above any trailing Locked Answers, as the Add answer button does.
+        const insertAt = newChoicePosition(list, $from.before(listDepth))
+        const tr = state.tr.insert(insertAt, choice)
+        tr.setSelection(TextSelection.near(tr.doc.resolve(insertAt + 2)))
         dispatch(tr.scrollIntoView())
       }
       return true
@@ -219,12 +293,34 @@ const armAddAnswerOnDown: Command = (state, _dispatch, view) => {
   return true
 }
 
+// Alt-ArrowUp / Alt-ArrowDown move the answer holding the cursor one place, as
+// the row's arrow buttons do; the cursor goes with it.
+export function moveChoiceWithCursor(direction: 1 | -1): Command {
+  return (state, dispatch) => {
+    const { $from } = state.selection
+    const depth = choiceDepthOf($from)
+    if (depth === 0) return false
+    const list = $from.node(depth - 1)
+    if (answerMoveTarget(list.childCount, $from.index(depth - 1), direction) === null) {
+      return true // at the end already: nothing moves, and the key does nothing else
+    }
+    if (dispatch) moveChoice({ state, dispatch }, $from.before(depth), direction)
+    return true
+  }
+}
+
 // A fixed list has no editable cells at all, so every command that types into
 // one, walks between them or grows the list stands down and lets normal editing
 // through.
 function unlessFixed(ctx: Ctx, command: Command): Command {
   return (state, dispatch, view) =>
     ctx.get(multipleChoiceFixedCtx) ? false : command(state, dispatch, view)
+}
+
+// Rearranging answers is authoring, so a read-only preview lets the keys through.
+function whenEditable(ctx: Ctx, command: Command): Command {
+  return (state, dispatch, view) =>
+    ctx.get(multipleChoiceEditableCtx) ? command(state, dispatch, view) : false
 }
 
 export const multipleChoiceKeymap = $useKeymap('multipleChoiceKeymap', {
@@ -247,6 +343,16 @@ export const multipleChoiceKeymap = $useKeymap('multipleChoiceKeymap', {
     shortcuts: 'Shift-Tab',
     priority: 100,
     command: (ctx) => unlessFixed(ctx, moveBetweenChoices(-1, false)),
+  },
+  MoveChoiceUp: {
+    shortcuts: 'Alt-ArrowUp',
+    priority: 100,
+    command: (ctx) => unlessFixed(ctx, whenEditable(ctx, moveChoiceWithCursor(-1))),
+  },
+  MoveChoiceDown: {
+    shortcuts: 'Alt-ArrowDown',
+    priority: 100,
+    command: (ctx) => unlessFixed(ctx, whenEditable(ctx, moveChoiceWithCursor(1))),
   },
 })
 
@@ -359,24 +465,26 @@ export const keepFixedChoices = $prose((ctx: Ctx) =>
   }),
 )
 
-const LOCK_PATHS = {
-  locked: ['M7 11V7a5 5 0 0 1 10 0v4'],
-  unlocked: ['M7 11V7a5 5 0 0 1 9.9-1'],
+const PADLOCK = 'M5 11h14a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2Z'
+
+// Lucide's padlock, shut or open, and its arrows for moving an answer.
+const ROW_ICON_PATHS = {
+  locked: [PADLOCK, 'M7 11V7a5 5 0 0 1 10 0v4'],
+  unlocked: [PADLOCK, 'M7 11V7a5 5 0 0 1 9.9-1'],
+  up: ['m5 12 7-7 7 7', 'M12 19V5'],
+  down: ['M12 5v14', 'm19 12-7 7-7-7'],
 } as const
 
-// A padlock, shut or open, drawn the way the editor's other row controls draw
-// their icons.
-function lockIcon(state: keyof typeof LOCK_PATHS) {
+// An answer row's control icon, drawn the way the editor's other row controls
+// draw theirs.
+function rowIcon(name: keyof typeof ROW_ICON_PATHS) {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
   for (const [key, value] of Object.entries({
     viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor',
     'stroke-width': '2', 'stroke-linecap': 'round', 'stroke-linejoin': 'round',
     'aria-hidden': 'true',
   })) svg.setAttribute(key, value)
-  for (const d of [
-    'M5 11h14a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2Z',
-    ...LOCK_PATHS[state],
-  ]) {
+  for (const d of ROW_ICON_PATHS[name]) {
     const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
     path.setAttribute('d', d)
     svg.append(path)
@@ -384,10 +492,21 @@ function lockIcon(state: keyof typeof LOCK_PATHS) {
   return svg
 }
 
+// Each answer row's move buttons, by row element, for the list's node view to
+// relabel: a row's letter and whether it is first or last change whenever an
+// answer is added, removed or moved, which its own node view never hears of.
+const rowMoveButtons = new WeakMap<HTMLElement, { up: HTMLButtonElement; down: HTMLButtonElement }>()
+
+/** Letter an answer by its place in the list, as it reads in the editor. */
+function answerLetter(index: number) {
+  return index < 26 ? String.fromCharCode(65 + index) : String(index + 1)
+}
+
 // Node view for a choice: a non-editable radio button on the left, the
-// editable answer content, and at the right the lock that keeps the answer's
-// letter when answers are shuffled — shown on hover, and always while it is
-// locked. Everything else (add/remove/navigate) is handled by ProseMirror's
+// editable answer content, and at the right the buttons that move the answer
+// up and down, then the lock that keeps the answer's letter when answers are
+// shuffled — all shown on hover or while the row holds the cursor, and the
+// lock always while it is locked. Everything else (add/remove/navigate) is handled by ProseMirror's
 // native list and block editing.
 export const multipleChoiceChoiceView = $view(
   multipleChoiceChoiceSchema.node,
@@ -446,7 +565,53 @@ export const multipleChoiceChoiceView = $view(
         })
       }
 
-      dom.append(control, body, ...(lock ? [lock] : []))
+      // A True/False pair has a fixed order, so it has nothing to move either.
+      const moveButton = (direction: 1 | -1) => {
+        const button = document.createElement('button')
+        button.type = 'button'
+        button.className = `mc-choice-move mc-choice-move-${direction === -1 ? 'up' : 'down'}`
+        button.contentEditable = 'false'
+        button.append(rowIcon(direction === -1 ? 'up' : 'down'))
+        const move = (fromKeyboard: boolean) => {
+          if (!editable()) return
+          const pos = getPos()
+          if (pos == null) return
+          const $pos = view.state.doc.resolve(pos)
+          const index = $pos.index()
+          const listPosition = $pos.before()
+          if (!moveChoice(view, pos, direction)) return
+          if (!fromKeyboard) return
+          // The row was redrawn in its new place; keep the keyboard on the
+          // same button there, or on its partner once this end is reached.
+          // A microtask, so the list has relabelled the rows first.
+          queueMicrotask(() => {
+            const list = view.state.doc.nodeAt(listPosition)
+            if (list?.type.name !== 'multipleChoice') return
+            let target = listPosition + 1
+            for (let i = 0; i < index + direction; i += 1) target += list.child(i).nodeSize
+            const row = view.nodeDOM(target)
+            const buttons = row instanceof HTMLElement ? rowMoveButtons.get(row) : undefined
+            if (!buttons) return
+            const same = direction === -1 ? buttons.up : buttons.down
+            const other = direction === -1 ? buttons.down : buttons.up
+            ;(same.disabled ? other : same).focus()
+          })
+        }
+        button.addEventListener('mousedown', (event) => {
+          event.preventDefault()
+          move(false)
+        })
+        button.addEventListener('click', (event) => {
+          event.preventDefault()
+          if (event.detail === 0) move(true)
+        })
+        return button
+      }
+      const moves = fixed ? undefined : { up: moveButton(-1), down: moveButton(1) }
+      if (moves) rowMoveButtons.set(dom, moves)
+      const tools = [...(moves ? [moves.up, moves.down] : []), ...(lock ? [lock] : [])]
+
+      dom.append(control, body, ...tools)
 
       let drawnLock: boolean | undefined
       const render = () => {
@@ -454,6 +619,10 @@ export const multipleChoiceChoiceView = $view(
         radio.disabled = !editable()
         dom.dataset.correct = String(node.attrs.correct === true)
         if (fixed) body.textContent = node.textContent
+        if (moves) {
+          moves.up.hidden = !editable()
+          moves.down.hidden = !editable()
+        }
         if (lock) {
           const locked = choiceNodeIsLocked(node)
           dom.dataset.locked = String(locked)
@@ -461,7 +630,7 @@ export const multipleChoiceChoiceView = $view(
           lock.setAttribute('aria-pressed', String(locked))
           if (drawnLock !== locked) {
             drawnLock = locked
-            lock.replaceChildren(lockIcon(locked ? 'locked' : 'unlocked'))
+            lock.replaceChildren(rowIcon(locked ? 'locked' : 'unlocked'))
             lock.title = locked
               ? 'Locked: keeps its letter when answers are shuffled. Click to unlock.'
               : 'Lock this answer so it keeps its letter when answers are shuffled'
@@ -500,11 +669,11 @@ export const multipleChoiceChoiceView = $view(
         ignoreMutation: (mutation) =>
           fixed
           || control.contains(mutation.target)
-          || (lock?.contains(mutation.target) ?? false),
+          || tools.some((tool) => tool.contains(mutation.target)),
         stopEvent: (event) =>
           fixed
           || control.contains(event.target as Node)
-          || (lock?.contains(event.target as Node) ?? false),
+          || tools.some((tool) => tool.contains(event.target as Node)),
       }
     }
   },
@@ -555,7 +724,8 @@ export const multipleChoiceView = $view(
           ? paragraph.create(null, view.state.schema.text(text))
           : paragraph.create()
         const choice = choiceType.create({ correct: false, id: '' }, body)
-        const insertAt = pos + node.nodeSize - 1
+        // Above any trailing Locked Answers, so “None of the above” stays last.
+        const insertAt = newChoicePosition(node, pos)
         const tr = view.state.tr.insert(insertAt, choice)
         const caretPos = insertAt + 2 + (text ? text.length : 0)
         tr.setSelection(TextSelection.near(tr.doc.resolve(caretPos)))
@@ -603,10 +773,41 @@ export const multipleChoiceView = $view(
         }
       })
 
+      // Name each row's move buttons by its letter, and disable the one that
+      // would carry the first answer up or the last one down. Run once the
+      // rows are drawn in their new order, after this view's own update.
+      let relabelQueued = false
+      const relabel = () => {
+        relabelQueued = false
+        const rows = [...contentDOM.children].filter(
+          (row): row is HTMLElement => row instanceof HTMLElement && rowMoveButtons.has(row),
+        )
+        rows.forEach((row, index) => {
+          const { up, down } = rowMoveButtons.get(row)!
+          const letter = answerLetter(index)
+          for (const [button, text, atEnd] of [
+            [up, `Move answer ${letter} up`, index === 0],
+            [down, `Move answer ${letter} down`, index === rows.length - 1],
+          ] as const) {
+            button.setAttribute('aria-label', text)
+            button.title = `${text} (${direction(button)})`
+            button.disabled = atEnd
+          }
+        })
+      }
+      // The shortcut as the keyboard in front of the teacher labels it.
+      const alt = /Mac|iPhone|iPad/.test(navigator.platform) ? '⌥' : 'Alt+'
+      const direction = (button: HTMLButtonElement) =>
+        `${alt}${button.classList.contains('mc-choice-move-up') ? '↑' : '↓'}`
+
       const render = () => {
         // A True/False question's pair is not a list to add to, so the
         // affordance is absent rather than present and inert.
         addButton.style.display = editable() && !fixed ? '' : 'none'
+        if (!fixed && !relabelQueued) {
+          relabelQueued = true
+          queueMicrotask(relabel)
+        }
       }
 
       dom.append(contentDOM, addButton)

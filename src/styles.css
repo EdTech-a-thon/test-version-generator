@@ -1730,6 +1730,25 @@ body.margins-scrubbing, body.margins-scrubbing * { cursor: ew-resize !important;
 .mc-choice-lock[aria-pressed="true"] { color: #9f5037; }
 .mc-choice-lock[hidden] { display: none; }
 
+/* The arrows before the lock that move an answer up or down, drawn and shown
+   as the lock is, and set close to it and each other; the one with nowhere to
+   go is greyed out. */
+.mc-choice-move {
+  flex: none; display: inline-flex; align-items: center; justify-content: center;
+  width: 24px; height: 1.5em; padding: 0;
+  border: 0; border-radius: 5px; color: #786457; background: transparent; cursor: pointer;
+  opacity: 0; transition: opacity 120ms;
+}
+.mc-choice-move + .mc-choice-move,
+.mc-choice-move + .mc-choice-lock { margin-left: -8px; }
+.mc-choice-move svg { width: 15px; height: 15px; stroke-width: 2.2; }
+.mc-choice-move:hover:not(:disabled) { color: #9f5037; background: #f2e6d8; }
+.mc-choice-move:focus-visible { opacity: 1; outline: 2px solid #9f5037; outline-offset: 1px; }
+.mc-choice-move:disabled { color: #d6c9bd; cursor: default; }
+.mc-choice:hover > .mc-choice-move,
+.mc-choice:focus-within > .mc-choice-move { opacity: 1; }
+.mc-choice-move[hidden] { display: none; }
+
 /* A True/False question's pair is drawn, not typed into: no placeholder, a
    cursor that never lands there, and a solid label beside the radio the teacher
    does pick. The dashed cell below still frames it, so it reads as the same

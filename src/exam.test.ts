@@ -1106,6 +1106,32 @@ describe('Locked Answers', () => {
     expect(orderedChoices(question, arrangement).map((choice) => choice.id)).toEqual(['d', 'c', 'b', 'a', 'e'])
   })
 
+  test('an answer added above a trailing locked one, or a locked one moved by hand, keeps a stored order sound', () => {
+    // The Exam stored a shuffle while "All of the above" was last.
+    const arrangement = arrangementOf(['q1'], { q1: ['c', 'a', 'd', 'b', 'e'] })
+    // The teacher adds an answer above it in the editor: the new one fills the
+    // last free letter and the locked one stays last.
+    const added = withAnswers('q1', [
+      answer('a', 'Mercury'),
+      answer('b', 'Venus'),
+      answer('c', 'Earth'),
+      answer('d', 'Mars'),
+      answer('f', 'Jupiter'),
+      answer('e', 'All of the above'),
+    ])
+    expect(orderedChoices(added, arrangement).map((choice) => choice.id)).toEqual(['c', 'a', 'd', 'b', 'f', 'e'])
+    // The teacher moves the locked answer up to third: that authored place is
+    // the letter it keeps, and the stored order fills the letters around it.
+    const moved = withAnswers('q1', [
+      answer('a', 'Mercury'),
+      answer('b', 'Venus'),
+      answer('e', 'All of the above'),
+      answer('c', 'Earth'),
+      answer('d', 'Mars'),
+    ])
+    expect(orderedChoices(moved, arrangement).map((choice) => choice.id)).toEqual(['c', 'a', 'e', 'd', 'b'])
+  })
+
   test("a Multiple Choice Part's locked answer stays put while the others Vary", () => {
     const multipart: Question = {
       id: 'm1',

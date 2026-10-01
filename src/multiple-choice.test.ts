@@ -1,9 +1,15 @@
 import { describe, expect, test } from 'bun:test'
 import { Schema } from '@milkdown/kit/prose/model'
-import { EditorState } from '@milkdown/kit/prose/state'
+import { EditorState, TextSelection } from '@milkdown/kit/prose/state'
+import { history, undo } from '@milkdown/kit/prose/history'
 import {
   TRUE_FALSE_LABELS,
+  answerMoveTarget,
   choiceNodeIsLocked,
+  moveChoice,
+  moveChoiceWithCursor,
+  newAnswerIndex,
+  newChoicePosition,
   newTrueFalseNode,
   selectCorrectChoice,
   setChoiceLock,
@@ -180,5 +186,160 @@ describe('locking an answer in the question editor', () => {
       { correct: false, id: 'c1' },
       { correct: false, id: 'c2', locked: false },
     ])
+  })
+})
+
+describe('reordering answers in the question editor', () => {
+  const orderSchema = new Schema({
+    nodes: {
+      doc: { content: 'multipleChoice' },
+      text: { group: 'inline' },
+      paragraph: { group: 'block', content: 'inline*' },
+      multipleChoiceChoice: {
+        content: 'paragraph block*',
+        attrs: { correct: { default: false }, id: { default: '' }, locked: { default: null } },
+      },
+      multipleChoice: { content: 'multipleChoiceChoice+' },
+    },
+  })
+
+  type Answer = { text: string; correct?: boolean; locked?: boolean }
+
+  function editorWith(answers: Answer[]) {
+    const paragraph = orderSchema.nodes.paragraph!
+    const doc = orderSchema.nodes.doc!.create(
+      null,
+      orderSchema.nodes.multipleChoice!.create(
+        null,
+        answers.map(({ text, correct = false, locked = null }, index) =>
+          orderSchema.nodes.multipleChoiceChoice!.create(
+            { id: `c${index}`, correct, locked },
+            paragraph.create(null, text ? orderSchema.text(text) : null),
+          ),
+        ),
+      ),
+    )
+    let state = EditorState.create({ schema: orderSchema, doc, plugins: [history()] })
+    const view = {
+      get state() { return state },
+      dispatch(transaction: Parameters<typeof state.apply>[0]) { state = state.apply(transaction) },
+    }
+    const list = () => state.doc.firstChild!
+    const texts = () => {
+      const result: string[] = []
+      list().forEach((choice) => result.push(choice.textContent))
+      return result
+    }
+    const ids = () => {
+      const result: string[] = []
+      list().forEach((choice) => result.push(choice.attrs.id as string))
+      return result
+    }
+    const pos = (index: number) => choicePos(state, index)
+    const caretIn = (index: number, offset: number) =>
+      view.dispatch(state.tr.setSelection(TextSelection.create(state.doc, pos(index) + 2 + offset)))
+    return { view, list, texts, ids, pos, caretIn, get state() { return state } }
+  }
+
+  test('an answer moves one place up or down, and no further than either end', () => {
+    expect(answerMoveTarget(4, 2, -1)).toBe(1)
+    expect(answerMoveTarget(4, 2, 1)).toBe(3)
+    expect(answerMoveTarget(4, 0, -1)).toBeNull()
+    expect(answerMoveTarget(4, 3, 1)).toBeNull()
+    expect(answerMoveTarget(1, 0, 1)).toBeNull()
+  })
+
+  test('moving an answer keeps its id, correctness and lock', () => {
+    const editor = editorWith([
+      { text: 'Mercury' },
+      { text: 'Venus', correct: true, locked: true },
+      { text: 'Earth' },
+    ])
+    expect(moveChoice(editor.view, editor.pos(1), 1)).toBe(true)
+    expect(editor.texts()).toEqual(['Mercury', 'Earth', 'Venus'])
+    expect(editor.ids()).toEqual(['c0', 'c2', 'c1'])
+    const moved = editor.list().child(2)
+    expect(moved.attrs).toEqual({ id: 'c1', correct: true, locked: true })
+    expect(moveChoice(editor.view, editor.pos(2), -1)).toBe(true)
+    expect(moveChoice(editor.view, editor.pos(1), -1)).toBe(true)
+    expect(editor.ids()).toEqual(['c1', 'c0', 'c2'])
+  })
+
+  test('nothing moves past either end', () => {
+    const editor = editorWith([{ text: 'Mercury' }, { text: 'Venus' }])
+    const before = editor.state.doc
+    expect(moveChoice(editor.view, editor.pos(0), -1)).toBe(false)
+    expect(moveChoice(editor.view, editor.pos(1), 1)).toBe(false)
+    expect(editor.state.doc).toBe(before)
+  })
+
+  test('a Locked Answer moves by hand like any other: the lock governs shuffling, not authoring', () => {
+    const editor = editorWith([{ text: 'Mercury' }, { text: 'Venus' }, { text: 'None of the above' }])
+    expect(moveChoice(editor.view, editor.pos(2), -1)).toBe(true)
+    expect(editor.texts()).toEqual(['Mercury', 'None of the above', 'Venus'])
+    expect(choiceNodeIsLocked(editor.list().child(1))).toBe(true)
+  })
+
+  test('one undo puts a moved answer back', () => {
+    const editor = editorWith([{ text: 'Mercury' }, { text: 'Venus' }, { text: 'Earth' }])
+    moveChoice(editor.view, editor.pos(0), 1)
+    expect(editor.texts()).toEqual(['Venus', 'Mercury', 'Earth'])
+    expect(undo(editor.state, editor.view.dispatch)).toBe(true)
+    expect(editor.texts()).toEqual(['Mercury', 'Venus', 'Earth'])
+  })
+
+  test('Alt-Arrow moves the answer holding the cursor, and the cursor goes with it', () => {
+    const editor = editorWith([{ text: 'Mercury' }, { text: 'Venus' }, { text: 'Earth' }])
+    editor.caretIn(2, 3) // Ear|th
+    const up = moveChoiceWithCursor(-1)
+    expect(up(editor.state, editor.view.dispatch)).toBe(true)
+    expect(editor.texts()).toEqual(['Mercury', 'Earth', 'Venus'])
+    expect(editor.state.selection.from).toBe(editor.pos(1) + 2 + 3)
+    expect(up(editor.state, editor.view.dispatch)).toBe(true)
+    expect(editor.texts()).toEqual(['Earth', 'Mercury', 'Venus'])
+    expect(editor.state.selection.from).toBe(editor.pos(0) + 2 + 3)
+    // At the top already: nothing moves, but the key is still spent.
+    const before = editor.state.doc
+    expect(up(editor.state, editor.view.dispatch)).toBe(true)
+    expect(editor.state.doc).toBe(before)
+  })
+
+  test('a cursor in the neighbour an answer trades places with stays in the neighbour', () => {
+    const editor = editorWith([{ text: 'Mercury' }, { text: 'Venus' }])
+    editor.caretIn(1, 2) // Ve|nus
+    moveChoice(editor.view, editor.pos(0), 1)
+    expect(editor.texts()).toEqual(['Venus', 'Mercury'])
+    expect(editor.state.selection.from).toBe(editor.pos(0) + 2 + 2)
+  })
+
+  describe('a new answer', () => {
+    test('goes at the end when the last answer is not locked', () => {
+      expect(newAnswerIndex([false, false, false])).toBe(3)
+      expect(newAnswerIndex([false, true, false])).toBe(3)
+      expect(newAnswerIndex([])).toBe(0)
+    })
+
+    test('goes before the trailing run of Locked Answers', () => {
+      expect(newAnswerIndex([false, false, true])).toBe(2)
+      expect(newAnswerIndex([false, false, true, true])).toBe(2)
+      // A locked answer with an unlocked one after it is not trailing.
+      expect(newAnswerIndex([false, true, false, true])).toBe(3)
+    })
+
+    test('goes at the end when every answer is locked', () => {
+      expect(newAnswerIndex([true, true, true])).toBe(3)
+    })
+
+    test('in the editor lands above “None of the above”, locked by its wording or by the teacher', () => {
+      const editor = editorWith([
+        { text: 'Mercury' },
+        { text: 'Venus' },
+        { text: 'All of the above' },
+        { text: 'Pluto', locked: true },
+      ])
+      expect(newChoicePosition(editor.list(), 0)).toBe(editor.pos(2))
+      const unlocked = editorWith([{ text: 'Mercury' }, { text: 'None of the above', locked: false }])
+      expect(newChoicePosition(unlocked.list(), 0)).toBe(unlocked.state.doc.content.size - 1)
+    })
   })
 })
