@@ -41,7 +41,6 @@ import {
   orderedPartChoices,
   orderedQuestions,
   partsOf,
-  shuffleSelectedAnswers,
   shuffleSelectedQuestions,
   type Arrangement,
   type ColumnSetting,
@@ -72,6 +71,7 @@ import {
   createWorkingCopy,
   createQuestionBank,
   withChoiceOrder,
+  withHiddenAnswers,
   withQuestionBanked,
   withReferenceAdded,
   withReferenceOrder,
@@ -81,6 +81,7 @@ import {
   type QuestionBank,
 } from './question-bank'
 import { selectedExam, type SelectedExam } from './selected-exam'
+import { hiddenAnswerIdsOf, varySelectedAnswers, withShownIncorrect } from './hidden-answers'
 import { withCanonicalQuestionProjection } from './canonical-question-projection'
 import { withoutQuestions } from './question-deletion'
 import { upgradeStoredQuestion } from './stored-upgrade'
@@ -213,6 +214,7 @@ function isWorkingCopy(value: unknown): value is ExamWorkingCopy {
     (draft.columns === undefined || isColumnSettings(draft.columns)) &&
     (draft.workSpace === undefined || isWorkSpaceSettings(draft.workSpace)) &&
     (draft.choiceOrder === undefined || isChoiceOrder(draft.choiceOrder)) &&
+    (draft.hiddenAnswers === undefined || isChoiceOrder(draft.hiddenAnswers)) &&
     (draft.sections === undefined || isSectionList(draft.sections)) &&
     (draft.sectionOf === undefined || isSectionPlacement(draft.sectionOf)) &&
     (draft.sectionHeadings === undefined || isSectionHeadings(draft.sectionHeadings)) &&
@@ -244,6 +246,8 @@ const WORKING_COPY_SETTINGS: Readonly<Record<string, (value: unknown) => boolean
   columns: isColumnSettings,
   workSpace: isWorkSpaceSettings,
   choiceOrder: isChoiceOrder,
+  // The same shape as an order: ids, keyed by question.
+  hiddenAnswers: isChoiceOrder,
   sections: isSectionList,
   sectionOf: isSectionPlacement,
   sectionHeadings: isSectionHeadings,
@@ -392,8 +396,13 @@ export type ExamStore = {
   shuffleSelectedQuestions(questionIds: readonly string[]): void
   /** Shuffles each selected eligible Multiple Choice question's answers in one
    *  authoring action. The order belongs to the Working Copy, not Question
-   *  Content, so its canonical authored order remains intact. */
+   *  Content, so its canonical authored order remains intact. A question that
+   *  hides some incorrect answers draws again which ones (ADR-0038). */
   shuffleSelectedAnswers(questionIds: readonly string[]): void
+  /** Has each selected Multiple Choice question show `count` of its incorrect
+   *  answers, clamped to what each allows; `Infinity` shows them all. Exam
+   *  presentation, like answer order: the Question keeps every answer. */
+  setShownIncorrect(questionIds: readonly string[], count: number): void
   /** Removes references from the Working Copy, leaving their Question Bank
    *  records exactly as they were. Remove excludes; it never deletes. */
   removeFromWorkingCopy(questionIds: readonly string[]): void
@@ -466,6 +475,9 @@ function sameExamWorkingCopy(left: ExamWorkingCopy, right: ExamWorkingCopy): boo
       first.height === second.height && first.style === second.style && first.fill === second.fill,
     )
     && sameEntries(left.choiceOrder, right.choiceOrder, (first, second) =>
+      first.length === second.length && first.every((id, index) => id === second[index]),
+    )
+    && sameEntries(left.hiddenAnswers, right.hiddenAnswers, (first, second) =>
       first.length === second.length && first.every((id, index) => id === second[index]),
     )
     && sameSections(left.sections, right.sections)
@@ -975,6 +987,10 @@ export function createExamStore(options: {
         const copiedChoiceOrder = orderedChoices(original, selected.arrangement).map((choice) =>
           copiedChoices[originalChoices.findIndex(({ id }) => id === choice.id)]!.id,
         )
+        // It hides the answers its original hides, under their new ids.
+        const copiedHidden = hiddenAnswerIdsOf(original, selected.arrangement).map((id) =>
+          copiedChoices[originalChoices.findIndex((choice) => choice.id === id)]!.id,
+        )
         const referenced = withReferenceAdded(current.workingCopy, copy.id, questionId)
         const workingCopy = withPartPresentationCopied(
           // The copy sits in its original's Section, directly after it.
@@ -1004,6 +1020,9 @@ export function createExamStore(options: {
               ...(workingCopy.choiceOrder ?? {}),
               [copy.id]: copiedChoiceOrder,
             },
+            ...(copiedHidden.length > 0
+              ? { hiddenAnswers: { ...(workingCopy.hiddenAnswers ?? {}), [copy.id]: copiedHidden } }
+              : {}),
             // A duplicate looks like its original on the sheet, work space
             // included.
             ...(workingCopy.workSpace?.[questionId]
@@ -1118,11 +1137,25 @@ export function createExamStore(options: {
     shuffleSelectedAnswers: (questionIds) =>
       change((current) => {
         const { exam, arrangement } = selectedExam(current.questionBank, current.workingCopy)
-        const shuffled = shuffleSelectedAnswers(exam, arrangement, questionIds, Math.random)
+        const shuffled = varySelectedAnswers(exam, arrangement, questionIds, Math.random)
         if (shuffled === arrangement) return current
         return withExamWorkingCopy(
           current,
-          withChoiceOrder(current.workingCopy, shuffled.choiceOrder),
+          withHiddenAnswers(
+            withChoiceOrder(current.workingCopy, shuffled.choiceOrder),
+            shuffled.hiddenAnswers ?? {},
+          ),
+        )
+      }),
+
+    setShownIncorrect: (questionIds, count) =>
+      change((current) => {
+        const { exam, arrangement } = selectedExam(current.questionBank, current.workingCopy)
+        const next = withShownIncorrect(exam, arrangement, questionIds, count, Math.random)
+        if (next === arrangement) return current
+        return withExamWorkingCopy(
+          current,
+          withHiddenAnswers(current.workingCopy, next.hiddenAnswers ?? {}),
         )
       }),
 

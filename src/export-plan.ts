@@ -47,6 +47,7 @@ import {
   type WorkSpaceStyle,
 } from './exam'
 import { stemNodesOf, type ProseMirrorJSON } from './question-doc'
+import { answerVisibilityOf, shownChoices, type AnswerVisibility } from './hidden-answers'
 import { headerLineOf, type ExamHeader, type HeaderLine } from './page-header'
 import { DEFAULT_MARGIN, marginPx, marginsOf, sameMargins, type MarginSide, type PageMargins } from './page-margins'
 
@@ -111,6 +112,9 @@ export type PlannedChoice = {
   id: string
   letter: string
   correct: boolean
+  /** A Locked Answer, which kept its letter however answers were shuffled.
+   *  Only the Working Copy's sheet shows it; nothing prints it. */
+  locked?: true
   node: ProseMirrorJSON
 }
 
@@ -239,8 +243,13 @@ export type PlannedQuestion = {
   /** The answers in this arrangement's order, lettered. Empty for short answer
    *  and for a matching set, whose Word Bank is in `matching`. A True/False
    *  question carries its pair here — lettered `T` and `F`, which is what the
-   *  Answer Key reports — even though the test prints only its `marks`. */
+   *  Answer Key reports — even though the test prints only its `marks`. A
+   *  Multiple Choice question carries only the answers it shows: its Hidden
+   *  Answers are left out, and the rest lettered as they print. */
   choices: PlannedChoice[]
+  /** How many of a Multiple Choice question's incorrect answers show, when
+   *  this Exam hides some. Only the Working Copy's sheet says so. */
+  answerVisibility?: AnswerVisibility
   /** How those answers lay out, or `null` when the test does not print them —
    *  a short answer question has none, and a True/False question's pair is
    *  stated by the section's directions instead. */
@@ -802,6 +811,7 @@ function deriveParts(
         id: choice.id,
         letter: letterAt(choiceIndex),
         correct: choice.correct,
+        ...(choice.locked ? { locked: true as const } : {}),
         node: choice.node,
       }),
     )
@@ -833,13 +843,22 @@ function deriveQuestion(
   const trueFalse = question.type === 'true-false'
   const matching = question.type === 'matching'
   const multipart = question.type === 'multipart'
-  const ordered = matching || multipart ? [] : orderedChoices(question, arrangement)
+  // A Multiple Choice question prints only the answers it shows (ADR-0038).
+  const ordered = matching || multipart
+    ? []
+    : question.type === 'multiple-choice'
+      ? shownChoices(question, arrangement)
+      : orderedChoices(question, arrangement)
+  const answerVisibility = question.type === 'multiple-choice'
+    ? answerVisibilityOf(question, arrangement)
+    : undefined
   const choices: PlannedChoice[] = ordered.map((choice, index) => ({
     id: choice.id,
     // A True/False answer is written the way the student circles it, so the
     // Answer Key reads T or F rather than A or B.
     letter: trueFalse ? TRUE_FALSE_LETTERS[index] ?? letterAt(index) : letterAt(index),
     correct: choice.correct,
+    ...(choice.locked ? { locked: true as const } : {}),
     node: choice.node,
   }))
   return {
@@ -861,6 +880,7 @@ function deriveQuestion(
     workSpace: takesWorkSpace(question.type) ? workSpaceOf(exam, question.id) : null,
     ...(question.difficulty ? { difficulty: question.difficulty } : {}),
     ...(topicsOf(question).length > 0 ? { topics: [...topicsOf(question)] } : {}),
+    ...(answerVisibility ? { answerVisibility } : {}),
     ...(question.type === 'open' && suggestedAnswerOf(question).length > 0
       ? { suggestedAnswer: suggestedAnswerOf(question) }
       : {}),

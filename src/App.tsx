@@ -2729,6 +2729,12 @@ function ExamEditor({
             }}
             onShuffleSelected={shuffleSelectedQuestions}
             onShuffleSelectedAnswers={shuffleSelectedAnswers}
+            onSetShownIncorrect={(questionIds, count) => {
+              store.setShownIncorrect(questionIds, count)
+              setVarySummary(count === Infinity
+                ? 'Showing every incorrect answer.'
+                : `Showing ${count} incorrect ${count === 1 ? 'answer' : 'answers'}.`)
+            }}
             onRemove={(questionIds) => {
               store.removeFromWorkingCopy(questionIds)
               selection.clear()

@@ -13,7 +13,7 @@
 
 import type { ReactNode } from 'react'
 import { TITLE_PX, sectionHeadingStyles } from './export-typography'
-import { Check, RotateCcw } from 'lucide-react'
+import { Check, Lock, RotateCcw } from 'lucide-react'
 import { DifficultyBadge, TopicBadge } from './badges'
 import { DocView } from './doc-view'
 import {
@@ -71,13 +71,28 @@ export function ChoiceGridView({
                           takes no width and paints into the gutter left of the
                           letter, so the choice grid measures and prints exactly
                           as it would without it. */}
-                      {showCorrectness && choice.correct && (
+                      {showCorrectness && choice.correct && !choice.locked && (
                         <span
                           className="choice-correctness-marker"
                           role="img"
                           aria-label="Correct answer"
                         >
                           <Check aria-hidden="true" />
+                        </span>
+                      )}
+                      {/* A Locked Answer keeps its letter when answers are
+                          shuffled. Its lock stands where the check would, in
+                          the same gutter and taking no width, so the grid
+                          measures as it prints; a correct one keeps the
+                          correct answer's colour and says both. */}
+                      {showCorrectness && choice.locked && (
+                        <span
+                          className="choice-correctness-marker choice-lock-marker"
+                          role="img"
+                          aria-label={choice.correct ? 'Correct answer, locked' : 'Locked answer'}
+                          title="Locked: keeps its letter when answers are shuffled"
+                        >
+                          <Lock aria-hidden="true" />
                         </span>
                       )}
                       {choice.letter}.

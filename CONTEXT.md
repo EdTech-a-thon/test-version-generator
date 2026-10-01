@@ -37,7 +37,7 @@ The versioned, format-owned machine-readable representation of one Question Bank
 _Avoid_: PDF metadata, extracted questions
 
 **Exam Record**:
-The versioned, format-owned machine-readable composition of one Exam: its name and, for each position, the Question it references in a Question Bank Record travelling in the same Test Parrot Package, with that position's answer columns, answer order, and Work Space, and the Question Section it is in, and the Exam's heading and text sizes, Question Style and Page Margins. It carries the Exam's Sections in print order, each with its Section Heading and Section Directions, so a test an assistant converts keeps its own parts in its own order. It never references a Question outside its package.
+The versioned, format-owned machine-readable composition of one Exam: its name and, for each position, the Question it references in a Question Bank Record travelling in the same Test Parrot Package, with that position's answer columns, answer order, Hidden Answers, and Work Space, and the Question Section it is in, and the Exam's heading and text sizes, Question Style and Page Margins. It carries the Exam's Sections in print order, each with its Section Heading and Section Directions, so a test an assistant converts keeps its own parts in its own order. It never references a Question outside its package.
 _Avoid_: Exam layout, test JSON
 
 **Test Parrot Package**:
@@ -116,7 +116,7 @@ A PDF or DOCX produced by an export and described by its Export Record.
 _Avoid_: Version, Exam
 
 **Version**:
-One shuffled arrangement of an Exam's Questions and answers, produced by an export and kept in its Export Record. Each Version has a two-word name, such as “Curly Fox”, that implies no order and is never reused within its Exam's Export History, and that name prints on its student test and answer key. Versions in one export differ from one another and from the Working Copy's own arrangement; an export that shuffles nothing prints the Working Copy's arrangement, unnamed, and produces no Version. Producing Versions never changes the Exam.
+One shuffled arrangement of an Exam's Questions and answers, produced by an export and kept in its Export Record. A Version of a question that has Hidden Answers hides as many as the Working Copy does, drawn for itself. Each Version has a two-word name, such as “Curly Fox”, that implies no order and is never reused within its Exam's Export History, and that name prints on its student test and answer key. Versions in one export differ from one another and from the Working Copy's own arrangement; an export that shuffles nothing prints the Working Copy's arrangement, unnamed, and produces no Version. Producing Versions never changes the Exam.
 _Avoid_: Form, Variant, Version History, saved Exam
 
 **Export History**:
@@ -148,6 +148,14 @@ _Avoid_: Prompt (in teacher-facing text), stem (for an Item), left side
 **Word Bank**:
 The lettered answers a Matching set's Items are matched against, in authored order. A letter is a position — Vary may shuffle a Word Bank, as it shuffles Multiple Choice answers — and no answer is correct on its own: several Items may name the same answer, and an answer no Item names is a distractor. A Word Bank of up to five answers prints beside its Items; a longer one prints above them in columns.
 _Avoid_: Choices (for a Matching set), answer list, right side
+
+**Locked Answer**:
+A Multiple Choice answer that keeps its authored letter however answers are shuffled, by Vary or in a Version, while the others shuffle among the letters left: “All of the above” means nothing anywhere else. It is Question Content, since it is about what the answer means. An answer worded like “All of the above”, “None of these” or “Both A and B” is locked by its wording, until the teacher unlocks it; any other the teacher may lock. A teacher's own decision outlasts any rewording, and only theirs is kept: an undecided answer follows what it says now. True/False answers and a Word Bank are never locked.
+_Avoid_: Pinned answer, fixed answer, anchored choice
+
+**Hidden Answer**:
+An incorrect Multiple Choice answer an Exam leaves off one of its positions, so the position shows from one up to all of its Question's incorrect answers. It is Exam presentation like answer order, never Question Content: the Question keeps every answer. The correct answer and every Locked Answer always show; nothing is hidden while no answer is marked correct, or beside a Locked Answer that names others by letter. The answers shown close up and are lettered as they print, on the test and in the Answer Key alike.
+_Avoid_: Removed answer, deleted distractor, answer subset
 
 **Short Answer**:
 A Question Type whose response is intentionally brief and does not present answer choices.
@@ -194,7 +202,7 @@ The line of instructions a Question Section prints under its Section Heading, te
 _Avoid_: Subheading, instructions, section subtitle
 
 **Vary**:
-A family of Exam actions that shuffle question order or answer order — a Multiple Choice question's or Part's answers, or a Matching set's Word Bank — in the Working Copy, before saving or exporting. Shuffling that happens during export produces Versions instead and leaves the Exam untouched; it is not Vary.
+A family of Exam actions that shuffle question order or answer order — a Multiple Choice question's or Part's answers, or a Matching set's Word Bank — in the Working Copy, before saving or exporting. Locked Answers keep their letters. Vary also chooses how many of a Multiple Choice question's incorrect answers show, and shuffling a question with Hidden Answers draws again which ones. Shuffling that happens during export produces Versions instead and leaves the Exam untouched; it is not Vary.
 _Avoid_: Randomization, version generation
 
 **Export Preview**:

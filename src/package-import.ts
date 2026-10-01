@@ -69,6 +69,9 @@ export type ExamRecordPosition = {
   section?: number
   columns?: ColumnSetting
   answerOrder?: string[]
+  /** From Exam Record 0.4.0: the incorrect answers a Multiple Choice position
+   *  leaves off, by the record's choice ids (ADR-0038). */
+  hiddenAnswers?: string[]
   workSpace?: WorkSpace
 }
 
@@ -318,35 +321,47 @@ const examParser020: ExamParser = (value) => {
 // 0.3.0 stores the Exam's Sections, each with its own wording, and places
 // every position in one. A Section holds Questions of any type, and
 // per-type `sectionHeadings` is gone (ADR-0029).
-const examParser030: ExamParser = (value) => {
-  if (!validateExam030(value)) throw schemaFailure('Exam Record', validateExam030.errors)
-  const exam = value as ExamRecord
-  return {
-    format: EXAM_FORMAT,
-    formatVersion: '0.3.0',
-    name: exam.name,
-    sections: exam.sections!.map(({ title, instructions }) => ({ title, instructions })),
-    ...(exam.headingSize ? { headingSize: exam.headingSize } : {}),
-    ...(exam.textSize ? { textSize: exam.textSize } : {}),
-    ...(exam.header ? { header: { ...exam.header } } : {}),
-    positions: exam.positions.map((position) => ({
-      ...copyPosition(position),
-      section: position.section!,
-    })),
+function sectionedParser(
+  validate: typeof validateExam030,
+  formatVersion: '0.3.0' | '0.4.0',
+  extra: (position: ExamRecordPosition) => Partial<ExamRecordPosition> = () => ({}),
+): ExamParser {
+  return (value) => {
+    if (!validate(value)) throw schemaFailure('Exam Record', validate.errors)
+    const exam = value as ExamRecord
+    return {
+      format: EXAM_FORMAT,
+      formatVersion,
+      name: exam.name,
+      sections: exam.sections!.map(({ title, instructions }) => ({ title, instructions })),
+      ...(exam.headingSize ? { headingSize: exam.headingSize } : {}),
+      ...(exam.textSize ? { textSize: exam.textSize } : {}),
+      ...(exam.header ? { header: { ...exam.header } } : {}),
+      positions: exam.positions.map((position) => ({
+        ...copyPosition(position),
+        section: position.section!,
+        ...extra(position),
+      })),
+    }
   }
 }
 
-// 0.4.0 adds the Exam's Page Margins (ADR-0039) and its `questionStyle`
-// (ADR-0041) to 0.3.0, and nothing else; everything 0.3.0 says, it says the
-// same way. A record without margins prints today's margins, and one without a
-// style prints in the standard style.
+const examParser030: ExamParser = sectionedParser(validateExam030, '0.3.0')
+
+// 0.4.0 adds to 0.3.0 a Multiple Choice position's `hiddenAnswers`, the
+// incorrect answers it leaves off (ADR-0038); the Exam's Page Margins
+// (ADR-0039); and its `questionStyle` (ADR-0041) — and nothing else. A record
+// without them hides nothing, prints today's margins, and prints in the
+// standard style.
+const sectionedParser040: ExamParser = sectionedParser(validateExam040, '0.4.0', (position) =>
+  position.hiddenAnswers !== undefined ? { hiddenAnswers: [...position.hiddenAnswers] } : {})
+
 const examParser040: ExamParser = (value) => {
-  if (!validateExam040(value)) throw schemaFailure('Exam Record', validateExam040.errors)
-  const { questionStyle, margins, ...rest } = value as ExamRecord
+  const parsed = sectionedParser040(value)
+  const { questionStyle, margins } = value as ExamRecord
   const { top, right, bottom, left } = margins ?? {}
   return {
-    ...examParser030({ ...rest, formatVersion: '0.3.0' }),
-    formatVersion: '0.4.0',
+    ...parsed,
     ...(questionStyle ? { questionStyle } : {}),
     ...(margins ? { margins: { top: top!, right: right!, bottom: bottom!, left: left! } } : {}),
   }
@@ -488,6 +503,30 @@ function proposedExam(
           'invalid-answer-order',
           `${where} has an answer order that does not list each of Question “${questionId}”’s answers exactly once.`,
         )
+      }
+    }
+    if (position.hiddenAnswers !== undefined) {
+      if (question.type !== 'multiple-choice') {
+        throw new QuestionBankImportError(
+          'invalid-position',
+          `${where} hides answers, which only a Multiple Choice Question may.`,
+        )
+      }
+      const choices = new Map((question.choices ?? []).map((choice) => [choice.id, choice]))
+      for (const id of position.hiddenAnswers) {
+        const choice = choices.get(id)
+        if (!choice) {
+          throw new QuestionBankImportError(
+            'dangling-reference',
+            `${where} hides “${id}”, which is not one of Question “${questionId}”’s answers.`,
+          )
+        }
+        if (choice.correct) {
+          throw new QuestionBankImportError(
+            'invalid-position',
+            `${where} hides “${id}”, Question “${questionId}”’s correct answer.`,
+          )
+        }
       }
     }
     // A 0.3.0 record places each position in one of its own Sections, which

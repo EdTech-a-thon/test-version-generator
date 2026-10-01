@@ -22,10 +22,19 @@ function withQuestion(bank: QuestionBank, question: Question): QuestionBank {
 }
 
 function withoutChoiceArrangement(draft: ExamWorkingCopy, questionId: string): ExamWorkingCopy {
-  if (!draft.choiceOrder?.[questionId]) return draft
-  const choiceOrder = { ...draft.choiceOrder }
+  if (!draft.choiceOrder?.[questionId] && !draft.hiddenAnswers?.[questionId]) return draft
+  const choiceOrder = { ...(draft.choiceOrder ?? {}) }
   delete choiceOrder[questionId]
-  return { ...draft, choiceOrder }
+  // Which answers it hid goes with the order: neither describes new answers.
+  const hiddenAnswers = { ...(draft.hiddenAnswers ?? {}) }
+  delete hiddenAnswers[questionId]
+  const { hiddenAnswers: _previous, ...rest } = draft
+  void _previous
+  return {
+    ...rest,
+    ...(draft.choiceOrder ? { choiceOrder } : {}),
+    ...(Object.keys(hiddenAnswers).length > 0 ? { hiddenAnswers } : {}),
+  }
 }
 
 /** The ids of the Parts whose answers changed identity between two revisions

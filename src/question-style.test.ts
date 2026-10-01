@@ -404,3 +404,32 @@ describe('Worksheet', () => {
     expect(sa!.workSpace).toEqual({ height: 64, style: 'lines', lines: 2, fill: false })
   })
 })
+
+describe('Hidden Answers under a Question Style', () => {
+  // Five answers, the first correct, with the third hidden (ADR-0038).
+  const question = multipleChoice('mc', ['a', 'b', 'c', 'd', 'e'], 'a')
+  const hiding: Arrangement = { ...ARRANGEMENT, hiddenAnswers: { mc: ['c'] } }
+  const items = (exam: Exam, arrangement: Arrangement, measure: Measure = unmeasured) =>
+    planExport({ exam, arrangement, selection: { test: true, answerKey: false }, measure }).pages
+      .flatMap((page) => page.items)
+      .flatMap((item) => (item.kind === 'question' ? [item] : []))
+
+  test('letters only the answers shown, in the style’s case, while the key keeps capitals', () => {
+    const [mc] = items(examOf([question], 'examview'), hiding)
+    expect(gridLetters(mc!)).toEqual(['a', 'b', 'c', 'd'])
+    expect(mc!.grid!.cells.flat().map((cell) => cell?.id)).toEqual(['a', 'b', 'd', 'e'])
+    expect(mc!.question.choices.map(({ letter }) => letter)).toEqual(['A', 'B', 'C', 'D'])
+  })
+
+  test('Condensed fits only the answers shown across the line', () => {
+    // The hidden answer alone is too wide for even half the lane.
+    const measure: Measure = {
+      itemHeight: () => 0,
+      choiceWidth: (choice) => (choice.id === 'c' ? 10_000 : 100),
+    }
+    expect(items(examOf([question], 'condensed'), ARRANGEMENT, measure)[0]!.grid!.columns).toBe(1)
+    const [mc] = items(examOf([question], 'condensed'), hiding, measure)
+    expect(mc!.grid!.columns).toBe(4)
+    expect(gridLetters(mc!).filter((letter) => letter !== '-')).toEqual(['A', 'B', 'C', 'D'])
+  })
+})

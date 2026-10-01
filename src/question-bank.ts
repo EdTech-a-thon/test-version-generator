@@ -34,6 +34,10 @@ export type ExamWorkingCopy = {
    *  Absent means authored order, preserving compatibility with drafts stored
    *  before answer shuffling existed. */
   choiceOrder?: Record<string, string[]>
+  /** The incorrect answers each Multiple Choice question leaves off on this
+   *  Exam, keyed by Question Bank record id: Exam presentation like
+   *  `choiceOrder` (ADR-0038). Absent shows every answer. */
+  hiddenAnswers?: Record<string, string[]>
   /** This Exam's Question Sections, in print order, and which one each
    *  referenced question belongs to. Absent on a Working Copy written before
    *  Sections were stored, which then reads as one Section per type
@@ -137,6 +141,9 @@ export function withReferencesRemoved(
   const choiceOrder = draft.choiceOrder
     ? { ...draft.choiceOrder }
     : undefined
+  const hiddenAnswers = draft.hiddenAnswers
+    ? { ...draft.hiddenAnswers }
+    : undefined
   const columns = draft.columns
     ? { ...draft.columns }
     : undefined
@@ -148,6 +155,7 @@ export function withReferencesRemoved(
     : undefined
   for (const id of [...removing, ...partIds]) {
     delete choiceOrder?.[id]
+    delete hiddenAnswers?.[id]
     delete columns?.[id]
     delete workSpace?.[id]
     delete sectionOf?.[id]
@@ -156,6 +164,7 @@ export function withReferencesRemoved(
     ...draft,
     questionIds: remaining,
     ...(choiceOrder ? { choiceOrder } : {}),
+    ...(hiddenAnswers ? { hiddenAnswers } : {}),
     ...(columns ? { columns } : {}),
     ...(workSpace ? { workSpace } : {}),
     ...(sectionOf ? { sectionOf } : {}),
@@ -196,6 +205,29 @@ export function withReferenceOrder(
   }
   if (ordered.every((id, index) => id === draft.questionIds[index])) return draft
   return { ...draft, questionIds: ordered }
+}
+
+/** Records which incorrect answers each question hides, without changing
+ *  canonical Question Content. A question with none hidden has no entry, and
+ *  an Exam that hides nothing has no `hiddenAnswers` at all. */
+export function withHiddenAnswers(
+  draft: ExamWorkingCopy,
+  hiddenAnswers: Record<string, string[]>,
+): ExamWorkingCopy {
+  const next = Object.fromEntries(
+    Object.entries(hiddenAnswers).filter(([, ids]) => ids.length > 0),
+  )
+  const current = draft.hiddenAnswers ?? {}
+  if (
+    Object.keys(current).length === Object.keys(next).length
+    && Object.entries(next).every(([questionId, ids]) =>
+      current[questionId]?.length === ids.length
+      && current[questionId].every((id, index) => id === ids[index]),
+    )
+  ) return draft
+  const { hiddenAnswers: _previous, ...rest } = draft
+  void _previous
+  return Object.keys(next).length > 0 ? { ...rest, hiddenAnswers: next } : rest
 }
 
 /** Records a new answer arrangement without changing canonical Question

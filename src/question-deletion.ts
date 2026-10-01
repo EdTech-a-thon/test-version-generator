@@ -17,6 +17,11 @@ function withoutQuestionReferences(
       ([id]) => !questionIds.has(id),
     ),
   );
+  const hiddenAnswers = Object.fromEntries(
+    Object.entries(draft.hiddenAnswers ?? {}).filter(
+      ([id]) => !questionIds.has(id),
+    ),
+  );
   // A deleted Question leaves its Section; the Section itself stays, as an
   // emptied Section always does.
   const sectionOf = Object.fromEntries(
@@ -28,6 +33,7 @@ function withoutQuestionReferences(
     ...(draft.columns === undefined ? {} : { columns }),
     ...(draft.workSpace === undefined ? {} : { workSpace }),
     ...(draft.choiceOrder === undefined ? {} : { choiceOrder }),
+    ...(draft.hiddenAnswers === undefined ? {} : { hiddenAnswers }),
     ...(draft.sectionOf === undefined ? {} : { sectionOf }),
   };
 }

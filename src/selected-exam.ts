@@ -222,11 +222,13 @@ export function selectedExam(
         && right[questionId].every((choiceId, index) => choiceId === choices[index]),
       )
   }
+  const hiddenAnswers = draft.hiddenAnswers ?? {}
   const arrangement: Arrangement =
     previous
     && previous.arrangement.questionOrder.length === questionOrder.length
     && previous.arrangement.questionOrder.every((id, index) => id === questionOrder[index])
     && sameChoiceOrder(previous.arrangement.choiceOrder, choiceOrder)
+    && sameChoiceOrder(previous.arrangement.hiddenAnswers ?? {}, hiddenAnswers)
       ? previous.arrangement
       : {
           id: EXAM_DRAFT_VERSION_ID,
@@ -236,6 +238,8 @@ export function selectedExam(
           // answer shuffling records only this presentation state, never
           // changes the canonical Question Content in the Question Bank.
           choiceOrder,
+          // Likewise the incorrect answers a question hides (ADR-0038).
+          ...(Object.keys(hiddenAnswers).length > 0 ? { hiddenAnswers } : {}),
         }
 
   return previous && exam === previous.exam && arrangement === previous.arrangement

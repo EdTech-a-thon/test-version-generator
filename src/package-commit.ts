@@ -108,6 +108,7 @@ export function planImport(
     const questions: Question[] = []
     const columns: Record<string, ColumnSetting> = {}
     const choiceOrder: Record<string, string[]> = {}
+    const hiddenAnswers: Record<string, string[]> = {}
     const workSpace: Record<string, WorkSpace> = {}
     const identityOf = (position: ExamRecordPosition) =>
       identities.get(position.question.bank)!.get(position.question.question)!
@@ -122,6 +123,9 @@ export function planImport(
       if (laidOut) columns[question.id] = laidOut
       if (position.answerOrder) {
         choiceOrder[question.id] = position.answerOrder.map((id) => answers.get(id)!)
+      }
+      if (position.hiddenAnswers) {
+        hiddenAnswers[question.id] = position.hiddenAnswers.map((id) => answers.get(id)!)
       }
       if (position.workSpace) {
         workSpace[question.id] = {
@@ -150,6 +154,7 @@ export function planImport(
       ...createWorkingCopy(exam.name.trim() || DEFAULT_EXAM_TITLE),
       questionIds: questions.map(({ id }) => id),
       choiceOrder,
+      ...(Object.keys(hiddenAnswers).length > 0 ? { hiddenAnswers } : {}),
       ...(Object.keys(columns).length > 0 ? { columns } : {}),
       ...(Object.keys(workSpace).length > 0 ? { workSpace } : {}),
       ...(sections ? { sections, sectionOf } : {}),

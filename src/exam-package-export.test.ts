@@ -19,6 +19,7 @@ import { initialSelection } from './import-selection'
 import { planImport } from './package-commit'
 import { inspectImportFile, inspectImportRecord, type ExamRecord } from './package-import'
 import { selectedExam } from './selected-exam'
+import { shownChoices } from './hidden-answers'
 import type { QuestionBankResource } from './question-bank-workspaces'
 
 const fontFiles = {
@@ -191,6 +192,30 @@ describe('an Exam PDF carrying its Exam', () => {
     )
     expect(imported.title).toBe('Cells and Forces')
     expect(printed(imported, importedOrder)).toEqual(printed(exam, arrangement))
+  })
+
+  test('a position that hides incorrect answers carries them, and imports hiding the same ones', async () => {
+    const hiding: Arrangement = { ...arrangement, hiddenAnswers: { 'cells-1': ['cells-1-choice-3', 'cells-1-choice-1'] } }
+    const carried = (await examPackage({ exam, arrangement: hiding, ownerOf, loadMedia: noImages })).package
+    const position = carried.exams[0]!.positions.find(({ hiddenAnswers }) => hiddenAnswers)!
+    // The bank keeps every answer; the position names the two it leaves off.
+    expect(position.hiddenAnswers).toEqual(['q2-c4', 'q2-c2'])
+    const record = carried.questionBanks[0]!.record as { bank: { questions: { id: string; choices?: unknown[] }[] } }
+    expect(record.bank.questions.find(({ id }) => id === 'q2')!.choices).toHaveLength(4)
+
+    const proposal = await inspectImportRecord(new TextEncoder().encode(JSON.stringify(carried)))
+    let next = 0
+    const plan = planImport(proposal, initialSelection(proposal), () => `local-${next++}`)
+    const { exam: imported, arrangement: importedOrder } = selectedExam(
+      plan.exams[0]!.saved.questionBank,
+      plan.exams[0]!.saved.workingCopy,
+    )
+    const shownTexts = (sheet: Exam, order: Arrangement) => {
+      const question = sheet.questions.find((candidate) => text(candidate) === 'Which organelle releases energy?')!
+      return shownChoices(question, order).map((choice) => JSON.stringify(choice.node).match(/"text":"([^"]+)"/)![1])
+    }
+    expect(shownTexts(imported, importedOrder)).toEqual(['Ribosome', 'Mitochondrion'])
+    expect(shownTexts(imported, importedOrder)).toEqual(shownTexts(exam, hiding))
   })
 
   test('a shuffled answer-key PDF carries the Exam as authored, not one Exam per Version', async () => {

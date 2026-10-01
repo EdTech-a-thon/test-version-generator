@@ -1,6 +1,6 @@
 # Exam Record 0.4.0
 
-The **Exam Record** is the portable composition of one Exam: its name, its test-page header lines, its Question Sections in print order and how each one's heading reads, how large its headings and text print, how its questions print, how far in from each edge its pages print, and, for each position, the Question it uses, the Section it is in, and that position's answer columns, answer order and Work Space. It never carries Question Content. It references Questions in Question Bank Records that travel beside it in the same [Test Parrot Package](test-parrot-package-0.1.0.md), and it is importable only inside one. See ADR-0022, ADR-0029, ADR-0039 and ADR-0041.
+The **Exam Record** is the portable composition of one Exam: its name, its test-page header lines, its Question Sections in print order and how each one's heading reads, how large its headings and text print, how its questions print, how far in from each edge its pages print, and, for each position, the Question it uses, the Section it is in, and that position's answer columns, answer order, Hidden Answers and Work Space. It never carries Question Content. It references Questions in Question Bank Records that travel beside it in the same [Test Parrot Package](test-parrot-package-0.1.0.md), and it is importable only inside one. See ADR-0022, ADR-0029, ADR-0038, ADR-0039 and ADR-0041.
 
 ## Published contract
 
@@ -9,6 +9,7 @@ The **Exam Record** is the portable composition of one Exam: its name, its test-
 - Stable schema identifier: `https://testparrot.com/formats/exam/0.4.0/schema.json`
 - Checked-in schema: [`/formats/exam/0.4.0/schema.json`](../public/formats/exam/0.4.0/schema.json)
 - [Canonical examples](../public/formats/exam/0.4.0/examples/)
+- Superseded but still readable: [Exam Record 0.3.0](exam-record-0.3.0.md), and Exam Records `0.2.0` and `0.1.0`
 - Invalid counterexamples live with the package, since an Exam Record is validated there: [`/formats/package/0.1.0/invalid/`](../public/formats/package/0.1.0/invalid/)
 
 The schema is the structural contract; this document supplies the rules JSON Schema cannot express. Implementations must perform both.
@@ -56,6 +57,7 @@ Each position has these members:
 | `section`     | yes      | The index, from 0, into `sections` of the Section the position is in. |
 | `columns`     | no       | `1`, `2` or `4`: how many columns a **Multiple Choice** Question's answers lay out in. Allowed on no other Question Type. |
 | `answerOrder` | no       | A permutation of the Question's answer ids: its choice ids on **Multiple Choice**, or its Word Bank ids on **Matching**. It must list every answer exactly once. Allowed on no other Question Type; True/False answers are always True, then False. |
+| `hiddenAnswers` | no     | The **Hidden Answers**: incorrect choice ids of a **Multiple Choice** Question that this position leaves off, each at most once. Allowed on no other Question Type. See below. |
 | `workSpace`   | no       | `{ "height", "style", "fill" }`, room left below a **Short Answer** Question for a student's working. Allowed on no other Question Type. `height` is in CSS pixels at 96 dpi and is snapped to whole ruled lines of 32 px on import; `style` is `blank` or `lines`; `fill` stretches the space to the foot of its page, with `height` the least room it takes. A `height` of 0 with `fill` false is no room, set on purpose; it wins over the room a `questionStyle` would rule there. |
 
 Semantic rules:
@@ -64,6 +66,15 @@ Semantic rules:
 - Every `section` must be an index into `sections`. Any Question may be in any Section.
 - An Exam uses each Question at most once.
 - Exam Records carry no point values.
+
+## Hidden Answers
+
+A Multiple Choice position may show fewer of its Question's incorrect answers than the Question has (ADR-0038). The Question in its Question Bank Record keeps every answer; `hiddenAnswers` says which this position leaves off. It is Exam presentation, like `answerOrder`.
+
+- Every id must be one of the Question's choice ids, and none may be its correct answer; a record that breaks either rule is rejected.
+- A consumer shows a Locked Answer (Question Bank Record `0.9.0`) whatever `hiddenAnswers` says, shows at least one incorrect answer, and hides nothing while the Question has no correct answer or has a Locked Answer that names others by letter, such as “Both A and B”. A producer never writes a position that breaks these rules; a consumer reading one shows the answers the rules require and hides the rest it names.
+- The answers shown keep `answerOrder`, with the hidden ones taken out, and are lettered by their place among the answers shown. A Locked Answer last stays last.
+- Producers record only answers actually hidden. An absent `hiddenAnswers` shows every answer.
 
 ## Order
 
@@ -107,8 +118,9 @@ Every page is US Letter. By default it prints three quarters of an inch in from 
 
 - A Multiple Choice position without `columns` takes the answer columns of the Multiple Choice position before it, or one column if it is the first — the same rule that applies when a teacher adds a Question to an Exam.
 - A position without `answerOrder` prints its answers in their authored order.
+- A position without `hiddenAnswers` prints every answer.
 - A Short Answer position without `workSpace` leaves the room its `questionStyle` rules, which under `standard` and `condensed` is none.
-- A **Multipart** position (Question Bank Record `0.4.0`) carries only `question` and `section`. Answer order, answer columns and Work Space are set per Part in Test Parrot, and this version has no member for a Part's, so none of the three is allowed on a Multipart position and every Part imports with its defaults: answers in authored order, the default answer columns, and a Short Answer Part's default Work Space.
+- A **Multipart** position (Question Bank Record `0.4.0`) carries only `question` and `section`. Answer order, answer columns and Work Space are set per Part in Test Parrot, and this version has no member for a Part's, so none of the three, nor `hiddenAnswers`, is allowed on a Multipart position and every Part imports with its defaults: answers in authored order, the default answer columns, and a Short Answer Part's default Work Space.
 
 ## Producers
 
@@ -116,12 +128,13 @@ Record `columns` only when the source layout makes them clear, and never guess `
 
 ## Changes from 0.3.0
 
-Two members are new, both optional:
+Three members are new, all optional:
 
+- `hiddenAnswers`, on a Multiple Choice position: an Exam may show fewer of a Question's incorrect answers than it has, never its correct answer or a Locked Answer (ADR-0038).
 - `margins`: an Exam's Page Margins, one per side, in inches (ADR-0039).
 - `questionStyle`: how every question on the Exam prints (ADR-0041). A Short Answer position's default Work Space now follows it. A zero-height `workSpace` was always conforming; it now means "no room" even where the style would rule lines.
 
-Nothing else changed. Test Parrot writes `0.4.0` and still imports `0.3.0`, `0.2.0` and `0.1.0`, each with the default margins and as an Exam in the `standard` style.
+Nothing else changed, so a `0.3.0` record is a `0.4.0` record that hides nothing, keeps the default margins and prints in the `standard` style. Test Parrot writes `0.4.0` and still imports `0.3.0`, `0.2.0` and `0.1.0`, each that way; a `hiddenAnswers`, `margins` or `questionStyle` in an older record is an unknown optional member and is ignored.
 
 ## Changes in 0.3.0, from 0.2.0
 

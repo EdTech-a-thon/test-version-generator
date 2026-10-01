@@ -29,6 +29,7 @@ import {
   prepareHistoricalExport,
 } from './export-preparation'
 import { unmeasured } from './export-plan'
+import { shownChoices } from './hidden-answers'
 
 function memory(initial: AuthoringState | null = null) {
   return createMemoryBackend<AuthoringState>(initial)
@@ -610,6 +611,77 @@ describe('shuffling selected answers', () => {
     store.shuffleSelectedAnswers([questions[0]!.id])
 
     expect(store.getState()).toBe(before)
+  })
+})
+
+describe('hiding incorrect answers on the Working Copy', () => {
+  function capitals(): Question {
+    const answers = [['Lyon', false], ['Paris', true], ['Nice', false], ['Lille', false], ['None of these', false]] as const
+    return {
+      id: crypto.randomUUID(),
+      type: 'multiple-choice',
+      columns: 2,
+      doc: {
+        type: 'doc',
+        content: [
+          { type: 'paragraph', content: [{ type: 'text', text: 'Which city is the capital of France?' }] },
+          {
+            type: 'multipleChoice',
+            content: answers.map(([text, correct]) => ({
+              type: 'multipleChoiceChoice',
+              attrs: { id: crypto.randomUUID(), correct },
+              content: [{ type: 'paragraph', content: [{ type: 'text', text }] }],
+            })),
+          },
+        ],
+      },
+    }
+  }
+
+  test('shows fewer incorrect answers as one undo step, keeping the Question whole, and survives a shuffle', async () => {
+    const { store } = await freshStore()
+    const question = capitals()
+    store.createInQuestionBank(question)
+    store.addToWorkingCopy(question)
+    const authored = choicesOf(question).map(({ id }) => id)
+
+    store.setShownIncorrect([question.id], 2)
+
+    const shownNow = () => {
+      const { exam, arrangement } = store.selectedExam()
+      return shownChoices(exam.questions[0]!, arrangement)
+    }
+    expect(store.getState().workingCopy.hiddenAnswers?.[question.id]).toHaveLength(2)
+    expect(shownNow().map(({ id }) => id)).toContain(authored[1])
+    expect(shownNow().at(-1)!.id).toBe(authored[4])
+    expect(shownNow()).toHaveLength(3)
+    expect(choicesOf(store.getState().questionBank.questions[0]!).map(({ id }) => id)).toEqual(authored)
+
+    store.shuffleSelectedAnswers([question.id])
+    expect(store.getState().workingCopy.hiddenAnswers?.[question.id]).toHaveLength(2)
+    expect(shownNow()).toHaveLength(3)
+
+    store.undo()
+    store.undo()
+    expect(store.getState().workingCopy.hiddenAnswers).toBeUndefined()
+    expect(shownNow()).toHaveLength(5)
+  })
+
+  test('a duplicate hides what its original hides', async () => {
+    const { store } = await freshStore()
+    const question = capitals()
+    store.createInQuestionBank(question)
+    store.addToWorkingCopy(question)
+    store.setShownIncorrect([question.id], 1)
+
+    store.duplicateInWorkingCopy(question.id)
+
+    const { exam, arrangement } = store.selectedExam()
+    const [original, copy] = exam.questions
+    const words = (question: Question) =>
+      shownChoices(question, arrangement).map((choice) => JSON.stringify(choice.node.content))
+    expect(words(copy!)).toHaveLength(2)
+    expect(words(copy!)).toEqual(words(original!))
   })
 })
 

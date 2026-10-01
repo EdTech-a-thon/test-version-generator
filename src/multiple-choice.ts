@@ -6,6 +6,7 @@ import { Plugin, TextSelection } from '@milkdown/kit/prose/state'
 import type { Command } from '@milkdown/kit/prose/state'
 import { splitBlock } from '@milkdown/kit/prose/commands'
 import type { EditorView, NodeView } from '@milkdown/kit/prose/view'
+import { isLocked, type AnswerLock } from './locked-answers'
 
 // Whether the radio buttons can change the correct answer. Off in read-only
 // previews, on inside the question editor.
@@ -54,8 +55,34 @@ export function selectCorrectChoice(
   return true
 }
 
+/** Whether a choice is a Locked Answer: the teacher's decision when there is
+ *  one, otherwise what its words say (ADR-0038). */
+export function choiceNodeIsLocked(node: ProseNode): boolean {
+  return isLocked(node.attrs.locked as AnswerLock, node.textBetween(0, node.content.size, ' ', ' '))
+}
+
+// Record the teacher's own decision about one choice's lock, which from then
+// on outranks its wording. `choicePosition` is the position directly before a
+// choice node.
+export function setChoiceLock(
+  view: Pick<EditorView, 'state' | 'dispatch'>,
+  choicePosition: number,
+  locked: boolean,
+) {
+  const choice = view.state.doc.nodeAt(choicePosition)
+  if (choice?.type.name !== 'multipleChoiceChoice') return false
+  if (choice.attrs.locked !== locked) {
+    view.dispatch(
+      view.state.tr.setNodeMarkup(choicePosition, undefined, { ...choice.attrs, locked }),
+    )
+  }
+  return true
+}
+
 // A single answer. Behaves like a list item: it holds a paragraph (and any
-// following blocks) and its correctness is a plain boolean.
+// following blocks) and its correctness is a plain boolean. Its `locked` is
+// the teacher's decision about whether it keeps its letter when answers are
+// shuffled, or null while they have made none and its wording decides.
 export const multipleChoiceChoiceSchema = $nodeSchema(
   'multipleChoiceChoice',
   () => ({
@@ -65,14 +92,18 @@ export const multipleChoiceChoiceSchema = $nodeSchema(
     // views by choice rather than by markup. Without it every choice looks
     // identical bar `correct`, and PM reuses/reorders the radio DOM when the
     // correct flag moves, leaving stale radios checked. See uniqueChoiceIds.
-    attrs: { correct: { default: false }, id: { default: '' } },
+    attrs: { correct: { default: false }, id: { default: '' }, locked: { default: null } },
     parseDOM: [
       {
         tag: 'div[data-type="multiple-choice-choice"]',
-        getAttrs: (element) => ({
-          correct: (element as HTMLElement).getAttribute('data-correct') === 'true',
-          id: (element as HTMLElement).getAttribute('data-id') ?? '',
-        }),
+        getAttrs: (element) => {
+          const locked = (element as HTMLElement).getAttribute('data-locked')
+          return {
+            correct: (element as HTMLElement).getAttribute('data-correct') === 'true',
+            id: (element as HTMLElement).getAttribute('data-id') ?? '',
+            locked: locked === 'true' ? true : locked === 'false' ? false : null,
+          }
+        },
       },
     ],
     toDOM: (node) => [
@@ -81,6 +112,9 @@ export const multipleChoiceChoiceSchema = $nodeSchema(
         'data-type': 'multiple-choice-choice',
         'data-correct': String(node.attrs.correct === true),
         'data-id': node.attrs.id,
+        ...(typeof node.attrs.locked === 'boolean'
+          ? { 'data-locked': String(node.attrs.locked) }
+          : {}),
       },
       0,
     ],
@@ -325,9 +359,36 @@ export const keepFixedChoices = $prose((ctx: Ctx) =>
   }),
 )
 
-// Node view for a choice: a non-editable radio button on the left plus the
-// editable answer content. Everything else (add/remove/navigate) is handled by
-// ProseMirror's native list and block editing.
+const LOCK_PATHS = {
+  locked: ['M7 11V7a5 5 0 0 1 10 0v4'],
+  unlocked: ['M7 11V7a5 5 0 0 1 9.9-1'],
+} as const
+
+// A padlock, shut or open, drawn the way the editor's other row controls draw
+// their icons.
+function lockIcon(state: keyof typeof LOCK_PATHS) {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+  for (const [key, value] of Object.entries({
+    viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor',
+    'stroke-width': '2', 'stroke-linecap': 'round', 'stroke-linejoin': 'round',
+    'aria-hidden': 'true',
+  })) svg.setAttribute(key, value)
+  for (const d of [
+    'M5 11h14a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2Z',
+    ...LOCK_PATHS[state],
+  ]) {
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+    path.setAttribute('d', d)
+    svg.append(path)
+  }
+  return svg
+}
+
+// Node view for a choice: a non-editable radio button on the left, the
+// editable answer content, and at the right the lock that keeps the answer's
+// letter when answers are shuffled — shown on hover, and always while it is
+// locked. Everything else (add/remove/navigate) is handled by ProseMirror's
+// native list and block editing.
 export const multipleChoiceChoiceView = $view(
   multipleChoiceChoiceSchema.node,
   (ctx: Ctx) => {
@@ -360,13 +421,52 @@ export const multipleChoiceChoiceView = $view(
       const body = contentDOM ?? document.createElement('div')
       body.className = 'mc-choice-body'
 
-      dom.append(control, body)
+      // A True/False pair never moves, so it has nothing to lock.
+      const lock = fixed ? undefined : document.createElement('button')
+      if (lock) {
+        lock.type = 'button'
+        lock.className = 'mc-choice-lock'
+        lock.contentEditable = 'false'
+        lock.setAttribute('aria-label', 'Lock answer position')
+        const toggle = () => {
+          if (!editable()) return
+          const pos = getPos()
+          if (pos == null) return
+          setChoiceLock(view, pos, !choiceNodeIsLocked(node))
+        }
+        // Mousedown, as the radio does, so the text cursor stays put; a click
+        // with no pointer behind it is the keyboard pressing the button.
+        lock.addEventListener('mousedown', (event) => {
+          event.preventDefault()
+          toggle()
+        })
+        lock.addEventListener('click', (event) => {
+          event.preventDefault()
+          if (event.detail === 0) toggle()
+        })
+      }
 
+      dom.append(control, body, ...(lock ? [lock] : []))
+
+      let drawnLock: boolean | undefined
       const render = () => {
         radio.checked = node.attrs.correct === true
         radio.disabled = !editable()
         dom.dataset.correct = String(node.attrs.correct === true)
         if (fixed) body.textContent = node.textContent
+        if (lock) {
+          const locked = choiceNodeIsLocked(node)
+          dom.dataset.locked = String(locked)
+          lock.hidden = !editable()
+          lock.setAttribute('aria-pressed', String(locked))
+          if (drawnLock !== locked) {
+            drawnLock = locked
+            lock.replaceChildren(lockIcon(locked ? 'locked' : 'unlocked'))
+            lock.title = locked
+              ? 'Locked: keeps its letter when answers are shuffled. Click to unlock.'
+              : 'Lock this answer so it keeps its letter when answers are shuffled'
+          }
+        }
       }
 
       const activate = () => {
@@ -398,8 +498,13 @@ export const multipleChoiceChoiceView = $view(
           return true
         },
         ignoreMutation: (mutation) =>
-          fixed || control.contains(mutation.target),
-        stopEvent: (event) => fixed || control.contains(event.target as Node),
+          fixed
+          || control.contains(mutation.target)
+          || (lock?.contains(mutation.target) ?? false),
+        stopEvent: (event) =>
+          fixed
+          || control.contains(event.target as Node)
+          || (lock?.contains(event.target as Node) ?? false),
       }
     }
   },

@@ -3,6 +3,8 @@
 // Questions are stored as plain JSON so the model and the store never need a
 // live editor; only the Crepe dialog turns it back into a ProseMirror document.
 
+import { isLocked, type AnswerLock } from './locked-answers'
+
 export type ProseMirrorJSON = Record<string, unknown>
 
 // The document nodes and marks export supports, named once.
@@ -130,9 +132,12 @@ export function cleanDocument(value: ProseMirrorJSON): ProseMirrorJSON {
       clean.content = choices
     } else if (node.type === 'multipleChoiceChoice') {
       const attrs = (node.attrs ?? {}) as Record<string, unknown>
+      // A Locked Answer's `locked` is kept only when the teacher decided it;
+      // an undecided answer has none, and its wording decides (ADR-0038).
       clean.attrs = {
         correct: attrs.correct === true,
         id: typeof attrs.id === 'string' ? attrs.id : '',
+        ...(typeof attrs.locked === 'boolean' ? { locked: attrs.locked } : {}),
       }
     } else if (node.type === 'matching') {
       clean.content = cleanMatchingContent(
@@ -267,6 +272,28 @@ export function choiceIdOf(node: ProseMirrorJSON): string {
 export function choiceIsCorrect(node: ProseMirrorJSON): boolean {
   const attrs = (node.attrs ?? {}) as Record<string, unknown>
   return attrs.correct === true
+}
+
+/** What the teacher decided about a choice's lock: `true` or `false`, or
+ *  `null` when they never touched it and its wording decides. */
+export function choiceLockOf(node: ProseMirrorJSON): AnswerLock {
+  const attrs = (node.attrs ?? {}) as Record<string, unknown>
+  return typeof attrs.locked === 'boolean' ? attrs.locked : null
+}
+
+/** The words a node says: a line's text runs joined as written, and a space
+ *  between lines and at every break. A picture or an equation says nothing. */
+export function plainTextOf(node: ProseMirrorJSON): string {
+  if (typeof node.text === 'string') return node.text
+  if (node.type === 'hardbreak') return ' '
+  const line = node.type === 'paragraph' || node.type === 'heading'
+  return childrenOf(node).map(plainTextOf).join(line ? '' : ' ')
+}
+
+/** Whether a choice is a Locked Answer, keeping its letter wherever answers
+ *  are shuffled: the teacher's decision, or else its wording. */
+export function choiceIsLocked(node: ProseMirrorJSON): boolean {
+  return isLocked(choiceLockOf(node), plainTextOf(node))
 }
 
 // The `matching` node of a question document, or undefined when the question

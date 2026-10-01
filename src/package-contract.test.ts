@@ -158,8 +158,9 @@ describe('public Exam Record 0.3.0 contract', () => {
   })
 })
 
-// 0.4.0 adds `margins` (ADR-0039) and `questionStyle` (ADR-0041) to 0.3.0, and
-// nothing else of its own.
+// 0.4.0 adds a position's `hiddenAnswers` (ADR-0038), and the Exam's `margins`
+// (ADR-0039) and `questionStyle` (ADR-0041), to 0.3.0, and nothing else of its
+// own.
 describe('public Exam Record 0.4.0 contract', () => {
   test('is the version Test Parrot writes', () => {
     expect(EXAM_FORMAT_VERSION).toBe('0.4.0')
@@ -173,18 +174,22 @@ describe('public Exam Record 0.4.0 contract', () => {
     ).toEqual(publicExamSchema040)
   })
 
-  test('adds only optional margins and questionStyle to 0.3.0', () => {
+  test('adds only optional margins, questionStyle and a position’s hiddenAnswers to 0.3.0', () => {
     const { margins, questionStyle, ...rest } = publicExamSchema040.properties
     expect(margins).toBeDefined()
     expect(questionStyle).toBeDefined()
     expect({ ...rest, formatVersion: undefined }).toEqual({ ...publicExamSchema030.properties, formatVersion: undefined })
     expect(publicExamSchema040.required).toEqual(publicExamSchema030.required)
+    const { hiddenAnswers, ...position } = publicExamSchema040.$defs.position.properties
+    expect(hiddenAnswers).toBeDefined()
+    expect(position).toEqual(publicExamSchema030.$defs.position.properties)
+    expect(publicExamSchema040.$defs.position.required).toEqual(publicExamSchema030.$defs.position.required)
   })
 
   test('canonical examples validate independently against the published schema', async () => {
     const validate = strict().compile(publicExamSchema040)
     const names = await filesIn(join(currentExamRoot, 'examples'))
-    expect(names).toEqual(['margins.json', 'minimal.json', 'question-style.json'])
+    expect(names).toEqual(['hidden-answers.json', 'margins.json', 'minimal.json', 'question-style.json', 'sections.json'])
     for (const name of names) {
       expect(validate(await read(join(currentExamRoot, 'examples'), name)), `${name}: ${JSON.stringify(validate.errors)}`).toBe(true)
     }
@@ -220,6 +225,7 @@ describe('public Exam Record 0.4.0 contract', () => {
     const without = await proposalOf('minimal.json')
     expect(without.exams[0]!).not.toHaveProperty('margins')
     expect(without.exams[0]!).not.toHaveProperty('questionStyle')
+    expect(without.exams[0]!.positions.every((position) => position.hiddenAnswers === undefined)).toBe(true)
   })
 
   test('a Question Style is one of four, for the whole Exam', () => {
@@ -247,6 +253,34 @@ describe('public Exam Record 0.4.0 contract', () => {
     expect(proposal.exams[0]!.questionStyle).toBe('examview')
     expect(proposal.exams[0]!.formatVersion).toBe('0.4.0')
     expect(proposal.exams[0]!.positions.at(-1)!.workSpace).toEqual({ height: 0, style: 'blank', fill: false })
+  })
+
+  test('a position hides some of its answers, each once', () => {
+    const validate = strict().compile(publicExamSchema040)
+    const exam = (hiddenAnswers: unknown) => ({
+      format: 'test-parrot/exam',
+      formatVersion: '0.4.0',
+      name: 'Quiz',
+      sections: [{ title: 'Multiple Choice', instructions: '' }],
+      positions: [{ question: { bank: 'b', question: 'q1' }, section: 0, hiddenAnswers }],
+    })
+    expect(validate(exam(['q1-c2']))).toBe(true)
+    expect(validate(exam([]))).toBe(false)
+    expect(validate(exam(['q1-c2', 'q1-c2']))).toBe(false)
+    expect(validate(exam([''])) ).toBe(false)
+  })
+
+  test('the example that hides an answer imports hiding it', async () => {
+    const example = await read(join(currentExamRoot, 'examples'), 'hidden-answers.json')
+    const testParrotPackage = await read(join(packageRoot, 'examples'), 'bank-and-exam.json')
+    const exam = JSON.parse(JSON.stringify(example).replaceAll('"bank":"bank"', '"bank":"cells"'))
+    const proposal = await inspectImportRecord(
+      new TextEncoder().encode(JSON.stringify({ ...testParrotPackage, exams: [exam] })),
+    )
+    expect(proposal.exams[0]!.positions[0]).toMatchObject({
+      answerOrder: ['q1-c3', 'q1-c1', 'q1-c4', 'q1-c2'],
+      hiddenAnswers: ['q1-c3'],
+    })
   })
 })
 

@@ -68,6 +68,12 @@ import {
 } from './exam'
 import type { Selection } from './use-selection'
 import { selectAllPaneProps, useSelectAll } from './use-select-all'
+import {
+  answerVisibilityNote,
+  hiddenAnswerIdsOf,
+  shownIncorrectRange,
+  type ShownIncorrectRange,
+} from './hidden-answers'
 import type { SectionHeadingChange } from './section-headings'
 import { sectionHeadingStyles } from './export-typography'
 import type { WorkspaceDrag } from './use-workspace-drag'
@@ -219,6 +225,13 @@ type QuestionSectionActions = {
   onMoveToNewSection: (questionIds: readonly string[]) => void
 }
 
+/** Each count of incorrect answers a question may show, all of them first. */
+function shownIncorrectOptions(range: ShownIncorrectRange): number[] {
+  const counts: number[] = []
+  for (let count = range.max; count >= range.min; count -= 1) counts.push(count)
+  return counts
+}
+
 // One list, however it was opened. The grip beside a question and a right-click
 // on the question itself raise exactly the same actions, which is what makes
 // the grip discoverable rather than a second, lesser control.
@@ -229,6 +242,8 @@ function questionMenuItems({
   onDuplicate,
   onShuffleSelected,
   onShuffleSelectedAnswers,
+  shownIncorrect,
+  onSetShownIncorrect,
   onRemove,
   onSetColumns,
   workSpace,
@@ -240,6 +255,10 @@ function questionMenuItems({
   question: PlannedQuestion
   /** Present in the editor: what this menu can do to the Exam's Sections. */
   sectionActions?: QuestionSectionActions
+  /** How many incorrect answers this question may show and shows, or null
+   *  when it must show every answer. */
+  shownIncorrect: { range: ShownIncorrectRange; shown: number } | null
+  onSetShownIncorrect?: (questionIds: readonly string[], count: number) => void
   columns: ColumnSetting
   workSpace: WorkSpace
   /** A Part's work space on this Exam, as its menu reports it. */
@@ -353,11 +372,37 @@ function questionMenuItems({
       icon: <Shuffle />,
       onSelect: () => onShuffleSelected(actedOnIds),
     },
+    // Answers get a submenu of their own: Shuffle answers first, then — for a
+    // Multiple Choice question that can hide some — how many incorrect answers
+    // show, most first, the way a count is read (ADR-0038). Shuffling keeps
+    // the count and draws again which ones show.
     {
-      kind: 'action',
-      label: 'Shuffle answer order',
+      kind: 'submenu',
+      label: 'Vary answers',
       icon: <ListRestart />,
-      onSelect: () => onShuffleSelectedAnswers(actedOnIds),
+      items: [
+        {
+          kind: 'action',
+          label: 'Shuffle answers',
+          icon: <Shuffle />,
+          onSelect: () => onShuffleSelectedAnswers(actedOnIds),
+        },
+        ...(shownIncorrect && onSetShownIncorrect
+          ? shownIncorrectOptions(shownIncorrect.range).map((count): MenuItem & { kind: 'radio' } => ({
+              kind: 'radio',
+              label: count === shownIncorrect.range.max
+                ? `Show all ${count} incorrect answers`
+                : `Show ${count} of ${shownIncorrect.range.max} incorrect`,
+              checked: count === shownIncorrect.shown,
+              // All of them is all of each question's, however many it has;
+              // a smaller count is clamped to what each one allows.
+              onSelect: () => onSetShownIncorrect(
+                actedOnIds,
+                count === shownIncorrect.range.max ? Infinity : count,
+              ),
+            }))
+          : []),
+      ],
     },
   )
   // Remove, never Delete: this takes the question off the Working Copy and leaves
@@ -760,6 +805,13 @@ function QuestionView({
         showCorrectness
         renderPartWorkSpace={renderPartWorkSpace}
       />
+      {/* Editing chrome, like the work space bar: placed in the gap below
+          the answers, so it takes none of the height the page measured. */}
+      {item.grid && question.answerVisibility && (
+        <p className="answer-visibility-note" role="note">
+          {answerVisibilityNote(question.answerVisibility)}
+        </p>
+      )}
       {item.workSpace && (
         <WorkSpaceHandle
           label={`Work space for question ${numberLabelOf(question)}`}
@@ -1473,6 +1525,7 @@ export function ExamPage({
   onDuplicate,
   onShuffleSelected,
   onShuffleSelectedAnswers,
+  onSetShownIncorrect,
   onRemove,
   onSetColumns,
   onSetWorkSpace,
@@ -1503,6 +1556,9 @@ export function ExamPage({
   onDuplicate: (questionId: string) => void
   onShuffleSelected: (questionIds: readonly string[]) => void
   onShuffleSelectedAnswers: (questionIds: readonly string[]) => void
+  /** Has Multiple Choice questions show this many incorrect answers;
+   *  `Infinity` shows them all. */
+  onSetShownIncorrect?: (questionIds: readonly string[], count: number) => void
   onRemove: (questionIds: readonly string[]) => void
   onSetColumns: (questionIds: readonly string[], columns: ColumnSetting) => void
   /** Changes the room left for work below Short Answer questions. */
@@ -2050,6 +2106,14 @@ export function ExamPage({
             onDuplicate,
             onShuffleSelected,
             onShuffleSelectedAnswers,
+            shownIncorrect: (() => {
+              const question = exam.questions.find(({ id }) => id === menuQuestion.id)
+              const range = question ? shownIncorrectRange(question) : null
+              return question && range
+                ? { range, shown: range.max - hiddenAnswerIdsOf(question, arrangement).length }
+                : null
+            })(),
+            onSetShownIncorrect,
             onRemove,
             onSetColumns,
             workSpace: workSpaceOf(exam, menuQuestion.id),

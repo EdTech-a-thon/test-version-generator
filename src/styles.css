@@ -1173,6 +1173,11 @@ button { cursor: pointer; }
 .choice-correctness-marker svg {
   width: 12px; height: 12px; margin-left: -15px; vertical-align: -1px; stroke-width: 3.5;
 }
+/* A Locked Answer's lock, in the check's place (ADR-0038): the accent colour,
+   or the correct answer's colour on a correct one. */
+.choice-lock-marker { color: #9f5037; }
+.choice-lock-marker svg { stroke-width: 2.6; }
+.choice-cell[data-correct-answer] .choice-lock-marker { color: var(--easy-ink); }
 .choice-letter { float: left; margin-right: 6px; font-weight: 400; }
 .choice-body > :first-child { margin-top: 0; }
 .choice-body > :last-child { margin-bottom: 0; }
@@ -1238,6 +1243,16 @@ button { cursor: pointer; }
    own, so the Part measures as it prints. */
 .part-work-space { position: relative; }
 .part-work-space > .work-space-handle { left: 0; bottom: -16px; }
+
+/* How many incorrect answers a question shows, when it hides some (ADR-0038):
+   a quiet line in the gap below its answers, over the body column, taking none
+   of the question's measured height. The sheet alone shows it. */
+.answer-visibility-note {
+  position: absolute; left: 40px; right: 0; bottom: -18px; z-index: 1;
+  margin: 0; overflow: hidden; color: #8a7767;
+  font: italic 11px/16px Arial, Helvetica, sans-serif;
+  white-space: nowrap; text-overflow: ellipsis; pointer-events: none;
+}
 
 /* The bar that drags a work space open: in the gap below the question, over
    the body column, taking none of the question's measured height. */
@@ -1674,6 +1689,25 @@ button { cursor: pointer; }
   position: absolute; inset: 0 auto auto 0;
   color: #a8988c; pointer-events: none;
 }
+
+/* The lock at the right of an answer row (ADR-0038), drawn like a Part's own
+   controls: faint until the row is hovered or holds the cursor, and always
+   shown, in the accent colour, while the answer is locked. It sits in the
+   row's first line, beside the radio's height. */
+.mc-choice-lock {
+  flex: none; display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 1.5em; margin: 0 -4px 0 0; padding: 0;
+  border: 0; border-radius: 5px; color: #786457; background: transparent; cursor: pointer;
+  opacity: 0; transition: opacity 120ms;
+}
+.mc-choice-lock svg { width: 15px; height: 15px; stroke-width: 2.2; }
+.mc-choice-lock:hover { color: #9f5037; background: #f2e6d8; }
+.mc-choice-lock:focus-visible { opacity: 1; outline: 2px solid #9f5037; outline-offset: 1px; }
+.mc-choice:hover > .mc-choice-lock,
+.mc-choice:focus-within > .mc-choice-lock,
+.mc-choice-lock[aria-pressed="true"] { opacity: 1; }
+.mc-choice-lock[aria-pressed="true"] { color: #9f5037; }
+.mc-choice-lock[hidden] { display: none; }
 
 /* A True/False question's pair is drawn, not typed into: no placeholder, a
    cursor that never lands there, and a solid label beside the radio the teacher
@@ -2693,6 +2727,10 @@ button { cursor: pointer; }
    so the eye finds it on the text it is about. */
 .question-reading-correct {
   width: 15px; height: 15px; margin-left: 6px; color: #27643a; vertical-align: -3px;
+}
+/* A Locked Answer's lock, after its check if it has one (ADR-0038). */
+.question-reading-locked {
+  width: 13px; height: 13px; margin-left: 6px; color: #9f5037; vertical-align: -2px;
 }
 
 .question-reading-answer {

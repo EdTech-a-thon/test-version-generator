@@ -658,6 +658,25 @@ describe('answer key', () => {
     })
   })
 
+  test('a question that hides incorrect answers prints only the rest, lettered as they print, and its key agrees', () => {
+    const exam = examOf([multipleChoice('m1', ['a', 'b', 'c', 'd', 'e'], 'd')])
+    const arrangement = {
+      ...arrangementOf(['m1'], { m1: ['e', 'a', 'b', 'c', 'd'] }),
+      hiddenAnswers: { m1: ['a', 'c'] },
+    }
+    const [question] = plannedQuestions(render(exam, arrangement))
+    expect(question!.choices.map((c) => [c.letter, c.id])).toEqual([
+      ['A', 'e'],
+      ['B', 'b'],
+      ['C', 'd'],
+    ])
+    expect(gridRows(question!).flat().filter((cell) => cell !== '-')).toHaveLength(3)
+    expect(question!.answerVisibility).toEqual({ incorrect: 4, shown: 2 })
+    expect(keyItems(exam, arrangement)).toContainEqual(
+      expect.objectContaining({ kind: 'answer-key-entry', number: 1, letter: 'C' }),
+    )
+  })
+
   test('starts fresh after the test and restarts footer numbering at one', () => {
     const pages = planPages(
       examOf([open('o1'), open('o2')]),
