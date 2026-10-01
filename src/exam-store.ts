@@ -22,6 +22,10 @@ import {
   isWorkSpace,
   moveSection,
   deleteSection,
+  insertSection,
+  mergeSection,
+  moveToNewSection,
+  splitSection,
   NO_WORK_SPACE,
   placeQuestions,
   rewordSection,
@@ -40,10 +44,11 @@ import {
   shuffleSelectedQuestions,
   type Arrangement,
   type ColumnSetting,
-  newSectionWording,
+  newSectionWordingOf,
   type ExamSection,
   type Part,
   type Question,
+  type SectionPlacement,
   type SectionTarget,
   type WorkSpace,
 } from './exam'
@@ -305,6 +310,18 @@ export type ExamStore = {
   /** Deletes one Section and Removes the questions it holds. Undoable, like
    *  every other action here, so it asks nothing. */
   deleteSection(sectionId: string): void
+  /** Starts a new Section at one question: it and the questions after it in
+   *  its Section move into a Section of their own directly below. */
+  splitSection(questionId: string): void
+  /** Makes these questions one new Section, placed where the first of them
+   *  is, splitting its Section around them. */
+  moveToNewSection(questionIds: readonly string[]): void
+  /** Inserts an empty Section above or below one, and returns its id — or
+   *  `null` when there is no such Section to insert beside. */
+  insertSection(sectionId: string, placement: SectionPlacement): string | null
+  /** Merges one Section with its neighbour above (`-1`) or below (`1`), under
+   *  this Section's wording; the emptied neighbour is deleted. */
+  mergeSection(sectionId: string, direction: -1 | 1): void
   /** How large every section heading prints on this Exam. */
   setHeadingSize(size: HeadingSize): void
   setTextSize(size: TextSize): void
@@ -504,9 +521,9 @@ function withDirtyFlag(current: AuthoringState, saved: SavedState | null): Autho
  *
  * With a target, every question lands there, in the order given. Without one —
  * Add and Add all — they go to the end of the last Section, and on an Exam
- * with no Section yet, into a new one worded for the first of them. A question
- * already referenced is left where it is: a reference occurs at most once, so
- * adding one twice is not a move.
+ * with no Section yet, into one new one, worded by `newSectionWordingOf`. A
+ * question already referenced is left where it is: a reference occurs at most
+ * once, so adding one twice is not a move.
  */
 function withQuestionsAdded(
   current: AuthoringState,
@@ -538,9 +555,13 @@ function withQuestionsAdded(
 
   if (!hadSections) {
     // An Exam with nothing on it: whatever arrives, however it was asked for,
-    // starts its first Section, in the order given, worded for the first of
-    // them.
-    const section: ExamSection = { id: crypto.randomUUID(), ...newSectionWording(added[0]!.type, workingCopy.sectionHeadings) }
+    // starts its first Section, in the order given — never sorted by type, and
+    // never split into a Section per type — worded for their type when they
+    // share one, and untitled when they mix.
+    const section: ExamSection = {
+      id: crypto.randomUUID(),
+      ...newSectionWordingOf(added.map(({ type }) => type), workingCopy.sectionHeadings),
+    }
     workingCopy = withSectionLayout(workingCopy, {
       sections: [section],
       sectionOf: Object.fromEntries(added.map(({ id }) => [id, section.id])),
@@ -1001,6 +1022,47 @@ export function createExamStore(options: {
           }),
         )
         return withExamWorkingCopy(current, removed)
+      }),
+
+    splitSection: (questionId) =>
+      change((current) => {
+        const { exam, arrangement } = selectedExam(current.questionBank, current.workingCopy)
+        const layout = splitSection(exam, arrangement, questionId)
+        return layout
+          ? withExamWorkingCopy(current, withSectionLayout(current.workingCopy, layout))
+          : current
+      }),
+
+    moveToNewSection: (questionIds) =>
+      change((current) => {
+        const { exam, arrangement } = selectedExam(current.questionBank, current.workingCopy)
+        const layout = moveToNewSection(exam, arrangement, questionIds)
+        return layout
+          ? withExamWorkingCopy(current, withSectionLayout(current.workingCopy, layout))
+          : current
+      }),
+
+    insertSection: (sectionId, placement) => {
+      // The new Section's id is what the sheet focuses its heading by, so it
+      // is read back out of the one change that makes it.
+      let inserted: string | null = null
+      change((current) => {
+        const { exam, arrangement } = selectedExam(current.questionBank, current.workingCopy)
+        const made = insertSection(exam, arrangement, sectionId, placement)
+        if (!made) return current
+        inserted = made.sectionId
+        return withExamWorkingCopy(current, withSectionLayout(current.workingCopy, made.layout))
+      })
+      return inserted
+    },
+
+    mergeSection: (sectionId, direction) =>
+      change((current) => {
+        const { exam, arrangement } = selectedExam(current.questionBank, current.workingCopy)
+        const layout = mergeSection(exam, arrangement, sectionId, direction)
+        return layout
+          ? withExamWorkingCopy(current, withSectionLayout(current.workingCopy, layout))
+          : current
       }),
 
     shuffleSelectedQuestions: (questionIds) =>

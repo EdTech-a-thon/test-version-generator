@@ -728,15 +728,15 @@ describe('Question Sections on the Working Copy', () => {
     expect(printedSections).toContain(first)
   })
 
-  test('a new-Section target makes one Section, worded for the first question moving, directly below the one given', async () => {
+  test('a new-Section target makes one Section directly below the one given, untitled when what moves mixes types', async () => {
     const { store, m1, m2, o1, m3, m4, first } = await twoMultipleChoiceSections()
 
     store.moveInWorkingCopy([o1.id, m2.id], { kind: 'new-section', afterSectionId: first })
 
     const sections = sectionsOf(store.selectedExam().exam)
     expect(sections).toHaveLength(4)
-    // m2 prints before o1, so the new Section is worded for Multiple Choice.
-    expect(sections[1]).toMatchObject(newSectionWording('multiple-choice'))
+    expect(sections[1]).toMatchObject({ title: '', instructions: '' })
+    // m2 prints before o1, and keeps doing so.
     expect(sectionContents(store)).toEqual([[m1.id], [m2.id, o1.id], [], [m3.id, m4.id]])
   })
 
@@ -757,11 +757,7 @@ describe('Question Sections on the Working Copy', () => {
     ])
   })
 
-  // Fails today: `withQuestionsAdded` targets the last Section derived after the
-  // references are added, so an empty Exam gets one derived Section per type
-  // (empty ones stored) and the questions land in the last type's. Make this a
-  // plain `test` once that is fixed.
-  test('Add all with mixed types into an empty Exam makes one Section, worded for the first of them', async () => {
+  test('Add all with mixed types into an empty Exam makes one untitled Section, in the order given', async () => {
     const { store } = await freshStore()
     const questions = [
       createQuestion('true-false'),
@@ -775,10 +771,39 @@ describe('Question Sections on the Working Copy', () => {
 
     const sections = sectionsOf(store.selectedExam().exam)
     expect(sections).toHaveLength(1)
-    expect(sections[0]).toMatchObject(newSectionWording('true-false'))
+    expect(sections[0]).toMatchObject({ title: '', instructions: '' })
     expect(sectionContents(store)).toEqual([questions.map(({ id }) => id)])
     store.undo()
     expect(store.getState().workingCopy.questionIds).toEqual([])
+  })
+
+  test('Add all of one type into an empty Exam makes one Section worded for that type', async () => {
+    const { store } = await freshStore()
+    const questions = [createQuestion('open'), createQuestion('open')]
+    for (const question of questions) store.createInQuestionBank(question)
+
+    store.addManyToWorkingCopy(questions.map(({ id }) => id))
+
+    const sections = sectionsOf(store.selectedExam().exam)
+    expect(sections).toHaveLength(1)
+    expect(sections[0]).toMatchObject(newSectionWording('open'))
+  })
+
+  test('several bank questions dropped on the new-Section target make one Section, in the order dragged, worded only if they share a type', async () => {
+    const { store, first } = await twoMultipleChoiceSections()
+    const [shortAnswer, choice, another] = [
+      createQuestion('open'),
+      createQuestion('multiple-choice'),
+      createQuestion('open'),
+    ]
+    for (const question of [shortAnswer, choice, another]) store.createInQuestionBank(question)
+
+    store.addManyToWorkingCopy([shortAnswer.id, choice.id], { kind: 'new-section', afterSectionId: first })
+    expect(sectionContents(store)[1]).toEqual([shortAnswer.id, choice.id])
+    expect(sectionsOf(store.selectedExam().exam)[1]).toMatchObject({ title: '', instructions: '' })
+
+    store.addManyToWorkingCopy([another.id], { kind: 'new-section', afterSectionId: first })
+    expect(sectionsOf(store.selectedExam().exam)[1]).toMatchObject(newSectionWording('open'))
   })
 
   test('Add all to a target adds every question there, whatever its type', async () => {
@@ -821,6 +846,73 @@ describe('Question Sections on the Working Copy', () => {
     expect(renderedIds(store)).toEqual([o1.id, m3.id, m4.id])
     expect(bankIds(store)).toContain(m1.id)
     expect(store.getState().workingCopy.sectionOf?.[m1.id]).toBeUndefined()
+
+    store.undo()
+    expect(sectionIds(store)).toEqual([first, shortAnswer, second])
+    expect(sectionContents(store)).toEqual([[m1.id, m2.id], [o1.id], [m3.id, m4.id]])
+  })
+
+  test('starting a new Section at a question is one undoable step that marks the Working Copy changed', async () => {
+    const { store, m1, m2, o1, m3, m4, first, shortAnswer, second } = await twoMultipleChoiceSections()
+
+    store.splitSection(m2.id)
+
+    const made = sectionIds(store)[1]!
+    expect(sectionIds(store)).toEqual([first, made, shortAnswer, second])
+    expect(sectionContents(store)).toEqual([[m1.id], [m2.id], [o1.id], [m3.id, m4.id]])
+    expect(sectionsOf(store.selectedExam().exam)[1]).toMatchObject(newSectionWording('multiple-choice'))
+    expect(renderedIds(store)).toEqual([m1.id, m2.id, o1.id, m3.id, m4.id])
+    expect(store.getState().dirty).toBe(true)
+
+    const before = store.getState()
+    store.splitSection(m1.id)
+    expect(store.getState()).toBe(before)
+
+    store.undo()
+    expect(sectionIds(store)).toEqual([first, shortAnswer, second])
+    expect(sectionContents(store)).toEqual([[m1.id, m2.id], [o1.id], [m3.id, m4.id]])
+  })
+
+  test('moving a selection to a new Section puts it where its first question was, in one undo step', async () => {
+    const { store, m1, m2, o1, m3, m4, first, shortAnswer, second } = await twoMultipleChoiceSections()
+
+    store.moveToNewSection([m3.id, m2.id])
+
+    const made = sectionIds(store)[1]!
+    expect(sectionIds(store)).toEqual([first, made, shortAnswer, second])
+    expect(sectionContents(store)).toEqual([[m1.id], [m2.id, m3.id], [o1.id], [m4.id]])
+
+    store.undo()
+    expect(sectionContents(store)).toEqual([[m1.id, m2.id], [o1.id], [m3.id, m4.id]])
+  })
+
+  test('inserting an empty Section names it, and it stays on the sheet and in export', async () => {
+    const { store, first, shortAnswer, second } = await twoMultipleChoiceSections()
+
+    const made = store.insertSection(shortAnswer, 'above')
+
+    expect(sectionIds(store)).toEqual([first, made, shortAnswer, second])
+    expect(sectionContents(store)[1]).toEqual([])
+    expect(store.insertSection('gone', 'below')).toBeNull()
+
+    store.undo()
+    expect(sectionIds(store)).toEqual([first, shortAnswer, second])
+  })
+
+  test('merging Sections keeps this Section\'s wording, deletes the other, and one undo brings it back', async () => {
+    const { store, m1, m2, o1, m3, m4, first, shortAnswer, second } = await twoMultipleChoiceSections()
+    store.setSectionHeading(second, { title: 'Bonus' })
+
+    store.mergeSection(second, -1)
+
+    expect(sectionIds(store)).toEqual([first, second])
+    expect(sectionContents(store)).toEqual([[m1.id, m2.id], [o1.id, m3.id, m4.id]])
+    expect(sectionsOf(store.selectedExam().exam)[1]!.title).toBe('Bonus')
+    expect(renderedIds(store)).toEqual([m1.id, m2.id, o1.id, m3.id, m4.id])
+
+    const before = store.getState()
+    store.mergeSection(first, -1)
+    expect(store.getState()).toBe(before)
 
     store.undo()
     expect(sectionIds(store)).toEqual([first, shortAnswer, second])

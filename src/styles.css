@@ -861,6 +861,12 @@ button { cursor: pointer; }
 .section-heading-input:focus { box-shadow: 0 1px 0 var(--paper-accent); }
 .section-heading-input:disabled { color: inherit; -webkit-text-fill-color: currentcolor; opacity: 1; }
 .exam-section-hidden { position: relative; height: 0; }
+/* Sheet-only, and drawn over the gap above the Section rather than in the
+   flow, so the untitled Section lays out exactly as it prints. */
+.exam-section-untitled {
+  position: absolute; right: 0; bottom: 3px; pointer-events: none; white-space: nowrap;
+  color: #b3a498; font: italic 11px/1 Arial, Helvetica, sans-serif; letter-spacing: 0.02em;
+}
 .answer-key-heading { margin: 0 0 18px; font: 700 20px/1.3 Georgia, serif; }
 .answer-key-section { margin: 0 0 10px; font: 700 17px/1.3 Georgia, serif; }
 .answer-key-entry {
@@ -1298,6 +1304,23 @@ button { cursor: pointer; }
   font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
 }
 .context-menu-separator { height: 1px; margin: 4px -1px; background: #eadfd0; }
+/* A row of a few short choices: the row's own label, then each choice as a
+   small segment to its right, so "Above" and "Below" read as answers to it. */
+.context-menu-choices {
+  display: flex; align-items: center; gap: 8px; padding: 3px 4px 3px 8px; color: #4e3b2f;
+}
+.context-menu-choice {
+  flex: none; min-width: 52px; padding: 3px 8px; border: 1px solid #e0d3c2; border-radius: 5px;
+  color: #4e3b2f; background: #fffdf8; font: inherit; font-size: 12px; cursor: pointer;
+}
+.context-menu-choice + .context-menu-choice { margin-left: -4px; }
+.context-menu-choice:hover, .context-menu-choice:focus {
+  border-color: #c9b29c; background: #f2e6d8; outline: none;
+}
+.context-menu-choice:focus-visible { outline: 2px solid #9f5037; outline-offset: 1px; }
+.context-menu-choice:disabled {
+  color: #b8aa9e; border-color: #eee5d9; background: transparent; cursor: not-allowed;
+}
 .context-menu-submenu { position: relative; }
 .context-menu-submenu-arrow { margin-left: auto; color: #8b7868; font-size: 18px; line-height: 1; }
 .context-submenu {

@@ -423,6 +423,27 @@ export function newSectionWording(
   }
 }
 
+/** The wording of an untitled Section: neither part, so it prints nothing. */
+export const UNTITLED_SECTION_WORDING: Pick<ExamSection, 'title' | 'instructions'> = {
+  title: '',
+  instructions: '',
+}
+
+/** The heading and directions a new Section made of these Questions begins
+ *  with: their type's, when every one of them is the same Question Type, and
+ *  none when they mix types — no one type's directions would tell a student
+ *  how to answer the rest, so the Section starts untitled for the teacher to
+ *  word (ADR-0040). */
+export function newSectionWordingOf(
+  types: readonly QuestionType[],
+  legacy?: SectionHeadings,
+): Pick<ExamSection, 'title' | 'instructions'> {
+  const [first] = types
+  return first !== undefined && types.every((type) => type === first)
+    ? newSectionWording(first, legacy)
+    : UNTITLED_SECTION_WORDING
+}
+
 /** A stored Section as this build reads it, or `null` when it cannot be read.
  *  A Section stored while Sections were typed carries a `type` and only the
  *  wording it departed from that type's default with; it reads with that
@@ -581,7 +602,8 @@ export type SectionTarget =
  * Puts questions — already on the Exam, or just added to it — at a target,
  * keeping their on-page order. A Section holds Questions of any type, so every
  * one of them goes. A new Section begins with the heading and directions of
- * the type of the first Question put in it. A Section a move empties stays.
+ * their type when they are all one type, and untitled when they mix types
+ * (`newSectionWordingOf`). A Section a move empties stays.
  * `null` means nothing would change.
  */
 export function placeQuestions(
@@ -611,7 +633,10 @@ export function placeQuestions(
         : members.findIndex(({ section }) => section.id === target.afterSectionId) + 1
     if (at === 0) return null
     next.splice(at, 0, {
-      section: { id: newSectionId(), ...newSectionWording(typeById.get(moving[0]!)!, exam.sectionHeadings) },
+      section: {
+        id: newSectionId(),
+        ...newSectionWordingOf(moving.map((id) => typeById.get(id)!), exam.sectionHeadings),
+      },
       ids: moving,
     })
     return layoutOf(next)
@@ -660,6 +685,136 @@ export function deleteSection(
   if (index < 0) return null
   const [removed] = members.splice(index, 1)
   return { layout: layoutOf(members), removedQuestionIds: removed!.ids }
+}
+
+/** The wording a Section inserted on its own begins with, before any Question
+ *  is put in it: a heading that says what it is, waiting to be typed over, and
+ *  no directions. It has no first Question to take its wording from, and a
+ *  Section with neither part would be drawn at no height — nowhere to drop
+ *  into, and nothing to type on (ADR-0040). */
+export const NEW_SECTION_WORDING: Pick<ExamSection, 'title' | 'instructions'> = {
+  title: 'New section',
+  instructions: '',
+}
+
+/** Where a Section is inserted beside another. */
+export type SectionPlacement = 'above' | 'below'
+
+/** The Exam with a new Section starting at one question: that question and
+ *  the ones after it in its Section move into a Section of their own directly
+ *  below, worded as any new Section is (`newSectionWordingOf`). Nothing moves
+ *  on the page. `null`
+ *  for a question that already begins its Section, or one not on the Exam. */
+export function splitSection(
+  exam: Exam,
+  arrangement: Arrangement,
+  questionId: string,
+  newSectionId: () => string = () => crypto.randomUUID(),
+): SectionLayout | null {
+  const members = membersOf(exam, arrangement)
+  const entry = members.find(({ ids }) => ids.includes(questionId))
+  if (!entry) return null
+  const at = entry.ids.indexOf(questionId)
+  if (at === 0) return null
+  return placeQuestions(
+    exam,
+    arrangement,
+    entry.ids.slice(at),
+    { kind: 'new-section', afterSectionId: entry.section.id },
+    newSectionId,
+  )
+}
+
+/**
+ * The Exam with some questions made one new Section, in on-page order, placed
+ * where the first of them was. The Section that question was in is split
+ * around it: what came before stays, and what comes after the selection's
+ * place begins a Section of its own. Both are worded as any new Section is
+ * (`newSectionWordingOf`). A selection that begins its Section goes directly
+ * above it instead, so no split is needed. Any other Section the move empties
+ * stays, as one a drag empties does. `null` when nothing would change: no
+ * questions, or exactly the questions of one whole Section.
+ */
+export function moveToNewSection(
+  exam: Exam,
+  arrangement: Arrangement,
+  questionIds: readonly string[],
+  newSectionId: () => string = () => crypto.randomUUID(),
+): SectionLayout | null {
+  const members = membersOf(exam, arrangement)
+  const requested = new Set(questionIds)
+  const moving = members.flatMap(({ ids }) => ids).filter((id) => requested.has(id))
+  if (moving.length === 0) return null
+  const index = members.findIndex(({ ids }) => ids.includes(moving[0]!))
+  const home = members[index]!
+  const whole =
+    home.ids.length === moving.length && home.ids.every((id) => requested.has(id))
+  if (whole) return null
+  const typeById = new Map(exam.questions.map((question) => [question.id, question.type]))
+  const wordingFor = (ids: readonly string[]) =>
+    newSectionWordingOf(ids.map((id) => typeById.get(id)!), exam.sectionHeadings)
+  const at = home.ids.indexOf(moving[0]!)
+  const next: Members = members.map(({ section, ids }) => ({
+    section,
+    ids: ids.filter((id) => !requested.has(id)),
+  }))
+  const made = { section: { id: newSectionId(), ...wordingFor(moving) }, ids: moving }
+  if (at === 0) {
+    next.splice(index, 0, made)
+    return layoutOf(next)
+  }
+  // Everything before the selection's place is still the home Section's;
+  // everything after it that stays behind is the rest of the split.
+  const kept = next[index]!
+  const rest = kept.ids.slice(at)
+  kept.ids = kept.ids.slice(0, at)
+  next.splice(
+    index + 1,
+    0,
+    made,
+    ...(rest.length > 0
+      ? [{ section: { id: newSectionId(), ...wordingFor(rest) }, ids: rest }]
+      : []),
+  )
+  return layoutOf(next)
+}
+
+/** The Exam with an empty Section inserted directly above or below one, and
+ *  the new Section's id. `null` for a Section the Exam does not have. */
+export function insertSection(
+  exam: Exam,
+  arrangement: Arrangement,
+  sectionId: string,
+  placement: SectionPlacement,
+  newSectionId: () => string = () => crypto.randomUUID(),
+): { layout: SectionLayout; sectionId: string } | null {
+  const members = membersOf(exam, arrangement)
+  const index = members.findIndex(({ section }) => section.id === sectionId)
+  if (index < 0) return null
+  const section: ExamSection = { id: newSectionId(), ...NEW_SECTION_WORDING }
+  members.splice(placement === 'above' ? index : index + 1, 0, { section, ids: [] })
+  return { layout: layoutOf(members), sectionId: section.id }
+}
+
+/** The Exam with one Section merged with its neighbour above (`-1`) or below
+ *  (`1`): the neighbour's questions join this Section, in the order they
+ *  already print, under this Section's wording, and the emptied neighbour is
+ *  deleted. Nothing moves on the page but a heading. `null` at either end, or
+ *  for a Section the Exam does not have. */
+export function mergeSection(
+  exam: Exam,
+  arrangement: Arrangement,
+  sectionId: string,
+  direction: -1 | 1,
+): SectionLayout | null {
+  const members = membersOf(exam, arrangement)
+  const index = members.findIndex(({ section }) => section.id === sectionId)
+  const other = index + direction
+  if (index < 0 || other < 0 || other >= members.length) return null
+  const into = members[index]!
+  const [taken] = members.splice(other, 1)
+  into.ids = direction < 0 ? [...taken!.ids, ...into.ids] : [...into.ids, ...taken!.ids]
+  return layoutOf(members)
 }
 
 /** The Exam with one Section reworded. An absent key leaves that part as it
