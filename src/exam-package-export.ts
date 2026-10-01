@@ -7,7 +7,8 @@ import {
   sectionIdOf,
   sectionsOf,
   takesWorkSpace,
-  workSpaceOf,
+  defaultWorkSpaceOf,
+  isWorkSpace,
   type Arrangement,
   type Exam,
 } from './exam'
@@ -111,7 +112,10 @@ export async function examPackage({
   const sectionIndex = new Map(sections.map((section, index) => [section.id, index]))
   const positions = printed.map((question): ExamRecordPosition => {
     const ids = recordIds.get(question.id)!
-    const space = workSpaceOf(exam, question.id)
+    // Only a Work Space the teacher set travels, "None" included where the
+    // Question Style would rule lines; the room the style rules is the
+    // style's, and the record's `questionStyle` carries it.
+    const space = exam.workSpace?.[question.id]
     return {
       question: { bank: ids.bank, question: ids.question },
       section: sectionIndex.get(sectionIdOf(exam, question))!,
@@ -119,7 +123,10 @@ export async function examPackage({
       ...(question.type === 'multiple-choice' || question.type === 'matching'
         ? { answerOrder: orderedChoices(question, arrangement).map(({ id }) => ids.answers.get(id)!) }
         : {}),
-      ...(takesWorkSpace(question.type) && hasWorkSpace(space) ? { workSpace: { ...space } } : {}),
+      ...(takesWorkSpace(question.type) && space && isWorkSpace(space)
+        && (hasWorkSpace(space) || hasWorkSpace(defaultWorkSpaceOf(exam.questionStyle)))
+        ? { workSpace: { ...space } }
+        : {}),
     }
   })
   const examRecord: ExamRecord = {
@@ -129,6 +136,9 @@ export async function examPackage({
     sections: sections.map(({ title, instructions }): ExamRecordSection => ({ title, instructions })),
     ...(exam.headingSize && exam.headingSize !== 'normal' ? { headingSize: exam.headingSize } : {}),
     ...(exam.textSize && exam.textSize !== 'normal' ? { textSize: exam.textSize } : {}),
+    ...(exam.questionStyle && exam.questionStyle !== 'standard'
+      ? { questionStyle: exam.questionStyle }
+      : {}),
     ...(exam.header ? { header: { ...exam.header } } : {}),
     ...(exam.margins ? { margins: { ...exam.margins } } : {}),
     positions,

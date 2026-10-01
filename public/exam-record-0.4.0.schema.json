@@ -44,6 +44,15 @@
         "large"
       ]
     },
+    "questionStyle": {
+      "description": "How every question on the Exam prints (ADR-0041). `standard` circles T or F and a capital letter and adds nothing. `examview` prints an answer blank before each Multiple Choice and True/False number, letters answers and the Word Bank in lower case with the Word Bank above its Items, and rules three answer lines below a Short Answer Question or Part with no `workSpace`. `condensed` stands questions closer together and lays Multiple Choice answers across the line where they fit. `worksheet` prints a long blank before each True/False number and a short one before each Multiple Choice number, letters in lower case with the Word Bank beside its Items, and rules two answer lines below a Short Answer Question or Part with no `workSpace`. Absent means standard.",
+      "enum": [
+        "standard",
+        "examview",
+        "condensed",
+        "worksheet"
+      ]
+    },
     "header": {
       "description": "The Exam's own wording for its test-page header lines, where it departs from Test Parrot's default blanks. `first` prints on the first test page and `later` on every other; underscores are the blanks. An empty string prints nothing but the paper's ID, which is never part of the line. Absent means the default.",
       "type": "object",
@@ -159,6 +168,7 @@
       }
     },
     "workSpace": {
+      "description": "Room left below a Short Answer Question for a student's working. A `height` of 0 with `fill` false is no room, set on purpose: it wins over the room a `questionStyle` would otherwise rule there.",
       "type": "object",
       "required": [
         "height",

@@ -127,11 +127,6 @@ function gridOf(columns: readonly number[]): number[] {
   return columns.map(twips)
 }
 
-// The number column of `.exam-question` in styles.css: the width print gives a
-// Multiple Choice question's number, plus the grid gap beside it. Its choice
-// grid hangs off it. A True/False question's column is wider, for its marks —
-// see `questionIndentOf`.
-const QUESTION_INDENT_PX = questionIndentOf({ type: 'multiple-choice' })
 /** Where the key's answer column starts: past `.answer-key-entry`'s 42px
  *  number column and its 8px gap. */
 const ANSWER_KEY_ANSWER_INDENT = twips(42 + 8)
@@ -835,8 +830,8 @@ const NO_BORDERS = {
 function choiceGridTable(
   grid: ChoiceGrid,
   build: BuildContext,
-  areaWidth = choiceAreaWidth(build.pageWidth),
-  indentPx = QUESTION_INDENT_PX + CHOICE_INDENT,
+  areaWidth: number,
+  indentPx: number,
 ): Table {
   const cellWidth = areaWidth / grid.columns
   return new Table({
@@ -1001,7 +996,8 @@ function questionContent(
   build: BuildContext,
 ): (Paragraph | Table)[] {
   const numbered = printsNumberLine(item)
-  const indent = twips(questionIndentOf(item.question))
+  const indentPx = questionIndentOf(item.question)
+  const indent = twips(indentPx)
   const prefix: ParagraphChild[] = numbered
     ? [
         new TextRun({
@@ -1024,11 +1020,21 @@ function questionContent(
 
   return [
     ...stem,
-    ...(item.grid ? [choiceGridTable(item.grid, build)] : []),
+    // The grid hangs off the question's own number column, which an answer
+    // blank before the number widens, and is set in from the stem by the
+    // answers' indent, as `.choice-grid` is in print.
+    ...(item.grid
+      ? [choiceGridTable(
+          item.grid,
+          build,
+          choiceAreaWidth(build.pageWidth, item.question),
+          indentPx + CHOICE_INDENT,
+        )]
+      : []),
     ...(item.matching ? matchingContent(item.matching, build) : []),
     ...(item.workSpace ? workSpaceParagraphs(item.workSpace, indent) : []),
     ...(item.parts ?? []).flatMap((part) =>
-      partContent(part, questionIndentOf(item.question), build),
+      partContent(part, indentPx, build),
     ),
   ]
 }

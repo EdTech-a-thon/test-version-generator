@@ -125,6 +125,7 @@ import {
   History,
   Library,
   ListChecks,
+  ListOrdered,
   ToggleLeft,
   Link2,
   Pencil,
@@ -152,6 +153,11 @@ import {
   HEADING_SIZE_LABELS,
   TEXT_SIZES,
 } from './section-headings'
+import {
+  DEFAULT_QUESTION_STYLE,
+  QUESTION_STYLES,
+  QUESTION_STYLE_LABELS,
+} from './question-style'
 import { BEFORE_NAVIGATE_EVENT, navigate, replaceRoute, useLocationSearch, useRoute } from './use-route'
 import { Footer } from './site-chrome'
 import { HomePage } from './home-page'
@@ -2435,6 +2441,23 @@ function ExamEditor({
               checked: (state.workingCopy.textSize ?? DEFAULT_TEXT_SIZE) === size,
               onSelect: () => {
                 if (!isHistoricalBrowsing) store.setTextSize(size)
+              },
+            })),
+          },
+          // One style for every question on the Exam, never per question or
+          // per type (ADR-0041). The sheet reflows as soon as it changes.
+          {
+            kind: 'submenu',
+            label: 'Questions',
+            icon: <ListOrdered />,
+            value: QUESTION_STYLE_LABELS[state.workingCopy.questionStyle ?? DEFAULT_QUESTION_STYLE].label,
+            items: QUESTION_STYLES.map((style) => ({
+              kind: 'radio' as const,
+              label: QUESTION_STYLE_LABELS[style].label,
+              description: QUESTION_STYLE_LABELS[style].description,
+              checked: (state.workingCopy.questionStyle ?? DEFAULT_QUESTION_STYLE) === style,
+              onSelect: () => {
+                if (!isHistoricalBrowsing) store.setQuestionStyle(style)
               },
             })),
           },

@@ -156,6 +156,7 @@ export function planImport(
       ...(exam.sectionHeadings ? { sectionHeadings: exam.sectionHeadings } : {}),
       ...(exam.headingSize ? { headingSize: exam.headingSize } : {}),
       ...(exam.textSize ? { textSize: exam.textSize } : {}),
+      ...(exam.questionStyle ? { questionStyle: exam.questionStyle } : {}),
       ...(exam.header ? { header: exam.header } : {}),
       ...(exam.margins ? { margins: exam.margins } : {}),
     }

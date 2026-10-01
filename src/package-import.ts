@@ -3,6 +3,7 @@ import type { ColumnSetting, WorkSpace } from './exam'
 import type { HeadingSize, SectionHeadings, TextSize } from './section-headings'
 import type { ExamHeader } from './page-header'
 import type { PageMargins } from './page-margins'
+import type { QuestionStyle } from './question-style'
 import examSchema010 from './exam-record-0.1.0.schema.json'
 import examSchema020 from './exam-record-0.2.0.schema.json'
 import examSchema030 from './exam-record-0.3.0.schema.json'
@@ -117,6 +118,9 @@ export type ExamRecord = {
   sectionHeadings?: Partial<Record<QuestionBankRecordQuestionType, ExamRecordSectionHeading>>
   headingSize?: HeadingSize
   textSize?: TextSize
+  /** From 0.4.0: how every question on the Exam prints; only when not
+   *  Standard. */
+  questionStyle?: QuestionStyle
   /** The Exam's own test-page header lines; only departures from the default. */
   header?: ExamHeader
   /** From 0.4.0: the Exam's Page Margins in inches, every side; only when they
@@ -165,6 +169,7 @@ export type ProposedExam = {
   sectionHeadings?: SectionHeadings
   headingSize?: HeadingSize
   textSize?: TextSize
+  questionStyle?: QuestionStyle
   header?: ExamHeader
   margins?: PageMargins
   /** Positions regrouped Section by Section — in `sections` order, or for an
@@ -251,6 +256,7 @@ function localHeadingsOf(
   sectionHeadings?: SectionHeadings
   headingSize?: HeadingSize
   textSize?: TextSize
+  questionStyle?: QuestionStyle
   header?: ExamHeader
   margins?: PageMargins
 } {
@@ -268,6 +274,9 @@ function localHeadingsOf(
     ...(entries.length > 0 ? { sectionHeadings } : {}),
     ...(exam.headingSize && exam.headingSize !== 'normal' ? { headingSize: exam.headingSize } : {}),
     ...(exam.textSize && exam.textSize !== 'normal' ? { textSize: exam.textSize } : {}),
+    ...(exam.questionStyle && exam.questionStyle !== 'standard'
+      ? { questionStyle: exam.questionStyle }
+      : {}),
     ...(exam.header && Object.keys(exam.header).length > 0 ? { header: { ...exam.header } } : {}),
     ...(exam.margins ? { margins: { ...exam.margins } } : {}),
   }
@@ -327,16 +336,19 @@ const examParser030: ExamParser = (value) => {
   }
 }
 
-// 0.4.0 adds the Exam's Page Margins (ADR-0039) to 0.3.0, and nothing else; a
-// record without them prints today's margins.
+// 0.4.0 adds the Exam's Page Margins (ADR-0039) and its `questionStyle`
+// (ADR-0041) to 0.3.0, and nothing else; everything 0.3.0 says, it says the
+// same way. A record without margins prints today's margins, and one without a
+// style prints in the standard style.
 const examParser040: ExamParser = (value) => {
   if (!validateExam040(value)) throw schemaFailure('Exam Record', validateExam040.errors)
-  const exam = value as ExamRecord
-  const { top, right, bottom, left } = exam.margins ?? {}
+  const { questionStyle, margins, ...rest } = value as ExamRecord
+  const { top, right, bottom, left } = margins ?? {}
   return {
-    ...examParser030({ ...exam, formatVersion: '0.3.0' }),
+    ...examParser030({ ...rest, formatVersion: '0.3.0' }),
     formatVersion: '0.4.0',
-    ...(exam.margins ? { margins: { top: top!, right: right!, bottom: bottom!, left: left! } } : {}),
+    ...(questionStyle ? { questionStyle } : {}),
+    ...(margins ? { margins: { top: top!, right: right!, bottom: bottom!, left: left! } } : {}),
   }
 }
 

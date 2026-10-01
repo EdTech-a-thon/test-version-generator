@@ -13,7 +13,8 @@ import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs'
 import { createExamDocx } from './docx-export'
 import { EMPTY_EXPORT_HISTORY, plansOf, prepareExport } from './export-preparation'
 import { FIXTURES } from './export-fixtures'
-import { CHOICE_INDENT, PAGE_CONTENT_WIDTH } from './export-plan'
+import { CHOICE_INDENT, PAGE_CONTENT_WIDTH, questionIndentOf } from './export-plan'
+import { ANSWER_BLANK, LONG_ANSWER_BLANK, QUESTION_STYLE_RULES } from './question-style'
 import {
   BODY_LINE_HEIGHT,
   EXAM_FONT,
@@ -104,6 +105,30 @@ describe('print’s stylesheet is the table', () => {
     const grid = await rule('.choice-grid')
     expect(grid).toContain(`width: calc(100% - ${CHOICE_INDENT}px);`)
     expect(grid).toContain(`margin: 8px 0 0 ${CHOICE_INDENT}px;`)
+  })
+
+  // Not type, but the same promise: packing measured these, so print must
+  // draw them at the plan's own numbers.
+  const pxIn = (block: string, property: string) =>
+    Number(new RegExp(`${property}:\\s*(\\d+)px`).exec(block)?.[1])
+
+  test('each Question Style stands its questions as far apart as its rules say', async () => {
+    expect(pxIn(await rule('.exam-question'), 'margin-bottom')).toBe(QUESTION_STYLE_RULES.standard.questionGap)
+    expect(pxIn(await rule("[data-question-style='condensed'] .exam-question"), 'margin-bottom'))
+      .toBe(QUESTION_STYLE_RULES.condensed.questionGap)
+    for (const style of ['examview', 'worksheet'] as const) {
+      expect(QUESTION_STYLE_RULES[style].questionGap).toBe(QUESTION_STYLE_RULES.standard.questionGap)
+    }
+  })
+
+  test.each([
+    ['marks', ['T', 'F']],
+    ['blank', [ANSWER_BLANK]],
+    ['long-blank', [LONG_ANSWER_BLANK]],
+  ] as const)('the %s number column is the width the adapters indent by', async (column, marks) => {
+    const block = await rule(`.exam-question:has(> .question-number--${column})`)
+    const width = Number(/grid-template-columns:\s*(\d+)px/.exec(block)?.[1])
+    expect(width + 6).toBe(questionIndentOf({ type: 'multiple-choice', marks }))
   })
 })
 

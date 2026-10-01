@@ -59,6 +59,14 @@ import {
   type HeadingSize,
   type TextSize,
 } from './section-headings'
+import {
+  ANSWER_BLANK,
+  DEFAULT_QUESTION_STYLE,
+  LONG_ANSWER_BLANK,
+  questionStyleRules,
+  type QuestionStyle,
+  type QuestionStyleRules,
+} from './question-style'
 
 // How many columns a choice grid is drawn in — the same set a question's
 // `columns` setting comes from, named here because the plan is what the
@@ -66,19 +74,27 @@ import {
 export type ColumnCount = 1 | 2 | 4
 
 /** What an item is laid out under besides its own content: the Exam's text
- *  size, and the width its page's margins leave. Absent members are the
- *  defaults — normal text on today's sheet. */
+ *  size, the width its page's margins leave, and its Question Style, which
+ *  decides the space left below a question. Absent members are the defaults —
+ *  normal text on today's sheet, in the Standard style. */
 export type ItemLayout = {
   textSize?: TextSize
   contentWidth?: number
+  questionStyle?: QuestionStyle
 }
 
 // Everything the render needs to know about how big things come out. The app
 // supplies a DOM-backed implementation; tests supply stubs.
 export type Measure = {
-  /** Height in px of one page item, laid out at the content box's width and
-   *  at the Exam's text size. */
+  /** Height in px of one page item, laid out at the content box's width, at
+   *  the Exam's text size and with the space its Question Style leaves below
+   *  a question. Each member of `layout` is passed only when it is not the
+   *  default. */
   itemHeight(item: PageItem, layout?: ItemLayout): number
+  /** The width in px a choice-grid cell needs to hold this answer on one line,
+   *  its letter and the cell's padding included. Optional: a measure without
+   *  it never lets a Question Style widen answers past their set columns. */
+  choiceWidth?(choice: PlannedChoice, textSize?: TextSize): number
 }
 
 // A stub that reports nothing: every item is zero-height, so an exam packs onto
@@ -100,7 +116,9 @@ export type PlannedChoice = {
 
 // The choice grid, row by row. `cells[row][column]` is `null` where the last
 // column runs out of choices. Filled column-major: reading a column top to
-// bottom gives consecutive letters.
+// bottom gives consecutive letters. A cell's letter is the one the test prints
+// — lower case under a Question Style that letters "a." — while the question's
+// own `choices` keep the capitals its Answer Key records.
 export type ChoiceGrid = {
   columns: ColumnCount
   rows: number
@@ -118,8 +136,9 @@ export type PlannedPrompt = {
 }
 
 // A Word Bank answer as it prints: its letter is its position in this
-// arrangement's ordering, which is what a student writes in a prompt's blank
-// and what the answer key records for that prompt.
+// arrangement's ordering, which is what a student writes in a prompt's blank.
+// It prints as the Question Style letters it; the prompt's own `letter`, which
+// the answer key records, keeps its capital.
 export type PlannedBankAnswer = {
   id: string
   letter: string
@@ -209,9 +228,11 @@ export type PlannedQuestion = {
    *  matching set's number is its first prompt's: its prompts take the run of
    *  numbers from there, one each, and the set's stem prints unnumbered. */
   number: number
-  /** What a student circles in the number column, before the number: T and F
-   *  on a True/False question, and nothing on any other. A Multiple Choice
-   *  question's letter is circled on its answer, so it prints no mark here. */
+  /** What prints in the number column, before the number, as the Exam's
+   *  Question Style decides: the T and F a student circles on a True/False
+   *  question, or an answer blank to write on — `ANSWER_BLANK`, or
+   *  `LONG_ANSWER_BLANK` for a word — and nothing on a Standard Multiple
+   *  Choice question, whose letter is circled on its answer. */
   marks: readonly string[]
   /** The question document's top-level blocks, without the choice list. */
   stem: ProseMirrorJSON[]
@@ -531,25 +552,51 @@ export const MAX_WORK_SPACE_HEIGHT = maxWorkSpaceHeight()
 // CSS can't be read from here at build time; if that rule's column width or
 // gap ever changes, this must change with it.
 //
-// The column holds the number alone, and is as wide as a three-digit number:
-// no question prints an answer blank beside its number. A True/False question
-// also prints the T and F a student circles, so its column is wider —
-// `.question-number--marks` in styles.css.
+// On a Standard Exam the column holds the number alone, as wide as a
+// three-digit number. A True/False question also prints the T and F a student
+// circles, so its column is wider — `.question-number--marks` in styles.css. A
+// Question Style that prints an answer blank before the number widens it
+// again: `.question-number--blank`, or `--long-blank` for a word.
 const QUESTION_NUMBER_COLUMN_WIDTH = 34
 const MARKS_QUESTION_NUMBER_COLUMN_WIDTH = 64
+const BLANK_QUESTION_NUMBER_COLUMN_WIDTH = 92
+const LONG_BLANK_QUESTION_NUMBER_COLUMN_WIDTH = 140
 const QUESTION_NUMBER_COLUMN_GAP = 6
 
 /** The answer blank a Multiple Choice or True/False question printed before
- *  its number until Sections were stored (ADR-0029). No new plan carries it;
- *  an Export Record made before then does, and reprints exactly as it was. */
-export const LEGACY_ANSWER_BLANK = '_______'
-/** The number column that blank printed in (`.question-number--legacy-blank`). */
-const LEGACY_QUESTION_NUMBER_COLUMN_WIDTH = 92
+ *  its number until Sections were stored (ADR-0029). An Export Record made
+ *  before then carries it and reprints exactly as it was; a Question Style
+ *  that prints a blank there prints this same one (ADR-0041). */
+export const LEGACY_ANSWER_BLANK = ANSWER_BLANK
 
-/** Whether a planned question is one an Export Record kept from before
- *  Sections were stored, printing an answer blank before its number. */
-export function hasLegacyAnswerBlank(question: { marks?: readonly string[] }): boolean {
-  return question.marks?.includes(LEGACY_ANSWER_BLANK) ?? false
+/** What a question's number column holds, which decides how wide it is: the
+ *  number alone, the T and F to circle, or an answer blank, short or long. */
+export type NumberColumn = 'plain' | 'marks' | 'blank' | 'long-blank'
+
+const NUMBER_COLUMN_WIDTH: Record<NumberColumn, number> = {
+  plain: QUESTION_NUMBER_COLUMN_WIDTH,
+  marks: MARKS_QUESTION_NUMBER_COLUMN_WIDTH,
+  blank: BLANK_QUESTION_NUMBER_COLUMN_WIDTH,
+  'long-blank': LONG_BLANK_QUESTION_NUMBER_COLUMN_WIDTH,
+}
+
+export function numberColumnOf(
+  question: Pick<PlannedQuestion, 'type'> & { marks?: readonly string[] },
+): NumberColumn {
+  if (question.marks?.includes(LONG_ANSWER_BLANK)) return 'long-blank'
+  if (hasAnswerBlank(question)) return 'blank'
+  // A True/False question always had the marks' column, whatever a plan
+  // recorded before marks were stored says it printed there.
+  if ((question.marks?.length ?? 0) > 0 || hasMarks(question.type)) return 'marks'
+  return 'plain'
+}
+
+/** Whether a planned question prints an answer blank before its number, to
+ *  write a letter or a word on rather than circle one: under a Question Style
+ *  that asks for one, or on an Export Record kept from before Sections were
+ *  stored. */
+export function hasAnswerBlank(question: { marks?: readonly string[] }): boolean {
+  return question.marks?.some((mark) => mark === ANSWER_BLANK || mark === LONG_ANSWER_BLANK) ?? false
 }
 
 /** Where a question's body starts, in pixels from the content edge: past the
@@ -557,22 +604,18 @@ export function hasLegacyAnswerBlank(question: { marks?: readonly string[] }): b
 export function questionIndentOf(
   question: Pick<PlannedQuestion, 'type'> & { marks?: readonly string[] },
 ): number {
-  const column = hasLegacyAnswerBlank(question)
-    ? LEGACY_QUESTION_NUMBER_COLUMN_WIDTH
-    : hasMarks(question.type)
-      ? MARKS_QUESTION_NUMBER_COLUMN_WIDTH
-      : QUESTION_NUMBER_COLUMN_WIDTH
-  return column + QUESTION_NUMBER_COLUMN_GAP
+  return NUMBER_COLUMN_WIDTH[numberColumnOf(question)] + QUESTION_NUMBER_COLUMN_GAP
 }
 
-/** Whether a question's number column carries marks a student circles before
- *  its number: only True/False, whose answer is one of two fixed letters. */
+/** Whether a question's number column carries something before its number
+ *  whatever the Question Style: only True/False, whose answer is one of two
+ *  fixed letters, circled or written on a blank. */
 export function hasMarks(type: QuestionType): boolean {
   return type === 'true-false'
 }
 
 /** The letters a True/False question's student circles, in the order they print. */
-export const TRUE_FALSE_MARKS: readonly string[] = ['T', 'F']
+export { TRUE_FALSE_MARKS } from './question-style'
 
 // A matching set's prompts keep their own column: a blank for the letter a
 // student writes, then the number (`.matching-prompt` in styles.css,
@@ -601,16 +644,24 @@ export const PART_INDENT = QUESTION_NUMBER_COLUMN_WIDTH + QUESTION_NUMBER_COLUMN
 export const CHOICE_INDENT = 18
 
 /** The width a Multiple Choice question's choice grid is laid out in, on a
- *  page `contentWidth` wide: past the number column, set in from the stem. */
-export function choiceAreaWidth(contentWidth: number): number {
-  return contentWidth - QUESTION_NUMBER_COLUMN_WIDTH - QUESTION_NUMBER_COLUMN_GAP - CHOICE_INDENT
+ *  page `contentWidth` wide: past the question's number column — which its
+ *  Question Style may widen with an answer blank — set in from the stem.
+ *  Without a question, the plain number column of a Standard Exam. */
+export function choiceAreaWidth(
+  contentWidth: number,
+  question: Pick<PlannedQuestion, 'type'> & { marks?: readonly string[] } = { type: 'multiple-choice' },
+): number {
+  return contentWidth - questionIndentOf(question) - CHOICE_INDENT
 }
 
 /** The width a Multiple Choice Part's choice grid is laid out in: the page
  *  less its Multipart question's number column, its own letter column, and
  *  the answers' indent. */
-export function partChoiceAreaWidth(contentWidth: number): number {
-  return contentWidth - 2 * PART_INDENT - CHOICE_INDENT
+export function partChoiceAreaWidth(
+  contentWidth: number,
+  question: Pick<PlannedQuestion, 'type'> & { marks?: readonly string[] } = { type: 'multipart' },
+): number {
+  return contentWidth - questionIndentOf(question) - PART_INDENT - CHOICE_INDENT
 }
 
 /** Both, on today's sheet. */
@@ -672,19 +723,39 @@ function layOutGrid(
   return { columns, ...layOutColumns(choices, columns) }
 }
 
+/** The answers as the test prints them: lower-cased under a Question Style
+ *  that letters "a.", and otherwise the very same choices. Copies, so the
+ *  question's own choices keep the capitals its Answer Key records. */
+function printedChoices(choices: PlannedChoice[], rules: QuestionStyleRules): PlannedChoice[] {
+  return rules.lettering === 'lower'
+    ? choices.map((choice) => ({ ...choice, letter: choice.letter.toLowerCase() }))
+    : choices
+}
+
 // A matching set under this arrangement: the Word Bank in the arrangement's
 // order, lettered by position, and each prompt numbered from `number` on and
 // given the letter its answer now carries. A prompt that names no answer, or
 // one the bank no longer holds, is unmatched and gets no letter.
+//
+// The Question Style decides how the bank is lettered on the test and where
+// it sits: beside the prompts while it is short and above them once it is
+// long, or always the one or the other. A prompt's letter, the key's, is a
+// capital whatever the bank prints.
 function deriveMatching(
   question: Question,
   arrangement: Arrangement,
   number: number,
+  rules: QuestionStyleRules,
 ): MatchingSet {
-  const bank: PlannedBankAnswer[] = orderedChoices(question, arrangement).map(
-    (answer, index) => ({ id: answer.id, letter: letterAt(index), node: answer.node }),
-  )
-  const letters = new Map(bank.map((answer) => [answer.id, answer.letter]))
+  const ordered = orderedChoices(question, arrangement)
+  const letters = new Map(ordered.map((answer, index) => [answer.id, letterAt(index)]))
+  const bank: PlannedBankAnswer[] = ordered.map((answer, index) => ({
+    id: answer.id,
+    letter: rules.lettering === 'lower' ? letterAt(index).toLowerCase() : letterAt(index),
+    node: answer.node,
+  }))
+  const above = rules.bankPlacement === 'above'
+    || (rules.bankPlacement === 'auto' && bank.length > MATCHING_BESIDE_LIMIT)
   return {
     prompts: promptsOf(question).map((prompt, index) => ({
       id: prompt.id,
@@ -693,10 +764,9 @@ function deriveMatching(
       node: prompt.node,
     })),
     bank,
-    bankGrid:
-      bank.length > MATCHING_BESIDE_LIMIT
-        ? { columns: MATCHING_BANK_COLUMNS, ...layOutColumns(bank, MATCHING_BANK_COLUMNS) }
-        : null,
+    bankGrid: above && bank.length > 0
+      ? { columns: MATCHING_BANK_COLUMNS, ...layOutColumns(bank, MATCHING_BANK_COLUMNS) }
+      : null,
   }
 }
 
@@ -759,6 +829,7 @@ function deriveQuestion(
   arrangement: Arrangement,
   number: number,
 ): PlannedQuestion {
+  const rules = questionStyleRules(exam.questionStyle)
   const trueFalse = question.type === 'true-false'
   const matching = question.type === 'matching'
   const multipart = question.type === 'multipart'
@@ -775,13 +846,18 @@ function deriveQuestion(
     id: question.id,
     type: question.type,
     number,
-    marks: trueFalse ? TRUE_FALSE_MARKS : [],
+    marks: trueFalse
+      ? rules.trueFalseMarks
+      : question.type === 'multiple-choice' ? rules.multipleChoiceMarks : [],
     stem: stemNodesOf(question.doc),
     choices,
     // A True/False question never prints its pair as lettered answers: its
-    // marks are the T and F a student circles beside its number.
-    grid: trueFalse || matching || multipart ? null : layOutGrid(choices, columnsOf(question)),
-    matching: matching ? deriveMatching(question, arrangement, number) : null,
+    // marks are the T and F a student circles beside its number, or the blank
+    // they write one on.
+    grid: trueFalse || matching || multipart
+      ? null
+      : layOutGrid(printedChoices(choices, rules), columnsOf(question)),
+    matching: matching ? deriveMatching(question, arrangement, number, rules) : null,
     workSpace: takesWorkSpace(question.type) ? workSpaceOf(exam, question.id) : null,
     ...(question.difficulty ? { difficulty: question.difficulty } : {}),
     ...(topicsOf(question).length > 0 ? { topics: [...topicsOf(question)] } : {}),
@@ -1287,6 +1363,10 @@ export type ExportDocument = {
   textSize?: TextSize
   /** The Exam's Page Margins in inches, where not the default. */
   margins?: PageMargins
+  /** The Exam's Question Style, where not Standard. Its rules are already in
+   *  the items; layout reads it for what packing alone decides — how far apart
+   *  questions stand, and whether answers fit across the line. */
+  questionStyle?: QuestionStyle
 }
 
 /** Semantic derivation, on its own. Exposed so tests and fingerprints can read
@@ -1314,6 +1394,9 @@ export function buildExportDocument(
       : {}),
     ...(exam.textSize && exam.textSize !== DEFAULT_TEXT_SIZE ? { textSize: exam.textSize } : {}),
     ...(exam.margins && !sameMargins(exam.margins, undefined) ? { margins: { ...exam.margins } } : {}),
+    ...(exam.questionStyle && exam.questionStyle !== DEFAULT_QUESTION_STYLE
+      ? { questionStyle: exam.questionStyle }
+      : {}),
   }
 }
 
@@ -1398,6 +1481,10 @@ export type LayoutPlan = {
   /** How large the pages' content prints, when not normal. Every adapter sets
    *  its body type from this; it is what the items were measured at. */
   textSize?: TextSize
+  /** The Question Style the pages were laid out in, when not Standard. What
+   *  it prints is in the items; adapters read this only for the space each
+   *  question leaves below itself, which is what packing measured. */
+  questionStyle?: QuestionStyle
   pages: PlannedPage[]
 }
 
@@ -1411,26 +1498,97 @@ export type PlanRequest = {
   version?: string
 }
 
+/** The column counts a Question Style may widen answers to, widest first. */
+const ACROSS_COLUMNS: readonly ColumnCount[] = [4, 2]
+
+/** Whether an answer is text alone — paragraphs of text, marks and math —
+ *  which is all that can be said to fit on one line. A picture or a table
+ *  keeps the columns the teacher set. */
+function holdsTextOnly(choice: PlannedChoice): boolean {
+  const blocks = Array.isArray(choice.node.content) ? (choice.node.content as ProseMirrorJSON[]) : []
+  const inlineOnly = (node: ProseMirrorJSON): boolean =>
+    node.type !== 'image' && node.type !== 'image-block'
+    && (!Array.isArray(node.content) || (node.content as ProseMirrorJSON[]).every(inlineOnly))
+  return blocks.every((block) => block.type === 'paragraph' && inlineOnly(block))
+}
+
+/** A grid widened to the most columns, past its own, at which every answer
+ *  holds one line in a cell of a lane `areaWidth` wide — or the grid as it was
+ *  when no wider count fits, the measure cannot say, or an answer holds more
+ *  than text. Never narrower than the teacher's own setting. */
+function acrossGrid(
+  grid: ChoiceGrid | null,
+  areaWidth: number,
+  measure: Measure,
+  textSize: TextSize | undefined,
+): ChoiceGrid | null {
+  if (!grid || !measure.choiceWidth) return grid
+  const choices = grid.cells.flat().filter((cell): cell is PlannedChoice => cell !== null)
+  if (!choices.every(holdsTextOnly)) return grid
+  // Read back in letter order: the grid is filled column-major.
+  const ordered = [...choices].sort((left, right) =>
+    left.letter.length - right.letter.length || left.letter.localeCompare(right.letter))
+  const widest = Math.max(...ordered.map((choice) => measure.choiceWidth!(choice, textSize)))
+  const columns = ACROSS_COLUMNS.find(
+    (count) => count > grid.columns && widest <= areaWidth / count,
+  )
+  return columns ? layOutGrid(ordered, columns) : grid
+}
+
+// A Question Style that lays answers across the line (Condensed) decides how
+// far once the items are known and before they pack, since how many columns an
+// answer fits in is a measurement: each Multiple Choice question's and Part's
+// grid widens as far as every answer still holds one line. The answer key is
+// untouched, since it never prints a grid. The lane is what the grid is drawn
+// in: the page's width between its margins, less the question's own number
+// column (and a Part's letter column) and the answers' indent.
+function fitAnswersAcross(
+  items: readonly PageItem[],
+  measure: Measure,
+  textSize: TextSize | undefined,
+  contentWidth: number,
+): PageItem[] {
+  return items.map((item) => {
+    if (item.kind !== 'question') return item
+    const { question } = item
+    const lane = choiceAreaWidth(contentWidth, question)
+    const grid = acrossGrid(question.grid, lane, measure, textSize)
+    const parts = question.parts?.map((part) => {
+      const partGrid = acrossGrid(part.grid, partChoiceAreaWidth(contentWidth, question), measure, textSize)
+      return partGrid === part.grid ? part : { ...part, grid: partGrid }
+    }) ?? null
+    if (grid === question.grid && parts?.every((part, index) => part === question.parts![index]) !== false) {
+      return item
+    }
+    return wholeQuestion({ ...question, grid, parts })
+  })
+}
+
 /** Layout resolution, on its own: an Export Document onto sheets. Keeping the
  *  two `paginate` calls independent is what restarts the answer key's footer. */
 function resolveLayout(
   document: ExportDocument,
   measure: Measure,
 ): LayoutPlan {
-  const { textSize } = document
+  const { textSize, questionStyle } = document
   const pageSize = pageSizeOf(document.margins)
-  // Every item is measured at the Exam's text size and at the width its
-  // margins leave; an Exam with neither asks exactly as it always did.
+  // Every item is measured at the Exam's text size, at the width its margins
+  // leave and in its Question Style; an Exam with none of them asks exactly as
+  // it always did.
   const layout: ItemLayout = {
     ...(textSize ? { textSize } : {}),
     ...(pageSize.contentWidth !== PAGE_CONTENT_WIDTH ? { contentWidth: pageSize.contentWidth } : {}),
+    ...(questionStyle ? { questionStyle } : {}),
   }
   const sized: Measure = Object.keys(layout).length > 0
     ? { itemHeight: (item) => measure.itemHeight(item, layout) }
     : measure
   const pages: PackedPage[] = []
   if (document.selection.test) {
-    pages.push(...paginate(document.test, sized, pageSize, 'test', 'first', 'later'))
+    const test = questionStyleRules(questionStyle).answersAcross
+      ? fitAnswersAcross(document.test, measure, textSize, pageSize.contentWidth)
+      : document.test
+    pages.push(...paginate(test, sized, pageSize, 'test', 'first', 'later'))
   }
   if (document.selection.answerKey) {
     pages.push(
@@ -1450,6 +1608,7 @@ function resolveLayout(
     selection: document.selection,
     pageSize,
     ...(textSize ? { textSize } : {}),
+    ...(questionStyle ? { questionStyle } : {}),
     // Every page but the first of the serialized document is preceded by an
     // explicit break. A linear format must reproduce the plan's pagination
     // rather than rediscover one of its own.

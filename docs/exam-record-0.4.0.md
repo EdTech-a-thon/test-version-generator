@@ -1,6 +1,6 @@
 # Exam Record 0.4.0
 
-The **Exam Record** is the portable composition of one Exam: its name, its test-page header lines, its Question Sections in print order and how each one's heading reads, how large its headings and text print, how far in from each edge its pages print, and, for each position, the Question it uses, the Section it is in, and that position's answer columns, answer order and Work Space. It never carries Question Content. It references Questions in Question Bank Records that travel beside it in the same [Test Parrot Package](test-parrot-package-0.1.0.md), and it is importable only inside one. See ADR-0022, ADR-0029 and ADR-0039.
+The **Exam Record** is the portable composition of one Exam: its name, its test-page header lines, its Question Sections in print order and how each one's heading reads, how large its headings and text print, how its questions print, how far in from each edge its pages print, and, for each position, the Question it uses, the Section it is in, and that position's answer columns, answer order and Work Space. It never carries Question Content. It references Questions in Question Bank Records that travel beside it in the same [Test Parrot Package](test-parrot-package-0.1.0.md), and it is importable only inside one. See ADR-0022, ADR-0029, ADR-0039 and ADR-0041.
 
 ## Published contract
 
@@ -23,6 +23,7 @@ The schema is the structural contract; this document supplies the rules JSON Sch
 | `sections`      | The Exam's Question Sections, in the order they print. May be empty. See below. |
 | `headingSize`   | Optional. `small`, `normal` or `large`: how large every heading prints — the Exam's title, and each section heading and its directions. Absent means `normal`. |
 | `textSize`      | Optional. `small`, `normal` or `large`: how large the Exam's questions, answers and answer-key lines print. The page header line keeps its size. Absent means `normal`. |
+| `questionStyle` | Optional. `standard`, `examview`, `condensed` or `worksheet`: how every question on the Exam prints. Absent means `standard`. See below. |
 | `header`        | Optional. The Exam's own test-page header lines. See below. |
 | `margins`       | Optional. How far in from each edge of the sheet the Exam's pages print. See below. |
 | `positions`     | The Exam's positions, in print order. May be empty.      |
@@ -55,7 +56,7 @@ Each position has these members:
 | `section`     | yes      | The index, from 0, into `sections` of the Section the position is in. |
 | `columns`     | no       | `1`, `2` or `4`: how many columns a **Multiple Choice** Question's answers lay out in. Allowed on no other Question Type. |
 | `answerOrder` | no       | A permutation of the Question's answer ids: its choice ids on **Multiple Choice**, or its Word Bank ids on **Matching**. It must list every answer exactly once. Allowed on no other Question Type; True/False answers are always True, then False. |
-| `workSpace`   | no       | `{ "height", "style", "fill" }`, room left below a **Short Answer** Question for a student's working. Allowed on no other Question Type. `height` is in CSS pixels at 96 dpi and is snapped to whole ruled lines of 32 px on import; `style` is `blank` or `lines`; `fill` stretches the space to the foot of its page, with `height` the least room it takes. |
+| `workSpace`   | no       | `{ "height", "style", "fill" }`, room left below a **Short Answer** Question for a student's working. Allowed on no other Question Type. `height` is in CSS pixels at 96 dpi and is snapped to whole ruled lines of 32 px on import; `style` is `blank` or `lines`; `fill` stretches the space to the foot of its page, with `height` the least room it takes. A `height` of 0 with `fill` false is no room, set on purpose; it wins over the room a `questionStyle` would rule there. |
 
 Semantic rules:
 
@@ -67,6 +68,22 @@ Semantic rules:
 ## Order
 
 Sections print in the order `sections` lists them, and question numbering runs continuously across them. Producers write positions in print order: every position of the first Section, then every position of the second, and so on. On import, positions are stably regrouped by `section`, keeping only their order within each Section. A record whose positions interleave Sections is conforming; it is not rejected and no warning is given.
+
+## Question Style
+
+`questionStyle` is one preset for the whole Exam (ADR-0041); there is no per-position or per-type style. It changes only how the test prints. The Answer Key is the same under every style, its answers in capitals.
+
+| Value       | Before a Multiple Choice number | Before a True/False number | Answer letters | Word Bank | Short Answer with no `workSpace` | Question spacing |
+| ----------- | ------------------------------- | -------------------------- | -------------- | --------- | -------------------------------- | ---------------- |
+| `standard`  | nothing; the letter is circled  | T and F, to circle         | `A.`           | beside its Items up to five answers, above them past that | no room | the sheet's own |
+| `examview`  | an answer blank                 | an answer blank            | `a.`           | above its Items | three ruled lines (96 px) | the sheet's own |
+| `condensed` | nothing; the letter is circled  | T and F, to circle         | `A.`           | beside its Items up to five answers, above them past that | no room | closer together |
+| `worksheet` | an answer blank                 | a longer answer blank, for the word | `a.`  | beside its Items | two ruled lines (64 px) | the sheet's own |
+
+- Every Matching Item prints its own answer blank under every style.
+- A Multiple Choice Part keeps capital letters under every style, so they never read as the Part letters beside them.
+- Under `condensed`, a Multiple Choice Question's or Part's answers are laid out in four, or else two, columns where every answer fits one line of a column; never in fewer columns than its `columns`.
+- The room a style rules applies to a Short Answer position, and to every Short Answer Part of a Multipart position, that has no `workSpace`. A `workSpace` always wins, including a zero-height one.
 
 ## Header
 
@@ -90,16 +107,21 @@ Every page is US Letter. By default it prints three quarters of an inch in from 
 
 - A Multiple Choice position without `columns` takes the answer columns of the Multiple Choice position before it, or one column if it is the first — the same rule that applies when a teacher adds a Question to an Exam.
 - A position without `answerOrder` prints its answers in their authored order.
-- A Short Answer position without `workSpace` leaves no room.
+- A Short Answer position without `workSpace` leaves the room its `questionStyle` rules, which under `standard` and `condensed` is none.
 - A **Multipart** position (Question Bank Record `0.4.0`) carries only `question` and `section`. Answer order, answer columns and Work Space are set per Part in Test Parrot, and this version has no member for a Part's, so none of the three is allowed on a Multipart position and every Part imports with its defaults: answers in authored order, the default answer columns, and a Short Answer Part's default Work Space.
 
 ## Producers
 
-Record `columns` only when the source layout makes them clear, and never guess `workSpace`.
+Record `columns` only when the source layout makes them clear, and never guess `workSpace`. Record `questionStyle` only when it is not `standard`, and `workSpace` only where the teacher set it: the room a style rules is not written out as a `workSpace`.
 
 ## Changes from 0.3.0
 
-`margins` is new and optional: an Exam's Page Margins, one per side, in inches (ADR-0039). Nothing else changed. Test Parrot writes `0.4.0` and still imports `0.3.0`, `0.2.0` and `0.1.0`, each with the default margins.
+Two members are new, both optional:
+
+- `margins`: an Exam's Page Margins, one per side, in inches (ADR-0039).
+- `questionStyle`: how every question on the Exam prints (ADR-0041). A Short Answer position's default Work Space now follows it. A zero-height `workSpace` was always conforming; it now means "no room" even where the style would rule lines.
+
+Nothing else changed. Test Parrot writes `0.4.0` and still imports `0.3.0`, `0.2.0` and `0.1.0`, each with the default margins and as an Exam in the `standard` style.
 
 ## Changes in 0.3.0, from 0.2.0
 

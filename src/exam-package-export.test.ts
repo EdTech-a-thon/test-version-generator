@@ -17,7 +17,7 @@ import { createPublicationPdf, type PdfFontLoader } from './pdf-export'
 import { examPackage, withExamPackage } from './exam-package-export'
 import { initialSelection } from './import-selection'
 import { planImport } from './package-commit'
-import { inspectImportFile, inspectImportRecord } from './package-import'
+import { inspectImportFile, inspectImportRecord, type ExamRecord } from './package-import'
 import { selectedExam } from './selected-exam'
 import type { QuestionBankResource } from './question-bank-workspaces'
 
@@ -143,6 +143,27 @@ function printed(sheet: Exam, order: Arrangement) {
 }
 
 describe('an Exam PDF carrying its Exam', () => {
+  test('carries the Question Style, and only the Work Space the teacher set, "None" included where the style rules lines', async () => {
+    const recordOf = async (sheet: Exam) =>
+      (await examPackage({ exam: sheet, arrangement, ownerOf, loadMedia: noImages })).package.exams[0]!
+    const shortAnswerOf = (record: ExamRecord) =>
+      record.positions.find((position) => position.workSpace !== undefined)?.workSpace
+
+    // The room the style rules is the style's, and is not written out.
+    const ruled = await recordOf({ ...exam, workSpace: {}, questionStyle: 'worksheet' })
+    expect(ruled.questionStyle).toBe('worksheet')
+    expect(shortAnswerOf(ruled)).toBeUndefined()
+
+    // "None" set against the style travels, so it still wins on import.
+    const none = { height: 0, style: 'blank' as const, fill: false }
+    const cleared = await recordOf({ ...exam, workSpace: { 'forces-1': none }, questionStyle: 'examview' })
+    expect(shortAnswerOf(cleared)).toEqual(none)
+
+    const plain = await recordOf(exam)
+    expect(plain).not.toHaveProperty('questionStyle')
+    expect(shortAnswerOf(plain)).toEqual({ height: 96, style: 'lines', fill: false })
+  })
+
   test('re-importing an answer-key PDF reproduces exactly what it printed', async () => {
     const withPackage = await withExamPackage(
       prepared({ format: 'pdf', selection: { test: true, answerKey: true } }),

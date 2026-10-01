@@ -57,6 +57,7 @@ import {
   titlePoints,
 } from './export-typography'
 import type { ProseMirrorJSON } from './question-doc'
+import { STANDARD_QUESTION_GAP, questionStyleRules } from './question-style'
 import { MATH_SIZE, drawTypesetMath, mathTypesetter } from './pdf-math-draw'
 import {
   mathPieces as writtenMath,
@@ -81,6 +82,12 @@ const SHEET_BODY_LINE = SHEET_BODY_SIZE * BODY_LINE_HEIGHT
 // drawing is synchronous, so no other export can see a plan's size.
 let BODY_SIZE = SHEET_BODY_SIZE
 let BODY_LINE = SHEET_BODY_LINE
+// The room below each question: this adapter's own 10pt on a Standard sheet,
+// scaled by how much nearer the plan's Question Style stands its questions
+// than print's 26px — so a Condensed page fits what packing put on it. Set
+// for each plan in `createPdf`, like the body type.
+const SHEET_QUESTION_GAP = 10
+let QUESTION_GAP = SHEET_QUESTION_GAP
 const SMALL_SIZE = pointsOf('small')
 /** KaTeX sets an equation at 1.21 times the size of the text around it. */
 const HEADING_SIZE = pointsOf('sectionTitle')
@@ -897,7 +904,7 @@ function drawQuestion(context: DrawContext, item: QuestionItem): void {
     drawPart(context, part, bodyX, bodyWidth)
   }
   if (parts.at(-1)?.workSpace?.fill) return
-  context.y -= 10
+  context.y -= QUESTION_GAP
 }
 
 function drawItem(context: DrawContext, item: PageItem): void {
@@ -1159,6 +1166,8 @@ async function createPdf(
       const scale = bodyScale(plan.textSize)
       BODY_SIZE = SHEET_BODY_SIZE * scale
       BODY_LINE = SHEET_BODY_LINE * scale
+      QUESTION_GAP = SHEET_QUESTION_GAP
+        * (questionStyleRules(plan.questionStyle).questionGap / STANDARD_QUESTION_GAP)
       for (const planned of plan.pages) {
         const width = pt(plan.pageSize.width)
         const height = pt(plan.pageSize.height)
@@ -1200,6 +1209,7 @@ async function createPdf(
   } finally {
     BODY_SIZE = SHEET_BODY_SIZE
     BODY_LINE = SHEET_BODY_LINE
+    QUESTION_GAP = SHEET_QUESTION_GAP
   }
   if (attachment !== undefined) {
     // The same attachment identity a Question Bank File uses, so one importer

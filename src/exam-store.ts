@@ -26,7 +26,8 @@ import {
   mergeSection,
   moveToNewSection,
   splitSection,
-  NO_WORK_SPACE,
+  defaultWorkSpaceOf,
+  workSpaceIn,
   placeQuestions,
   rewordSection,
   sameSectionOf,
@@ -65,6 +66,7 @@ import {
 } from './section-headings'
 import { isExamHeader, sameExamHeader, withHeaderLine, type HeaderLine } from './page-header'
 import { isPageMargins, sameMargins, withMargin, type MarginSide } from './page-margins'
+import { DEFAULT_QUESTION_STYLE, isQuestionStyle, type QuestionStyle } from './question-style'
 import {
   bankQuestionById,
   createWorkingCopy,
@@ -217,7 +219,8 @@ function isWorkingCopy(value: unknown): value is ExamWorkingCopy {
     (draft.headingSize === undefined || isHeadingSize(draft.headingSize)) &&
     (draft.header === undefined || isExamHeader(draft.header)) &&
     (draft.textSize === undefined || isTextSize(draft.textSize)) &&
-    (draft.margins === undefined || isPageMargins(draft.margins))
+    (draft.margins === undefined || isPageMargins(draft.margins)) &&
+    (draft.questionStyle === undefined || isQuestionStyle(draft.questionStyle))
   )
 }
 
@@ -248,6 +251,7 @@ const WORKING_COPY_SETTINGS: Readonly<Record<string, (value: unknown) => boolean
   header: isExamHeader,
   textSize: isTextSize,
   margins: isPageMargins,
+  questionStyle: isQuestionStyle,
 }
 
 // A draft an earlier build stored, in the current shape. Its questions are
@@ -328,6 +332,9 @@ export type ExamStore = {
   /** How large every section heading prints on this Exam. */
   setHeadingSize(size: HeadingSize): void
   setTextSize(size: TextSize): void
+  /** How every question on this Exam prints. Switching never touches a Work
+   *  Space the teacher set. */
+  setQuestionStyle(style: QuestionStyle): void
   /** Rewords one test-page header line; `null` restores its default. */
   setHeaderLine(line: HeaderLine, text: string | null): void
   /** Sets how far in from `sides` of the sheet the Exam's pages print, in
@@ -468,6 +475,7 @@ function sameExamWorkingCopy(left: ExamWorkingCopy, right: ExamWorkingCopy): boo
     && sameExamHeader(left.header, right.header)
     && (left.textSize ?? DEFAULT_TEXT_SIZE) === (right.textSize ?? DEFAULT_TEXT_SIZE)
     && sameMargins(left.margins, right.margins)
+    && (left.questionStyle ?? DEFAULT_QUESTION_STYLE) === (right.questionStyle ?? DEFAULT_QUESTION_STYLE)
 }
 
 /** The Part with this id, when it belongs to a Multipart question this Exam references.
@@ -791,6 +799,14 @@ export function createExamStore(options: {
         return { ...current, workingCopy }
       }),
 
+    setQuestionStyle: (style) =>
+      change((current) => {
+        if ((current.workingCopy.questionStyle ?? DEFAULT_QUESTION_STYLE) === style) return current
+        const workingCopy: ExamWorkingCopy = { ...current.workingCopy, questionStyle: style }
+        if (style === DEFAULT_QUESTION_STYLE) delete workingCopy.questionStyle
+        return { ...current, workingCopy }
+      }),
+
     setHeaderLine: (line, text) =>
       change((current) => {
         const header = withHeaderLine(current.workingCopy.header, line, text)
@@ -917,7 +933,10 @@ export function createExamStore(options: {
             const question = bankQuestionById(current.questionBank, questionId)
             if (!question || !takesWorkSpace(question.type)) continue
           }
-          const prior = currentSpaces[questionId] ?? NO_WORK_SPACE
+          // What the position prints now: its own setting, or its Question
+          // Style's default when it has none.
+          const style = current.workingCopy.questionStyle
+          const prior = workSpaceIn(currentSpaces, style, questionId)
           const next: WorkSpace = {
             height: snapWorkSpaceHeight(patch.height ?? prior.height),
             style: patch.style ?? prior.style,
@@ -929,9 +948,12 @@ export function createExamStore(options: {
             && next.fill === prior.fill
           ) continue
           // No room at all is the absence of a setting, not a stored zero, so
-          // taking work space away leaves the Working Copy as it was before.
-          if (hasWorkSpace(next)) nextSpaces[questionId] = next
-          else delete nextSpaces[questionId]
+          // taking work space away leaves the Working Copy as it was before —
+          // unless the Question Style would rule lines there: then "None" is
+          // the teacher's own setting, stored, and wins over the style.
+          if (hasWorkSpace(next) || hasWorkSpace(defaultWorkSpaceOf(style))) {
+            nextSpaces[questionId] = next
+          } else delete nextSpaces[questionId]
           changed = true
         }
         return changed

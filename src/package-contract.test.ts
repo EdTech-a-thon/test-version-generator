@@ -158,6 +158,8 @@ describe('public Exam Record 0.3.0 contract', () => {
   })
 })
 
+// 0.4.0 adds `margins` (ADR-0039) and `questionStyle` (ADR-0041) to 0.3.0, and
+// nothing else of its own.
 describe('public Exam Record 0.4.0 contract', () => {
   test('is the version Test Parrot writes', () => {
     expect(EXAM_FORMAT_VERSION).toBe('0.4.0')
@@ -171,9 +173,10 @@ describe('public Exam Record 0.4.0 contract', () => {
     ).toEqual(publicExamSchema040)
   })
 
-  test('adds only optional margins to 0.3.0', () => {
-    const { margins, ...rest } = publicExamSchema040.properties
+  test('adds only optional margins and questionStyle to 0.3.0', () => {
+    const { margins, questionStyle, ...rest } = publicExamSchema040.properties
     expect(margins).toBeDefined()
+    expect(questionStyle).toBeDefined()
     expect({ ...rest, formatVersion: undefined }).toEqual({ ...publicExamSchema030.properties, formatVersion: undefined })
     expect(publicExamSchema040.required).toEqual(publicExamSchema030.required)
   })
@@ -181,7 +184,7 @@ describe('public Exam Record 0.4.0 contract', () => {
   test('canonical examples validate independently against the published schema', async () => {
     const validate = strict().compile(publicExamSchema040)
     const names = await filesIn(join(currentExamRoot, 'examples'))
-    expect(names).toEqual(['margins.json', 'minimal.json'])
+    expect(names).toEqual(['margins.json', 'minimal.json', 'question-style.json'])
     for (const name of names) {
       expect(validate(await read(join(currentExamRoot, 'examples'), name)), `${name}: ${JSON.stringify(validate.errors)}`).toBe(true)
     }
@@ -216,6 +219,34 @@ describe('public Exam Record 0.4.0 contract', () => {
     expect(withMargins.exams[0]!.sections).toHaveLength(4)
     const without = await proposalOf('minimal.json')
     expect(without.exams[0]!).not.toHaveProperty('margins')
+    expect(without.exams[0]!).not.toHaveProperty('questionStyle')
+  })
+
+  test('a Question Style is one of four, for the whole Exam', () => {
+    const validate = strict().compile(publicExamSchema040)
+    const exam = (questionStyle: unknown) => ({
+      format: 'test-parrot/exam', formatVersion: '0.4.0', name: 'Quiz', sections: [], positions: [], questionStyle,
+    })
+    for (const style of ['standard', 'examview', 'condensed', 'worksheet']) {
+      expect(validate(exam(style)), style).toBe(true)
+    }
+    expect(validate(exam('ExamView'))).toBe(false)
+    expect(validate(exam(2))).toBe(false)
+    expect(validate({
+      format: 'test-parrot/exam', formatVersion: '0.4.0', name: 'Quiz', sections: [], positions: [],
+    })).toBe(true)
+  })
+
+  test('the example with a Question Style imports with it, and with its Work Space of none', async () => {
+    const example = await read(join(currentExamRoot, 'examples'), 'question-style.json')
+    const testParrotPackage = await read(join(packageRoot, 'examples'), 'bank-and-exam.json')
+    const exam = JSON.parse(JSON.stringify(example).replaceAll('"bank":"bank"', '"bank":"cells"'))
+    const proposal = await inspectImportRecord(
+      new TextEncoder().encode(JSON.stringify({ ...testParrotPackage, exams: [exam] })),
+    )
+    expect(proposal.exams[0]!.questionStyle).toBe('examview')
+    expect(proposal.exams[0]!.formatVersion).toBe('0.4.0')
+    expect(proposal.exams[0]!.positions.at(-1)!.workSpace).toEqual({ height: 0, style: 'blank', fill: false })
   })
 })
 

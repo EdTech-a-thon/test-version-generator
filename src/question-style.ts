@@ -1,0 +1,156 @@
+// What an Exam's Question Style says about how its questions print.
+//
+// A Question Style is one test-wide preset, chosen from the Format menu like
+// the heading and text sizes (ADR-0025), and never set per question or per
+// Question Type (ADR-0041). It decides what prints before a question's number,
+// how answers are lettered and laid out, how a matching set's Word Bank sits,
+// what room a Short Answer position leaves when the teacher has set none, and
+// how far apart questions stand. The Export Document reads these rules once,
+// so print, PDF, DOCX, the Export Preview and the exam sheet all draw the same
+// thing; nothing here is read by an adapter.
+//
+// `'standard'` is the sheet as it printed before Question Styles existed, so an
+// Exam that never chose one prints exactly as it always did.
+
+import type { WorkSpace } from './exam'
+
+export type QuestionStyle = 'standard' | 'examview' | 'condensed' | 'worksheet'
+
+export const QUESTION_STYLES: readonly QuestionStyle[] = [
+  'standard',
+  'examview',
+  'condensed',
+  'worksheet',
+]
+
+export const DEFAULT_QUESTION_STYLE: QuestionStyle = 'standard'
+
+/** Whether a stored value is a Question Style this build can print. The single
+ *  guard, so storage and import agree on what a readable record is. */
+export function isQuestionStyle(value: unknown): value is QuestionStyle {
+  return QUESTION_STYLES.includes(value as QuestionStyle)
+}
+
+/** How each Question Style is named, and said in a line, in the Format menu. */
+export const QUESTION_STYLE_LABELS: Record<QuestionStyle, { label: string; description: string }> = {
+  standard: {
+    label: 'Standard',
+    description: 'Circle the letter or T/F; no blanks before numbers.',
+  },
+  examview: {
+    label: 'ExamView',
+    description: 'A blank before each objective number; lined space for written answers.',
+  },
+  condensed: {
+    label: 'Condensed',
+    description: 'Saves paper: tighter spacing, answers across the line where they fit.',
+  },
+  worksheet: {
+    label: 'Worksheet',
+    description: 'Write-on blanks, a long one for true or false; lines for short answers.',
+  },
+}
+
+/** The answer blank a student writes a letter, or T or F, on, printed before a
+ *  question's number. The same seven underscores an Export Record made before
+ *  Sections were stored printed there (ADR-0029), so such a record reprints
+ *  through the same path. */
+export const ANSWER_BLANK = '_______'
+
+/** The longer blank a Worksheet prints before a True/False number, room for a
+ *  student to write the whole word. */
+export const LONG_ANSWER_BLANK = '____________'
+
+/** How a style letters answers on the test. The Answer Key keeps its capitals
+ *  whatever the test prints: it is the teacher's reference, as ExamView's own
+ *  key reads "ANS: A" beside a test lettered "a.". */
+export type Lettering = 'upper' | 'lower'
+
+/** Where a matching set's Word Bank prints: beside its Items up to
+ *  `MATCHING_BESIDE_LIMIT` answers and above them past it (`'auto'`), always
+ *  above them, or always beside them. */
+export type BankPlacement = 'auto' | 'above' | 'beside'
+
+export type QuestionStyleRules = {
+  /** What prints before a True/False question's number. */
+  trueFalseMarks: readonly string[]
+  /** What prints before a Multiple Choice question's number. */
+  multipleChoiceMarks: readonly string[]
+  /** How a Multiple Choice question's answers, and a Word Bank, are lettered.
+   *  A Multiple Choice Part keeps its capitals, so its answers never read as
+   *  the Part letters `a.`, `b.` beside them. */
+  lettering: Lettering
+  /** Whether a Multiple Choice question's or Part's answers widen past the
+   *  columns the teacher set, to as many as hold each answer on one line.
+   *  Never narrower than the teacher's own setting. */
+  answersAcross: boolean
+  bankPlacement: BankPlacement
+  /** The room a Short Answer question or Part leaves when the teacher has set
+   *  none on this Exam. An explicit Work Space — "None" included — always
+   *  wins; `null` leaves no room, as every Exam did before. */
+  defaultWorkSpace: WorkSpace | null
+  /** The space below each question, in CSS pixels: `.exam-question`'s bottom
+   *  margin in styles.css, which `export-typography.test.ts` holds to it. */
+  questionGap: number
+}
+
+/** The letters a True/False question's student circles, in the order they print. */
+export const TRUE_FALSE_MARKS: readonly string[] = ['T', 'F']
+
+/** The question gap every style but Condensed keeps: the sheet's own. */
+export const STANDARD_QUESTION_GAP = 26
+
+export const QUESTION_STYLE_RULES: Record<QuestionStyle, QuestionStyleRules> = {
+  // The sheet as ADR-0029 left it: T and F to circle, a letter circled on its
+  // answer, no blanks, and no room a teacher did not ask for.
+  standard: {
+    trueFalseMarks: TRUE_FALSE_MARKS,
+    multipleChoiceMarks: [],
+    lettering: 'upper',
+    answersAcross: false,
+    bankPlacement: 'auto',
+    defaultWorkSpace: null,
+    questionGap: STANDARD_QUESTION_GAP,
+  },
+  // ExamView Test Generator's printed defaults (v11 user guide, Answers tab):
+  // an answer blank before every objective question's number, True/False
+  // written on that blank rather than offered as choices, matching choices
+  // lettered a–z above the numbered Items, and answer lines below open-ended
+  // questions.
+  examview: {
+    trueFalseMarks: [ANSWER_BLANK],
+    multipleChoiceMarks: [ANSWER_BLANK],
+    lettering: 'lower',
+    answersAcross: false,
+    bankPlacement: 'above',
+    defaultWorkSpace: { height: 96, style: 'lines', fill: false },
+    questionGap: STANDARD_QUESTION_GAP,
+  },
+  // Paper first: nothing added, questions closer together, and answers laid
+  // across the line wherever they fit.
+  condensed: {
+    trueFalseMarks: TRUE_FALSE_MARKS,
+    multipleChoiceMarks: [],
+    lettering: 'upper',
+    answersAcross: true,
+    bankPlacement: 'auto',
+    defaultWorkSpace: null,
+    questionGap: 12,
+  },
+  // A publisher's study guide: write-on blanks before every number, a long one
+  // for a word, and Column B beside the Items it is matched against.
+  worksheet: {
+    trueFalseMarks: [LONG_ANSWER_BLANK],
+    multipleChoiceMarks: [ANSWER_BLANK],
+    lettering: 'lower',
+    answersAcross: false,
+    bankPlacement: 'beside',
+    defaultWorkSpace: { height: 64, style: 'lines', fill: false },
+    questionGap: STANDARD_QUESTION_GAP,
+  },
+}
+
+/** The rules an Exam prints by; absent means Standard. */
+export function questionStyleRules(style: QuestionStyle | undefined): QuestionStyleRules {
+  return QUESTION_STYLE_RULES[style ?? DEFAULT_QUESTION_STYLE]
+}

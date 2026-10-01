@@ -50,6 +50,8 @@ export type MenuItem =
       checked: boolean
       onSelect: () => void
       icon?: ReactNode
+      /** A line under the label saying what choosing it does. */
+      description?: string
     }
   // An option that is on or off on its own, beside rather than among a set of
   // radios. Its leading slot is its icon; the tick sits where a radio's dot does.
@@ -66,6 +68,8 @@ export type MenuItem =
       label: string
       items: readonly SubmenuItem[]
       icon?: ReactNode
+      /** What is chosen in it now, shown beside the label. */
+      value?: string
     }
   // One row of a few short, related actions side by side — "Insert section:
   // Above / Below" — where a submenu would hide two words behind a hover. Up
@@ -122,6 +126,17 @@ function lastFocusableIndex(items: readonly MenuItem[]): number {
     if (isFocusable(items[index]!)) return index
   }
   return -1
+}
+
+/** A row's label, and the line under it that says what choosing it does. */
+function ItemLabel({ label, description }: { label: string; description?: string }) {
+  if (!description) return <span className="context-menu-item-label">{label}</span>
+  return (
+    <span className="context-menu-item-label">
+      {label}
+      <span className="context-menu-item-description">{description}</span>
+    </span>
+  )
 }
 
 // How close to the viewport edge the menu may sit before it is pushed back in.
@@ -432,6 +447,7 @@ export function ContextMenu({
                   {item.icon}
                 </span>
                 <span className="context-menu-item-label">{item.label}</span>
+                {item.value && <span className="context-menu-item-value">{item.value}</span>}
                 <span className="context-menu-submenu-arrow" aria-hidden="true">›</span>
               </button>
               {open && (
@@ -461,7 +477,10 @@ export function ContextMenu({
                       <span className="context-menu-icon" aria-hidden="true">
                         {child.icon}
                       </span>
-                      <span className="context-menu-item-label">{child.label}</span>
+                      <ItemLabel
+                        label={child.label}
+                        description={child.kind === 'radio' ? child.description : undefined}
+                      />
                       {child.kind === 'radio' && (
                         <span className="context-menu-radio-indicator" aria-hidden="true">
                           {child.checked && <span className="context-menu-dot" />}
@@ -518,7 +537,10 @@ export function ContextMenu({
             >
               {item.icon}
             </span>
-            <span className="context-menu-item-label">{item.label}</span>
+            <ItemLabel
+              label={item.label}
+              description={item.kind === 'radio' ? item.description : undefined}
+            />
             {item.kind === 'radio' && (
               <span className="context-menu-radio-indicator" aria-hidden="true">
                 {item.checked && <span className="context-menu-dot" />}

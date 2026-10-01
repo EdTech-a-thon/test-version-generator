@@ -10,7 +10,11 @@
   empty Extra Credit Section; it prints every heading large and its text small,
   rewords the first page's header line, and sets its own Page Margins: an inch
   at the top and bottom, 0.6 inch on the right and an inch and a quarter on the
-  left. `minimal.json` sets none, and prints today's margins.
+  left. `question-style.json` prints its
+  questions in the ExamView Question Style, and its Short Answer position sets
+  its Work Space to none on purpose, so it prints no answer lines though the
+  style would rule them there. `minimal.json` sets neither, and prints today's
+  margins in the Standard Question Style.
 - Invalid counterexamples are with the package, in
   [`../../package/0.1.0/invalid/`](../../package/0.1.0/invalid/).
 

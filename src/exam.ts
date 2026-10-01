@@ -35,6 +35,7 @@ import {
 } from './section-headings'
 import type { ExamHeader } from './page-header'
 import type { PageMargins } from './page-margins'
+import { questionStyleRules, type QuestionStyle } from './question-style'
 import { newMatchingNode } from './matching'
 import { newMultipartPartsNode } from './multipart'
 
@@ -142,6 +143,11 @@ export type Exam = {
   headingSize?: HeadingSize
   /** How large its questions and answers print. Absent means `'normal'`. */
   textSize?: TextSize
+  /** How every question on it prints: what goes before a number, how answers
+   *  are lettered and laid out, what room a Short Answer position leaves when
+   *  the teacher has set none. See `question-style.ts`. Absent means
+   *  `'standard'`. */
+  questionStyle?: QuestionStyle
   /** This Exam's own test-page header lines, where they depart from the
    *  default blanks. See `page-header.ts`. */
   header?: ExamHeader
@@ -204,10 +210,28 @@ export function isWorkSpace(value: unknown): value is WorkSpace {
 
 /** A question's work space on this Exam. The one reader, so an Exam written
  *  before work space existed, and a question no one has given any, both read
- *  as none. */
+ *  as its Question Style's default — none, unless the style rules answer
+ *  lines. A work space the teacher set, "None" stored as a zero height
+ *  included, always wins over the style (ADR-0041). */
 export function workSpaceOf(exam: Exam, questionId: string): WorkSpace {
-  const space = exam.workSpace?.[questionId]
-  return space && isWorkSpace(space) ? space : NO_WORK_SPACE
+  return workSpaceIn(exam.workSpace, exam.questionStyle, questionId)
+}
+
+/** `workSpaceOf`, for callers holding an Exam's settings rather than an Exam:
+ *  the stored work space, or the style's default where none is stored. */
+export function workSpaceIn(
+  spaces: Readonly<Record<string, WorkSpace>> | undefined,
+  style: QuestionStyle | undefined,
+  questionId: string,
+): WorkSpace {
+  const space = spaces?.[questionId]
+  return space && isWorkSpace(space) ? space : defaultWorkSpaceOf(style)
+}
+
+/** The room a Short Answer position leaves under this Question Style when the
+ *  teacher has set none. */
+export function defaultWorkSpaceOf(style: QuestionStyle | undefined): WorkSpace {
+  return questionStyleRules(style).defaultWorkSpace ?? NO_WORK_SPACE
 }
 
 /** Whether a work space prints anything at all. */
