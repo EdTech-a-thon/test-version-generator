@@ -174,14 +174,15 @@ describe('public Exam Record 0.4.0 contract', () => {
     ).toEqual(publicExamSchema040)
   })
 
-  test('adds only optional margins, questionStyle and a position’s hiddenAnswers to 0.3.0', () => {
+  test('adds only optional margins, questionStyle and a position’s hiddenAnswers and wordBankLayout to 0.3.0', () => {
     const { margins, questionStyle, ...rest } = publicExamSchema040.properties
     expect(margins).toBeDefined()
     expect(questionStyle).toBeDefined()
     expect({ ...rest, formatVersion: undefined }).toEqual({ ...publicExamSchema030.properties, formatVersion: undefined })
     expect(publicExamSchema040.required).toEqual(publicExamSchema030.required)
-    const { hiddenAnswers, ...position } = publicExamSchema040.$defs.position.properties
+    const { hiddenAnswers, wordBankLayout, ...position } = publicExamSchema040.$defs.position.properties
     expect(hiddenAnswers).toBeDefined()
+    expect(wordBankLayout).toBeDefined()
     expect(position).toEqual(publicExamSchema030.$defs.position.properties)
     expect(publicExamSchema040.$defs.position.required).toEqual(publicExamSchema030.$defs.position.required)
   })
@@ -228,15 +229,16 @@ describe('public Exam Record 0.4.0 contract', () => {
     expect(without.exams[0]!.positions.every((position) => position.hiddenAnswers === undefined)).toBe(true)
   })
 
-  test('a Question Style is one of four, for the whole Exam', () => {
+  test('a Question Style is one of three, for the whole Exam', () => {
     const validate = strict().compile(publicExamSchema040)
     const exam = (questionStyle: unknown) => ({
       format: 'test-parrot/exam', formatVersion: '0.4.0', name: 'Quiz', sections: [], positions: [], questionStyle,
     })
-    for (const style of ['standard', 'examview', 'condensed', 'worksheet']) {
+    for (const style of ['standard', 'classic', 'condensed']) {
       expect(validate(exam(style)), style).toBe(true)
     }
-    expect(validate(exam('ExamView'))).toBe(false)
+    expect(validate(exam('Classic'))).toBe(false)
+    expect(validate(exam('worksheet'))).toBe(false)
     expect(validate(exam(2))).toBe(false)
     expect(validate({
       format: 'test-parrot/exam', formatVersion: '0.4.0', name: 'Quiz', sections: [], positions: [],
@@ -250,7 +252,7 @@ describe('public Exam Record 0.4.0 contract', () => {
     const proposal = await inspectImportRecord(
       new TextEncoder().encode(JSON.stringify({ ...testParrotPackage, exams: [exam] })),
     )
-    expect(proposal.exams[0]!.questionStyle).toBe('examview')
+    expect(proposal.exams[0]!.questionStyle).toBe('classic')
     expect(proposal.exams[0]!.formatVersion).toBe('0.4.0')
     expect(proposal.exams[0]!.positions.at(-1)!.workSpace).toEqual({ height: 0, style: 'blank', fill: false })
   })
@@ -268,6 +270,30 @@ describe('public Exam Record 0.4.0 contract', () => {
     expect(validate(exam([]))).toBe(false)
     expect(validate(exam(['q1-c2', 'q1-c2']))).toBe(false)
     expect(validate(exam([''])) ).toBe(false)
+  })
+
+  test('a Matching position may set its Word Bank beside or above its Items, and no other position may', async () => {
+    const validate = strict().compile(publicExamSchema040)
+    const exam = (question: string, wordBankLayout: unknown) => ({
+      format: 'test-parrot/exam',
+      formatVersion: '0.4.0',
+      name: 'Quiz',
+      sections: [{ title: 'Matching', instructions: '' }],
+      positions: [{ question: { bank: 'cells', question }, section: 0, wordBankLayout }],
+    })
+    expect(validate(exam('q4', 'beside'))).toBe(true)
+    expect(validate(exam('q4', 'above'))).toBe(true)
+    // Auto is the absence of a choice, never written.
+    expect(validate(exam('q4', 'auto'))).toBe(false)
+    expect(validate(exam('q4', 'left'))).toBe(false)
+
+    const testParrotPackage = await read(join(packageRoot, 'examples'), 'bank-and-exam.json')
+    const inspect = (record: unknown) => inspectImportRecord(
+      new TextEncoder().encode(JSON.stringify({ ...testParrotPackage, exams: [record] })),
+    )
+    const proposal = await inspect(exam('q4', 'beside'))
+    expect(proposal.exams[0]!.positions[0]!.wordBankLayout).toBe('beside')
+    await expect(inspect(exam('q1', 'above'))).rejects.toThrow('only a Matching Question has')
   })
 
   test('the example that hides an answer imports hiding it', async () => {

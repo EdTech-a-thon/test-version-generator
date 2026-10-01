@@ -389,8 +389,7 @@ describe('PDF Export Adapter', () => {
   // A Question Style's blanks and letters reach the page as the plan resolved
   // them, and the Answer Key keeps its capitals.
   test.each([
-    ['examview', '_______ 1.', 'b. Carbon dioxide'],
-    ['worksheet', '____________ 2.', 'b. Carbon dioxide'],
+    ['classic', '_______ 1.', 'b. Carbon dioxide'],
     ['condensed', 'T F 2.', 'B. Carbon dioxide'],
   ] as const)('draws the %s question style’s blanks and letters', async (style, blank, answer) => {
     const { plans } = plansOf(`every question type in the ${style} question style`)

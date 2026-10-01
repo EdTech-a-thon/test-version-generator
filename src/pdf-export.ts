@@ -30,6 +30,8 @@ import {
 } from './export-media'
 import {
   CHOICE_INDENT,
+  MATCHING_BANK_INSET,
+  headerHeightOf,
   MATCHING_BANK_WIDTH,
   PART_INDENT,
   printsNumberLine,
@@ -45,10 +47,13 @@ import {
   type PlannedPart,
   type PlannedWorkSpace,
   type QuestionItem,
+  rowsOfPlanned,
 } from './export-plan'
-import { DIFFICULTY_LABELS, WORK_SPACE_LINE_PITCH } from './exam'
+import { DIFFICULTY_LABELS } from './exam'
 import {
   BODY_LINE_HEIGHT,
+  HEADING_LINE_HEIGHT,
+  TITLE_LINE_HEIGHT,
   LIST_ITEM_GAP_EM,
   PARAGRAPH_GAP_EM,
   bodyScale,
@@ -763,8 +768,9 @@ function drawChoiceGrid(context: DrawContext, grid: ChoiceGrid, x: number, width
   }
 }
 
-// A Short Answer question's work space: the plan's height, ruled at the plan's
-// pitch when it is lined. This adapter sets its text by its own metrics, which
+// A Short Answer question's work space: the plan's height, ruled in the plan's
+// rows when it is lined — the first rule one short first row below the
+// question, each next one a pitch below that. This adapter sets its text by its own metrics, which
 // can come out a little taller than the page it was planned against, so a work
 // space gives up whatever room that cost it rather than failing publication —
 // a space that fills its page reaches the foot of this one, not past it.
@@ -777,8 +783,9 @@ function drawWorkSpace(
   if (space.height <= 0) return
   const height = Math.max(0, Math.min(pt(space.height), context.y - context.bottom))
   const top = context.y
+  const rows = rowsOfPlanned(space)
   for (let rule = 1; rule <= space.lines; rule += 1) {
-    const y = top - pt(WORK_SPACE_LINE_PITCH) * rule
+    const y = top - pt(rows.first + rows.pitch * (rule - 1))
     if (y < top - height - 0.01) break
     context.page.drawLine({
       start: { x, y },
@@ -792,11 +799,11 @@ function drawWorkSpace(
 
 // A matching set as print lays it out (`.matching-*` in styles.css), across the
 // question's full width. Each prompt opens with its bold blank and number in a
-// 92px column and a 6px gap — `MATCHING_INDENT`. A short Word Bank stands in a 240px column to the
-// prompts' right, set in 24px from its edge; a long one prints above them in
-// columns, under the number column.
+// 92px column and a 6px gap — `MATCHING_INDENT`. A Word Bank beside them
+// stands in a column to the prompts' right — `MATCHING_BANK_WIDTH`, or the
+// plan's wider `bankWidth` — set in `MATCHING_BANK_INSET` from its edge; one
+// above them prints in columns, under the number column.
 const MATCHING_NUMBER_COLUMN = MATCHING_INDENT
-const MATCHING_BANK_INSET = 24
 const MATCHING_GAP = 10
 
 function drawMatchingAnswer(context: DrawContext, answer: PlannedBankAnswer): void {
@@ -842,7 +849,7 @@ function drawMatching(context: DrawContext, set: MatchingSet): void {
   }
 
   const top = context.y
-  const bankWidth = pt(MATCHING_BANK_WIDTH)
+  const bankWidth = pt(set.bankWidth ?? MATCHING_BANK_WIDTH)
   const prompts = { ...context, width: context.width - bankWidth }
   drawMatchingPrompts(prompts, set)
   const bank = {
@@ -920,13 +927,14 @@ function drawItem(context: DrawContext, item: PageItem): void {
         drawTextLine(context, item.title, {
           font: 'bold',
           size: size.title,
-          line: 17 * (size.title / HEADING_SIZE),
+          line: size.title * HEADING_LINE_HEIGHT,
         })
       }
       if (item.instructions) {
+        // Body text, under the 4px (3pt) print opens above the directions.
         drawTextLine(context, item.instructions, {
           size: size.instructions,
-          line: 17 * (size.instructions / SHEET_BODY_SIZE),
+          line: size.instructions * BODY_LINE_HEIGHT + 3,
         })
       }
       context.y -= 8
@@ -936,11 +944,15 @@ function drawItem(context: DrawContext, item: PageItem): void {
       drawQuestion(context, item)
       return
     case 'answer-key-heading':
-      drawTextLine(context, 'Answer Section', { font: 'bold', size: ANSWER_KEY_HEADING_SIZE, line: 20 })
+      drawTextLine(context, 'Answer Section', {
+        font: 'bold',
+        size: ANSWER_KEY_HEADING_SIZE,
+        line: ANSWER_KEY_HEADING_SIZE * HEADING_LINE_HEIGHT,
+      })
       context.y -= 8
       return
     case 'answer-key-section':
-      drawTextLine(context, item.title, { font: 'bold', size: HEADING_SIZE, line: 18 })
+      drawTextLine(context, item.title, { font: 'bold', size: HEADING_SIZE, line: HEADING_SIZE * HEADING_LINE_HEIGHT })
       context.y -= 4
       return
     case 'answer-key-entry':
@@ -1090,7 +1102,7 @@ function drawFurniture(
     drawInline(
       titleContext,
       [{ text: furniture.title, font: 'bold', size: titlePoints(furniture.titleSize) }],
-      { x: context.x, width: context.width, line: titlePoints(furniture.titleSize) * 1.15 },
+      { x: context.x, width: context.width, line: titlePoints(furniture.titleSize) * TITLE_LINE_HEIGHT },
     )
   }
 }
@@ -1174,9 +1186,8 @@ async function createPdf(
         const margins = plan.pageSize.margins
         const page = document.addPage([width, height])
         const top = height - pt(margins.top)
-        const headerHeight = planned.header === 'first' || planned.header === 'answer-key'
-          ? pt(84)
-          : pt(42)
+        // A title that wraps grows its header, as the plan packed it.
+        const headerHeight = pt(headerHeightOf(planned.header, planned.furniture))
         const footerHeight = pt(36)
         const context: DrawContext = {
           document,

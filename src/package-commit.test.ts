@@ -233,7 +233,7 @@ describe('committing an import', () => {
       formatVersion: '0.4.0',
       name: 'Styled',
       sections: [{ title: 'Short Answer', instructions: '' }],
-      questionStyle: 'examview',
+      questionStyle: 'classic',
       positions: [
         { question: { bank: 'cells', question: 'q5' }, section: 0, workSpace: { height: 0, style: 'blank', fill: false } },
       ],
@@ -241,9 +241,9 @@ describe('committing an import', () => {
     const result = await banks.commitImport(proposal, initialSelection(proposal))
     const { working } = await examState(exams, result.createdExamIds[0]!)
     const copy = working!.workingCopy
-    expect(copy.questionStyle).toBe('examview')
+    expect(copy.questionStyle).toBe('classic')
     const { exam } = selectedExam(working!.questionBank, copy)
-    // The teacher's "None" wins over the three lines ExamView would rule.
+    // The teacher's "None" wins over the three lines Classic would rule.
     expect(workSpaceOf(exam, copy.questionIds[0]!)).toEqual({ height: 0, style: 'blank', fill: false })
   })
 
@@ -254,7 +254,7 @@ describe('committing an import', () => {
       formatVersion: '0.3.0',
       name: 'Plain',
       sections: [{ title: 'Short Answer', instructions: '' }],
-      questionStyle: 'examview',
+      questionStyle: 'classic',
       positions: [{ question: { bank: 'cells', question: 'q5' }, section: 0 }],
     })
     const result = await banks.commitImport(proposal, initialSelection(proposal))

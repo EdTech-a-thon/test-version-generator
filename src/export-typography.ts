@@ -34,8 +34,17 @@ export type ExamTypeRole = keyof typeof EXAM_TYPE_PX
 // Print sets these on `.exam-page` and its question text, the PDF spaces its
 // lines and blocks by them, and DOCX sets them on its body paragraphs.
 
-/** A line of body text, as a multiple of the type's size. Was 1.45. */
-export const BODY_LINE_HEIGHT = 1.3
+/** A line of body text, as a multiple of the type's size. Was 1.45, then 1.3. */
+export const BODY_LINE_HEIGHT = 1.2
+
+/** A line of a heading — a section title, the Answer Key's "Answer Section"
+ *  and its section titles — as a multiple of its size. Was 1.3, the body's,
+ *  and tightened with it. A section's directions are body text, at the body's. */
+export const HEADING_LINE_HEIGHT = 1.2
+
+/** A line of the Exam title, which may wrap onto several. Was 1.2: the title
+ *  sits a step tighter than the other headings, as it did before. */
+export const TITLE_LINE_HEIGHT = 1.1
 
 /** The gap between two paragraphs of a question's text — or between a
  *  paragraph and a list — in ems. Print's own paragraph spacing, now stated. */

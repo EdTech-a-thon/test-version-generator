@@ -449,11 +449,11 @@ describe('a choice grid hangs where print draws it', () => {
   // Print sets a Multiple Choice question's answers in from its stem by
   // `CHOICE_INDENT`, and the stem starts past the number column the Question
   // Style decides; the grid then runs to the right margin the Exam set.
-  test('past an ExamView answer blank and the answers’ indent, to the Exam’s own right margin', async () => {
-    const examview = FIXTURES.find((fixture) => fixture.name.includes('examview'))!
+  test('past a Classic answer blank and the answers’ indent, to the Exam’s own right margin', async () => {
+    const classic = FIXTURES.find((fixture) => fixture.name.includes('classic'))!
     const margins = { top: 1, right: 0.6, bottom: 1, left: 1.25 }
     const xml = parseXml(await part(
-      await packagedFixture({ ...examview, exam: { ...examview.exam, margins } }),
+      await packagedFixture({ ...classic, exam: { ...classic.exam, margins } }),
       'word/document.xml',
     ))
     // The first question is Multiple Choice, and its grid the first table.

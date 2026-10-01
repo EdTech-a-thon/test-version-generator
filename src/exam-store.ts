@@ -19,6 +19,7 @@ import {
   duplicateQuestion,
   hasWorkSpace,
   isExamSection,
+  isStoredWordBankLayout,
   isWorkSpace,
   moveSection,
   deleteSection,
@@ -50,6 +51,8 @@ import {
   type Question,
   type SectionPlacement,
   type SectionTarget,
+  type StoredWordBankLayout,
+  type WordBankLayout,
   type WorkSpace,
 } from './exam'
 import {
@@ -181,6 +184,15 @@ function isColumnSettings(value: unknown): value is Record<string, ColumnSetting
   )
 }
 
+function isWordBankLayoutSettings(value: unknown): value is Record<string, StoredWordBankLayout> {
+  return (
+    typeof value === 'object'
+    && value !== null
+    && !Array.isArray(value)
+    && Object.values(value).every(isStoredWordBankLayout)
+  )
+}
+
 function isSectionList(value: unknown): value is ExamWorkingCopy['sections'] {
   return Array.isArray(value) && value.every(isExamSection)
 }
@@ -213,6 +225,7 @@ function isWorkingCopy(value: unknown): value is ExamWorkingCopy {
     draft.questionIds.every((id) => typeof id === 'string') &&
     (draft.columns === undefined || isColumnSettings(draft.columns)) &&
     (draft.workSpace === undefined || isWorkSpaceSettings(draft.workSpace)) &&
+    (draft.wordBankLayout === undefined || isWordBankLayoutSettings(draft.wordBankLayout)) &&
     (draft.choiceOrder === undefined || isChoiceOrder(draft.choiceOrder)) &&
     (draft.hiddenAnswers === undefined || isChoiceOrder(draft.hiddenAnswers)) &&
     (draft.sections === undefined || isSectionList(draft.sections)) &&
@@ -245,6 +258,7 @@ function isAuthoringState(value: unknown): value is AuthoringState {
 const WORKING_COPY_SETTINGS: Readonly<Record<string, (value: unknown) => boolean>> = {
   columns: isColumnSettings,
   workSpace: isWorkSpaceSettings,
+  wordBankLayout: isWordBankLayoutSettings,
   choiceOrder: isChoiceOrder,
   // The same shape as an order: ids, keyed by question.
   hiddenAnswers: isChoiceOrder,
@@ -342,7 +356,7 @@ export type ExamStore = {
   /** Rewords one test-page header line; `null` restores its default. */
   setHeaderLine(line: HeaderLine, text: string | null): void
   /** Sets how far in from `sides` of the sheet the Exam's pages print, in
-   *  inches. A change `continuing` a drag of the margin slider joins the undo
+   *  inches. A change `continuing` a scrub of a margin field joins the undo
    *  step its first change made, so one drag is one step. */
   setMargins(sides: readonly MarginSide[], inches: number, options?: { continuing?: boolean }): void
   /** Refreshes the canonical Questions projected from open Question Banks.
@@ -362,6 +376,10 @@ export type ExamStore = {
    *  save is never lost. */
   updateInQuestionBank(question: Question): void
   setQuestionColumns(questionIds: readonly string[], columns: ColumnSetting): void
+  /** Sets where the Word Bank of each Matching question in `questionIds`
+   *  prints on this Exam — Auto, Beside or Above — as one authoring action.
+   *  Any other Question Type is left alone, and Auto is stored as nothing. */
+  setWordBankLayout(questionIds: readonly string[], layout: WordBankLayout): void
   /** Changes the room left for work below Short Answer questions — its
    *  height, whether it is blank or ruled, and whether it runs to the foot of
    *  the page — as one authoring action. Only the fields given change; any
@@ -474,6 +492,7 @@ function sameExamWorkingCopy(left: ExamWorkingCopy, right: ExamWorkingCopy): boo
     && sameEntries(left.workSpace, right.workSpace, (first, second) =>
       first.height === second.height && first.style === second.style && first.fill === second.fill,
     )
+    && sameEntries(left.wordBankLayout, right.wordBankLayout, (first, second) => first === second)
     && sameEntries(left.choiceOrder, right.choiceOrder, (first, second) =>
       first.length === second.length && first.every((id, index) => id === second[index]),
     )
@@ -928,6 +947,25 @@ export function createExamStore(options: {
       })
     },
 
+    setWordBankLayout: (questionIds, layout) => {
+      change((current) => {
+        const next = { ...(current.workingCopy.wordBankLayout ?? {}) }
+        let changed = false
+        for (const questionId of new Set(questionIds)) {
+          if (!current.workingCopy.questionIds.includes(questionId)) continue
+          if (bankQuestionById(current.questionBank, questionId)?.type !== 'matching') continue
+          if ((next[questionId] ?? 'auto') === layout) continue
+          if (layout === 'auto') delete next[questionId]
+          else next[questionId] = layout
+          changed = true
+        }
+        if (!changed) return current
+        const workingCopy: ExamWorkingCopy = { ...current.workingCopy, wordBankLayout: next }
+        if (Object.keys(next).length === 0) delete workingCopy.wordBankLayout
+        return { ...current, workingCopy }
+      })
+    },
+
     setQuestionWorkSpace: (questionIds, patch) => {
       const targeted = new Set(questionIds)
       change((current) => {
@@ -1024,7 +1062,15 @@ export function createExamStore(options: {
               ? { hiddenAnswers: { ...(workingCopy.hiddenAnswers ?? {}), [copy.id]: copiedHidden } }
               : {}),
             // A duplicate looks like its original on the sheet, work space
-            // included.
+            // and Word Bank layout included.
+            ...(workingCopy.wordBankLayout?.[questionId]
+              ? {
+                  wordBankLayout: {
+                    ...workingCopy.wordBankLayout,
+                    [copy.id]: workingCopy.wordBankLayout[questionId]!,
+                  },
+                }
+              : {}),
             ...(workingCopy.workSpace?.[questionId]
               ? {
                   workSpace: {

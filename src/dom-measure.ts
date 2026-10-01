@@ -24,10 +24,17 @@
 
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { PAGE_CONTENT_WIDTH, type ItemLayout, type Measure, type PageItem, type PlannedChoice } from './export-plan'
-import { BODY_PX } from './export-typography'
-import { ChoiceGridView, PageItemMeasureView } from './page-item-view'
-import type { TextSize } from './section-headings'
+import {
+  PAGE_CONTENT_WIDTH,
+  type ItemLayout,
+  type Measure,
+  type PageItem,
+  type PlannedBankAnswer,
+  type PlannedChoice,
+} from './export-plan'
+import { BODY_PX, TITLE_LINE_HEIGHT, TITLE_PX } from './export-typography'
+import { BankAnswer, ChoiceGridView, PageItemMeasureView } from './page-item-view'
+import type { HeadingSize, TextSize } from './section-headings'
 import type { ProseMirrorJSON } from './question-doc'
 
 let host: HTMLElement | null | undefined
@@ -146,6 +153,51 @@ function choiceWidth(choice: PlannedChoice, textSize?: TextSize): number {
   return width
 }
 
+// A Word Bank answer on one line, letter and all, through the component a page
+// draws it with: the least a column beside the Items must give it. Remembered
+// like an answer's width, and never while a picture is still loading.
+function bankAnswerWidth(answer: PlannedBankAnswer, textSize?: TextSize): number {
+  const element = naturalMeasureHost()
+  if (!element) return Infinity
+  const markup = renderToStaticMarkup(createElement(BankAnswer, { answer }))
+  const key = `bank:${textSize ?? 'normal'}:${markup}`
+  const remembered = widths.get(key)
+  if (remembered !== undefined) return remembered
+  element.style.fontSize = textSize && textSize !== 'normal' ? `${BODY_PX[textSize]}px` : ''
+  element.innerHTML = markup
+  const width = element.getBoundingClientRect().width
+  if ([...element.querySelectorAll('img')].some((image) => !image.complete)) return width
+  if (widths.size >= HEIGHT_CACHE_LIMIT) widths.clear()
+  widths.set(key, width)
+  return width
+}
+
+const titleLineCounts = new Map<string, number>()
+
+// The Exam title set as a first page sets it, at the page's content width: how
+// many of its lines it fills. The header the title sits in is laid out with
+// its height released, so the title wraps as far as its words take it.
+function titleLines(title: string, size: HeadingSize | undefined, width: number): number {
+  const element = measureHost()
+  if (!element || !title) return 1
+  const px = TITLE_PX[size ?? 'normal']
+  const key = `${px}:${width}:${title}`
+  const remembered = titleLineCounts.get(key)
+  if (remembered !== undefined) return remembered
+  element.style.width = `${width}px`
+  element.style.fontSize = ''
+  delete element.dataset.questionStyle
+  element.innerHTML =
+    '<header class="page-header page-header--first" style="height: auto"><h1 class="exam-title"></h1></header>'
+  const heading = element.querySelector('h1')!
+  heading.style.fontSize = `${px}px`
+  heading.textContent = title
+  const lines = Math.max(1, Math.round(heading.getBoundingClientRect().height / (px * TITLE_LINE_HEIGHT)))
+  if (titleLineCounts.size >= HEIGHT_CACHE_LIMIT) titleLineCounts.clear()
+  titleLineCounts.set(key, lines)
+  return lines
+}
+
 // Pictures already loaded or on their way, by source.
 const loading = new Map<string, Promise<void>>()
 
@@ -182,6 +234,7 @@ function loadImages(sources: Iterable<string>): Promise<void> {
 function invalidate(): void {
   heights.clear()
   widths.clear()
+  titleLineCounts.clear()
 }
 
 /** Every picture source in question documents, stems and answers alike. */
@@ -204,6 +257,8 @@ export const domMeasure: Measure & {
 } = {
   itemHeight,
   choiceWidth,
+  bankAnswerWidth,
+  titleLines,
   invalidate,
   loadImages,
 }

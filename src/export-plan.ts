@@ -35,14 +35,21 @@ import {
   sectionsOf,
   takesWorkSpace,
   topicsOf,
+  laidWorkSpaceHeight,
+  rowsIn,
+  wordBankLayoutOf,
   WORK_SPACE_LINE_PITCH,
   workSpaceOf,
+  workSpaceRowsOf,
   type Difficulty,
   type Exam,
   type Question,
   type QuestionType,
   type Arrangement,
   type PartType,
+  type WorkSpaceRows,
+  type StoredWordBankLayout,
+  type WordBankLayout,
   type WorkSpace,
   type WorkSpaceStyle,
 } from './exam'
@@ -60,10 +67,10 @@ import {
   type HeadingSize,
   type TextSize,
 } from './section-headings'
+import { TITLE_LINE_HEIGHT, TITLE_PX } from './export-typography'
 import {
   ANSWER_BLANK,
   DEFAULT_QUESTION_STYLE,
-  LONG_ANSWER_BLANK,
   questionStyleRules,
   type QuestionStyle,
   type QuestionStyleRules,
@@ -96,6 +103,14 @@ export type Measure = {
    *  its letter and the cell's padding included. Optional: a measure without
    *  it never lets a Question Style widen answers past their set columns. */
   choiceWidth?(choice: PlannedChoice, textSize?: TextSize): number
+  /** How many lines the Exam title wraps onto at this heading size, set
+   *  across `width`. Optional: a measure without it plans every title on one
+   *  line, as the sheet always did. */
+  titleLines?(title: string, size: HeadingSize | undefined, width: number): number
+  /** The width in px a Word Bank answer needs on one line, its letter
+   *  included. Optional: a measure without it places a Word Bank by its count
+   *  alone (`MATCHING_BESIDE_LIMIT`), as the sheet did before. */
+  bankAnswerWidth?(answer: PlannedBankAnswer, textSize?: TextSize): number
 }
 
 // A stub that reports nothing: every item is zero-height, so an exam packs onto
@@ -170,11 +185,26 @@ export type MatchingSet = {
   /** The bank in columns, when it prints above the prompts; `null` when it
    *  prints beside them. */
   bankGrid: BankGrid | null
+  /** How wide the column beside the prompts is, its inset included, when the
+   *  bank prints there and needs more than `MATCHING_BANK_WIDTH`. Absent on
+   *  every other set, and on plans recorded before a bank could widen. */
+  bankWidth?: number
 }
 
-/** The longest Word Bank that prints beside its items. Past this, the bank
- *  moves above them into `MATCHING_BANK_COLUMNS` columns. */
+/** The longest Word Bank that prints beside its items when nothing can
+ *  measure it. A measured bank is placed by whether it fits
+ *  (`fitWordBanks`). */
 export const MATCHING_BESIDE_LIMIT = 5
+
+/** The least room a matching set's prompts keep beside a Word Bank, their
+ *  number column aside, in CSS pixels: enough for a short sentence a line.
+ *  Condensed lets the prompts narrow further, so more banks go beside them. */
+export const MATCHING_PROMPTS_MIN_WIDTH = 240
+export const CONDENSED_MATCHING_PROMPTS_MIN_WIDTH = 180
+
+/** How far the Word Bank beside the prompts is set in from them: the
+ *  `.matching-bank` padding in styles.css. */
+export const MATCHING_BANK_INSET = 24
 export const MATCHING_BANK_COLUMNS = 2
 
 // The room a Short Answer piece leaves below itself, resolved onto a page.
@@ -183,22 +213,39 @@ export const MATCHING_BANK_COLUMNS = 2
 // this much and never measures. `lines` is how many ruled lines fit in it —
 // none for a blank space — counted here so every adapter rules the same number.
 export type PlannedWorkSpace = {
+  /** The height it takes on the page, laid out in its rows. */
   height: number
   style: WorkSpaceStyle
   lines: number
   fill: boolean
+  /** How far apart its rows lie, and how tall its first one is, in CSS
+   *  pixels: the Question Style's pitch, the first row shortened so the first
+   *  rule sits close under the question. A plan recorded before either was
+   *  stated reads as 32 and 32 (`rowsOfPlanned`), as it printed. */
+  pitch?: number
+  firstRow?: number
+}
+
+/** The rows a planned work space is drawn in. Every adapter draws by this. */
+export function rowsOfPlanned(space: PlannedWorkSpace): WorkSpaceRows {
+  return { pitch: space.pitch ?? WORK_SPACE_LINE_PITCH, first: space.firstRow ?? WORK_SPACE_LINE_PITCH }
 }
 
 /** Room a filled work space leaves at the foot of its page, so fractional
  *  measurement can never round it onto another sheet. */
 const WORK_SPACE_FILL_SLACK = 1
 
-function plannedWorkSpace(space: WorkSpace, height = space.height): PlannedWorkSpace {
+/** A stored work space as the page lays it out in `rows`: as many rows as it
+ *  stores, at the style's pitch. */
+function plannedWorkSpace(space: WorkSpace, rows: WorkSpaceRows): PlannedWorkSpace {
+  const height = laidWorkSpaceHeight(space.height, rows)
   return {
     height,
     style: space.style,
-    lines: space.style === 'lines' ? Math.floor(height / WORK_SPACE_LINE_PITCH) : 0,
+    lines: space.style === 'lines' ? rowsIn(height, rows) : 0,
     fill: space.fill,
+    pitch: rows.pitch,
+    firstRow: rows.first,
   }
 }
 
@@ -234,9 +281,9 @@ export type PlannedQuestion = {
   number: number
   /** What prints in the number column, before the number, as the Exam's
    *  Question Style decides: the T and F a student circles on a True/False
-   *  question, or an answer blank to write on — `ANSWER_BLANK`, or
-   *  `LONG_ANSWER_BLANK` for a word — and nothing on a Standard Multiple
-   *  Choice question, whose letter is circled on its answer. */
+   *  question, or an answer blank to write on — `ANSWER_BLANK` — and nothing
+   *  on a Standard Multiple Choice question, whose letter is circled on its
+   *  answer. */
   marks: readonly string[]
   /** The question document's top-level blocks, without the choice list. */
   stem: ProseMirrorJSON[]
@@ -258,14 +305,18 @@ export type PlannedQuestion = {
    *  Question Type. */
   matching: MatchingSet | null
   /** The room this Exam leaves below a Short Answer question for a student's
-   *  work, as the teacher set it; `null` for every other Question Type. A
-   *  Short Answer question with no room still carries one, zero-height, so
-   *  the sheet can offer a handle to drag some open. */
-  workSpace: WorkSpace | null
+   *  work, as the teacher set it or its Question Style supplies it, laid out
+   *  in the style's rows; `null` for every other Question Type. A Short Answer
+   *  question with no room still carries one, zero-height, so the sheet can
+   *  offer a handle to drag some open. */
+  workSpace: PlannedWorkSpace | null
   /** Optional organizational metadata, retained so the Answer Key can help a
    *  teacher identify and review the Questions without exposing it to students. */
   difficulty?: Difficulty
   topics?: string[]
+  /** Where a Matching question's Word Bank prints when the teacher chose for
+   *  it; absent leaves it to the Question Style and the fit rule. */
+  wordBankLayout?: StoredWordBankLayout
   /** A Short Answer question's Suggested Answer, as top-level blocks. Never
    *  printed on the test; the Answer Key prints it under the question's line. */
   suggestedAnswer?: ProseMirrorJSON[]
@@ -441,6 +492,10 @@ export type PageFurniture = {
   /** The heading size the title prints at, when the Exam chose one other than
    *  normal. The heading size sets every heading, the title included. */
   titleSize?: HeadingSize
+  /** How many lines a long title wraps onto, when it is more than one. Its
+   *  header grows by a title line for each (`headerHeightOf`), and packing
+   *  filled only what that leaves. */
+  titleLines?: number
   /** Which Version's paper this is — printed on every page, both streams, and
    *  empty for the Working Copy's own arrangement. Plans recorded before
    *  Versions existed carry the `ID: A` they printed. */
@@ -482,6 +537,7 @@ function furnitureOf(
   version: string | undefined,
   header: ExamHeader | undefined,
   titleSize: HeadingSize | undefined,
+  titleLines: number,
 ): PageFurniture {
   const line = HEADER_LINE[page.header]
   const identityLine = line ? headerLineOf(header, line) : undefined
@@ -490,6 +546,7 @@ function furnitureOf(
     ...(identityLine !== undefined ? { identityLine } : {}),
     title: REPEATS_TITLE[page.header] ? title : null,
     ...(REPEATS_TITLE[page.header] && titleSize ? { titleSize } : {}),
+    ...(REPEATS_TITLE[page.header] && titleLines > 1 ? { titleLines } : {}),
     arrangementLabel: version ?? '',
     pageNumber: page.number,
   }
@@ -536,11 +593,30 @@ export const HEADER_HEIGHT: Record<PageHeader, number> = {
 
 export const FOOTER_HEIGHT = 36
 
+/** How much taller than its one-line band a header grows for a title that
+ *  wraps onto `lines` lines at `size`: one title line for each line past the
+ *  first, rounded up to a whole pixel. The band itself, `HEADER_HEIGHT`, holds
+ *  a one-line title, so a title that fits on one line moves nothing. */
+export function titleGrowth(lines: number, size: HeadingSize | undefined): number {
+  return lines > 1 ? Math.ceil((lines - 1) * TITLE_PX[size ?? 'normal'] * TITLE_LINE_HEIGHT) : 0
+}
+
+/** How tall a page's header is: its variant's, grown for a title that wraps.
+ *  Print, the PDF and the sheet all size the header by this. */
+export function headerHeightOf(header: PageHeader, furniture: Pick<PageFurniture, 'titleLines' | 'titleSize'>): number {
+  return HEADER_HEIGHT[header] + titleGrowth(furniture.titleLines ?? 1, furniture.titleSize)
+}
+
 /** How much vertical space packing may fill on a page carrying `header`, on a
- *  sheet with `pageSize`'s margins. */
-export function pageContentHeight(header: PageHeader, pageSize: PageSize = US_LETTER): number {
+ *  sheet with `pageSize`'s margins, less what a wrapping title grows its
+ *  header by on the pages that print the title. */
+export function pageContentHeight(
+  header: PageHeader,
+  pageSize: PageSize = US_LETTER,
+  titleExtra = 0,
+): number {
   const box = pageSize.height - pageSize.margins.top - pageSize.margins.bottom
-  return box - HEADER_HEIGHT[header] - FOOTER_HEIGHT
+  return box - HEADER_HEIGHT[header] - (REPEATS_TITLE[header] ? titleExtra : 0) - FOOTER_HEIGHT
 }
 
 /** The most room a teacher can drag a work space to: a whole later page less
@@ -548,8 +624,7 @@ export function pageContentHeight(header: PageHeader, pageSize: PageSize = US_LE
  *  one sheet. Filling the rest of a page is the way to ask for more. Deeper
  *  margins leave a shorter page, and so a shorter most. */
 export function maxWorkSpaceHeight(pageSize: PageSize = US_LETTER): number {
-  return Math.floor((pageContentHeight('later', pageSize) - 96) / WORK_SPACE_LINE_PITCH)
-    * WORK_SPACE_LINE_PITCH
+  return pageContentHeight('later', pageSize) - 96
 }
 
 export const MAX_WORK_SPACE_HEIGHT = maxWorkSpaceHeight()
@@ -565,11 +640,10 @@ export const MAX_WORK_SPACE_HEIGHT = maxWorkSpaceHeight()
 // three-digit number. A True/False question also prints the T and F a student
 // circles, so its column is wider — `.question-number--marks` in styles.css. A
 // Question Style that prints an answer blank before the number widens it
-// again: `.question-number--blank`, or `--long-blank` for a word.
+// again: `.question-number--blank`.
 const QUESTION_NUMBER_COLUMN_WIDTH = 34
 const MARKS_QUESTION_NUMBER_COLUMN_WIDTH = 64
 const BLANK_QUESTION_NUMBER_COLUMN_WIDTH = 92
-const LONG_BLANK_QUESTION_NUMBER_COLUMN_WIDTH = 140
 const QUESTION_NUMBER_COLUMN_GAP = 6
 
 /** The answer blank a Multiple Choice or True/False question printed before
@@ -579,20 +653,18 @@ const QUESTION_NUMBER_COLUMN_GAP = 6
 export const LEGACY_ANSWER_BLANK = ANSWER_BLANK
 
 /** What a question's number column holds, which decides how wide it is: the
- *  number alone, the T and F to circle, or an answer blank, short or long. */
-export type NumberColumn = 'plain' | 'marks' | 'blank' | 'long-blank'
+ *  number alone, the T and F to circle, or an answer blank. */
+export type NumberColumn = 'plain' | 'marks' | 'blank'
 
 const NUMBER_COLUMN_WIDTH: Record<NumberColumn, number> = {
   plain: QUESTION_NUMBER_COLUMN_WIDTH,
   marks: MARKS_QUESTION_NUMBER_COLUMN_WIDTH,
   blank: BLANK_QUESTION_NUMBER_COLUMN_WIDTH,
-  'long-blank': LONG_BLANK_QUESTION_NUMBER_COLUMN_WIDTH,
 }
 
 export function numberColumnOf(
   question: Pick<PlannedQuestion, 'type'> & { marks?: readonly string[] },
 ): NumberColumn {
-  if (question.marks?.includes(LONG_ANSWER_BLANK)) return 'long-blank'
   if (hasAnswerBlank(question)) return 'blank'
   // A True/False question always had the marks' column, whatever a plan
   // recorded before marks were stored says it printed there.
@@ -605,7 +677,7 @@ export function numberColumnOf(
  *  that asks for one, or on an Export Record kept from before Sections were
  *  stored. */
 export function hasAnswerBlank(question: { marks?: readonly string[] }): boolean {
-  return question.marks?.some((mark) => mark === ANSWER_BLANK || mark === LONG_ANSWER_BLANK) ?? false
+  return question.marks?.includes(ANSWER_BLANK) ?? false
 }
 
 /** Where a question's body starts, in pixels from the content edge: past the
@@ -746,15 +818,17 @@ function printedChoices(choices: PlannedChoice[], rules: QuestionStyleRules): Pl
 // given the letter its answer now carries. A prompt that names no answer, or
 // one the bank no longer holds, is unmatched and gets no letter.
 //
-// The Question Style decides how the bank is lettered on the test and where
-// it sits: beside the prompts while it is short and above them once it is
-// long, or always the one or the other. A prompt's letter, the key's, is a
-// capital whatever the bank prints.
+// The Question Style decides how the bank is lettered on the test. Where it
+// sits is the teacher's choice when they made one, then the style's; left to
+// Auto, it is beside the prompts while short and above them once long, until
+// `fitWordBanks` measures whether it really fits. A prompt's letter, the
+// key's, is a capital whatever the bank prints.
 function deriveMatching(
   question: Question,
   arrangement: Arrangement,
   number: number,
   rules: QuestionStyleRules,
+  layout: WordBankLayout,
 ): MatchingSet {
   const ordered = orderedChoices(question, arrangement)
   const letters = new Map(ordered.map((answer, index) => [answer.id, letterAt(index)]))
@@ -763,8 +837,9 @@ function deriveMatching(
     letter: rules.lettering === 'lower' ? letterAt(index).toLowerCase() : letterAt(index),
     node: answer.node,
   }))
-  const above = rules.bankPlacement === 'above'
-    || (rules.bankPlacement === 'auto' && bank.length > MATCHING_BESIDE_LIMIT)
+  const above = layout === 'above'
+    || (layout === 'auto' && rules.bankPlacement === 'above')
+    || (layout === 'auto' && bank.length > MATCHING_BESIDE_LIMIT)
   return {
     prompts: promptsOf(question).map((prompt, index) => ({
       id: prompt.id,
@@ -825,7 +900,7 @@ function deriveParts(
       stem: part.stem,
       choices,
       grid: multipleChoice ? layOutGrid(choices, part.columns) : null,
-      workSpace: multipleChoice ? null : plannedWorkSpace(workSpaceOf(exam, part.id)),
+      workSpace: multipleChoice ? null : plannedWorkSpace(workSpaceOf(exam, part.id), workSpaceRowsOf(exam.questionStyle)),
       ...(!multipleChoice && suggestedBlocks.length > 0 && !blankBlocks(suggestedBlocks)
         ? { suggestedAnswer: structuredClone(suggestedBlocks) }
         : {}),
@@ -876,8 +951,15 @@ function deriveQuestion(
     grid: trueFalse || matching || multipart
       ? null
       : layOutGrid(printedChoices(choices, rules), columnsOf(question)),
-    matching: matching ? deriveMatching(question, arrangement, number, rules) : null,
-    workSpace: takesWorkSpace(question.type) ? workSpaceOf(exam, question.id) : null,
+    matching: matching
+      ? deriveMatching(question, arrangement, number, rules, wordBankLayoutOf(exam, question.id))
+      : null,
+    ...(matching && wordBankLayoutOf(exam, question.id) !== 'auto'
+      ? { wordBankLayout: wordBankLayoutOf(exam, question.id) as StoredWordBankLayout }
+      : {}),
+    workSpace: takesWorkSpace(question.type)
+      ? plannedWorkSpace(workSpaceOf(exam, question.id), workSpaceRowsOf(exam.questionStyle))
+      : null,
     ...(question.difficulty ? { difficulty: question.difficulty } : {}),
     ...(topicsOf(question).length > 0 ? { topics: [...topicsOf(question)] } : {}),
     ...(answerVisibility ? { answerVisibility } : {}),
@@ -929,7 +1011,7 @@ function wholeQuestion(question: PlannedQuestion): QuestionItem {
     numbered: true,
     grid: question.grid,
     matching: question.matching,
-    workSpace: question.workSpace ? plannedWorkSpace(question.workSpace) : null,
+    workSpace: question.workSpace,
     parts: question.parts,
   }
 }
@@ -955,7 +1037,7 @@ type Segment = {
 // room for an answer at the top of a page, with its question at the foot of
 // the one before, is room nobody would think to use.
 function segmentsOf(question: PlannedQuestion, measure: Measure, fullPage: number): Segment[] {
-  const workSpace = question.workSpace ? plannedWorkSpace(question.workSpace) : null
+  const workSpace = question.workSpace
   if (question.matching) return matchingSegmentsOf(question, question.matching, workSpace)
   if (question.parts) return multipartSegmentsOf(question, question.parts, measure, fullPage)
   const [first, ...rest] = question.stem
@@ -1094,7 +1176,7 @@ function withFillHeight(item: QuestionItem, height: number): QuestionItem {
   const grow = (space: PlannedWorkSpace): PlannedWorkSpace => ({
     ...space,
     height,
-    lines: space.style === 'lines' ? Math.floor(height / WORK_SPACE_LINE_PITCH) : 0,
+    lines: space.style === 'lines' ? rowsIn(height, rowsOfPlanned(space)) : 0,
   })
   if (item.workSpace?.fill) return { ...item, workSpace: grow(item.workSpace) }
   const parts = item.parts ?? []
@@ -1127,9 +1209,10 @@ function paginate(
   stream: PageStream,
   initialHeader: PageHeader,
   continuedHeader: PageHeader,
+  titleExtra = 0,
 ): PackedPage[] {
   const pages: PackedPage[] = []
-  const contentHeight = (header: PageHeader) => pageContentHeight(header, pageSize)
+  const contentHeight = (header: PageHeader) => pageContentHeight(header, pageSize, titleExtra)
   let header: PageHeader = initialHeader
   let box = contentHeight(header)
   let current: PageItem[] = []
@@ -1584,6 +1667,54 @@ function fitAnswersAcross(
   })
 }
 
+// Where a matching set's Word Bank sits, decided with real measurement: beside
+// the prompts when its widest answer fits on one line in a column that still
+// leaves the prompts `MATCHING_PROMPTS_MIN_WIDTH` — narrower under Condensed —
+// past their number column, and above them in columns otherwise. A bank is
+// also kept above when it has more than twice as many answers as there are
+// prompts and more than `MATCHING_BESIDE_LIMIT`: beside, the set would stand as
+// tall as its bank, and a set split across pages repeats its whole bank
+// beside each piece, so a tall bank beside few prompts spends the most paper
+// for the least gain. The column beside is `MATCHING_BANK_WIDTH` wide unless
+// its widest answer needs more. A bank the teacher put beside stays there,
+// given the widest column the prompts allow, its answers wrapping in it when
+// even that is too narrow; one they put above, or that the Question Style
+// prints above, is left alone. A measure that cannot tell widths leaves every
+// bank where its count put it.
+function fitWordBanks(
+  items: readonly PageItem[],
+  measure: Measure,
+  textSize: TextSize | undefined,
+  contentWidth: number,
+  rules: QuestionStyleRules,
+  promptsMinWidth: number,
+): PageItem[] {
+  const widthOf = measure.bankAnswerWidth
+  if (!widthOf) return [...items]
+  const widest = contentWidth - MATCHING_INDENT - promptsMinWidth
+  return items.map((item) => {
+    if (item.kind !== 'question' || !item.question.matching) return item
+    const { question } = item
+    const set = question.matching!
+    const chosen: WordBankLayout = question.wordBankLayout
+      ?? (rules.bankPlacement === 'above' ? 'above' : 'auto')
+    if (chosen === 'above' || set.bank.length === 0) return item
+    const needed = MATCHING_BANK_INSET
+      + Math.max(...set.bank.map((answer) => Math.ceil(widthOf(answer, textSize))))
+    const tall = set.bank.length > Math.max(MATCHING_BESIDE_LIMIT, 2 * set.prompts.length)
+    const beside = chosen === 'beside' || (needed <= widest && !tall)
+    const width = Math.min(Math.max(needed, MATCHING_BANK_WIDTH), Math.max(widest, MATCHING_BANK_WIDTH))
+    const matching: MatchingSet = beside
+      ? { prompts: set.prompts, bank: set.bank, bankGrid: null, ...(width > MATCHING_BANK_WIDTH ? { bankWidth: width } : {}) }
+      : {
+          prompts: set.prompts,
+          bank: set.bank,
+          bankGrid: { columns: MATCHING_BANK_COLUMNS, ...layOutColumns(set.bank, MATCHING_BANK_COLUMNS) },
+        }
+    return wholeQuestion({ ...question, matching })
+  })
+}
+
 /** Layout resolution, on its own: an Export Document onto sheets. Keeping the
  *  two `paginate` calls independent is what restarts the answer key's footer. */
 function resolveLayout(
@@ -1603,12 +1734,29 @@ function resolveLayout(
   const sized: Measure = Object.keys(layout).length > 0
     ? { itemHeight: (item) => measure.itemHeight(item, layout) }
     : measure
+  // A long title wraps rather than running off the sheet, and the header that
+  // prints it grows by a line for each line it wraps onto; every page that
+  // prints the title packs into what is left.
+  const titleLines = Math.max(
+    1,
+    Math.round(measure.titleLines?.(document.title, document.headingSize, pageSize.contentWidth) ?? 1),
+  )
+  const titleExtra = titleGrowth(titleLines, document.headingSize)
   const pages: PackedPage[] = []
   if (document.selection.test) {
-    const test = questionStyleRules(questionStyle).answersAcross
+    const rules = questionStyleRules(questionStyle)
+    const across = rules.answersAcross
       ? fitAnswersAcross(document.test, measure, textSize, pageSize.contentWidth)
       : document.test
-    pages.push(...paginate(test, sized, pageSize, 'test', 'first', 'later'))
+    const test = fitWordBanks(
+      across,
+      measure,
+      textSize,
+      pageSize.contentWidth,
+      rules,
+      questionStyle === 'condensed' ? CONDENSED_MATCHING_PROMPTS_MIN_WIDTH : MATCHING_PROMPTS_MIN_WIDTH,
+    )
+    pages.push(...paginate(test, sized, pageSize, 'test', 'first', 'later', titleExtra))
   }
   if (document.selection.answerKey) {
     pages.push(
@@ -1619,6 +1767,7 @@ function resolveLayout(
         'answer-key',
         'answer-key',
         'answer-key-later',
+        titleExtra,
       ),
     )
   }
@@ -1640,6 +1789,7 @@ function resolveLayout(
         document.arrangement.version,
         document.header,
         document.headingSize,
+        titleLines,
       ),
       breakBefore: index > 0,
     })),

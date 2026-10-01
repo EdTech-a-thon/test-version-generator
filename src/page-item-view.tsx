@@ -18,6 +18,7 @@ import { DifficultyBadge, TopicBadge } from './badges'
 import { DocView } from './doc-view'
 import {
   hasAnswerBlank,
+  headerHeightOf,
   numberColumnOf,
   printsNumberLine,
   type AnswerKeyEntryItem,
@@ -32,6 +33,7 @@ import {
   type PageItem,
   type QuestionItem,
   type SectionHeadingItem,
+  rowsOfPlanned,
 } from './export-plan'
 import type { ProseMirrorJSON } from './question-doc'
 
@@ -116,7 +118,7 @@ export function ChoiceGridView({
 // row of two cells, each column stacking on its own so a long item never
 // pushes the bank down beside it. A long bank sits above the prompts in a
 // borderless grid, column-major, the way a choice grid is drawn.
-function BankAnswer({ answer }: { answer: PlannedBankAnswer }) {
+export function BankAnswer({ answer }: { answer: PlannedBankAnswer }) {
   return (
     <div className="matching-answer">
       <span className="matching-letter">{answer.letter}.</span>
@@ -176,7 +178,10 @@ export function MatchingSetView({
         <tbody>
           <tr>
             <td className="matching-items">{prompts}</td>
-            <td className="matching-bank">
+            <td
+              className="matching-bank"
+              style={set.bankWidth ? { width: `${set.bankWidth}px` } : undefined}
+            >
               {set.bank.map((answer) => (
                 <BankAnswer answer={answer} key={answer.id} />
               ))}
@@ -194,6 +199,7 @@ export function MatchingSetView({
 // for a question that has no room, so a zero-height space measures as nothing.
 export function WorkSpaceView({ space }: { space: PlannedWorkSpace }) {
   if (space.height <= 0) return null
+  const rows = rowsOfPlanned(space)
   return (
     <div
       className="work-space"
@@ -203,7 +209,11 @@ export function WorkSpaceView({ space }: { space: PlannedWorkSpace }) {
       style={{ height: `${space.height}px` }}
     >
       {Array.from({ length: space.lines }, (_unused, index) => (
-        <div className="work-space-line" key={index} />
+        <div
+          className="work-space-line"
+          key={index}
+          style={{ height: `${index === 0 ? rows.first : rows.pitch}px` }}
+        />
       ))}
     </div>
   )
@@ -470,8 +480,13 @@ export function PageHeaderContent({
   onTitleChange?: (title: string) => void
   titleDisabled?: boolean
 }) {
+  // A title that wraps grows its header by the lines the plan measured, which
+  // the stylesheet's fixed band per variant cannot know.
+  const height = furniture.titleLines && furniture.titleLines > 1
+    ? { height: `${headerHeightOf(header, furniture)}px` }
+    : undefined
   return (
-    <header className={`page-header page-header--${header}`}>
+    <header className={`page-header page-header--${header}`} style={height}>
       <div className="page-identity">
         {identityEditor ? (
           <EditableIdentityText editor={identityEditor} />
@@ -487,17 +502,26 @@ export function PageHeaderContent({
         >
           {onTitleChange ? (
             // The underline belongs to the name, not to the width of the
-            // page: the mirrored value behind the input is what sizes it, so
-            // the field is exactly as wide as what has been typed.
+            // page: the mirrored value behind the field is what sizes it, so
+            // the field is exactly as wide as what has been typed, and wraps
+            // onto as many lines as the printed title does. The title is one
+            // line of text, so Enter finishes rather than breaking it.
             <span className="exam-title-field" data-value={furniture.title || 'Untitled Exam'}>
-              <input
+              <textarea
                 aria-label="Title printed on the exam"
                 className="exam-title-input"
-                size={1}
+                rows={1}
                 value={furniture.title}
                 disabled={titleDisabled}
                 placeholder="Untitled Exam"
-                onChange={(event) => onTitleChange(event.target.value)}
+                spellCheck
+                onChange={(event) => onTitleChange(event.target.value.replace(/\s*\n\s*/g, ' '))}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === 'Escape') {
+                    event.preventDefault()
+                    event.currentTarget.blur()
+                  }
+                }}
               />
             </span>
           ) : (

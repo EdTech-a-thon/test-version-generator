@@ -31,7 +31,7 @@ export const DEFAULT_MARGIN = 0.75
  *  sheet, and a printer's unprintable edge is clear of it. */
 export const MIN_MARGIN = 0.5
 export const MAX_MARGIN = 1.5
-/** What the slider moves by, and what a typed value rounds to. */
+/** What a scrubbed or stepped margin moves by, and what a typed value rounds to. */
 export const MARGIN_STEP = 0.05
 
 export const DEFAULT_MARGINS: PageMargins = {
@@ -44,7 +44,7 @@ export const DEFAULT_MARGINS: PageMargins = {
 const PX_PER_INCH = 96
 
 /** A margin in the CSS pixels the Layout Plan packs in. Whole hundredths, so a
- *  step of the slider never leaves a floating-point tail in a plan. */
+ *  step never leaves a floating-point tail in a plan. */
 export function marginPx(inches: number): number {
   return Math.round(inches * PX_PER_INCH * 100) / 100
 }

@@ -1,5 +1,5 @@
 import Ajv2020, { type ErrorObject } from 'ajv/dist/2020'
-import type { ColumnSetting, WorkSpace } from './exam'
+import type { ColumnSetting, StoredWordBankLayout, WorkSpace } from './exam'
 import type { HeadingSize, SectionHeadings, TextSize } from './section-headings'
 import type { ExamHeader } from './page-header'
 import type { PageMargins } from './page-margins'
@@ -73,6 +73,9 @@ export type ExamRecordPosition = {
    *  leaves off, by the record's choice ids (ADR-0038). */
   hiddenAnswers?: string[]
   workSpace?: WorkSpace
+  /** From Exam Record 0.4.0: where a Matching position's Word Bank prints,
+   *  when not left to the fit rule. */
+  wordBankLayout?: StoredWordBankLayout
 }
 
 /**
@@ -349,12 +352,15 @@ function sectionedParser(
 const examParser030: ExamParser = sectionedParser(validateExam030, '0.3.0')
 
 // 0.4.0 adds to 0.3.0 a Multiple Choice position's `hiddenAnswers`, the
-// incorrect answers it leaves off (ADR-0038); the Exam's Page Margins
-// (ADR-0039); and its `questionStyle` (ADR-0041) — and nothing else. A record
-// without them hides nothing, prints today's margins, and prints in the
-// standard style.
-const sectionedParser040: ExamParser = sectionedParser(validateExam040, '0.4.0', (position) =>
-  position.hiddenAnswers !== undefined ? { hiddenAnswers: [...position.hiddenAnswers] } : {})
+// incorrect answers it leaves off (ADR-0038); a Matching position's
+// `wordBankLayout`; the Exam's Page Margins (ADR-0039); and its
+// `questionStyle` (ADR-0041) — and nothing else. A record without them hides
+// nothing, leaves every Word Bank to the fit rule, prints today's margins, and
+// prints in the standard style.
+const sectionedParser040: ExamParser = sectionedParser(validateExam040, '0.4.0', (position) => ({
+  ...(position.hiddenAnswers !== undefined ? { hiddenAnswers: [...position.hiddenAnswers] } : {}),
+  ...(position.wordBankLayout !== undefined ? { wordBankLayout: position.wordBankLayout } : {}),
+}))
 
 const examParser040: ExamParser = (value) => {
   const parsed = sectionedParser040(value)
@@ -477,6 +483,12 @@ function proposedExam(
       throw new QuestionBankImportError(
         'invalid-position',
         `${where} sets answer columns, which only a Multiple Choice Question has.`,
+      )
+    }
+    if (position.wordBankLayout !== undefined && question.type !== 'matching') {
+      throw new QuestionBankImportError(
+        'invalid-position',
+        `${where} sets a Word Bank layout, which only a Matching Question has.`,
       )
     }
     if (position.workSpace !== undefined && question.type !== 'short-answer') {

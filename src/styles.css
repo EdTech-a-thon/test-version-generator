@@ -757,7 +757,7 @@ button { cursor: pointer; }
      here rather than pushing the page out of shape and hiding the fact that
      a measurement was wrong. */
   overflow: hidden;
-  font-family: Georgia, 'Times New Roman', serif; font-size: 15px; line-height: 1.3;
+  font-family: Georgia, 'Times New Roman', serif; font-size: 15px; line-height: 1.2;
 }
 
 /* Page furniture. Fixed heights, because the packer subtracted exactly these
@@ -805,11 +805,13 @@ button { cursor: pointer; }
 .page-header:hover .identity-handles,
 .identity-handles:focus-within { opacity: 1; }
 /* Takes whatever the identity line leaves of the first page's header, and sits
-   on the bottom of it. */
+   on the bottom of it. A long title wraps, at `TITLE_LINE_HEIGHT`, and the
+   plan grows its header by a line for each line past the first
+   (`headerHeightOf`), so it never runs over the questions below. */
 .page-header--first .exam-title,
 .page-header--answer-key .exam-title {
   flex: 1 1 auto; display: flex; align-items: flex-end;
-  margin: 0; font: 700 26px/1.2 Georgia, serif;
+  margin: 0; font: 700 26px/1.1 Georgia, serif; overflow-wrap: anywhere;
 }
 .page-header--answer-key .page-identity,
 .page-header--answer-key-later .page-identity { justify-content: flex-end; }
@@ -840,7 +842,7 @@ button { cursor: pointer; }
 .measure-host--natural .doc-content { white-space: pre; }
 
 .exam-section { margin: 16px 0 18px; }
-.section-title { margin: 0; font: 700 17px/1.3 Georgia, serif; }
+.section-title { margin: 0; font: 700 17px/1.2 Georgia, serif; }
 /* Directions print at the heading size's type, set here for normal so the
    Exam's text size, which a page's content carries, does not reach them. */
 .section-instructions { margin: 4px 0 0; font-size: 15px; font-style: italic; }
@@ -874,8 +876,8 @@ button { cursor: pointer; }
   position: absolute; right: 0; bottom: 3px; pointer-events: none; white-space: nowrap;
   color: #b3a498; font: italic 11px/1 Arial, Helvetica, sans-serif; letter-spacing: 0.02em;
 }
-.answer-key-heading { margin: 0 0 18px; font: 700 20px/1.3 Georgia, serif; }
-.answer-key-section { margin: 0 0 10px; font: 700 17px/1.3 Georgia, serif; }
+.answer-key-heading { margin: 0 0 18px; font: 700 20px/1.2 Georgia, serif; white-space: nowrap; }
+.answer-key-section { margin: 0 0 10px; font: 700 17px/1.2 Georgia, serif; }
 .answer-key-entry {
   display: grid; grid-template-columns: 42px 56px minmax(0, 1fr);
   align-items: center; gap: 8px; margin: 0 0 8px;
@@ -907,17 +909,14 @@ button { cursor: pointer; }
    which a student circles, sit before its number in a wider one. A Question
    Style that prints an answer blank before the number widens it again — the
    column an Export Record made before Sections were stored reprints its blank
-   in too — and a Worksheet's long True/False blank more. `questionIndentOf` in
-   export-plan.ts holds the same widths for the adapters. */
+   in too. `questionIndentOf` in export-plan.ts holds the same widths for the
+   adapters. */
 .exam-question:has(> .question-number--marks) { grid-template-columns: 64px 1fr; }
 .exam-question:has(> .question-number--blank) { grid-template-columns: 92px 1fr; }
-.exam-question:has(> .question-number--long-blank) { grid-template-columns: 140px 1fr; }
 /* The number always prints whole: a two-digit number, or a larger text size,
    shortens the blank before it rather than pushing into the question. */
-.question-number--blank .question-marks,
-.question-number--long-blank .question-marks { min-width: 0; overflow: hidden; white-space: nowrap; }
-.question-number--blank .question-count,
-.question-number--long-blank .question-count { flex: none; }
+.question-number--blank .question-marks { min-width: 0; overflow: hidden; white-space: nowrap; }
+.question-number--blank .question-count { flex: none; }
 /* A Condensed Exam stands its questions closer together: the Question Style's
    `questionGap` in question-style.ts. The drop line keeps to the middle of
    the narrower gap. */
@@ -1221,9 +1220,11 @@ button { cursor: pointer; }
 
 /* A Short Answer question's work space: exactly as tall as the plan says, and
    either empty or ruled. No margin of its own, so the height packing was told
-   is the height it takes; the first rule sits one pitch below the question,
-   which is the gap a student starts writing in. Each line is one pitch tall
-   with its rule along its foot — the pitch `WORK_SPACE_LINE_PITCH` names. */
+   is the height it takes. Each line is one row tall with its rule along its
+   foot: the first row a quarter shorter than the rest, so the first rule sits
+   close under the question it belongs to, and every other row the Question
+   Style's pitch. `WorkSpaceView` sets each row's height from the plan; 32px,
+   `WORK_SPACE_LINE_PITCH`, is only the fallback. */
 .work-space { display: flow-root; }
 .work-space-line {
   box-sizing: border-box; height: 32px; border-bottom: 1px solid #8f847a;
@@ -1278,7 +1279,6 @@ button { cursor: pointer; }
    narrower gap between questions takes a smaller note. */
 .exam-question:has(> .question-number--marks) > :is(.answer-visibility-note, .work-space-handle) { left: 70px; }
 .exam-question:has(> .question-number--blank) > :is(.answer-visibility-note, .work-space-handle) { left: 98px; }
-.exam-question:has(> .question-number--long-blank) > :is(.answer-visibility-note, .work-space-handle) { left: 146px; }
 [data-question-style='condensed'] .answer-visibility-note { bottom: -12px; font-size: 10px; line-height: 12px; }
 
 /* The handles: a plus and a grip in the margin beside a question, hidden until
@@ -1350,6 +1350,15 @@ button { cursor: pointer; }
   width: 18px; height: 16px; color: #8b7868;
 }
 .context-menu-format-icon svg { width: 18px; height: 14px; stroke-width: 1.4; }
+/* A radio's picture of what choosing it looks like — a Question Style's
+   sketch — in place of its icon: wider than an icon, at its own 1:1 size so
+   its one-pixel lines stay crisp, and set against the label's first line. */
+.context-menu-preview {
+  flex: none; align-self: flex-start; display: flex;
+  width: 32px; height: 24px; margin-top: 1px; color: #8b7868;
+}
+.context-menu-preview svg { width: 32px; height: 24px; }
+.context-menu-item[aria-checked='true'] .context-menu-preview { color: #9f5037; }
 .context-menu-item-label { flex: 1; }
 /* A radio's line of description, under its label: what choosing it does. */
 .context-menu-item-description {
@@ -1371,23 +1380,6 @@ button { cursor: pointer; }
   font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
 }
 .context-menu-separator { height: 1px; margin: 4px -1px; background: #eadfd0; }
-/* A row of a few short choices: the row's own label, then each choice as a
-   small segment to its right, so "Above" and "Below" read as answers to it. */
-.context-menu-choices {
-  display: flex; align-items: center; gap: 8px; padding: 3px 4px 3px 8px; color: #4e3b2f;
-}
-.context-menu-choice {
-  flex: none; min-width: 52px; padding: 3px 8px; border: 1px solid #e0d3c2; border-radius: 5px;
-  color: #4e3b2f; background: #fffdf8; font: inherit; font-size: 12px; cursor: pointer;
-}
-.context-menu-choice + .context-menu-choice { margin-left: -4px; }
-.context-menu-choice:hover, .context-menu-choice:focus {
-  border-color: #c9b29c; background: #f2e6d8; outline: none;
-}
-.context-menu-choice:focus-visible { outline: 2px solid #9f5037; outline-offset: 1px; }
-.context-menu-choice:disabled {
-  color: #b8aa9e; border-color: #eee5d9; background: transparent; cursor: not-allowed;
-}
 .context-menu-submenu { position: relative; }
 .context-menu-submenu-arrow { margin-left: auto; color: #8b7868; font-size: 18px; line-height: 1; }
 .context-submenu {
@@ -1410,19 +1402,24 @@ button { cursor: pointer; }
 .context-menu[data-side='left'] .context-submenu::before { right: auto; left: 100%; }
 
 /* The Margins panel the Format menu opens: the menu's own card, staying open
-   while the sheet behind it reflows. One row per control — a label, a slider,
-   a field in inches — and the combined row's toggle beside it, which the rows
-   for each side leave room for so their sliders line up under it. */
+   while the sheet behind it reflows. One row per field — its label, then the
+   field with its icon and inches — and the combined row's toggle beside it,
+   which the rows for each side leave room for so their fields line up under
+   it. A label, an icon and an unfocused field scrub: they show a resize arrow,
+   and keep it on the whole page while a drag lasts. */
 .margins-panel {
-  position: fixed; z-index: 200; width: 316px;
+  position: fixed; z-index: 200; width: 248px;
   padding: 8px 10px 10px; border: 1px solid #e0d3c2; border-radius: 8px; background: #fffdf8;
   box-shadow: 0 10px 30px rgb(55 42 33 / 18%), 0 2px 6px rgb(55 42 33 / 10%);
   color: #4e3b2f; font-family: Arial, Helvetica, sans-serif; font-size: 13px;
 }
+.margins-panel:focus { outline: none; }
 .margins-panel-header { display: flex; align-items: center; justify-content: space-between; margin: 0 0 6px; }
 .margins-panel-title {
+  display: flex; align-items: center; gap: 6px;
   color: #8b7868; font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
 }
+.margins-panel-icon { width: 14px; height: 14px; stroke-width: 1.9; }
 .margins-panel-close, .margins-expand {
   display: flex; align-items: center; justify-content: center; flex: none;
   width: 26px; height: 26px; padding: 0; border: 1px solid transparent; border-radius: 6px;
@@ -1434,22 +1431,28 @@ button { cursor: pointer; }
 .margins-combined { display: flex; align-items: center; gap: 6px; }
 .margins-combined .margins-row { flex: 1; }
 .margins-sides { display: grid; gap: 4px; margin: 6px 0 0; padding: 6px 32px 0 0; border-top: 1px solid #eadfd0; }
-.margins-row { display: grid; grid-template-columns: 82px minmax(0, 1fr) 62px; align-items: center; gap: 8px; }
-.margins-row-label { display: flex; align-items: center; gap: 6px; min-width: 0; white-space: nowrap; }
-.margins-row-icon { display: flex; color: #8b7868; }
+.margins-row { display: grid; grid-template-columns: minmax(0, 1fr) 104px; align-items: center; gap: 8px; }
+.margins-row-label {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  cursor: ew-resize; user-select: none; touch-action: none;
+}
+.margins-row-icon { display: flex; flex: none; color: #8b7868; cursor: ew-resize; touch-action: none; }
 .margins-row-icon svg { width: 15px; height: 15px; stroke-width: 1.7; }
-.margins-slider { width: 100%; margin: 0; accent-color: var(--paper-accent); }
+.margins-row[data-disabled] :is(.margins-row-label, .margins-row-icon) { cursor: default; }
 .margins-field {
-  display: flex; align-items: center; gap: 3px; height: 26px; padding: 0 6px;
+  display: flex; align-items: center; gap: 5px; height: 26px; padding: 0 6px;
   border: 1px solid #e0d3c2; border-radius: 5px; background: #fff;
 }
 .margins-field:focus-within { border-color: var(--paper-accent); }
 .margins-input {
   width: 100%; min-width: 0; padding: 0; border: 0; outline: none;
   color: inherit; background: transparent; font: inherit; text-align: right;
+  font-variant-numeric: tabular-nums;
 }
+.margins-input:not(:focus):not(:disabled) { cursor: ew-resize; touch-action: none; }
 .margins-input::placeholder { color: #8b7868; }
 .margins-unit { color: #8b7868; }
+body.margins-scrubbing, body.margins-scrubbing * { cursor: ew-resize !important; user-select: none; }
 
 .vary-summary {
   position: fixed; z-index: 40; left: 50%; bottom: 22px; transform: translateX(-50%);
@@ -2326,29 +2329,28 @@ button { cursor: pointer; }
   border-radius: 8px; background: transparent;
 }
 .editor-home-mark:hover, .editor-home-mark:focus-visible { border-color: #ddcdb9; background: #f2e6d8; }
-/* Inside the fixed-height title slot the page furniture already reserves, so
-   typing a longer name can never change what fits on the sheet.
-
-   The field is as wide as the name and no wider: a mirror of the value sits in
-   the same grid cell behind the input and sets the column, and `size={1}`
-   keeps the input's own 20-character default from putting a floor under it.
-   Without that the hover underline would run the width of the sheet. */
+/* The title typed where it prints. It wraps exactly as the printed title
+   does: a hidden copy of the value sits in the same grid cell behind the
+   field, wrapping at the same width with no padding of its own, and sets the
+   cell's size, so the field is as wide as the name and as many lines tall as
+   the plan measured it. The underline is a shadow, which takes no height. */
 .exam-title-field {
   display: inline-grid; max-width: 100%; min-width: 0;
 }
 .exam-title-field::after {
-  grid-area: 1 / 1; padding: 0 1px;
-  content: attr(data-value); visibility: hidden; white-space: pre; overflow: hidden;
+  grid-area: 1 / 1;
+  content: attr(data-value) ' '; visibility: hidden; white-space: pre-wrap; overflow-wrap: anywhere;
   font: inherit; letter-spacing: inherit;
 }
 .exam-title-input {
-  grid-area: 1 / 1; width: 100%; min-width: 2ch; padding: 0 1px;
-  border: 0; border-bottom: 1px solid transparent;
+  grid-area: 1 / 1; width: 0; min-width: 100%; padding: 0; margin: 0;
+  border: 0; border-radius: 0; resize: none; overflow: hidden;
   color: inherit; background: transparent; font: inherit; line-height: inherit; outline: none;
+  box-shadow: 0 1px 0 transparent;
 }
 .exam-title-input::placeholder { color: #b8a493; }
-.exam-title-input:hover:not(:disabled) { border-bottom-color: #d8cbbb; }
-.exam-title-input:focus { border-bottom-color: var(--paper-accent); }
+.exam-title-input:hover:not(:disabled) { box-shadow: 0 1px 0 #d8cbbb; }
+.exam-title-input:focus { box-shadow: 0 1px 0 var(--paper-accent); }
 .exam-title-input:disabled { color: inherit; -webkit-text-fill-color: currentcolor; opacity: 1; }
 
 /* Drop a Question Bank File anywhere. */

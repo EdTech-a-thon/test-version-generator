@@ -106,7 +106,9 @@ tables — a one-cell bordered one and a borderless one-row one that cannot spli
 as a box and Panels rather than as tables.
 
 A Short Answer question's Work Space is a `space:` line: blank, or ruled with
-the plan's own count of lines. Its height is geometry and is not compared. The
+the plan's own count of lines. Its height is geometry and is not compared, nor
+are the rows it is ruled in — its `pitch`, closer under Condensed, and its
+shorter `firstRow` — which every adapter draws from the plan. The
 Layout Plan resolves a space that fills its page to its final height, so print,
 DOCX and PDF draw the same room; DOCX marks its work-space paragraphs with the
 `WorkSpace` and `WorkSpaceLines` paragraph styles so they read back as one.
@@ -139,6 +141,12 @@ The implementations are:
   plan: what prints before a number, answer and Word Bank letters and layout,
   the Work Space a style supplies and what overrides it, the question gap
   handed to `Measure`, and an Answer Key that never changes with the style.
+- `src/word-bank-layout.test.ts` — where a matching set's Word Bank prints:
+  beside its Items wherever its widest answer fits, at every text size,
+  margin and under Condensed, above them otherwise, or where the teacher put
+  it for that question.
+- `src/import-preview.test.ts` — the plan the import review previews, Work
+  Space and the lines a Question Style rules included.
 - `src/export-parity.test.ts` — each fixture through the plan, print-reference,
   and DOCX fingerprints, including deliberate degradation checks.
 - `src/docx-export.test.ts` — DOCX packaging, page sections, friendly names,

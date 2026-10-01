@@ -1444,7 +1444,7 @@ export const FIXTURES: readonly Fixture[] = [
   // blanks, its letters, its Word Bank and its default Work Space the way the
   // plan resolved them. Two questions to a page, so the PDF has room to draw
   // them; Condensed's measure fits every answer four across.
-  ...(['examview', 'condensed', 'worksheet'] as const).map((questionStyle) =>
+  ...(['classic', 'condensed'] as const).map((questionStyle) =>
     fixture(
       `every question type in the ${questionStyle} question style`,
       { ...QUESTION_STYLE_EXAM, title: `${questionStyle} style`, questionStyle },

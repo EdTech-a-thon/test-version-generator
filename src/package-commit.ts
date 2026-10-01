@@ -4,6 +4,7 @@ import {
   type ColumnSetting,
   type ExamSection,
   type Question,
+  type StoredWordBankLayout,
   type WorkSpace,
 } from './exam'
 import type { SavedState } from './exam-store'
@@ -110,6 +111,7 @@ export function planImport(
     const choiceOrder: Record<string, string[]> = {}
     const hiddenAnswers: Record<string, string[]> = {}
     const workSpace: Record<string, WorkSpace> = {}
+    const wordBankLayout: Record<string, StoredWordBankLayout> = {}
     const identityOf = (position: ExamRecordPosition) =>
       identities.get(position.question.bank)!.get(position.question.question)!
     const layout = positionColumns(
@@ -127,6 +129,7 @@ export function planImport(
       if (position.hiddenAnswers) {
         hiddenAnswers[question.id] = position.hiddenAnswers.map((id) => answers.get(id)!)
       }
+      if (position.wordBankLayout) wordBankLayout[question.id] = position.wordBankLayout
       if (position.workSpace) {
         workSpace[question.id] = {
           height: snapWorkSpaceHeight(position.workSpace.height),
@@ -157,6 +160,7 @@ export function planImport(
       ...(Object.keys(hiddenAnswers).length > 0 ? { hiddenAnswers } : {}),
       ...(Object.keys(columns).length > 0 ? { columns } : {}),
       ...(Object.keys(workSpace).length > 0 ? { workSpace } : {}),
+      ...(Object.keys(wordBankLayout).length > 0 ? { wordBankLayout } : {}),
       ...(sections ? { sections, sectionOf } : {}),
       ...(exam.sectionHeadings ? { sectionHeadings: exam.sectionHeadings } : {}),
       ...(exam.headingSize ? { headingSize: exam.headingSize } : {}),

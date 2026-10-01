@@ -27,7 +27,6 @@ import {
 import type { ProseMirrorJSON } from './question-doc'
 import {
   ANSWER_BLANK,
-  LONG_ANSWER_BLANK,
   QUESTION_STYLES,
   QUESTION_STYLE_RULES,
   isQuestionStyle,
@@ -180,8 +179,8 @@ const EVERY_TYPE = [
 ]
 
 describe('Question Styles', () => {
-  test('are four, read by one guard, with Standard the default', () => {
-    expect(QUESTION_STYLES).toEqual(['standard', 'examview', 'condensed', 'worksheet'])
+  test('are three, read by one guard, with Standard the default', () => {
+    expect(QUESTION_STYLES).toEqual(['standard', 'classic', 'condensed'])
     for (const style of QUESTION_STYLES) expect(isQuestionStyle(style)).toBe(true)
     expect(isQuestionStyle('fancy')).toBe(false)
     expect(isQuestionStyle(undefined)).toBe(false)
@@ -196,7 +195,7 @@ describe('Question Styles', () => {
   })
 
   test('a plan names any other style it was laid out in, so a reprint reproduces it', () => {
-    for (const style of ['examview', 'condensed', 'worksheet'] as const) {
+    for (const style of ['classic', 'condensed'] as const) {
       expect(plan(examOf(EVERY_TYPE, style)).questionStyle).toBe(style)
     }
   })
@@ -220,8 +219,8 @@ describe('Standard', () => {
   })
 })
 
-describe('ExamView', () => {
-  const items = () => testItems(examOf(EVERY_TYPE, 'examview'))
+describe('Classic', () => {
+  const items = () => testItems(examOf(EVERY_TYPE, 'classic'))
 
   test('puts an answer blank before every objective question’s number', () => {
     const [mc, tf, mx, sa, mp] = items()
@@ -244,7 +243,7 @@ describe('ExamView', () => {
   })
 
   test('letters Multiple Choice answers “a.” on the test, in the question’s own columns', () => {
-    const exam = examOf([multipleChoice('mc', ['a', 'b', 'c', 'd'], 'b', 2)], 'examview')
+    const exam = examOf([multipleChoice('mc', ['a', 'b', 'c', 'd'], 'b', 2)], 'classic')
     const [mc] = testItems(exam)
     expect(mc!.grid!.columns).toBe(2)
     expect(gridLetters(mc!)).toEqual(['a', 'c', 'b', 'd'])
@@ -269,12 +268,14 @@ describe('ExamView', () => {
 
   test('rules answer lines below a Short Answer question or Part the teacher left alone', () => {
     const [, , , sa, mp] = items()
-    expect(sa!.workSpace).toEqual({ height: 96, style: 'lines', lines: 3, fill: false })
-    expect(mp!.parts![1]!.workSpace).toEqual({ height: 96, style: 'lines', lines: 3, fill: false })
+    // Three rows: a short first one under the stem, then two at the pitch.
+    const ruled = { height: 24 + 32 + 32, style: 'lines', lines: 3, fill: false, pitch: 32, firstRow: 24 }
+    expect(sa!.workSpace).toEqual(ruled)
+    expect(mp!.parts![1]!.workSpace).toEqual(ruled)
   })
 
   test('never overrides a Work Space the teacher set, “None” included', () => {
-    const exam = examOf([open('sa'), open('none'), multipart('mp')], 'examview', {
+    const exam = examOf([open('sa'), open('none'), multipart('mp')], 'classic', {
       workSpace: {
         sa: { height: 160, style: 'blank', fill: false },
         none: { height: 0, style: 'blank', fill: false },
@@ -282,12 +283,12 @@ describe('ExamView', () => {
       },
     })
     const [sa, none, mp] = testItems(exam)
-    expect(sa!.workSpace).toEqual({ height: 160, style: 'blank', lines: 0, fill: false })
+    expect(sa!.workSpace).toMatchObject({ height: 24 + 4 * 32, style: 'blank', lines: 0, fill: false })
     expect(none!.workSpace!.height).toBe(0)
     expect(mp!.parts![1]!.workSpace!.fill).toBe(true)
     // The one reader says the same to the sheet's menus.
     expect(workSpaceOf(exam, 'none').height).toBe(0)
-    expect(workSpaceOf(examOf([open('x')], 'examview'), 'x'))
+    expect(workSpaceOf(examOf([open('x')], 'classic'), 'x'))
       .toEqual({ height: 96, style: 'lines', fill: false })
   })
 })
@@ -299,14 +300,34 @@ describe('Condensed', () => {
     choiceWidth: (choice) => width(choice),
   })
 
-  test('adds no blanks and no room, and circles T or F', () => {
-    const [mc, tf, mx, sa] = testItems(examOf(EVERY_TYPE, 'condensed'))
+  test('adds no blanks, circles T or F, and rules lines where the teacher left a Short Answer alone', () => {
+    const [mc, tf, mx, sa, mp] = testItems(examOf(EVERY_TYPE, 'condensed'))
     expect(mc!.question.marks).toEqual([])
     expect(tf!.question.marks).toEqual(['T', 'F'])
     expect(gridLetters(mc!)[0]).toBe('A')
-    expect(sa!.workSpace!.height).toBe(0)
+    // Classic's three lines, a quarter-inch apart rather than a third.
+    const ruled = { height: 18 + 24 + 24, style: 'lines', lines: 3, fill: false, pitch: 24, firstRow: 18 }
+    expect(sa!.workSpace).toEqual(ruled)
+    expect(mp!.parts![1]!.workSpace).toEqual(ruled)
     // Matching's blank is where its answer goes, so it stays.
     expect(mx!.matching!.prompts).toHaveLength(2)
+  })
+
+  test('keeps every Work Space the teacher set, its rows set closer and its stored height untouched', () => {
+    const spaces = {
+      sa: { height: 160, style: 'lines', fill: false },
+      none: { height: 0, style: 'blank', fill: false },
+      blank: { height: 96, style: 'blank', fill: false },
+    } as const
+    const exam = (style?: QuestionStyle) =>
+      examOf([open('sa'), open('none'), open('blank')], style, { workSpace: { ...spaces } })
+    const [sa, none, blank] = testItems(exam('condensed'))
+    expect(sa!.workSpace).toMatchObject({ height: 18 + 4 * 24, lines: 5, pitch: 24, firstRow: 18 })
+    expect(none!.workSpace!.height).toBe(0)
+    expect(blank!.workSpace).toMatchObject({ height: 18 + 2 * 24, lines: 0 })
+    // The same five rows take more room under every other style.
+    expect(testItems(exam())[0]!.workSpace).toMatchObject({ height: 24 + 4 * 32, lines: 5 })
+    expect(exam('condensed').workSpace).toEqual(spaces)
   })
 
   test('lays answers across the line, four to a row, when every one fits a quarter of it', () => {
@@ -375,36 +396,6 @@ describe('Condensed', () => {
   })
 })
 
-describe('Worksheet', () => {
-  const items = () => testItems(examOf(EVERY_TYPE, 'worksheet'))
-
-  test('puts a long write-on blank before a True/False number and a short one before Multiple Choice', () => {
-    const [mc, tf] = items()
-    expect(tf!.question.marks).toEqual([LONG_ANSWER_BLANK])
-    expect(mc!.question.marks).toEqual([ANSWER_BLANK])
-    expect(LONG_ANSWER_BLANK.length).toBeGreaterThan(ANSWER_BLANK.length)
-    expect(questionIndentOf(tf!.question)).toBeGreaterThan(questionIndentOf(mc!.question))
-  })
-
-  test('letters Multiple Choice answers “a.”, stacked as the teacher left them', () => {
-    const [mc] = items()
-    expect(mc!.grid!.columns).toBe(1)
-    expect(gridLetters(mc!)).toEqual(['a', 'b', 'c', 'd'])
-  })
-
-  test('sets a lettered Column B beside the Items, however long it is', () => {
-    const long = matching('mx', ['w1'], ['w1', 'w2', 'w3', 'w4', 'w5', 'w6', 'w7'])
-    const [mx] = testItems(examOf([long], 'worksheet'))
-    expect(mx!.matching!.bankGrid).toBeNull()
-    expect(mx!.matching!.bank.map((answer) => answer.letter)).toEqual(['a', 'b', 'c', 'd', 'e', 'f', 'g'])
-  })
-
-  test('rules a couple of answer lines under a Short Answer question', () => {
-    const [, , , sa] = items()
-    expect(sa!.workSpace).toEqual({ height: 64, style: 'lines', lines: 2, fill: false })
-  })
-})
-
 describe('Hidden Answers under a Question Style', () => {
   // Five answers, the first correct, with the third hidden (ADR-0038).
   const question = multipleChoice('mc', ['a', 'b', 'c', 'd', 'e'], 'a')
@@ -415,7 +406,7 @@ describe('Hidden Answers under a Question Style', () => {
       .flatMap((item) => (item.kind === 'question' ? [item] : []))
 
   test('letters only the answers shown, in the style’s case, while the key keeps capitals', () => {
-    const [mc] = items(examOf([question], 'examview'), hiding)
+    const [mc] = items(examOf([question], 'classic'), hiding)
     expect(gridLetters(mc!)).toEqual(['a', 'b', 'c', 'd'])
     expect(mc!.grid!.cells.flat().map((cell) => cell?.id)).toEqual(['a', 'b', 'd', 'e'])
     expect(mc!.question.choices.map(({ letter }) => letter)).toEqual(['A', 'B', 'C', 'D'])

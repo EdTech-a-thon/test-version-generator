@@ -30,6 +30,10 @@ export type ExamWorkingCopy = {
    *  Question Bank record id. Exam presentation like `columns`, so it is set
    *  on the exam sheet and never in the question editor. Absent means none. */
   workSpace?: Record<string, import('./exam').WorkSpace>
+  /** Where each Matching question's Word Bank prints on this Exam, keyed by
+   *  Question Bank record id, where the teacher chose Beside or Above. Exam
+   *  presentation like `columns`; absent leaves every one to Auto. */
+  wordBankLayout?: Record<string, import('./exam').StoredWordBankLayout>
   /** The Working Copy's answer arrangement, keyed by Question Bank record id.
    *  Absent means authored order, preserving compatibility with drafts stored
    *  before answer shuffling existed. */
@@ -150,6 +154,9 @@ export function withReferencesRemoved(
   const workSpace = draft.workSpace
     ? { ...draft.workSpace }
     : undefined
+  const wordBankLayout = draft.wordBankLayout
+    ? { ...draft.wordBankLayout }
+    : undefined
   const sectionOf = draft.sectionOf
     ? { ...draft.sectionOf }
     : undefined
@@ -158,6 +165,7 @@ export function withReferencesRemoved(
     delete hiddenAnswers?.[id]
     delete columns?.[id]
     delete workSpace?.[id]
+    delete wordBankLayout?.[id]
     delete sectionOf?.[id]
   }
   return {
@@ -167,6 +175,7 @@ export function withReferencesRemoved(
     ...(hiddenAnswers ? { hiddenAnswers } : {}),
     ...(columns ? { columns } : {}),
     ...(workSpace ? { workSpace } : {}),
+    ...(wordBankLayout ? { wordBankLayout } : {}),
     ...(sectionOf ? { sectionOf } : {}),
   }
 }

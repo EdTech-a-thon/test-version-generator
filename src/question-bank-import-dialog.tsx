@@ -28,8 +28,7 @@ import {
   setExamAllowed,
   type ImportSelection,
 } from './import-selection'
-import { selectedExam } from './selected-exam'
-import { planExport, type LayoutPlan } from './export-plan'
+import type { LayoutPlan } from './export-plan'
 import { domMeasure, imageSourcesOfDocuments } from './dom-measure'
 import { ExportPreview } from './exam-page'
 import { ImportError } from './import-error'
@@ -164,8 +163,9 @@ function mediaSources(proposal: ImportProposal): Map<string, string> {
 
 /**
  * The student test an Exam would print, laid out by the same Layout Plan the
- * export uses. It is built the way the import will build the Exam — through
- * the same plan — so what is previewed is what arrives.
+ * export uses. It is built the way the import will build the Exam
+ * (`import-preview.ts`), so what is previewed is what arrives — Work Space and
+ * the lines a Question Style rules included.
  */
 async function examPreviewPlan(
   proposal: ImportProposal,
@@ -174,28 +174,16 @@ async function examPreviewPlan(
   pictures: ReadonlyMap<string, PreviewPicture>,
 ): Promise<LayoutPlan | null> {
   // Loaded on demand, like the importer: it brings the record parsers.
-  const { planImport } = await import('./package-commit')
-  let next = 0
-  const plan = planImport(proposal, initialSelection(proposal), () => `preview-${next++}`)
-  const planned = plan.exams.find(({ source }) => source === examKey)
-  if (!planned || planned.saved.workingCopy.questionIds.length === 0) return null
-  const resolve = (question: Question): Question => ({
+  const { importedExam, importPreviewPlan } = await import('./import-preview')
+  const selected = importedExam(proposal, examKey, (question: Question): Question => ({
     ...question,
     doc: resolveMedia(question.doc, sources, pictures),
-  })
-  const { exam, arrangement } = selectedExam(
-    { questions: planned.saved.questionBank.questions.map(resolve) },
-    planned.saved.workingCopy,
-  )
+  }))
+  if (!selected) return null
   // Pictures measure as nothing until their bytes arrive, so the page is not
   // planned until every one has.
-  await domMeasure.loadImages(imageSourcesOfDocuments(exam.questions.map((question) => question.doc)))
-  return planExport({
-    exam,
-    arrangement,
-    selection: { test: true, answerKey: false },
-    measure: domMeasure,
-  })
+  await domMeasure.loadImages(imageSourcesOfDocuments(selected.exam.questions.map((question) => question.doc)))
+  return importPreviewPlan(selected, domMeasure)
 }
 
 /** A record Question, as the reading draws it. */

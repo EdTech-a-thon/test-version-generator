@@ -37,7 +37,7 @@ The versioned, format-owned machine-readable representation of one Question Bank
 _Avoid_: PDF metadata, extracted questions
 
 **Exam Record**:
-The versioned, format-owned machine-readable composition of one Exam: its name and, for each position, the Question it references in a Question Bank Record travelling in the same Test Parrot Package, with that position's answer columns, answer order, Hidden Answers, and Work Space, and the Question Section it is in, and the Exam's heading and text sizes, Question Style and Page Margins. It carries the Exam's Sections in print order, each with its Section Heading and Section Directions, so a test an assistant converts keeps its own parts in its own order. It never references a Question outside its package.
+The versioned, format-owned machine-readable composition of one Exam: its name and, for each position, the Question it references in a Question Bank Record travelling in the same Test Parrot Package, with that position's answer columns, answer order, Hidden Answers, Word Bank layout and Work Space, and the Question Section it is in, and the Exam's heading and text sizes, Question Style and Page Margins. It carries the Exam's Sections in print order, each with its Section Heading and Section Directions, so a test an assistant converts keeps its own parts in its own order. It never references a Question outside its package.
 _Avoid_: Exam layout, test JSON
 
 **Test Parrot Package**:
@@ -146,7 +146,7 @@ One numbered thing to match in a Matching set, in authored order. It is matched 
 _Avoid_: Prompt (in teacher-facing text), stem (for an Item), left side
 
 **Word Bank**:
-The lettered answers a Matching set's Items are matched against, in authored order. A letter is a position — Vary may shuffle a Word Bank, as it shuffles Multiple Choice answers — and no answer is correct on its own: several Items may name the same answer, and an answer no Item names is a distractor. A Word Bank of up to five answers prints beside its Items; a longer one prints above them in columns.
+The lettered answers a Matching set's Items are matched against, in authored order. A letter is a position — Vary may shuffle a Word Bank, as it shuffles Multiple Choice answers — and no answer is correct on its own: several Items may name the same answer, and an answer no Item names is a distractor. A Word Bank prints beside its Items wherever its widest answer fits a column beside them, and above them in columns otherwise, unless the teacher puts it beside or above for that question on the Exam — Exam presentation, like a Multiple Choice question's answer columns.
 _Avoid_: Choices (for a Matching set), answer list, right side
 
 **Locked Answer**:
@@ -174,11 +174,11 @@ One lettered question within a Multipart question, in authored order: a Multiple
 _Avoid_: Sub-question, item (Item is Matching's), sub-part
 
 **Work Space**:
-Room an Exam leaves below a Short Answer question or Short Answer Part for a student's working: blank or ruled, as tall as the teacher drags it, or filling the rest of its page. It is Exam presentation set on the exam sheet like answer columns, never Question Content, so the same Question may take different room on another Exam; Duplicate copies it. Where the teacher has set none, the Exam's Question Style supplies it — ruled lines under ExamView and Worksheet, none otherwise — and a Work Space the teacher set, None included, always wins.
+Room an Exam leaves below a Short Answer question or Short Answer Part for a student's working: blank or ruled, as tall as the teacher drags it, or filling the rest of its page. It is Exam presentation set on the exam sheet like answer columns, never Question Content, so the same Question may take different room on another Exam; Duplicate copies it. Where the teacher has set none, the Exam's Question Style supplies it — ruled lines under Classic and Condensed, none under Standard — and a Work Space the teacher set, None included, always wins. It is kept as a number of rows; the Question Style decides how far apart they lie on the page, closer under Condensed, and the first row is a little shorter, so the first rule sits close under its question.
 _Avoid_: White space, answer box, response area
 
 **Question Style**:
-One preset for how every question on an Exam prints — Standard, ExamView, Condensed or Worksheet — chosen from the Format menu and never set per question or per Question Type. It decides what prints before a question's number (T and F to circle, or an answer blank to write on), how answers and a Word Bank are lettered and laid out, how far apart questions stand, and what Work Space a Short Answer question or Part leaves when the teacher has set none. It is Exam presentation like the heading and text sizes; Standard is the sheet as it always printed, and the Answer Key is the same under every style.
+One preset for how every question on an Exam prints — Standard, Classic or Condensed — chosen from the Format menu and never set per question or per Question Type. It decides what prints before a question's number (T and F to circle, or an answer blank to write on), how answers and a Word Bank are lettered and laid out, how far apart questions stand and how closely Work Space is ruled, and what Work Space a Short Answer question or Part leaves when the teacher has set none. It is Exam presentation like the heading and text sizes; Standard is the sheet as it always printed, and the Answer Key is the same under every style.
 _Avoid_: Theme, template, question format, layout preset
 
 **Page Header**:

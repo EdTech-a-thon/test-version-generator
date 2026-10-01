@@ -151,18 +151,36 @@ describe('an Exam PDF carrying its Exam', () => {
       record.positions.find((position) => position.workSpace !== undefined)?.workSpace
 
     // The room the style rules is the style's, and is not written out.
-    const ruled = await recordOf({ ...exam, workSpace: {}, questionStyle: 'worksheet' })
-    expect(ruled.questionStyle).toBe('worksheet')
+    const ruled = await recordOf({ ...exam, workSpace: {}, questionStyle: 'condensed' })
+    expect(ruled.questionStyle).toBe('condensed')
     expect(shortAnswerOf(ruled)).toBeUndefined()
 
     // "None" set against the style travels, so it still wins on import.
     const none = { height: 0, style: 'blank' as const, fill: false }
-    const cleared = await recordOf({ ...exam, workSpace: { 'forces-1': none }, questionStyle: 'examview' })
+    const cleared = await recordOf({ ...exam, workSpace: { 'forces-1': none }, questionStyle: 'classic' })
     expect(shortAnswerOf(cleared)).toEqual(none)
 
     const plain = await recordOf(exam)
     expect(plain).not.toHaveProperty('questionStyle')
     expect(shortAnswerOf(plain)).toEqual({ height: 96, style: 'lines', fill: false })
+  })
+
+  test('carries where a Matching question’s Word Bank prints, and brings it back on import', async () => {
+    const matchingId = exam.questions.find((question) => question.type === 'matching')!.id
+    const sheet: Exam = { ...exam, wordBankLayout: { [matchingId]: 'above' } }
+    const { package: written } = await examPackage({ exam: sheet, arrangement, ownerOf, loadMedia: noImages })
+    const positions = written.exams[0]!.positions
+    expect(positions.filter((position) => position.wordBankLayout !== undefined).map((position) => position.wordBankLayout))
+      .toEqual(['above'])
+    // Auto is the absence of a choice, and is never written.
+    const plain = await examPackage({ exam, arrangement, ownerOf, loadMedia: noImages })
+    expect(plain.package.exams[0]!.positions.every((position) => position.wordBankLayout === undefined)).toBe(true)
+
+    const proposal = await inspectImportRecord(new TextEncoder().encode(JSON.stringify(written)))
+    const planned = planImport(proposal, initialSelection(proposal)).exams[0]!
+    const imported = selectedExam(planned.saved.questionBank, planned.saved.workingCopy).exam
+    const importedMatching = imported.questions.find((question) => question.type === 'matching')!
+    expect(imported.wordBankLayout).toEqual({ [importedMatching.id]: 'above' })
   })
 
   test('re-importing an answer-key PDF reproduces exactly what it printed', async () => {

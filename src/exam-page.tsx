@@ -16,7 +16,7 @@
 // `pages` is state rather than a value computed during render: see
 // `usePaginatedExam`.
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type RefObject } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject } from 'react'
 import {
   AnswerKeyEntry,
   AnswerKeyHeading,
@@ -36,6 +36,7 @@ import {
   maxWorkSpaceHeight,
   numberLabelOf,
   planExport,
+  rowsOfPlanned,
   unmeasured,
   type ExportContentSelection,
   type LayoutPlan,
@@ -52,15 +53,19 @@ import {
   DEFAULT_COLUMNS,
   columnsOf,
   hasWorkSpace,
-  snapWorkSpaceHeight,
+  laidWorkSpaceHeight,
+  rowsIn,
+  storedWorkSpaceHeight,
   takesWorkSpace,
   WORK_SPACE_LINE_PITCH,
   moveToNewSection,
   questionsInSection,
   sectionsOf,
   splitSection,
+  wordBankLayoutOf,
   workSpaceOf,
   type ColumnSetting,
+  type WordBankLayout,
   type SectionPlacement,
   type Exam,
   type Arrangement,
@@ -86,6 +91,7 @@ import {
   Ban,
   BetweenHorizontalStart,
   CircleMinus,
+  Columns2,
   Copy,
   Ellipsis,
   EllipsisVertical,
@@ -94,12 +100,23 @@ import {
   Pencil,
   PencilLine,
   Heading,
+  Rows2,
   SeparatorHorizontal,
   Shuffle,
   SquareDashed,
+  WandSparkles,
   X,
 } from 'lucide-react'
 import { ColumnLayoutIcon } from './column-layout-icon'
+import { InsertSectionAboveIcon } from './format-icons'
+import {
+  NEW_SECTION_BAND,
+  SECTION_RULE_OFFSET,
+  bandEdges,
+  sameBand,
+  sheetBands,
+  type SectionBand,
+} from './section-bands'
 import {
   ContextMenu,
   type MenuItem,
@@ -156,6 +173,31 @@ function columnsMenu(
       label: option.label,
       checked: option.value === columns,
       icon: <ColumnLayoutIcon columns={option.value} />,
+      onSelect: () => onSelect(option.value),
+    })),
+  }
+}
+
+// Where a Matching question's Word Bank prints on this Exam, offered as Multiple
+// Choice answer columns are: Auto, the default, leaves it to the Layout Plan,
+// which puts it beside the Items wherever it fits.
+const WORD_BANK_MENU_OPTIONS: readonly { label: string; value: WordBankLayout; icon: ReactNode }[] = [
+  { label: 'Auto', value: 'auto', icon: <WandSparkles /> },
+  { label: 'Beside items', value: 'beside', icon: <Columns2 /> },
+  { label: 'Above items', value: 'above', icon: <Rows2 /> },
+]
+
+function wordBankMenu(layout: WordBankLayout, onSelect: (layout: WordBankLayout) => void): MenuItem {
+  const current = WORD_BANK_MENU_OPTIONS.find((option) => option.value === layout)!
+  return {
+    kind: 'submenu',
+    label: 'Word Bank',
+    icon: current.icon,
+    items: WORD_BANK_MENU_OPTIONS.map((option) => ({
+      kind: 'radio',
+      label: option.label,
+      checked: option.value === layout,
+      icon: option.icon,
       onSelect: () => onSelect(option.value),
     })),
   }
@@ -246,6 +288,8 @@ function questionMenuItems({
   onSetShownIncorrect,
   onRemove,
   onSetColumns,
+  wordBankLayout,
+  onSetWordBankLayout,
   workSpace,
   workSpaceOfPart,
   onSetWorkSpace,
@@ -270,6 +314,9 @@ function questionMenuItems({
   onShuffleSelectedAnswers: (questionIds: readonly string[]) => void
   onRemove: (questionIds: readonly string[]) => void
   onSetColumns: (questionIds: readonly string[], columns: ColumnSetting) => void
+  /** Where this question's Word Bank prints, when it is a Matching question. */
+  wordBankLayout: WordBankLayout
+  onSetWordBankLayout?: (questionIds: readonly string[], layout: WordBankLayout) => void
   selectedQuestionIds: readonly string[]
 }): MenuItem[] {
   // Every action that can sensibly apply to more than one question applies to
@@ -322,6 +369,14 @@ function questionMenuItems({
     items.push(
       { kind: 'separator' },
       columnsMenu('Answer columns', columns, (next) => onSetColumns(actedOnIds, next)),
+    )
+  }
+  // A matching set's Word Bank layout is its own, the way answer columns are a
+  // Multiple Choice question's; the store leaves any other type alone.
+  if (question.type === 'matching' && onSetWordBankLayout) {
+    items.push(
+      { kind: 'separator' },
+      wordBankMenu(wordBankLayout, (next) => onSetWordBankLayout(actedOnIds, next)),
     )
   }
   // A Multipart question lays out each Part the way a question of its kind is laid out,
@@ -482,7 +537,9 @@ function QuestionHandles({
 //
 // A drag previews locally and commits once, on release — one undo step per
 // gesture, and one repagination rather than one per pixel. Heights snap to
-// whole ruled lines, so blank and lined space always agree about size. Dragging
+// whole rows, laid out at the Question Style's pitch — closer under Condensed —
+// so blank and lined space always agree about size, and what is committed is
+// the stored height of those rows (`storedWorkSpaceHeight`). Dragging
 // a space that fills its page takes over from the fill: the teacher is now
 // saying how much room they want, so what they drag to is what they get.
 //
@@ -490,25 +547,31 @@ function QuestionHandles({
 // line, Home shuts it, End opens it as far as a drag could.
 function WorkSpaceHandle({
   label,
-  height,
+  space,
   max,
   onPreview,
   onCommit,
 }: {
   label: string
-  height: number
-  /** The most room a drag may open: less on an Exam whose margins leave a
-   *  shorter page (`maxWorkSpaceHeight`). */
+  /** The space as this page lays it out: its height, and the rows it is in. */
+  space: PlannedWorkSpace
+  /** The most room a drag may open on the page: less on an Exam whose
+   *  margins leave a shorter page (`maxWorkSpaceHeight`). */
   max: number
+  /** The height on the page a drag is showing, or `null` once it ends. */
   onPreview: (height: number | null) => void
+  /** The stored height the teacher settled on. */
   onCommit: (height: number) => void
 }) {
+  const { height } = space
+  const rows = rowsOfPlanned(space)
   const gesture = useRef<{ id: number; startY: number; next: number } | null>(null)
-  const settle = (next: number) => {
-    const snapped = snapWorkSpaceHeight(next, max)
-    if (snapped !== height) onCommit(snapped)
+  const lines = rowsIn(height, rows)
+  // Commits a whole count of rows, unless it is the count already showing.
+  const settle = (stored: number) => {
+    const snapped = storedWorkSpaceHeight(laidWorkSpaceHeight(stored, rows), rows, max)
+    if (snapped / WORK_SPACE_LINE_PITCH !== lines || space.fill) onCommit(snapped)
   }
-  const lines = Math.floor(height / WORK_SPACE_LINE_PITCH)
   return (
     <div
       className="work-space-handle"
@@ -516,7 +579,7 @@ function WorkSpaceHandle({
       aria-orientation="horizontal"
       aria-label={label}
       aria-valuemin={0}
-      aria-valuemax={max / WORK_SPACE_LINE_PITCH}
+      aria-valuemax={rowsIn(max, rows)}
       aria-valuenow={lines}
       aria-valuetext={`${lines} ${lines === 1 ? 'line' : 'lines'} of work space`}
       title="Drag to change the work space"
@@ -529,20 +592,21 @@ function WorkSpaceHandle({
         if (event.button !== 0) return
         event.stopPropagation()
         event.preventDefault()
-        gesture.current = { id: event.pointerId, startY: event.clientY, next: height }
+        gesture.current = {
+          id: event.pointerId,
+          startY: event.clientY,
+          next: lines * WORK_SPACE_LINE_PITCH,
+        }
         event.currentTarget.setPointerCapture(event.pointerId)
       }}
       onPointerMove={(event) => {
         const drag = gesture.current
         if (!drag || drag.id !== event.pointerId) return
         event.stopPropagation()
-        const next = snapWorkSpaceHeight(
-          height + event.clientY - drag.startY,
-          max,
-        )
+        const next = storedWorkSpaceHeight(height + event.clientY - drag.startY, rows, max)
         if (next === drag.next) return
         drag.next = next
-        onPreview(next)
+        onPreview(laidWorkSpaceHeight(next, rows))
       }}
       onPointerUp={(event) => {
         const drag = gesture.current
@@ -561,17 +625,16 @@ function WorkSpaceHandle({
         onPreview(null)
       }}
       onKeyDown={(event) => {
-        const step = WORK_SPACE_LINE_PITCH
         const next =
-          event.key === 'ArrowDown' ? height + step
-            : event.key === 'ArrowUp' ? height - step
+          event.key === 'ArrowDown' ? lines + 1
+            : event.key === 'ArrowUp' ? Math.max(0, lines - 1)
               : event.key === 'Home' ? 0
-                : event.key === 'End' ? max
+                : event.key === 'End' ? rowsIn(max, rows)
                   : null
         if (next === null) return
         event.preventDefault()
         event.stopPropagation()
-        settle(next)
+        settle(next * WORK_SPACE_LINE_PITCH)
       }}
     >
       <span className="work-space-grip" aria-hidden="true" />
@@ -639,7 +702,8 @@ function QuestionView({
   const previewed = (space: PlannedWorkSpace, height: number): PlannedWorkSpace => ({
     ...space,
     height,
-    lines: space.style === 'lines' ? Math.floor(height / WORK_SPACE_LINE_PITCH) : 0,
+    lines: space.style === 'lines' ? rowsIn(height, rowsOfPlanned(space)) : 0,
+    fill: false,
   })
   const withQuestionPreview: QuestionItem =
     previewHeight === null || !item.workSpace
@@ -663,7 +727,7 @@ function QuestionView({
       <WorkSpaceView space={space} />
       <WorkSpaceHandle
         label={`Work space for question ${numberLabelOf(question)} part ${part.letter}`}
-        height={item.parts?.find(({ id }) => id === part.id)?.workSpace?.height ?? space.height}
+        space={item.parts?.find(({ id }) => id === part.id)?.workSpace ?? space}
         max={maxWorkSpace}
         onPreview={(height) =>
           setPartPreview(height === null ? null : { partId: part.id, height })}
@@ -815,7 +879,7 @@ function QuestionView({
       {item.workSpace && (
         <WorkSpaceHandle
           label={`Work space for question ${numberLabelOf(question)}`}
-          height={item.workSpace.height}
+          space={item.workSpace}
           max={maxWorkSpace}
           onPreview={setPreviewHeight}
           onCommit={(height) => onSetWorkSpace([question.id], { height, fill: false })}
@@ -825,48 +889,9 @@ function QuestionView({
   )
 }
 
-/** The band an open new-Section target takes, which bounds the Section above
- *  it but is never drawn as a Section of its own. */
-const NEW_SECTION_BAND = '\u0000new-section'
-
 /** How long after a Section is moved from its controls the sheet keeps its
  *  controls where they were, through each pass of repagination. */
 const MOVE_ANCHOR_MS = 1200
-
-/** How far above its heading a Section's band — its dashed rule, and its
- *  highlight — begins. A band runs from there to where the next Section's
- *  begins, so the rules of neighbouring Sections fall on the same line. */
-const SECTION_RULE_OFFSET = 9
-
-/** How far a Section's highlight reaches below the last piece on a sheet when
- *  no Section follows it there. */
-const SECTION_BAND_BLEED = 12
-
-/** One sheet's stretch of a Section, as drawn: from its sheet's top edge, for
- *  the highlight, and from the workspace's, for the controls in the gutter. */
-type SectionBand = {
-  sectionId: string
-  pageIndex: number
-  /** Whether a new-Section target open beneath it is where it ends — whose
-   *  own rule then marks its foot, so it draws none of its own there. */
-  endsAtNewSection: boolean
-  topInPage: number
-  height: number
-  top: number
-  bottom: number
-  pageLeft: number
-}
-
-function sameBand(left: SectionBand, right: SectionBand): boolean {
-  return (
-    left.sectionId === right.sectionId
-    && left.pageIndex === right.pageIndex
-    && left.endsAtNewSection === right.endsAtNewSection
-    && left.top === right.top
-    && left.bottom === right.bottom
-    && left.pageLeft === right.pageLeft
-  )
-}
 
 /** A new-Section target a gesture has opened: the Section it opened beneath,
  *  and whether the pointer is over it, which is when a release makes one. */
@@ -910,34 +935,21 @@ export type SectionControls = {
 // say "section" four times. Merging keeps this Section's wording, so a merge
 // is named from this Section — "Merge with" the one above or below.
 function sectionMenuItems(controls: SectionControls): MenuItem[] {
+  // Two plain actions, each on the Section above: inserting or merging below
+  // is the same action taken from the next Section, and the arrows move one.
   return [
     {
-      kind: 'choices',
-      label: 'Insert section',
-      icon: <BetweenHorizontalStart />,
-      choices: [
-        { label: 'Above', ariaLabel: 'Insert section above', onSelect: () => controls.onInsert('above') },
-        { label: 'Below', ariaLabel: 'Insert section below', onSelect: () => controls.onInsert('below') },
-      ],
+      kind: 'action',
+      label: 'Insert section above',
+      icon: <InsertSectionAboveIcon />,
+      onSelect: () => controls.onInsert('above'),
     },
     {
-      kind: 'choices',
-      label: 'Merge with',
+      kind: 'action',
+      label: 'Merge with section above',
       icon: <FoldVertical />,
-      choices: [
-        {
-          label: 'Above',
-          ariaLabel: 'Merge with section above',
-          disabled: !controls.canMoveUp,
-          onSelect: () => controls.onMerge(-1),
-        },
-        {
-          label: 'Below',
-          ariaLabel: 'Merge with section below',
-          disabled: !controls.canMoveDown,
-          onSelect: () => controls.onMerge(1),
-        },
-      ],
+      disabled: !controls.canMoveUp,
+      onSelect: () => controls.onMerge(-1),
     },
   ]
 }
@@ -1528,6 +1540,7 @@ export function ExamPage({
   onSetShownIncorrect,
   onRemove,
   onSetColumns,
+  onSetWordBankLayout,
   onSetWorkSpace,
   onTitleChange,
   onSectionHeadingChange,
@@ -1561,6 +1574,9 @@ export function ExamPage({
   onSetShownIncorrect?: (questionIds: readonly string[], count: number) => void
   onRemove: (questionIds: readonly string[]) => void
   onSetColumns: (questionIds: readonly string[], columns: ColumnSetting) => void
+  /** Sets where Matching questions' Word Banks print. Absent offers no
+   *  Word Bank menu. */
+  onSetWordBankLayout?: (questionIds: readonly string[], layout: WordBankLayout) => void
   /** Changes the room left for work below Short Answer questions. */
   onSetWorkSpace: SetWorkSpace
   /** Renames the Exam from its own title line. See `PageHeaderContent`. */
@@ -1719,39 +1735,15 @@ export function ExamPage({
     const origin = root.getBoundingClientRect()
     const bands: SectionBand[] = []
     root.querySelectorAll<HTMLElement>('.exam-page').forEach((page, pageIndex) => {
-      const sheet = page.getBoundingClientRect()
-      const spans = new Map<string, { top: number; bottom: number }>()
-      for (const piece of page.querySelectorAll<HTMLElement>(
+      // An open new-Section target is a Section in the making: the Section
+      // above it ends where it begins.
+      const pieces = [...page.querySelectorAll<HTMLElement>(
         '.page-content [data-section-id], .page-content [data-new-section-after]',
-      )) {
-        // An open new-Section target is a Section in the making: the Section
-        // above it ends where it begins.
-        const id = piece.dataset.sectionId ?? NEW_SECTION_BAND
+      )].map((piece) => {
         const box = piece.getBoundingClientRect()
-        const span = spans.get(id)
-        if (span) {
-          span.top = Math.min(span.top, box.top)
-          span.bottom = Math.max(span.bottom, box.bottom)
-        } else {
-          spans.set(id, { top: box.top, bottom: box.bottom })
-        }
-      }
-      const onSheet = [...spans].sort(([, a], [, b]) => a.top - b.top)
-      onSheet.forEach(([sectionId, span], index) => {
-        const top = span.top - SECTION_RULE_OFFSET
-        const next = onSheet[index + 1]
-        const bottom = next ? next[1].top - SECTION_RULE_OFFSET : span.bottom + SECTION_BAND_BLEED
-        bands.push({
-          sectionId,
-          pageIndex,
-          endsAtNewSection: next?.[0] === NEW_SECTION_BAND,
-          topInPage: top - sheet.top,
-          height: bottom - top,
-          top: top - origin.top,
-          bottom: bottom - origin.top,
-          pageLeft: sheet.left - origin.left,
-        })
+        return { sectionId: piece.dataset.sectionId ?? NEW_SECTION_BAND, top: box.top, bottom: box.bottom }
       })
+      bands.push(...sheetBands(pieces, pageIndex, page.getBoundingClientRect(), origin))
     })
     setSectionBands((current) =>
       current.length === bands.length
@@ -1772,6 +1764,23 @@ export function ExamPage({
       root?.removeEventListener('animationend', measureSectionBands)
     }
   }, [measureSectionBands])
+  // The sheet also moves under the bands without a new plan: a picture that
+  // decodes after the page was drawn, a cleared heading that opens while it
+  // has focus, a field that wraps as it is typed in. Bands read before such a
+  // shift drew their rules where the heading used to be — through its
+  // directions — so every piece a band is read from, and each sheet's header
+  // above them, is watched, and the bands are read again when any resizes.
+  useLayoutEffect(() => {
+    const root = workspace.current
+    if (!root || typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(() => measureSectionBands())
+    for (const element of root.querySelectorAll<HTMLElement>(
+      '.exam-page .page-header, .page-content [data-section-id], .page-content [data-new-section-after]',
+    )) {
+      observer.observe(element)
+    }
+    return () => observer.disconnect()
+  }, [measureSectionBands, plan, drag.intent])
   // The Section band the pointer is in, anywhere across its rows — never while
   // a gesture is in flight, which has its own feedback to give.
   const [pointedBand, setPointedBand] = useState<SectionBand | null>(null)
@@ -1986,28 +1995,36 @@ export function ExamPage({
               />
             ))}
           {/* The Section the pointer is in — or, mid-gesture, the Section the
-              gesture would land in — is marked off by a dashed rule above and
-              below its stretch of each sheet. */}
+              gesture would land in — is marked off by a dashed rule at its
+              real top and its real foot. A Section that runs over a page
+              break draws no rule at the break, on either sheet. */}
           {ruledSectionId && sectionBands
             .filter((band) => band.pageIndex === index && band.sectionId === ruledSectionId)
-            .flatMap((band) => [
-              <div
-                key={`${band.sectionId}-top`}
-                className="section-rule"
-                style={{ top: band.topInPage }}
-                aria-hidden="true"
-              />,
-              ...(band.endsAtNewSection
-                ? []
-                : [
-                    <div
-                      key={`${band.sectionId}-bottom`}
-                      className="section-rule"
-                      style={{ top: band.topInPage + band.height }}
-                      aria-hidden="true"
-                    />,
-                  ]),
-            ])}
+            .flatMap((band) => {
+              const edges = bandEdges(sectionBands, band)
+              return [
+                ...(edges.top
+                  ? [
+                      <div
+                        key={`${band.sectionId}-top`}
+                        className="section-rule"
+                        style={{ top: band.topInPage }}
+                        aria-hidden="true"
+                      />,
+                    ]
+                  : []),
+                ...(edges.bottom
+                  ? [
+                      <div
+                        key={`${band.sectionId}-bottom`}
+                        className="section-rule"
+                        style={{ top: band.topInPage + band.height }}
+                        aria-hidden="true"
+                      />,
+                    ]
+                  : []),
+              ]
+            })}
           <PageHeaderContent
             header={page.header}
             furniture={page.furniture}
@@ -2116,6 +2133,8 @@ export function ExamPage({
             onSetShownIncorrect,
             onRemove,
             onSetColumns,
+            wordBankLayout: wordBankLayoutOf(exam, menuQuestion.id),
+            onSetWordBankLayout,
             workSpace: workSpaceOf(exam, menuQuestion.id),
             workSpaceOfPart: (partId) => workSpaceOf(exam, partId),
             onSetWorkSpace,

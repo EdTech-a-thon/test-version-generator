@@ -30,6 +30,7 @@ import {
 import {
   columnsOf,
   readExamSection,
+  isStoredWordBankLayout,
   isWorkSpace,
   sameSectionOf,
   sameSections,
@@ -39,10 +40,20 @@ import {
   type Exam,
   type Arrangement,
   type Question,
+  type StoredWordBankLayout,
   type WorkSpace,
 } from './exam'
 import type { ProseMirrorJSON } from './question-doc'
 import { bankQuestionById, type ExamWorkingCopy, type QuestionBank } from './question-bank'
+
+function sameStrings(
+  left: Readonly<Record<string, string>> | undefined,
+  right: Readonly<Record<string, string>> | undefined,
+): boolean {
+  const entries = Object.entries(left ?? {})
+  return entries.length === Object.keys(right ?? {}).length
+    && entries.every(([key, value]) => right?.[key] === value)
+}
 
 function sameWorkSpace(
   left: Record<string, WorkSpace> | undefined,
@@ -145,6 +156,16 @@ export function selectedExam(
     if (presented.has(id) && isWorkSpace(space)) workSpace[id] = space
   }
   const hasAnyWorkSpace = Object.keys(workSpace).length > 0
+  // So is where a Matching question's Word Bank prints: only a referenced
+  // Matching question's, and only a choice other than Auto.
+  const matchingIds = new Set(
+    bankedQuestions.filter((question) => question.type === 'matching').map(({ id }) => id),
+  )
+  const wordBankLayout: Record<string, StoredWordBankLayout> = {}
+  for (const [id, layout] of Object.entries(draft.wordBankLayout ?? {})) {
+    if (matchingIds.has(id) && isStoredWordBankLayout(layout)) wordBankLayout[id] = layout
+  }
+  const hasAnyWordBankLayout = Object.keys(wordBankLayout).length > 0
   // Section wording and size are this Exam's presentation too, carried only
   // when readable and only when they say something other than the default.
   const sectionHeadings =
@@ -185,6 +206,7 @@ export function selectedExam(
     && previous.exam.questions.length === questions.length
     && previous.exam.questions.every((question, index) => question === questions[index])
     && sameWorkSpace(previous.exam.workSpace, hasAnyWorkSpace ? workSpace : undefined)
+    && sameStrings(previous.exam.wordBankLayout, hasAnyWordBankLayout ? wordBankLayout : undefined)
     && sameSections(previous.exam.sections, sections)
     && (previous.exam.sections === undefined) === (sections === undefined)
     && sameSectionOf(previous.exam.sectionOf, hasAnySectionOf ? sectionOf : undefined)
@@ -199,6 +221,7 @@ export function selectedExam(
           title: draft.title,
           questions,
           ...(hasAnyWorkSpace ? { workSpace } : {}),
+          ...(hasAnyWordBankLayout ? { wordBankLayout } : {}),
           ...(sections ? { sections } : {}),
           ...(hasAnySectionOf ? { sectionOf } : {}),
           ...(sectionHeadings ? { sectionHeadings } : {}),

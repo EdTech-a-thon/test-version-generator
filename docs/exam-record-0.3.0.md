@@ -87,7 +87,7 @@ Every test page opens with one line for the student beside the paper's ID, which
 
 ## Producers
 
-Record `columns` only when the source layout makes them clear, and never guess `workSpace`.
+Record `columns` only when the source layout makes them clear, and a Short Answer position's `workSpace` only when the source prints room to write below it — ruled lines counted, blank space in 32 px rows.
 
 ## Changes from 0.2.0
 

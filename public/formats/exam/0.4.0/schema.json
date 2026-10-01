@@ -45,12 +45,11 @@
       ]
     },
     "questionStyle": {
-      "description": "How every question on the Exam prints (ADR-0041). `standard` circles T or F and a capital letter and adds nothing. `examview` prints an answer blank before each Multiple Choice and True/False number, letters answers and the Word Bank in lower case with the Word Bank above its Items, and rules three answer lines below a Short Answer Question or Part with no `workSpace`. `condensed` stands questions closer together and lays Multiple Choice answers across the line where they fit. `worksheet` prints a long blank before each True/False number and a short one before each Multiple Choice number, letters in lower case with the Word Bank beside its Items, and rules two answer lines below a Short Answer Question or Part with no `workSpace`. Absent means standard.",
+      "description": "How every question on the Exam prints (ADR-0041). `standard` circles T or F and a capital letter and adds nothing. `classic` prints an answer blank before each Multiple Choice and True/False number, letters answers and the Word Bank in lower case with the Word Bank above its Items, and rules three answer lines below a Short Answer Question or Part with no `workSpace`. `condensed` stands questions closer together, lays Multiple Choice answers across the line where they fit, rules three answer lines below a Short Answer Question or Part with no `workSpace`, and sets every Work Space's rows closer together, keeping its count of rows. Absent means standard.",
       "enum": [
         "standard",
-        "examview",
-        "condensed",
-        "worksheet"
+        "classic",
+        "condensed"
       ]
     },
     "header": {
@@ -174,6 +173,13 @@
             "type": "string",
             "minLength": 1
           }
+        },
+        "wordBankLayout": {
+          "description": "Where a Matching position's Word Bank prints: `beside` its Items, or `above` them in columns. Absent leaves it where it fits: beside the Items when its widest answer fits a column beside them, above them otherwise.",
+          "enum": [
+            "beside",
+            "above"
+          ]
         }
       }
     },

@@ -135,7 +135,6 @@ import {
   RefreshCw,
   Save,
   SaveAll,
-  Scan,
   Tags,
   Trash2,
   TriangleAlert,
@@ -187,6 +186,7 @@ import { ImportsPage, WaitingImportPage } from './imports-page'
 import { questionBankCollection, type QuestionBankCollectionItem } from './resource-collections'
 import { QuestionBankExportDialog } from './question-bank-export-dialog'
 import { QuestionBankImportDialog } from './question-bank-import-dialog'
+import { MarginsIcon, QuestionStylePreview } from './format-icons'
 import {
   keepMultipartParts,
   multipartMode,
@@ -2455,6 +2455,7 @@ function ExamEditor({
               kind: 'radio' as const,
               label: QUESTION_STYLE_LABELS[style].label,
               description: QUESTION_STYLE_LABELS[style].description,
+              preview: <QuestionStylePreview style={style} />,
               checked: (state.workingCopy.questionStyle ?? DEFAULT_QUESTION_STYLE) === style,
               onSelect: () => {
                 if (!isHistoricalBrowsing) store.setQuestionStyle(style)
@@ -2466,7 +2467,7 @@ function ExamEditor({
             // reflows behind it.
             kind: 'action',
             label: 'Margins…',
-            icon: <Scan />,
+            icon: <MarginsIcon />,
             disabled: isHistoricalBrowsing,
             onSelect: () => setMarginsPanel(documentMenu.point),
           },
@@ -2741,6 +2742,9 @@ function ExamEditor({
             }}
             onSetColumns={(questionIds, columns) =>
               store.setQuestionColumns(questionIds, columns)
+            }
+            onSetWordBankLayout={(questionIds, layout) =>
+              store.setWordBankLayout(questionIds, layout)
             }
             onSetWorkSpace={(questionIds, patch) =>
               store.setQuestionWorkSpace(questionIds, patch)

@@ -128,6 +128,10 @@ export type Exam = {
    *  Question may want a quarter page on one test and none on another. Absent
    *  means no work space anywhere. */
   workSpace?: Record<string, WorkSpace>
+  /** Where a Matching question's Word Bank prints, keyed by question id, where
+   *  the teacher chose other than Auto. Exam presentation like answer columns.
+   *  See `wordBankLayoutOf`. */
+  wordBankLayout?: Record<string, StoredWordBankLayout>
   /** This Exam's Question Sections, in the order they print. Absent on an Exam
    *  written before Sections were stored: its Sections are then derived, one
    *  per Question Type (see `sectionsOf`). */
@@ -162,9 +166,12 @@ export type WorkSpaceStyle = 'blank' | 'lines'
 
 /** The room a Short Answer question leaves below itself for a student's work.
  *
- *  `height` is in CSS pixels at 96dpi, the unit the Layout Plan packs in, and
- *  is always a whole number of `WORK_SPACE_LINE_PITCH`s so that switching
- *  between blank and lined never moves anything on the page. `fill` stretches
+ *  `height` is in CSS pixels at 96dpi, and is always a whole number of
+ *  `WORK_SPACE_LINE_PITCH`s: it stores how many rows of room the teacher
+ *  asked for, so switching between blank and lined never moves anything on
+ *  the page. The page lays those rows out by the Exam's Question Style
+ *  (`workSpaceRowsOf`, `laidWorkSpaceHeight`), so a style that sets them
+ *  closer together never rewrites what is stored. `fill` stretches
  *  the space to the foot of whatever page the question lands on — `height` is
  *  then the least room it takes, which is what decides whether the question
  *  still fits on the page it is on. */
@@ -175,8 +182,57 @@ export type WorkSpace = {
 }
 
 /** The distance between two ruled lines: a third of an inch, the wide-ruled
- *  spacing a student's handwriting is comfortable in. Heights snap to it. */
+ *  spacing a student's handwriting is comfortable in. Stored heights snap to
+ *  it, one row each, whatever pitch the page lays them out at. */
 export const WORK_SPACE_LINE_PITCH = 32
+
+/** How a Work Space's rows lie on the page: `pitch` apart, the first of them
+ *  `first` tall, so its first rule sits `first` below the question. */
+export type WorkSpaceRows = { pitch: number; first: number }
+
+/** How much shorter than the others a Work Space's first row is, as a share
+ *  of the pitch: a quarter, 8px at the sheet's 32px. The question's last line
+ *  of text already ends below its letters, so a full first row left more room
+ *  between the stem and its first rule than between any two rules, and the
+ *  stem read as belonging to the lines above it as much as to its own. A
+ *  quarter of a row is about the x-height of the 15px body type — the part of
+ *  a written line a student never needs above the first rule. */
+export const FIRST_ROW_INSET = 0.25
+
+/** A Work Space's rows at `pitch` apart, its first row shortened. */
+export function workSpaceRows(pitch: number = WORK_SPACE_LINE_PITCH): WorkSpaceRows {
+  return { pitch, first: pitch * (1 - FIRST_ROW_INSET) }
+}
+
+/** The rows a Work Space lies in under an Exam's Question Style. */
+export function workSpaceRowsOf(style: QuestionStyle | undefined): WorkSpaceRows {
+  return workSpaceRows(questionStyleRules(style).workSpacePitch)
+}
+
+/** The height a stored Work Space takes on the page: as many rows as it
+ *  stores, `rows.pitch` apart, the first one shorter. No room is no height. */
+export function laidWorkSpaceHeight(stored: number, rows: WorkSpaceRows): number {
+  const count = Math.round(Math.max(0, stored) / WORK_SPACE_LINE_PITCH)
+  return count > 0 ? rows.first + (count - 1) * rows.pitch : 0
+}
+
+/** How many whole rows — and so, when it is ruled, how many rules — fit in a
+ *  height laid out in `rows`. */
+export function rowsIn(height: number, rows: WorkSpaceRows): number {
+  return height >= rows.first ? 1 + Math.floor((height - rows.first) / rows.pitch) : 0
+}
+
+/** The stored height of the whole rows nearest a height on the page, such as
+ *  one a teacher drags to, kept to the rows that fit in `max`. The inverse of
+ *  `laidWorkSpaceHeight`. */
+export function storedWorkSpaceHeight(
+  height: number,
+  rows: WorkSpaceRows,
+  max = Infinity,
+): number {
+  const nearest = Math.max(0, Math.round((height - rows.first) / rows.pitch) + 1)
+  return Math.min(nearest, rowsIn(max, rows)) * WORK_SPACE_LINE_PITCH
+}
 
 /** A question with no room for work: nothing prints below it. */
 export const NO_WORK_SPACE: WorkSpace = { height: 0, style: 'blank', fill: false }
@@ -233,6 +289,24 @@ export function workSpaceIn(
  *  teacher has set none. */
 export function defaultWorkSpaceOf(style: QuestionStyle | undefined): WorkSpace {
   return questionStyleRules(style).defaultWorkSpace ?? NO_WORK_SPACE
+}
+
+/** Where a Matching question's Word Bank prints on one Exam: wherever the
+ *  Layout Plan finds it fits (`'auto'`, the default), beside its Items, or
+ *  above them in columns. Exam presentation, set on the sheet like a Multiple
+ *  Choice question's answer columns; only a choice other than Auto is stored. */
+export type WordBankLayout = 'auto' | 'beside' | 'above'
+export type StoredWordBankLayout = Exclude<WordBankLayout, 'auto'>
+
+/** Whether a stored value is a Word Bank layout this build can print. */
+export function isStoredWordBankLayout(value: unknown): value is StoredWordBankLayout {
+  return value === 'beside' || value === 'above'
+}
+
+/** A Matching question's Word Bank layout on this Exam; Auto unless set. */
+export function wordBankLayoutOf(exam: Pick<Exam, 'wordBankLayout'>, questionId: string): WordBankLayout {
+  const layout = exam.wordBankLayout?.[questionId]
+  return isStoredWordBankLayout(layout) ? layout : 'auto'
 }
 
 /** Whether a work space prints anything at all. */

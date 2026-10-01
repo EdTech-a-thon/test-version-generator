@@ -14,13 +14,12 @@
 
 import type { WorkSpace } from './exam'
 
-export type QuestionStyle = 'standard' | 'examview' | 'condensed' | 'worksheet'
+export type QuestionStyle = 'standard' | 'classic' | 'condensed'
 
 export const QUESTION_STYLES: readonly QuestionStyle[] = [
   'standard',
-  'examview',
+  'classic',
   'condensed',
-  'worksheet',
 ]
 
 export const DEFAULT_QUESTION_STYLE: QuestionStyle = 'standard'
@@ -37,17 +36,13 @@ export const QUESTION_STYLE_LABELS: Record<QuestionStyle, { label: string; descr
     label: 'Standard',
     description: 'Circle the letter or T/F; no blanks before numbers.',
   },
-  examview: {
-    label: 'ExamView',
-    description: 'A blank before each objective number; lined space for written answers.',
+  classic: {
+    label: 'Classic',
+    description: 'A blank before each objective number; ruled lines for written answers.',
   },
   condensed: {
     label: 'Condensed',
-    description: 'Saves paper: tighter spacing, answers across the line where they fit.',
-  },
-  worksheet: {
-    label: 'Worksheet',
-    description: 'Write-on blanks, a long one for true or false; lines for short answers.',
+    description: 'Saves paper: tighter spacing, answers across where they fit, closer-ruled lines.',
   },
 }
 
@@ -57,19 +52,15 @@ export const QUESTION_STYLE_LABELS: Record<QuestionStyle, { label: string; descr
  *  through the same path. */
 export const ANSWER_BLANK = '_______'
 
-/** The longer blank a Worksheet prints before a True/False number, room for a
- *  student to write the whole word. */
-export const LONG_ANSWER_BLANK = '____________'
-
 /** How a style letters answers on the test. The Answer Key keeps its capitals
- *  whatever the test prints: it is the teacher's reference, as ExamView's own
- *  key reads "ANS: A" beside a test lettered "a.". */
+ *  whatever the test prints: it is the teacher's reference, as a common test
+ *  generator's own key reads "ANS: A" beside a test lettered "a.". */
 export type Lettering = 'upper' | 'lower'
 
 /** Where a matching set's Word Bank prints: beside its Items up to
- *  `MATCHING_BESIDE_LIMIT` answers and above them past it (`'auto'`), always
- *  above them, or always beside them. */
-export type BankPlacement = 'auto' | 'above' | 'beside'
+ *  `MATCHING_BESIDE_LIMIT` answers and above them past it (`'auto'`), or
+ *  always above them. */
+export type BankPlacement = 'auto' | 'above'
 
 export type QuestionStyleRules = {
   /** What prints before a True/False question's number. */
@@ -92,6 +83,10 @@ export type QuestionStyleRules = {
   /** The space below each question, in CSS pixels: `.exam-question`'s bottom
    *  margin in styles.css, which `export-typography.test.ts` holds to it. */
   questionGap: number
+  /** How far apart a Work Space's rows lie on the page, in CSS pixels. Every
+   *  Work Space keeps its count of rows under every style; a smaller pitch
+   *  only sets them closer, and never rewrites a stored height. */
+  workSpacePitch: number
 }
 
 /** The letters a True/False question's student circles, in the order they print. */
@@ -99,6 +94,10 @@ export const TRUE_FALSE_MARKS: readonly string[] = ['T', 'F']
 
 /** The question gap every style but Condensed keeps: the sheet's own. */
 export const STANDARD_QUESTION_GAP = 26
+
+/** The Work Space pitch every style but Condensed keeps: `WORK_SPACE_LINE_PITCH`,
+ *  a third of an inch. */
+const STANDARD_WORK_SPACE_PITCH = 32
 
 export const QUESTION_STYLE_RULES: Record<QuestionStyle, QuestionStyleRules> = {
   // The sheet as ADR-0029 left it: T and F to circle, a letter circled on its
@@ -111,13 +110,13 @@ export const QUESTION_STYLE_RULES: Record<QuestionStyle, QuestionStyleRules> = {
     bankPlacement: 'auto',
     defaultWorkSpace: null,
     questionGap: STANDARD_QUESTION_GAP,
+    workSpacePitch: STANDARD_WORK_SPACE_PITCH,
   },
-  // ExamView Test Generator's printed defaults (v11 user guide, Answers tab):
-  // an answer blank before every objective question's number, True/False
-  // written on that blank rather than offered as choices, matching choices
-  // lettered a–z above the numbered Items, and answer lines below open-ended
-  // questions.
-  examview: {
+  // Modeled on what common test generators print by default: an answer blank
+  // before every objective question's number, True/False written on that
+  // blank rather than offered as choices, matching choices lettered a–z above
+  // the numbered Items, and answer lines below open-ended questions.
+  classic: {
     trueFalseMarks: [ANSWER_BLANK],
     multipleChoiceMarks: [ANSWER_BLANK],
     lettering: 'lower',
@@ -125,32 +124,28 @@ export const QUESTION_STYLE_RULES: Record<QuestionStyle, QuestionStyleRules> = {
     bankPlacement: 'above',
     defaultWorkSpace: { height: 96, style: 'lines', fill: false },
     questionGap: STANDARD_QUESTION_GAP,
+    workSpacePitch: STANDARD_WORK_SPACE_PITCH,
   },
-  // Paper first: nothing added, questions closer together, and answers laid
-  // across the line wherever they fit.
+  // Paper first: nothing added before a number, questions closer together,
+  // answers laid across the line wherever they fit, and room to write kept
+  // but ruled closer — three lines where none were set, a quarter-inch apart,
+  // the college-ruled spacing.
   condensed: {
     trueFalseMarks: TRUE_FALSE_MARKS,
     multipleChoiceMarks: [],
     lettering: 'upper',
     answersAcross: true,
     bankPlacement: 'auto',
-    defaultWorkSpace: null,
+    defaultWorkSpace: { height: 96, style: 'lines', fill: false },
     questionGap: 12,
-  },
-  // A publisher's study guide: write-on blanks before every number, a long one
-  // for a word, and Column B beside the Items it is matched against.
-  worksheet: {
-    trueFalseMarks: [LONG_ANSWER_BLANK],
-    multipleChoiceMarks: [ANSWER_BLANK],
-    lettering: 'lower',
-    answersAcross: false,
-    bankPlacement: 'beside',
-    defaultWorkSpace: { height: 64, style: 'lines', fill: false },
-    questionGap: STANDARD_QUESTION_GAP,
+    workSpacePitch: 24,
   },
 }
 
-/** The rules an Exam prints by; absent means Standard. */
+/** The rules an Exam prints by; absent means Standard. So does a name this
+ *  build no longer knows, such as one a recorded Layout Plan kept from before
+ *  a style was renamed: its page keeps what the plan resolved, and only the
+ *  question gap falls back to the sheet's own. */
 export function questionStyleRules(style: QuestionStyle | undefined): QuestionStyleRules {
-  return QUESTION_STYLE_RULES[style ?? DEFAULT_QUESTION_STYLE]
+  return QUESTION_STYLE_RULES[isQuestionStyle(style) ? style : DEFAULT_QUESTION_STYLE]
 }

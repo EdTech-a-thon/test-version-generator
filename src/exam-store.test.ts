@@ -1253,9 +1253,9 @@ describe('the dirty flag and persistence', () => {
     const { store } = await withExamWorkingCopy(1)
     await store.save()
 
-    store.setQuestionStyle('examview')
+    store.setQuestionStyle('classic')
     expect(store.getState().dirty).toBe(true)
-    expect(store.selectedExam().exam.questionStyle).toBe('examview')
+    expect(store.selectedExam().exam.questionStyle).toBe('classic')
 
     store.setQuestionStyle('standard')
     expect(store.getState().workingCopy.questionStyle).toBeUndefined()
@@ -1263,7 +1263,7 @@ describe('the dirty flag and persistence', () => {
     expect(store.getState().dirty).toBe(false)
 
     store.undo()
-    expect(store.selectedExam().exam.questionStyle).toBe('examview')
+    expect(store.selectedExam().exam.questionStyle).toBe('classic')
   })
 
   test('header lines are saved Exam presentation, and the default stores nothing', async () => {
@@ -1303,7 +1303,7 @@ describe('the dirty flag and persistence', () => {
     expect(store.selectedExam().exam.margins).toEqual({ top: 1, right: 1, bottom: 1, left: 1.25 })
   })
 
-  test('one drag of the margin slider is one undo step', async () => {
+  test('one scrub of a margin field is one undo step', async () => {
     const { store } = await withExamWorkingCopy(1)
     await store.save()
 
@@ -1739,7 +1739,7 @@ describe('work space', () => {
   test('under a Question Style that rules lines, starts from its lines, and keeps "None" as a setting of its own', async () => {
     const { store, questions } = await withExamWorkingCopy(1, 'open')
     const id = questions[0]!.id
-    store.setQuestionStyle('examview')
+    store.setQuestionStyle('classic')
     // Nothing stored: the position prints the style's three lines.
     expect(store.getState().workingCopy.workSpace?.[id]).toBeUndefined()
 
@@ -1757,7 +1757,7 @@ describe('work space', () => {
     const id = questions[0]!.id
     store.setQuestionWorkSpace([id], { height: 160, style: 'blank' })
     const stored = store.getState().workingCopy.workSpace
-    for (const style of ['examview', 'condensed', 'worksheet', 'standard'] as const) {
+    for (const style of ['classic', 'condensed', 'standard'] as const) {
       store.setQuestionStyle(style)
       expect(store.getState().workingCopy.workSpace).toEqual(stored)
     }
@@ -1839,5 +1839,43 @@ describe('work space', () => {
       style: 'lines',
       fill: true,
     })
+  })
+})
+
+describe('a Matching question’s Word Bank layout', () => {
+  test('is set on Matching questions alone, Auto stored as nothing, one undo step each', async () => {
+    const { store, questions } = await withExamWorkingCopy(2, 'matching')
+    const multipleChoice = createQuestion('multiple-choice')
+    store.createInQuestionBank(multipleChoice)
+    store.addToWorkingCopy(multipleChoice)
+    const [first, second] = questions.map(({ id }) => id)
+    await store.save()
+
+    store.setWordBankLayout([first!, second!, multipleChoice.id], 'beside')
+    expect(store.getState().workingCopy.wordBankLayout).toEqual({ [first!]: 'beside', [second!]: 'beside' })
+    expect(store.selectedExam().exam.wordBankLayout).toEqual({ [first!]: 'beside', [second!]: 'beside' })
+    expect(store.getState().dirty).toBe(true)
+
+    store.setWordBankLayout([first!], 'above')
+    store.setWordBankLayout([second!], 'auto')
+    expect(store.getState().workingCopy.wordBankLayout).toEqual({ [first!]: 'above' })
+
+    store.undo()
+    expect(store.getState().workingCopy.wordBankLayout).toEqual({ [first!]: 'above', [second!]: 'beside' })
+    store.undo()
+    store.undo()
+    expect(store.getState().workingCopy).not.toHaveProperty('wordBankLayout')
+    expect(store.getState().dirty).toBe(false)
+  })
+
+  test('goes with a question Removed from the Exam, and comes with a duplicate', async () => {
+    const { store, questions } = await withExamWorkingCopy(2, 'matching')
+    const [first, second] = questions.map(({ id }) => id)
+    store.setWordBankLayout([first!, second!], 'above')
+    store.duplicateInWorkingCopy(first!)
+    const copied = store.getState().workingCopy.questionIds.find((id) => id !== first && id !== second)!
+    expect(store.getState().workingCopy.wordBankLayout?.[copied]).toBe('above')
+    store.removeFromWorkingCopy([second!])
+    expect(store.getState().workingCopy.wordBankLayout).not.toHaveProperty(second!)
   })
 })

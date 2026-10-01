@@ -34,7 +34,7 @@ describe('Page Margins', () => {
     expect(uniformMarginOf(undefined)).toBe(DEFAULT_MARGIN)
   })
 
-  test('a typed value is kept in range and on the slider’s step', () => {
+  test('a typed value is kept in range and on the margins’ step', () => {
     expect(clampMargin(0.1)).toBe(MIN_MARGIN)
     expect(clampMargin(9)).toBe(MAX_MARGIN)
     expect(clampMargin(0.83)).toBe(0.85)

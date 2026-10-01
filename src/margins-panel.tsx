@@ -1,21 +1,31 @@
 // The Exam's Page Margins, set from the Format menu (ADR-0039).
 //
-// Shaped like a design tool's corner-radius control: one slider and one field
-// set all four sides at once, and a toggle beside them opens a row for each
-// side. When the sides differ the combined field says "Mixed", and moving the
-// combined slider sets every side to where it lands. Nothing waits for a
-// confirm: every change is the Exam's at once, and the sheet behind the panel
-// reflows to it.
+// Shaped like a design tool's inspector: one number field sets all four sides
+// at once, and a toggle beside it opens a field for each side. When the sides
+// differ the combined field says "Mixed", and setting it sets every side.
+// Every field scrubs: press on its label or icon — or on the field itself
+// before it has focus — and drag sideways, and the value follows the pointer
+// (`scrub-number.ts`); a press that does not move is a click, and puts the
+// caret in the field to type. Nothing waits for a confirm: every change is the
+// Exam's at once, and the sheet behind the panel reflows to it.
 //
 // A floating panel rather than rows in the Format menu itself: a menu closes on
 // any scroll, and a sheet that loses a page as its margins shrink scrolls under
 // the pointer mid-drag. The panel stays until Escape, its close button, or a
 // press outside it.
 
-import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from 'react'
 import { createPortal } from 'react-dom'
-import { PanelBottom, PanelLeft, PanelRight, PanelTop, Scan, SquareDashed, X } from 'lucide-react'
+import { PanelBottom, PanelLeft, PanelRight, PanelTop, SquareDashed, X } from 'lucide-react'
 import type { MenuPoint } from './context-menu'
+import { MarginsIcon } from './format-icons'
 import {
   MARGIN_SIDES,
   MARGIN_SIDE_LABELS,
@@ -28,6 +38,7 @@ import {
   type MarginSide,
   type PageMargins,
 } from './page-margins'
+import { scrubRaw, scrubValue, startsScrub, steppedValue, type ScrubRange } from './scrub-number'
 
 const SIDE_ICONS: Record<MarginSide, ReactNode> = {
   top: <PanelTop />,
@@ -36,6 +47,14 @@ const SIDE_ICONS: Record<MarginSide, ReactNode> = {
   left: <PanelLeft />,
 }
 
+/** What a margin field scrubs and steps through: the margins' own range and
+ *  step, and tenths of an inch with Shift. */
+const MARGIN_RANGE: ScrubRange = { min: MIN_MARGIN, max: MAX_MARGIN, step: MARGIN_STEP, coarseStep: 0.1 }
+
+/** Set on the page while a field scrubs, so the cursor stays a resize arrow
+ *  wherever the pointer strays. */
+const SCRUBBING_CLASS = 'margins-scrubbing'
+
 /** A margin as the field shows it: no trailing zeros, never a float's tail. */
 function formatInches(inches: number): string {
   return String(Math.round(inches * 100) / 100)
@@ -43,11 +62,28 @@ function formatInches(inches: number): string {
 
 const VIEWPORT_MARGIN = 8
 
-/** One control: a slider and a field in inches, for one side or for all. */
+/** One press on a field's label or unfocused field, from pointer-down to up:
+ *  a click until it travels far enough sideways, a scrub from then on. */
+type Gesture = {
+  pointerId: number
+  startX: number
+  lastX: number
+  /** The value as dragged so far, before it is snapped to a step. */
+  raw: number
+  /** The value last set, so a pixel that changes nothing sets nothing. */
+  shown: number
+  scrubbing: boolean
+  /** Whether this drag has set a value yet: its first change makes the undo
+   *  step and the rest join it (`continuing`). */
+  changed: boolean
+}
+
+/** One field in inches, for one side or for all, that scrubs and types. */
 function MarginControl({
   label,
   icon,
   value,
+  from,
   disabled,
   onChange,
 }: {
@@ -55,18 +91,19 @@ function MarginControl({
   icon: ReactNode
   /** The inches it shows, or `null` for sides that differ. */
   value: number | null
+  /** Where a scrub or an arrow key starts when it shows "Mixed". */
+  from: number
   disabled: boolean
   onChange: (inches: number, continuing: boolean) => void
 }) {
-  const fieldId = useId()
-  // `null` between drags. During one, whether a change has been made yet: the
-  // first change of a drag makes an undo step and the rest join it.
-  const dragging = useRef<boolean | null>(null)
+  const input = useRef<HTMLInputElement | null>(null)
+  const gesture = useRef<Gesture | null>(null)
   const [draft, setDraft] = useState<string | null>(null)
   const shown = value === null ? '' : formatInches(value)
-  // Where the slider's thumb rests while the sides differ: in the middle of the
-  // range, so a drag either way is a real change for every side.
-  const sliderValue = value ?? (MIN_MARGIN + MAX_MARGIN) / 2
+  const current = value ?? from
+
+  // A panel closed mid-drag leaves no resize cursor behind.
+  useEffect(() => () => document.body.classList.remove(SCRUBBING_CLASS), [])
 
   const commit = (text: string) => {
     setDraft(null)
@@ -75,41 +112,82 @@ function MarginControl({
     onChange(clampMargin(inches), false)
   }
 
+  const endGesture = (event: ReactPointerEvent<HTMLElement>) => {
+    const drag = gesture.current
+    if (!drag || drag.pointerId !== event.pointerId) return null
+    gesture.current = null
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId)
+    }
+    document.body.classList.remove(SCRUBBING_CLASS)
+    return drag
+  }
+
+  // The same gesture on the label, the icon and the unfocused field. The
+  // press keeps focus where it was, so a drag never opens the field for
+  // typing; only a press that stays put does, on release.
+  const scrubHandlers = {
+    onPointerDown: (event: ReactPointerEvent<HTMLElement>) => {
+      if (disabled || event.button !== 0) return
+      // A focused field is being typed in: a press there places the caret.
+      if (event.currentTarget === input.current && document.activeElement === input.current) return
+      event.preventDefault()
+      event.currentTarget.setPointerCapture(event.pointerId)
+      gesture.current = {
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        lastX: event.clientX,
+        raw: current,
+        shown: current,
+        scrubbing: false,
+        changed: false,
+      }
+    },
+    onPointerMove: (event: ReactPointerEvent<HTMLElement>) => {
+      const drag = gesture.current
+      if (!drag || drag.pointerId !== event.pointerId) return
+      if (!drag.scrubbing) {
+        if (!startsScrub(event.clientX - drag.startX)) return
+        drag.scrubbing = true
+        setDraft(null)
+        document.body.classList.add(SCRUBBING_CLASS)
+      }
+      drag.raw = scrubRaw(drag.raw, event.clientX - drag.lastX, event.shiftKey, MARGIN_RANGE)
+      drag.lastX = event.clientX
+      const next = scrubValue(drag.raw, event.shiftKey, MARGIN_RANGE)
+      if (next === drag.shown) return
+      drag.shown = next
+      onChange(next, drag.changed)
+      drag.changed = true
+    },
+    onPointerUp: (event: ReactPointerEvent<HTMLElement>) => {
+      const drag = endGesture(event)
+      if (drag && !drag.scrubbing) {
+        input.current?.focus()
+        input.current?.select()
+      }
+    },
+    onPointerCancel: (event: ReactPointerEvent<HTMLElement>) => { endGesture(event) },
+  }
+
   return (
-    <div className="margins-row">
-      <label className="margins-row-label" htmlFor={fieldId} title={label}>
-        <span className="margins-row-icon" aria-hidden="true">{icon}</span>
-        <span>{label}</span>
-      </label>
-      <input
-        type="range"
-        className="margins-slider"
-        aria-label={`${label} margin`}
-        aria-valuetext={value === null ? 'Mixed' : `${formatInches(value)} inches`}
-        min={MIN_MARGIN}
-        max={MAX_MARGIN}
-        step={MARGIN_STEP}
-        value={sliderValue}
-        disabled={disabled}
-        onPointerDown={() => { dragging.current = false }}
-        onPointerUp={() => { dragging.current = null }}
-        onPointerCancel={() => { dragging.current = null }}
-        onChange={(event) => {
-          const continuing = dragging.current === true
-          if (dragging.current !== null) dragging.current = true
-          onChange(clampMargin(Number(event.target.value)), continuing)
-        }}
-      />
+    <div className="margins-row" data-disabled={disabled || undefined}>
+      <span className="margins-row-label" title={`Drag to change ${label.toLowerCase()}`} {...scrubHandlers}>
+        {label}
+      </span>
       <span className="margins-field">
+        <span className="margins-row-icon" aria-hidden="true" {...scrubHandlers}>{icon}</span>
         <input
-          id={fieldId}
+          ref={input}
           type="text"
           inputMode="decimal"
           className="margins-input"
           aria-label={`${label} margin in inches`}
+          aria-valuetext={value === null ? 'Mixed' : `${formatInches(value)} inches`}
           value={draft ?? shown}
           placeholder={value === null ? 'Mixed' : undefined}
           disabled={disabled}
+          {...scrubHandlers}
           onChange={(event) => setDraft(event.target.value)}
           onBlur={(event) => { if (draft !== null) commit(event.target.value) }}
           onKeyDown={(event) => {
@@ -119,8 +197,7 @@ function MarginControl({
             } else if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
               event.preventDefault()
               setDraft(null)
-              const from = value ?? sliderValue
-              onChange(clampMargin(from + (event.key === 'ArrowUp' ? MARGIN_STEP : -MARGIN_STEP)), false)
+              onChange(steppedValue(current, event.key === 'ArrowUp' ? 1 : -1, event.shiftKey, MARGIN_RANGE), false)
             } else if (event.key === 'Escape' && draft !== null) {
               // The first Escape abandons what was typed; the next closes.
               event.stopPropagation()
@@ -168,8 +245,10 @@ export function MarginsPanel({
     })
   }, [point, expanded])
 
+  // The panel itself takes focus, not a field: a focused field types rather
+  // than scrubs, and Escape still closes from here.
   useEffect(() => {
-    panel.current?.querySelector<HTMLInputElement>('.margins-slider')?.focus()
+    panel.current?.focus()
   }, [])
 
   useEffect(() => {
@@ -186,6 +265,7 @@ export function MarginsPanel({
       className="margins-panel"
       role="dialog"
       aria-label="Margins"
+      tabIndex={-1}
       style={{ left: position.x, top: position.y }}
       onKeyDown={(event) => {
         if (event.key !== 'Escape') return
@@ -195,7 +275,10 @@ export function MarginsPanel({
       }}
     >
       <div className="margins-panel-header">
-        <span className="margins-panel-title">Margins</span>
+        <span className="margins-panel-title">
+          <MarginsIcon className="margins-panel-icon" />
+          Margins
+        </span>
         <button
           type="button"
           className="margins-panel-close"
@@ -208,8 +291,11 @@ export function MarginsPanel({
       <div className="margins-combined">
         <MarginControl
           label="All sides"
-          icon={<Scan />}
+          icon={<MarginsIcon />}
           value={uniform}
+          // Mixed sides scrub from their average, so a drag either way is a
+          // real change for every side.
+          from={clampMargin(MARGIN_SIDES.reduce((sum, side) => sum + resolved[side], 0) / MARGIN_SIDES.length)}
           disabled={disabled}
           onChange={(inches, continuing) => onChange(MARGIN_SIDES, inches, continuing)}
         />
@@ -233,6 +319,7 @@ export function MarginsPanel({
               label={MARGIN_SIDE_LABELS[side]}
               icon={SIDE_ICONS[side]}
               value={resolved[side]}
+              from={resolved[side]}
               disabled={disabled}
               onChange={(inches, continuing) => onChange([side], inches, continuing)}
             />

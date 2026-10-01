@@ -60,8 +60,10 @@ import {
   bodyHalfPoints,
   bodyPoints,
   EXAM_FONT,
+  HEADING_LINE_HEIGHT,
   LIST_ITEM_GAP_EM,
   PARAGRAPH_GAP_EM,
+  TITLE_LINE_HEIGHT,
   halfPointsOf,
   sectionHeadingHalfPoints,
   titleHalfPoints,
@@ -98,8 +100,9 @@ import {
   type PlannedPart,
   type PlannedWorkSpace,
   type QuestionItem,
+  rowsOfPlanned,
 } from './export-plan'
-import { DIFFICULTY_LABELS, WORK_SPACE_LINE_PITCH } from './exam'
+import { DIFFICULTY_LABELS } from './exam'
 import type { ProseMirrorJSON } from './question-doc'
 import { pictureKey, printedPictureWidth } from './picture-geometry'
 
@@ -923,25 +926,33 @@ function matchingContent(
     return [grid, ...prompts(build.pageWidth - MATCHING_INDENT)]
   }
 
-  const itemsWidth = build.pageWidth - MATCHING_BANK_WIDTH
+  const bankWidth = set.bankWidth ?? MATCHING_BANK_WIDTH
+  const itemsWidth = build.pageWidth - bankWidth
   return [
     new Table({
       width: { size: twips(build.pageWidth), type: WidthType.DXA },
-      columnWidths: gridOf([itemsWidth, MATCHING_BANK_WIDTH]),
+      columnWidths: gridOf([itemsWidth, bankWidth]),
       borders: NO_BORDERS,
       rows: [
         new TableRow({
           children: [
             cell(itemsWidth, prompts(itemsWidth - MATCHING_INDENT)),
             cell(
-              MATCHING_BANK_WIDTH,
-              set.bank.flatMap((item) => answer(item, MATCHING_BANK_WIDTH)),
+              bankWidth,
+              set.bank.flatMap((item) => answer(item, bankWidth)),
             ),
           ],
         }),
       ],
     }),
   ]
+}
+
+/** A heading's lines at least `multiple` times its size apart, given in
+ *  half-points as Word sizes type: print's heading line heights, so a heading
+ *  that wraps takes the room the plan measured it at. */
+function headingLine(halfPoints: number, multiple: number): { line: number; lineRule: typeof LineRuleType.AT_LEAST } {
+  return { line: Math.round(halfPoints * 10 * multiple), lineRule: LineRuleType.AT_LEAST }
 }
 
 // A Short Answer question's work space, at the plan's own height. Word has no
@@ -971,17 +982,18 @@ function workSpaceParagraphs(space: PlannedWorkSpace, indentTwips: number): Para
   })
   const indent = { left: indentTwips }
   const ruled = space.style === 'lines' ? space.lines : 0
-  const paragraphs = Array.from({ length: ruled }, () =>
+  const rows = rowsOfPlanned(space)
+  const paragraphs = Array.from({ length: ruled }, (_unused, index) =>
     new Paragraph({
       style,
       indent,
-      spacing: exactly(twips(WORK_SPACE_LINE_PITCH) - WORK_SPACE_RULE_TWIPS),
+      spacing: exactly(twips(index === 0 ? rows.first : rows.pitch) - WORK_SPACE_RULE_TWIPS),
       border: {
         bottom: { style: BorderStyle.SINGLE, size: 4, color: '8F847A', space: 0 },
       },
     }),
   )
-  const remainder = space.height - ruled * WORK_SPACE_LINE_PITCH
+  const remainder = space.height - (ruled > 0 ? rows.first + (ruled - 1) * rows.pitch : 0)
   if (remainder >= 1) {
     paragraphs.push(new Paragraph({ style, indent, spacing: exactly(twips(remainder)) }))
   }
@@ -1082,7 +1094,7 @@ function answerKeySection(item: AnswerKeySectionItem): Paragraph {
   return new Paragraph({
     text: item.title,
     heading: HeadingLevel.HEADING_2,
-    spacing: { before: 100, after: 40 },
+    spacing: { before: 100, after: 40, ...headingLine(halfPointsOf('sectionTitle'), HEADING_LINE_HEIGHT) },
   })
 }
 
@@ -1145,7 +1157,11 @@ function itemContent(
               heading: HeadingLevel.HEADING_1,
               // The plan's own keep decision, not a second guess at one.
               keepNext: item.keepWithNext,
-              spacing: { before: 120, after: 60 },
+              spacing: {
+                before: 120,
+                after: 60,
+                ...headingLine(sized ? sized.title : halfPointsOf('sectionTitle'), HEADING_LINE_HEIGHT),
+              },
             })]
           : []),
         ...(item.instructions
@@ -1156,7 +1172,10 @@ function itemContent(
                 size: sized ? sized.instructions : halfPointsOf('body'),
               })],
               keepNext: item.keepWithNext,
-              spacing: { after: 160 },
+              spacing: {
+                after: 160,
+                ...headingLine(sized ? sized.instructions : halfPointsOf('body'), BODY_LINE_HEIGHT),
+              },
             })]
           : []),
       ]
@@ -1169,7 +1188,7 @@ function itemContent(
           // Larger than a section title in print, so larger than Heading 1.
           children: [new TextRun({ text: ANSWER_KEY_TITLE, size: halfPointsOf('answerKeyHeading') })],
           heading: HeadingLevel.HEADING_1,
-          spacing: { before: 120, after: 60 },
+          spacing: { before: 120, after: 60, ...headingLine(halfPointsOf('answerKeyHeading'), HEADING_LINE_HEIGHT) },
         }),
       ]
     case 'answer-key-section':
@@ -1262,7 +1281,10 @@ function headerParagraphs(furniture: PageFurniture, contentWidth: number): Parag
                 }
               : { text: furniture.title }),
             heading: HeadingLevel.TITLE,
-            spacing: { after: 120 },
+            // A long title wraps in the header, its lines at print's title
+            // line height, and Word grows the header to hold it as the plan
+            // grew its own.
+            spacing: { after: 120, ...headingLine(titleHalfPoints(furniture.titleSize), TITLE_LINE_HEIGHT) },
           }),
         ]),
   ]

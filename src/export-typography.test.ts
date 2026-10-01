@@ -14,13 +14,15 @@ import { createExamDocx } from './docx-export'
 import { EMPTY_EXPORT_HISTORY, plansOf, prepareExport } from './export-preparation'
 import { FIXTURES } from './export-fixtures'
 import { CHOICE_INDENT, PAGE_CONTENT_WIDTH, questionIndentOf } from './export-plan'
-import { ANSWER_BLANK, LONG_ANSWER_BLANK, QUESTION_STYLE_RULES } from './question-style'
+import { ANSWER_BLANK, QUESTION_STYLE_RULES } from './question-style'
 import {
   BODY_LINE_HEIGHT,
   EXAM_FONT,
   EXAM_TYPE_PX,
+  HEADING_LINE_HEIGHT,
   LIST_ITEM_GAP_EM,
   PARAGRAPH_GAP_EM,
+  TITLE_LINE_HEIGHT,
   halfPointsOf,
   pointsOf,
 } from './export-typography'
@@ -91,6 +93,21 @@ describe('print’s stylesheet is the table', () => {
     expect(await rule('.exam-page')).toContain(`line-height: ${BODY_LINE_HEIGHT};`)
   })
 
+  test('headings sit at the heading line height, and the title a step tighter', async () => {
+    for (const selector of ['.section-title', '.answer-key-heading', '.answer-key-section']) {
+      expect(await rule(selector)).toContain(`px/${HEADING_LINE_HEIGHT} `)
+    }
+    expect(await rule('.page-header--first .exam-title,\n.page-header--answer-key .exam-title'))
+      .toContain(`px/${TITLE_LINE_HEIGHT} `)
+    // Tighter than they were, and a heading never looser than its body.
+    expect(BODY_LINE_HEIGHT).toBeLessThan(1.3)
+    expect(TITLE_LINE_HEIGHT).toBeLessThanOrEqual(HEADING_LINE_HEIGHT)
+  })
+
+  test('“Answer Section” is never broken across lines', async () => {
+    expect(await rule('.answer-key-heading')).toContain('white-space: nowrap;')
+  })
+
   test('a paragraph or list opens the paragraph gap, and a list’s items sit the list gap apart', async () => {
     expect(await rule(':where(.exam-page .doc-content) :is(p, ul, ol)')).toContain(`margin: ${PARAGRAPH_GAP_EM}em 0;`)
     expect(await rule(':where(.exam-page .doc-content) li > p')).toContain('margin: 0;')
@@ -116,15 +133,12 @@ describe('print’s stylesheet is the table', () => {
     expect(pxIn(await rule('.exam-question'), 'margin-bottom')).toBe(QUESTION_STYLE_RULES.standard.questionGap)
     expect(pxIn(await rule("[data-question-style='condensed'] .exam-question"), 'margin-bottom'))
       .toBe(QUESTION_STYLE_RULES.condensed.questionGap)
-    for (const style of ['examview', 'worksheet'] as const) {
-      expect(QUESTION_STYLE_RULES[style].questionGap).toBe(QUESTION_STYLE_RULES.standard.questionGap)
-    }
+    expect(QUESTION_STYLE_RULES.classic.questionGap).toBe(QUESTION_STYLE_RULES.standard.questionGap)
   })
 
   test.each([
     ['marks', ['T', 'F']],
     ['blank', [ANSWER_BLANK]],
-    ['long-blank', [LONG_ANSWER_BLANK]],
   ] as const)('the %s number column is the width the adapters indent by', async (column, marks) => {
     const block = await rule(`.exam-question:has(> .question-number--${column})`)
     const width = Number(/grid-template-columns:\s*(\d+)px/.exec(block)?.[1])
@@ -161,6 +175,16 @@ describe('DOCX sets print’s type rather than Word’s defaults', () => {
       expect(word).toBeLessThanOrEqual(pointsOf(role))
       expect(pointsOf(role) - word).toBeLessThanOrEqual(0.25)
     }
+  })
+
+  test('headings and the title are spaced by the same table', async () => {
+    const zip = await packaged()
+    const document = await zip.file('word/document.xml')!.async('string')
+    const header = await zip.file('word/header1.xml')!.async('string')
+    const lineOf = (xml: string, style: string) =>
+      new RegExp(`<w:pStyle w:val="${style}"/>.*?<w:spacing [^>]*w:line="(\\d+)" w:lineRule="atLeast"`, 's').exec(xml)?.[1]
+    expect(Number(lineOf(header, 'Title'))).toBe(Math.round(halfPointsOf('title') * 10 * TITLE_LINE_HEIGHT))
+    expect(Number(lineOf(document, 'Heading1'))).toBe(Math.round(halfPointsOf('sectionTitle') * 10 * HEADING_LINE_HEIGHT))
   })
 
   test('body paragraphs are spaced by the same table', async () => {
