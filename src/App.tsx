@@ -1184,6 +1184,7 @@ function QuestionBankWorkspace({
       selectedQuestionIds={selection.selectedIds}
       onSelect={selection.selectOne}
       onClearSelection={selection.clear}
+      onSelectAll={selection.selectAll}
       drag={drag}
       onCreate={setChoosingType}
       onExport={() => setExporting(true)}
