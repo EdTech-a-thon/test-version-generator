@@ -485,6 +485,51 @@ function valueAt(value: unknown, pointer: string): unknown {
         : undefined, value)
 }
 
+const isTypedObject = (value: unknown): value is { type: string } =>
+  typeof value === 'object' && value !== null && !Array.isArray(value) &&
+  typeof (value as { type?: unknown }).type === 'string'
+
+/**
+ * Content written under a member no node has — a table an assistant nested
+ * in a paragraph's `table` instead of placing beside it — is not an optional
+ * field to ignore: dropping it would discard Question Content without a word.
+ * Only `content` holds child nodes, and only a mark list holds marks.
+ */
+function misplacedContent(value: unknown): string | undefined {
+  const questions = valueAt(value, 'bank/questions')
+  if (!Array.isArray(questions)) return undefined
+  for (const question of questions) {
+    const id = typeof question?.id === 'string' ? question.id : undefined
+    let found: string | undefined
+    const visitNode = (node: unknown) => {
+      if (found || !isTypedObject(node)) return
+      for (const [key, member] of Object.entries(node)) {
+        if (key === 'content') {
+          if (Array.isArray(member)) member.forEach(visitNode)
+          continue
+        }
+        if (key === 'marks') continue
+        const nested = Array.isArray(member) ? member.find(isTypedObject) : isTypedObject(member) ? member : undefined
+        if (nested) {
+          found = `${id ? `Question “${id}”` : 'A Question'} has a ${nested.type} inside a ${node.type}’s “${key}” member, where it cannot be read. ` +
+            `Put the ${nested.type} in the “content” list beside the ${node.type}, as a block of its own.`
+          return
+        }
+      }
+    }
+    // Every document a Question holds — stem, answers, Items, Word Bank,
+    // Parts, Suggested Answer — wherever it sits in the Question.
+    const visitQuestion = (part: unknown) => {
+      if (found || typeof part !== 'object' || part === null) return
+      if (isTypedObject(part) && part.type === 'document') return visitNode(part)
+      Object.values(part).forEach(visitQuestion)
+    }
+    visitQuestion(question)
+    if (found) return found
+  }
+  return undefined
+}
+
 /** The versions that know the Pending Image, added in 0.5.0. */
 const PENDING_IMAGE_VERSIONS: ReadonlySet<string> = new Set(['0.5.0', '0.6.0', '0.7.0', '0.8.0'])
 
@@ -651,6 +696,8 @@ function parseWith(
   sourceVersion: string,
   value: unknown,
 ): DeclaredRecord {
+  const misplaced = misplacedContent(value)
+  if (misplaced) throw new QuestionBankImportError('invalid-question', misplaced)
   if (!validate(value)) {
     const unsafeLink = validate.errors?.find(
       (error) =>

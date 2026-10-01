@@ -3,7 +3,8 @@
 - [`schema.json`](schema.json) is a version-pinned copy of the public schema whose
   stable identifier is `https://testparrot.com/formats/package/0.1.0/schema.json`.
 - [`examples/`](examples/) contains conforming packages: a bank with an Exam, a
-  bank alone, two Exam versions sharing one bank, and an Exam drawing on two banks.
+  bank alone, two Exam versions sharing one bank, an Exam drawing on two banks, and
+  a printed test as an assistant converts it, with its own Sections in printed order.
 - [`invalid/`](invalid/) contains one-purpose counterexamples and an expected
   application error-code manifest.
 

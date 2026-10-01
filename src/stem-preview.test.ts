@@ -136,6 +136,28 @@ describe('the stem preview', () => {
     expect(preview.text).toBe('What does this print?')
   })
 
+  test('names a Matching set with a blank stem by its Items, never its Word Bank', () => {
+    const set = (...stem: ProseMirrorJSON[]): Question => ({
+      id: 'q1',
+      type: 'matching',
+      columns: 2,
+      doc: {
+        type: 'doc',
+        content: [...stem, {
+          type: 'matching',
+          content: [
+            { type: 'matchingPrompt', attrs: { id: 'p1', answer: 'a2' }, content: [paragraph(text('Fast-moving electrons'))] },
+            { type: 'matchingPrompt', attrs: { id: 'p2', answer: 'a1' }, content: [paragraph(text('A change in a nucleus'))] },
+            { type: 'matchingAnswer', attrs: { id: 'a1' }, content: [paragraph(text('nuclear reaction'))] },
+            { type: 'matchingAnswer', attrs: { id: 'a2' }, content: [paragraph(text('beta radiation'))] },
+          ],
+        }],
+      },
+    })
+    expect(stemPreview(set(paragraph())).text).toBe('Fast-moving electrons · A change in a nucleus')
+    expect(stemPreview(set(paragraph(text('Match each term.')))).text).toBe('Match each term.')
+  })
+
   test('is empty for a question nothing has been written into yet', () => {
     expect(stemPreview(question(paragraph()))).toEqual({ text: '', badges: [] })
   })

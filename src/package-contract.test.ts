@@ -170,18 +170,24 @@ describe('public Test Parrot Package 0.1.0 contract', () => {
 
   test('canonical examples validate against every published schema they embed', async () => {
     const validatePackage = strict().compile(publicPackageSchema)
-    const validateExam = strict().compile(publicExamSchema)
+    const validateExam: Record<string, ReturnType<ReturnType<typeof strict>['compile']>> = {
+      '0.1.0': strict().compile(publicExamSchema),
+      '0.3.0': strict().compile(publicExamSchema030),
+    }
     const validateBank = new Ajv2020({ allErrors: true, strict: false }).compile(publicQuestionBankSchema)
     const names = await filesIn(join(packageRoot, 'examples'))
-    expect(names).toEqual(['bank-and-exam.json', 'bank-only.json', 'several-banks.json', 'two-versions.json'])
+    expect(names).toEqual([
+      'bank-and-exam.json', 'bank-only.json', 'printed-test.json', 'several-banks.json', 'two-versions.json',
+    ])
     for (const name of names) {
       const testParrotPackage = await read(join(packageRoot, 'examples'), name)
       expect(validatePackage(testParrotPackage), `${name}: ${JSON.stringify(validatePackage.errors)}`).toBe(true)
       for (const { record } of testParrotPackage.questionBanks as { record: unknown }[]) {
         expect(validateBank(record), `${name}: ${JSON.stringify(validateBank.errors)}`).toBe(true)
       }
-      for (const exam of testParrotPackage.exams as unknown[]) {
-        expect(validateExam(exam), `${name}: ${JSON.stringify(validateExam.errors)}`).toBe(true)
+      for (const exam of testParrotPackage.exams as { formatVersion: string }[]) {
+        const validate = validateExam[exam.formatVersion]!
+        expect(validate(exam), `${name}: ${JSON.stringify(validate.errors)}`).toBe(true)
       }
     }
   })
@@ -198,6 +204,17 @@ describe('public Test Parrot Package 0.1.0 contract', () => {
     const bankAndExam = await inspect('bank-and-exam.json')
     expect(bankAndExam.banks.map(({ id, exams }) => ({ id, exams }))).toEqual([{ id: 'cells', exams: ['exam-1'] }])
     expect(bankAndExam.exams[0]!.positions.map(({ question }) => question.question)).toEqual(['q2', 'q1', 'q3', 'q4', 'q5'])
+
+    // A printed test keeps its own Sections and its printed order, whatever its
+    // Question Types, as the instructions ask an assistant to record them.
+    const printed = (await inspect('printed-test.json')).exams[0]!
+    expect(printed.sections).toEqual([
+      { title: 'Part A: Warm-up', instructions: 'Circle the best answer.' },
+      { title: 'Part B: Matching (8 points)', instructions: '' },
+      { title: 'Part C', instructions: 'Answer each question. Show your thinking.' },
+    ])
+    expect(printed.positions.map(({ question, section }) => `${section}:${question.question}`))
+      .toEqual(['0:q3', '0:q1', '1:q4', '2:q5', '2:q2'])
 
     expect((await inspect('bank-only.json')).exams).toEqual([])
     expect((await inspect('two-versions.json')).banks[0]!.exams).toEqual(['exam-1', 'exam-2'])

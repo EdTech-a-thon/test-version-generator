@@ -416,6 +416,21 @@ describe('hostile Question Bank File inspection', () => {
     expect(JSON.stringify(imported)).not.toContain('q1-')
   })
 
+  test('refuses content nested under a member no node has rather than dropping it', async () => {
+    const table = {
+      type: 'table',
+      content: [{ type: 'table-row', content: [{ type: 'table-cell', content: [{ type: 'paragraph' }] }] }],
+    }
+    const inStem = baseRecord()
+    ;(inStem.bank.questions[0]!.stem.content[0] as unknown as Record<string, unknown>).table = table
+    await rejected(inspectQuestionBankRecord(bytesOf(inStem)), 'invalid-question', 'table inside a paragraph’s “table” member')
+
+    // An answer's document is read the same way as a stem.
+    const inChoice = baseRecord()
+    ;(inChoice.bank.questions[0]!.choices![0]!.content.content[0] as unknown as Record<string, unknown>).extra = [table]
+    await rejected(inspectQuestionBankRecord(bytesOf(inChoice)), 'invalid-question', 'Question “q1”')
+  })
+
   test('refuses a matching item that names an answer outside its own Word Bank', async () => {
     const source = baseRecord() as QuestionBankRecord & Record<string, unknown>
     const question = source.bank.questions[0]!

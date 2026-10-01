@@ -21,6 +21,27 @@ describe('the instructions an assistant is given', () => {
     expect(instructions).toContain('./formats/question-bank/0.7.0/schema.json')
   })
 
+  test('ask for a test’s own Sections in printed order, linking an example that exists', async () => {
+    expect(instructions).toContain('one Exam Record `0.3.0`')
+    expect(instructions).toContain('./formats/exam/0.3.0/schema.json')
+    expect(instructions).not.toContain('./formats/exam/0.1.0/')
+    expect(instructions).toContain('It never sorts them by Question Type')
+    const example = './formats/package/0.1.0/examples/printed-test.json'
+    expect(instructions).toContain(example)
+    expect(await Bun.file(join(import.meta.dir, '..', 'public', example)).exists()).toBe(true)
+  })
+
+  test('ask for answers only where the source gives them, and for the whole file again after a correction', () => {
+    expect(instructions).toContain('**Mark an answer only where the source gives one**')
+    expect(instructions).toContain('### Corrections')
+    expect(instructions).toContain('deliver the **whole corrected file** again')
+  })
+
+  test('show a table as a block of its own', () => {
+    expect(instructions).toContain('### Tables')
+    expect(instructions).toContain('never inside a paragraph or under any member but `content`')
+  })
+
   test('list a Source Document’s tags by page', () => {
     const filled = fillImageTags(instructions, [tag(1, 1), tag(2, 1), tag(3, 3), tag(4, 3), tag(5, 4)])
 

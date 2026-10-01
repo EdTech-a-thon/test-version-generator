@@ -2843,6 +2843,13 @@ export default function App({
     navigate('/imports', { replace: true })
     openImport()
   }, [route, openImport])
+  /** A file dropped while the Import dialog is open belongs to it — an
+   *  assistant's corrected file replaces the one under review — rather than
+   *  starting the dialog over. */
+  const [dialogDrop, setDialogDrop] = useState<{ file: File; id: number } | null>(null)
+  const dropping = (elsewhere: (file: File, targetBankId?: string) => void) =>
+    (file: File, targetBankId?: string) =>
+      inspectingBankFile ? setDialogDrop({ file, id: Date.now() }) : elsewhere(file, targetBankId)
   const closeImport = useCallback(() => {
     setInspectingBankFile(false)
     setDroppedBankFile(null)
@@ -3022,6 +3029,7 @@ export default function App({
     initialFile={droppedBankFile ?? undefined}
     targetBankId={importTargetBankId ?? undefined}
     waitingImportId={importWaitingId ?? undefined}
+    dropped={dialogDrop ?? undefined}
     loadBanks={loadImportBanks}
     onClose={closeImport}
     onImport={importBank}
@@ -3035,7 +3043,7 @@ export default function App({
   // Importing by drop is offered on every page, the editor included, so the
   // overlay and the dialog live outside the route switch below.
   const globalChrome = <>
-    <BankFileDropTarget onFile={openImport} />
+    <BankFileDropTarget onFile={dropping(openImport)} />
     {importDialog}
   </>
   if (route === '/imports' || route === '/imports/new') return <>{globalChrome}<ImportsPage
@@ -3048,7 +3056,7 @@ export default function App({
     const waitingId = new URLSearchParams(window.location.search).get('id') ?? ''
     // A file dropped on a waiting import's page is the AI's answer to it.
     return <>
-      <BankFileDropTarget onFile={(file) => setConvertDrop({ file, id: Date.now() })} />
+      <BankFileDropTarget onFile={dropping((file) => setConvertDrop({ file, id: Date.now() }))} />
       {importDialog}
       <WaitingImportPage
         id={waitingId}
@@ -3093,7 +3101,7 @@ export default function App({
   // Converting starts from the test itself, so on the convert page a drop is
   // the page's to read: only a Test Parrot file goes straight to the import.
   if (route === '/get-started/convert') return <>
-    <BankFileDropTarget tests onFile={(file) => setConvertDrop({ file, id: Date.now() })} />
+    <BankFileDropTarget tests onFile={dropping((file) => setConvertDrop({ file, id: Date.now() }))} />
     {importDialog}
     <ConvertPage dropped={convertDrop} onOpenImport={(file, waitingImportId) => openImport(file, null, waitingImportId)} />
   </>

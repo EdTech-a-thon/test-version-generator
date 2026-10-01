@@ -47,6 +47,7 @@ import {
 import { PageCropper, PictureChoices } from './resolve-images'
 import { namedPage, usePictureChoice } from './picture-choice'
 import {
+  carriedResolutions,
   cropChoice,
   estimatedSize,
   originName,
@@ -496,6 +497,7 @@ export function QuestionBankImportDialog({
   loadBanks,
   waitingImportId,
   onConverting,
+  dropped,
 }: {
   onClose: () => void
   /** A test to convert has started an import that waits for its AI. It
@@ -521,6 +523,9 @@ export function QuestionBankImportDialog({
   /** The waiting import the file is the assistant's answer to, when the
    *  dialog was opened from that import's own page. */
   waitingImportId?: string
+  /** A file dropped anywhere while the dialog is open. During a review of an
+   *  assistant's file it is the corrected file, and replaces the one shown. */
+  dropped?: { file: File; id: number }
 }) {
   const titleId = useId()
   const listId = useId()
@@ -553,6 +558,9 @@ export function QuestionBankImportDialog({
   const [inspected, setInspected] = useState<{ fileName: string; kind: ImportFileKind } | null>(null)
   /** The file under review, kept to read it again as another format. */
   const inspectedFile = useRef<File | null>(null)
+  /** The corrected file the review was last updated from, to say so. */
+  const [revisedFrom, setRevisedFrom] = useState<string | null>(null)
+  const revisionInput = useRef<HTMLInputElement>(null)
   const [filling, setFilling] = useState(false)
   /** The Pending Image whose choices the rail shows, picked in the preview,
    *  and whether its page is being cropped in the preview's place. */
@@ -699,6 +707,7 @@ export function QuestionBankImportDialog({
     setError(null)
     setAiMade(false)
     setNeedsConversion(false)
+    setRevisedFrom(null)
     setInspected({ fileName: file.name, kind: 'record' })
     void (async () => {
       const kind = kindOfFile(file)
@@ -737,6 +746,58 @@ export function QuestionBankImportDialog({
       }
     })()
   }
+
+  /**
+   * An assistant's corrected file, dropped on the review of the one it
+   * replaces. The review stays as it was until the new file reads cleanly —
+   * a file that does not is answered with its error and the old preview — and
+   * then shows the new file for the same waiting import, keeping each picture
+   * the teacher had in place where the new file still asks for it.
+   */
+  const revise = (file: File) => {
+    if (!proposal || !isRecordFile(file)) return inspect(file)
+    const before = pendingImagesOf(proposal)
+    setPhase('inspecting')
+    setError(null)
+    setAiMade(false)
+    setNeedsConversion(false)
+    void (async () => {
+      try {
+        const next = await inspectUploadedFile(file)
+        const pairing = await pairingFor(next)
+        inspectedFile.current = file
+        setInspected({ fileName: file.name, kind: 'record' })
+        setProposal(next)
+        setSelection(initialSelection(next, targetBankId ? { targetBankId } : {}))
+        setNames((current) => Object.fromEntries(next.banks.map((bank) => [bank.id, current[bank.id] ?? bank.record.bank.name])))
+        setFocus((current) =>
+          current?.kind === 'exam' && next.exams.some(({ key }) => key === current.key) ? current
+            : current?.kind === 'bank' && next.banks.some(({ id }) => id === current.id) ? current
+              : next.exams[0] ? { kind: 'exam', key: next.exams[0].key } : { kind: 'bank', id: next.banks[0]!.id })
+        setPicked(null)
+        setCropping(false)
+        setResolutions((current) => carriedResolutions(current, before, pendingImagesOf(next)))
+        if (pairing) {
+          setWaiting(pairing.source)
+          setPaired(pairing.check)
+        }
+        setRevisedFrom(file.name)
+      } catch (reason) {
+        failed(reason, true)
+      } finally {
+        setPhase('choose')
+      }
+    })()
+  }
+
+  // A file dropped while the dialog is open: the corrected file during a
+  // review, or the assistant's file while its import waits.
+  const takenDrop = useRef(dropped?.id)
+  useEffect(() => {
+    if (!dropped || takenDrop.current === dropped.id || busy) return
+    takenDrop.current = dropped.id
+    revise(dropped.file)
+  })
 
   const discard = async () => {
     if (waiting) await discardWaitingImport(waiting.id).catch(() => undefined)
@@ -1048,6 +1109,36 @@ export function QuestionBankImportDialog({
                 Choose another file
               </button>
             </span>
+          </div>
+        )}
+
+        {/* An assistant's file is a draft the teacher can send back: whatever
+            the preview shows wrong, the chat that wrote it can write again. */}
+        {proposal && waiting && paired && !proposal.reading && (
+          <div className="bank-import-revise">
+            <p>
+              {revisedFrom
+                ? <><strong>Updated from {revisedFrom}.</strong>{' '}Still something to change? </>
+                : <><strong>See something wrong, or want something changed?</strong>{' '}</>}
+              Tell your AI in the same chat — “questions 27 to 31 all use the figure, so make them one Multipart
+              question”, or “that picture belongs with the next question” — then drop the file it gives back here.
+              The preview updates and keeps the pictures you’ve chosen.
+            </p>
+            <label className="secondary-button bank-import-revise-file">
+              <input
+                ref={revisionInput}
+                type="file"
+                accept="application/json,.json"
+                disabled={busy}
+                onChange={(event) => {
+                  const file = event.target.files?.[0]
+                  event.target.value = ''
+                  if (file) revise(file)
+                }}
+              />
+              <UploadCloud aria-hidden="true" />
+              Drop or choose the new file
+            </label>
           </div>
         )}
 
